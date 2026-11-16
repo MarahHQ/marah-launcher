@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Takes the README and user-guide screenshots from the running app, with your real library.
+# Takes the user-guide screenshots from the running app, with your real library. The README shows
+# the demo of scripts/record_demo.sh instead.
 #   scripts/screenshots.sh          builds Marah Launcher, then writes docs/screenshots/*.jpg
 #
 # It opens a Marah Launcher window of 1600 × 900 for about a minute, in the Default theme (the
