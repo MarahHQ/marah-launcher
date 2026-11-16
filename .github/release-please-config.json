@@ -21,8 +21,7 @@
           "path": "Cargo.lock",
           "jsonpath": "$.package[?(!@.source && @.name.value != 'oozextract')].version"
         }
-      ],
-      "release-as": "0.1.0"
+      ]
     }
   }
 }
