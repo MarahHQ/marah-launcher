@@ -432,7 +432,7 @@ jobs:
     # The work is in MarahHQ/marah-os, with a token of the Marah Bot GitHub App, made for this
     # run: the app's client ID is the organization variable MARAH_BOT_CLIENT_ID and its private
     # key the organization secret MARAH_BOT_PRIVATE_KEY. The token holds contents and actions
-    # write on marah-os only. Without them this job says so and does nothing.
+    # write on marah-os and packages only. Without them this job says so and does nothing.
     permissions: {}
     env:
       GH_REPO: MarahHQ/marah-os
@@ -457,7 +457,7 @@ jobs:
           client-id: ${{ vars.MARAH_BOT_CLIENT_ID }}
           private-key: ${{ secrets.MARAH_BOT_PRIVATE_KEY }}
           owner: MarahHQ
-          repositories: marah-os
+          repositories: marah-os,packages
           permission-contents: write
           permission-actions: write
       # The OS bundles Marah Launcher, so a new Marah Launcher is a change to the OS:
@@ -490,3 +490,9 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
         run: gh workflow run os.yml --ref main -f test=false -f iso=false
+      # The DNF and APT repositories take the new rpm and deb.
+      - name: Start the packages' publish.yml
+        if: steps.bot.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+        run: gh workflow run publish.yml -R MarahHQ/packages --ref main
