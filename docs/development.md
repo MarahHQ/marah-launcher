@@ -338,7 +338,7 @@ The workflows are in `.github/workflows/`:
 | `ci.yml` | Pull requests, pushes to `main`, by hand | On Linux, side by side: Format, Clippy, Test (cargo-nextest) and cargo-deny |
 | `weekly.yml` | Mondays, by hand | The tests on Windows; on Linux the real emulator releases, the desktop adapter under Xvfb and openbox, the trailer player, and `cargo deny check advisories` |
 | `release.yml` | Pushes to `main`, by hand | Release Please: the release pull request, then the draft release and tag. Starts `package.yml` on the tag. |
-| `package.yml` | Started by `release.yml` on a Marah Launcher tag, by hand | The packages on Linux, both Mac processors and Windows. On a tag it signs, publishes the release, names it in MarahHQ/marah-os's `marah-launcher.txt`, and starts that repository's `os.yml`, with the Marah Bot's token (`MARAH_BOT_TOKEN`). |
+| `package.yml` | Started by `release.yml` on a Marah Launcher tag, by hand | The packages on Linux, both Mac processors and Windows. On a tag it signs, publishes the release, names it in MarahHQ/marah-os's `marah-launcher.txt`, and starts that repository's `os.yml`, with a token of the Marah Bot GitHub App (variable `MARAH_BOT_CLIENT_ID`, secret `MARAH_BOT_PRIVATE_KEY`). |
 | `warm-cache.yml` | `Cargo.lock`, the toolchain or the setup action changes on `main`; Mondays and Thursdays; by hand | Builds what `package.yml` builds and saves the cache on `main`, so a release starts from built dependencies |
 | `mirror-deps.yml` | By hand | Copies the pinned Windows libmpv build into this repository's `deps` release |
 
@@ -416,7 +416,7 @@ A Marah Launcher release goes like this:
    `latest.json`, and publishes the release as the latest. It does not run the tests: CI did
    that on the commit.
 4. `package.yml` then writes the tag into `marah-launcher.txt` on MarahHQ/marah-os's `main` and
-   starts its `os.yml`, with the Marah Bot's token (`MARAH_BOT_TOKEN`). That push starts
+   starts its `os.yml`, with a token of the Marah Bot GitHub App (variable `MARAH_BOT_CLIENT_ID`, secret `MARAH_BOT_PRIVATE_KEY`). That push starts
    Marah OS's `release.yml`, which opens the Marah OS release pull request. Without the secret,
    the job says so and does nothing.
 

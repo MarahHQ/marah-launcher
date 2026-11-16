@@ -8,7 +8,7 @@ name: Package
 #
 # On a Marah Launcher tag (v<version>) it attaches the files to the tag's draft release, with a SHA-256
 # file and signed build provenance for each and latest.json for the launcher's updater, and
-# publishes the release as the latest. Then, with the Marah Bot's token (MARAH_BOT_TOKEN), it
+# publishes the release as the latest. Then, with a token of the Marah Bot GitHub App, it
 # names the release in marah-launcher.txt on MarahHQ/marah-os's main, so Release Please opens the
 # Marah OS release pull request there, and starts its os.yml for new images with this Marah
 # Launcher for the PCs already installed. release.yml starts it on the tag Release Please made;
@@ -429,23 +429,37 @@ jobs:
     needs: publish
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    # The work is in MarahHQ/marah-os, with the Marah Bot's token: MARAH_BOT_TOKEN is an
-    # installation token of the Marah Bot GitHub App, with contents and actions write on that
-    # repository. Without the secret this job says so and does nothing.
+    # The work is in MarahHQ/marah-os, with a token of the Marah Bot GitHub App, made for this
+    # run: the app's client ID is the organization variable MARAH_BOT_CLIENT_ID and its private
+    # key the organization secret MARAH_BOT_PRIVATE_KEY. The token holds contents and actions
+    # write on marah-os only. Without them this job says so and does nothing.
     permissions: {}
     env:
-      GH_TOKEN: ${{ secrets.MARAH_BOT_TOKEN }}
       GH_REPO: MarahHQ/marah-os
     steps:
-      - name: Is the Marah Bot's token set?
+      - name: Is the Marah Bot set up?
         id: bot
+        env:
+          CLIENT_ID: ${{ vars.MARAH_BOT_CLIENT_ID }}
+          KEY_SET: ${{ secrets.MARAH_BOT_PRIVATE_KEY != '' }}
         run: |
-          if [ -z "$GH_TOKEN" ]; then
-            echo "::notice::MARAH_BOT_TOKEN isn't set: Marah OS doesn't hear of $TAG"
+          if [ -z "$CLIENT_ID" ] || [ "$KEY_SET" != true ]; then
+            echo "::notice::The Marah Bot isn't set up (MARAH_BOT_CLIENT_ID, MARAH_BOT_PRIVATE_KEY): Marah OS doesn't hear of $TAG"
             echo "ready=false" >> "$GITHUB_OUTPUT"
           else
             echo "ready=true" >> "$GITHUB_OUTPUT"
           fi
+      - name: The Marah Bot's token for marah-os
+        id: token
+        if: steps.bot.outputs.ready == 'true'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.MARAH_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.MARAH_BOT_PRIVATE_KEY }}
+          owner: MarahHQ
+          repositories: marah-os
+          permission-contents: write
+          permission-actions: write
       # The OS bundles Marah Launcher, so a new Marah Launcher is a change to the OS:
       # marah-launcher.txt there names the Marah Launcher release, and its commit makes Release
       # Please open the OS release pull request, whose stick then bundles this Marah Launcher. A
@@ -453,6 +467,8 @@ jobs:
       # an app's token starts the OS repository's workflows, release.yml among them.
       - name: Name this Marah Launcher in marah-launcher.txt
         if: steps.bot.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
         run: |
           file=$(gh api "repos/$GH_REPO/contents/marah-launcher.txt?ref=main")
           named=$(jq -r .content <<<"$file" | base64 -d | tr -d '[:space:]')
@@ -471,4 +487,6 @@ jobs:
       # New images with this Marah Launcher for the PCs already installed.
       - name: Start os.yml
         if: steps.bot.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
         run: gh workflow run os.yml --ref main -f test=false -f iso=false
