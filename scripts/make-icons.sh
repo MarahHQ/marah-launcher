@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Makes the app icons from assets/logo.svg, for the packages: assets/marah-launcher.icns (macOS),
+# Makes the app icons from assets/logo-static.svg (the logo without its animation), for the packages: assets/marah-launcher.icns (macOS),
 # assets/marah-launcher.ico (Windows) and assets/marah-launcher.png (Linux, 512 px). The results are kept in
 # the repo, so a build needs no image tools; run this again after changing the logo.
 # Needs rsvg-convert (librsvg); the .icns needs macOS's iconutil.
@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-render() { rsvg-convert -w "$1" -h "$1" assets/logo.svg -o "$2"; }
+render() { rsvg-convert -w "$1" -h "$1" assets/logo-static.svg -o "$2"; }
 
 render 512 assets/marah-launcher.png
 

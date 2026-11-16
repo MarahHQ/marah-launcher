@@ -61,11 +61,15 @@ on Fedora:
 | libmpv | `libmpv-dev mpv patchelf` | `mpv-libs patchelf` |
 | libarchive | `cmake patchelf liblzma-dev libzstd-dev libbz2-dev liblz4-dev zlib1g-dev` | `cmake patchelf xz-devel libzstd-devel bzip2-devel lz4-devel zlib-ng-compat-devel` |
 
+The icons need `rsvg-convert` (librsvg) to make them again after a logo change, with
+`scripts/make-icons.sh`: `librsvg2-bin` on Ubuntu and Debian, `librsvg2-tools` on Fedora. The
+`.icns` for macOS also needs macOS's `iconutil`, so make it on a Mac.
+
 The AppImage also needs [linuxdeploy](https://github.com/linuxdeploy/linuxdeploy), named by
 `LINUXDEPLOY`.
 
 - **macOS**: to package, `brew install mpv dylibbundler cmake zstd lz4` (the `libmpv` and
-  `libarchive` actions in `.github/actions/`).
+  `libarchive` actions in `.github/actions/`). For the icons, `brew install librsvg`.
 - **Windows**: `crates/app/build.rs` puts the icon and the version info into `marah-launcher.exe`
   with the Windows resource compiler. Without it, a local build warns and goes on. With `CI`
   set, the build fails. To package, you need Bash (Git's), 7-Zip, an unpacked shinchiro
