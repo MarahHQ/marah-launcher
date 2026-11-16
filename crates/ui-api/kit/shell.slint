@@ -94,7 +94,7 @@ export global ShellHints {
         ]
         : Screens.sheet && !Screens.list && Prefs.tabbed ? [
             { pad: "✕", key: "Enter", label: "Change" },
-            { pad: "L1  R1", key: "Tab", label: "Tabs" },
+            { pad: "L1  R1", key: "Tab", label: Prefs.rail ? "Sections" : "Tabs" },
             { pad: "○", key: "Esc", label: "Back" },
         ]
         : Screens.sheet ? [

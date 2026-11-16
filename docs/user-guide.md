@@ -42,7 +42,8 @@ buttons. On an Xbox controller, ✕ is A and ○ is B.
 L1 and R1 do one of three things:
 
 - On Home and in the Library: move along the top bar, round the ends. ✕ opens the item.
-- In Settings, and on a plugin page that has tabs: go to the tab before or after.
+- In Settings: jump to the section before or after. On a plugin page that has tabs: go to the
+  tab before or after.
 - On other screens: go to the screen before or after, in the order Catalog, Downloads,
   Emulators, Themes, Settings, then back to Home.
 
@@ -327,9 +328,11 @@ Themes lists the built-in themes, Default and Classic, and the themes Marah Laun
 
 ![Settings](screenshots/settings.jpg)
 
-Settings saves each change at once. Its sections are a column of icons on the left. Press L1
-and R1 to change the section. You can also press Up from the first row to reach the icons, Up
-and Down to choose one, and Right to go into its rows. This PC only shows: Right lets Up and
+Settings saves each change at once. It is one page: every section under its own heading, with a
+column of their icons on the left that lights the section you are in. Up and Down move through
+the rows, from one section into the next. Press L1 and R1 to jump to the section before or after.
+You can also press Up from the very first row to reach the icons, Up and Down to choose one, and
+Right to go into its rows. This PC only shows, so Up and Down pass it by: jump to it, and Up and
 Down scroll it, and Left comes back to the icons.
 
 ### Launcher

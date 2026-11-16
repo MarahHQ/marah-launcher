@@ -67,7 +67,7 @@ fn the_layout_direction_option_exists_but_the_theme_page_does_not_offer_it() {
 }
 
 #[test]
-fn the_keys_move_through_settings_tabs_and_change_the_focused_row() {
+fn the_keys_move_down_the_settings_page_and_change_the_focused_row() {
     use slint::platform::Key;
     let mut host = classic_theme();
     host.dispatch(Command::Navigate(launcher_core::Route::Settings));
@@ -86,16 +86,13 @@ fn the_keys_move_through_settings_tabs_and_change_the_focused_row() {
     assert!(asked, "Enter on Rescan asks the core to scan");
     host.pump();
 
-    // Up from the first row goes to the rail, Down twice to DOWNLOADS, Right into its rows:
+    // One page: Down from GAMES' last row goes on through UPDATES' two rows into DOWNLOADS:
     // "Download only through a VPN", then down past the row that says there is no VPN and "Add
-    // a VPN" to "Keep sharing finished downloads".
-    host.navigate(Key::UpArrow);
-    for _ in 0..2 {
+    // a VPN" to "Keep sharing finished downloads". Every section's rows are on the page.
+    for _ in 0..3 {
         host.navigate(Key::DownArrow);
     }
-    assert_eq!(host.count("seed-downloads"), 1, "the tab shows its rows");
-    assert_eq!(host.count("sounds"), 0, "and no other tab's");
-    host.navigate(Key::RightArrow);
+    assert_eq!(lit_section(&host), "Downloads", "the rail follows the focus");
     host.navigate(Key::Return);
     assert_eq!(host.first("vpn-only").accessible_value().as_deref(), Some("on"), "Enter turns the VPN switch on");
     for _ in 0..3 {
@@ -104,20 +101,16 @@ fn the_keys_move_through_settings_tabs_and_change_the_focused_row() {
     assert_eq!(host.first("seed-downloads").accessible_value().as_deref(), Some("on"));
     host.navigate(Key::Return);
     assert_eq!(host.first("seed-downloads").accessible_value().as_deref(), Some("off"), "Enter stops sharing");
-    // Down at the last row stays there: it doesn't go on to another tab.
+    // Down at Downloads' last row goes on past This PC, which has no rows, into BACKUP.
     host.navigate(Key::DownArrow);
-    assert_eq!(host.count("seed-downloads"), 1);
+    assert_eq!(lit_section(&host), "Backup", "past This PC to Backup's first row");
 
-    // Back up to the rail and Up to LAUNCHER, the first tab: Right into its rows, down to
-    // "Interface sounds" and "Start at login".
-    for _ in 0..4 {
-        host.navigate(Key::UpArrow);
+    // L1 jumps back a section at a time: This PC, Downloads, Updates, Games, then LAUNCHER's
+    // first row; down to "Interface sounds" and "Start at login".
+    for _ in 0..5 {
+        host.navigate(Key::Backtab);
     }
-    host.navigate(Key::UpArrow);
-    for _ in 0..3 {
-        host.navigate(Key::UpArrow);
-    }
-    host.navigate(Key::RightArrow);
+    assert_eq!(lit_section(&host), "Launcher");
     for _ in 0..3 {
         host.navigate(Key::DownArrow);
     }
@@ -126,14 +119,9 @@ fn the_keys_move_through_settings_tabs_and_change_the_focused_row() {
     assert_eq!(host.first("sounds").accessible_value().as_deref(), Some("off"), "Enter turns the sounds off");
     host.navigate(Key::DownArrow);
     assert_eq!(host.first("start-at-login").accessible_value().as_deref(), Some("off"));
-    // Up to the rail and Down past BACKUP to POWER, then Right: "Quit Marah Launcher".
-    for _ in 0..5 {
-        host.navigate(Key::UpArrow);
-    }
-    for _ in 0..6 {
-        host.navigate(Key::DownArrow);
-    }
-    host.navigate(Key::RightArrow);
+    // L1 from the first section goes round to POWER, the last: "Quit Marah Launcher".
+    host.navigate(Key::Backtab);
+    assert_eq!(lit_section(&host), "Power");
     assert_eq!(host.count("option:direction"), 0, "no theme options in Settings");
     let text: slint::SharedString = Key::Return.into();
     host.instance().window().dispatch_event(slint::platform::WindowEvent::KeyPressed { text });
