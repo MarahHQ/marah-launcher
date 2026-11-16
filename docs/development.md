@@ -63,7 +63,8 @@ on Fedora:
 
 The icons need `rsvg-convert` (librsvg) to make them again after a logo change, with
 `scripts/make-icons.sh`: `librsvg2-bin` on Ubuntu and Debian, `librsvg2-tools` on Fedora. The
-`.icns` for macOS also needs macOS's `iconutil`, so make it on a Mac.
+`.icns` for macOS needs macOS's `iconutil`, or `png2icns` elsewhere: `icnsutils` on Ubuntu and
+Debian, `libicns-utils` on Fedora.
 
 The AppImage also needs [linuxdeploy](https://github.com/linuxdeploy/linuxdeploy), named by
 `LINUXDEPLOY`.
