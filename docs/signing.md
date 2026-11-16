@@ -54,7 +54,7 @@ artifacts: use that to try a signing change.
 | `macos` | `contents: read` | Joins the two apps into one universal app, signs and notarizes it, makes the disk image. |
 | `sources` | `contents: read` | Fetches the third-party sources the builds list, one tar per package. |
 | `publish` | `contents: write`, `id-token: write`, `attestations: write` | On a tag only. Checksums, `latest.json`, attestations, upload, publish. |
-| `os` | None: it uses `MARAH_BOT_TOKEN` | After `publish`. Names the release in MarahHQ/marah-os's `marah-launcher.txt` and starts its `os.yml`. Skipped when the secret isn't set. |
+| `os` | None: it makes a Marah Bot token from `MARAH_BOT_CLIENT_ID` and `MARAH_BOT_PRIVATE_KEY` | After `publish`. Names the release in MarahHQ/marah-os's `marah-launcher.txt` and starts its `os.yml`. Skipped when they aren't set. |
 
 `publish` downloads only the `build-*` artifacts. The per-processor Mac zips are `mac-*`
 artifacts, so they never reach the release.
