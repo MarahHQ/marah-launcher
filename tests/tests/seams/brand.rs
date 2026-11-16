@@ -34,8 +34,9 @@ fn the_names_that_leave_the_program_are_pinned() {
     assert_eq!(brand::FILES_SANDBOX_NO_BUS, "/run/marah-sandbox/no-session-bus");
 }
 
-/// The files the walk skips: what the build makes, what git keeps, and code that isn't ours.
-const SKIP: [&str; 6] = ["target", ".git", "third_party", "dist", "node_modules", ".claude"];
+/// The files the walk skips: what the build makes, what git keeps, code that isn't ours, and the
+/// git-ignored `secrets/` folder of keys, which the walk must never open.
+const SKIP: [&str; 7] = ["target", ".git", "third_party", "dist", "node_modules", ".claude", "secrets"];
 
 /// The list's own file names the product in its lines: it is the list.
 const LIST: &str = "tests/fixtures/brand/carry-the-name.txt";

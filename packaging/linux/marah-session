@@ -89,10 +89,10 @@ marah_runs() {
 }
 
 # Whether the logind session this script runs in is the Marah Launcher session (its desktop is
-# "Marah Launcher"), and not a desktop it was started from a terminal of.
+# "Marah", its DesktopNames), and not a desktop it was started from a terminal of.
 marah_login_session() {
     [ -n "${XDG_SESSION_ID:-}" ] && command -v loginctl >/dev/null 2>&1 &&
-        [ "$(loginctl show-session "$XDG_SESSION_ID" -p Desktop --value 2>/dev/null)" = Marah Launcher ]
+        [ "$(loginctl show-session "$XDG_SESSION_ID" -p Desktop --value 2>/dev/null)" = Marah ]
 }
 
 # Waits for the display server $1 (gamescope or cage) to end. True when the watchdog ended it.
