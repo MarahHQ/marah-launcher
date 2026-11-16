@@ -432,8 +432,8 @@ Three rules hold for every kit file. Tests in `contract.rs` check them:
 | `progress-bar.slint` | `ProgressBar` | A thin progress bar. |
 | `result-prompt.slint` | `Ask`, `ResultPrompt` | "How far did it get?" after a game closes. |
 | `reveal.slint` | `Reveal` | How far something has come in, as `move` and `fade` from 0 to 1, for a site to bind to its position and opacity. It comes in after its first frame and goes back out when `open` turns false. Its times and easings default to `Look`'s `enter` and `fade` kinds. |
-| `settings-layout.slint` | `LauncherRows`, `DownloadsRows`, `SystemRows`, `BackupRows`, `PowerRows` | Where each row of a Settings tab is, so the keys know where to stop. |
-| `settings-page.slint` | `SettingsPage` | Settings as a side sheet: a rail of its sections' icons on the near side (`RailTab`), and each section's rows. In the rail, Up and Down choose a section and the key toward the rows (Right; Left from right to left), Return or Space goes in; Up from a section's first row comes back, and a held Up stops there. This PC, with no rows to focus, is read: Up and Down scroll it and the key away from the rows comes back. A dot by the Updates icon says a launcher update is there to get or ready (`update-dot`). Set `logo` to your emblem for This PC's About card. |
+| `settings-layout.slint` | `LauncherRows`, `DownloadsRows`, `SystemRows`, `BackupRows`, `PowerRows` | Where each row of a Settings section is, so the keys know where to stop. |
+| `settings-page.slint` | `SettingsPage` | Settings as a side sheet: one page of every section, each under its icon and name, with a rail of the sections' icons on the near side (`RailTab`) that lights the focused section. Down from a section's last row goes into the next section, Up from its first row into the one before; L1, R1 and the rail jump to a section and scroll its header into view. In the rail, Up and Down choose a section and the key toward the rows (Right; Left from right to left), Return or Space goes in; Up from the very first row comes back, and a held Up stops there. This PC, with no rows to focus, is passed by Up and Down; a jump to it reads it: Up and Down scroll the page and the key away from the rows comes back. A dot by the Updates icon says a launcher update is there to get or ready (`update-dot`). Set `logo` to your emblem for This PC's About card. |
 | `settings-rows.slint` | `Prefs`, `Tab`, `Header`, `Row`, `Value`, `Editor`, `FieldRow`, `FolderRow` | The rows of a settings sheet, and where the keys are in it. |
 | `settings-sections.slint` | `GamesSection`, `UpdatesSection`, `LauncherSection`, `DownloadsSection`, `PcSection`, `SystemSection`, `BackupSection`, `PowerSection` | The rows of each Settings tab. |
 | `sheet-frame.slint` | `SheetFrame` | A side sheet: the wash behind and the panel that slides in. A click on the wash goes back. |
@@ -812,7 +812,7 @@ callbacks. So give each element a test needs an `accessible-label`.
 | `click(label)` | A mouse click in the middle of the element. |
 | `tap(key)`, `navigate(key)` | Send a key. `navigate` also carries out what the theme asked. |
 | `type_text(text)` | Type characters. |
-| `settings_tab(name)` | Go to a Settings tab. |
+| `settings_tab(name)` | Jump to a Settings section, with the focus on the rail. |
 | `settle()`, `wait(duration)` | Move Slint's clock on. |
 
 The seam tests are in `tests/tests/seams/` (package `launcher-tests`, test binary `seams`):

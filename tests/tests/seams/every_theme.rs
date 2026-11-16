@@ -56,7 +56,7 @@ fn every_screen_renders_in_every_theme() {
 }
 
 #[test]
-fn the_keys_move_through_the_settings_tabs_and_act_on_a_row_in_every_theme() {
+fn the_keys_move_through_the_settings_page_and_act_on_a_row_in_every_theme() {
     for theme in THEMES {
         let mut host = in_theme(theme, two_emulators);
         host.dispatch(Command::Navigate(Route::Settings));
@@ -73,12 +73,12 @@ fn the_keys_move_through_the_settings_tabs_and_act_on_a_row_in_every_theme() {
         });
         assert!(asked, "{theme}: Enter on Rescan asks the core to scan");
         host.pump();
-        // Up to the rail, Down twice to Downloads: its rows, and no other tab's.
-        host.navigate(Key::UpArrow);
-        host.navigate(Key::DownArrow);
-        host.navigate(Key::DownArrow);
-        assert_eq!(host.count("seed-downloads"), 1, "{theme}");
-        assert_eq!(host.count("sounds"), 0, "{theme}");
+        // One page: R1 twice jumps on to Downloads' first row, where Enter turns "Download only
+        // through a VPN" on.
+        host.navigate(Key::Tab);
+        host.navigate(Key::Tab);
+        host.navigate(Key::Return);
+        assert_eq!(host.first("vpn-only").accessible_value().as_deref(), Some("on"), "{theme}: R1 reached Downloads");
     }
 }
 
