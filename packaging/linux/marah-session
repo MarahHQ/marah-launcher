@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+# Marah Launcher as the whole session, with no desktop behind it: display managers list it as "Marah Launcher"
+# (marah-session.desktop), Marah OS's greetd starts it at boot, and from a text console it runs
+# as `marah-session`.
+#
+# It starts gamescope full screen with Marah Launcher in it, and Marah Launcher opens games in the same gamescope.
+# If Marah Launcher ends, or shows no window within MARAH_WATCHDOG seconds, it starts again: the TV is
+# never left black. When the player chose Log out, Marah Launcher writes "log out" before it ends, and
+# the session ends with it, back to the login screen. If gamescope can't drive the graphics card (two quick ends in a row), Marah Launcher
+# runs in cage instead, where Settings → This PC can say what's missing.
+#
+# Settings: /usr/share/marah-launcher/session.conf, then /etc/marah-launcher/session.conf (see session.conf).
+set -u
+
+# shellcheck source=/dev/null
+for conf in /usr/share/marah-launcher/session.conf /etc/marah-launcher/session.conf; do
+    [ -r "$conf" ] && . "$conf"
+done
+bin=${MARAH_BIN:-/usr/bin/marah-launcher}
+watchdog=${MARAH_WATCHDOG:-90}
+logout_grace=${MARAH_LOGOUT_GRACE:-3}
+log=${MARAH_LOG:-${XDG_CACHE_HOME:-$HOME/.cache}/marah-session.log}
+read -r -a gamescope_args <<<"${MARAH_GAMESCOPE_ARGS:--e --xwayland-count 1}"
+log_max_mb=${MARAH_LOG_MAX_MB:-10}
+mkdir -p "$(dirname "$log")"
+note() { echo "$(date -Is) $*" >>"$log"; }
+# The log grows with every start, so before each one a log over MARAH_LOG_MAX_MB becomes
+# <name>.previous.log, in place of the one before: at most twice that on disk. Nothing has the
+# log open then, and the watchdog reads it from the size taken after this.
+rotate_log() {
+    local size
+    size=$(stat -c %s "$log" 2>/dev/null || echo 0)
+    if [ "$size" -gt $((log_max_mb * 1024 * 1024)) ]; then
+        mv -f "$log" "${log%.log}.previous.log" && note "the log before this is ${log%.log}.previous.log"
+    fi
+}
+rotate_log
+note "session starting"
+
+# Tells Marah Launcher nothing is behind it: it shows the system's settings, and Log out (on a desktop),
+# Restart and Shut down.
+export MARAH_SESSION=1
+# Games and Marah Launcher run on gamescope's X server, which Steam mode's focus needs. SDL (the
+# emulators), Qt and GTK are told so; games inherit this.
+export SDL_VIDEO_DRIVER=x11 SDL_VIDEODRIVER=x11 QT_QPA_PLATFORM=xcb GDK_BACKEND=x11
+
+if ! command -v gamescope >/dev/null 2>&1 && ! command -v cage >/dev/null 2>&1; then
+    if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+        note "neither gamescope nor cage is installed: running Marah Launcher in the current desktop"
+        exec "$bin" >>"$log" 2>&1
+    fi
+    note "neither gamescope nor cage is installed, and there is no desktop to run in: install gamescope"
+    exit 1
+fi
+
+# A short wait for the network, which usually comes up just after the session starts. Marah Launcher
+# retries what failed once it's online.
+if command -v nm-online >/dev/null 2>&1; then
+    nm-online -q -t "${MARAH_WAIT_NETWORK:-5}" || note "no network yet; starting anyway"
+fi
+
+# Whether Marah Launcher wrote line $2 after byte $1 of the log.
+wrote_since() {
+    tail -c +"$(($1 + 1))" "$log" 2>/dev/null | grep -qax "$2"
+}
+shown_since() { wrote_since "$1" 'window shown'; }
+# The player chose Log out: the session ends instead of starting Marah Launcher again.
+logged_out_since() {
+    wrote_since "$1" 'log out' || return 1
+    note "the player logged out"
+    exit 0
+}
+
+# Whether Marah Launcher still runs under the display server $1: a process below it with Marah Launcher's name.
+marah_runs() {
+    local name ids child p
+    name=$(basename "$bin" | cut -c1-15)
+    ids=" $1 "
+    # Each pass adds the children of what was found: gamescope may start Marah Launcher through a helper.
+    for _ in 1 2 3 4; do
+        for child in $(ps -A -o pid=,ppid= | awk -v ids="$ids" 'index(ids, " " $2 " ") { print $1 }'); do
+            case "$ids" in *" $child "*) ;; *) ids="$ids$child " ;; esac
+        done
+    done
+    for p in $ids; do
+        [ "$p" != "$1" ] && [ "$(cat "/proc/$p/comm" 2>/dev/null)" = "$name" ] && return 0
+    done
+    return 1
+}
+
+# Whether the logind session this script runs in is the Marah Launcher session (its desktop is
+# "Marah Launcher"), and not a desktop it was started from a terminal of.
+marah_login_session() {
+    [ -n "${XDG_SESSION_ID:-}" ] && command -v loginctl >/dev/null 2>&1 &&
+        [ "$(loginctl show-session "$XDG_SESSION_ID" -p Desktop --value 2>/dev/null)" = Marah Launcher ]
+}
+
+# Waits for the display server $1 (gamescope or cage) to end. True when the watchdog ended it.
+watch() {
+    local pid=$1 mark=$2 kiosk=$3 t0 shown='' asked='' out='' running child
+    t0=$(date +%s)
+    while sleep 2 && kill -0 "$pid" 2>/dev/null; do
+        [ -n "$shown" ] || ! shown_since "$mark" || shown=1
+        # Log out: Marah Launcher closes what runs, ends, and the display server should end with it.
+        # gamescope can hang on its way out (its seat calls to logind time out), which left the
+        # TV on the last frame. The grace counts from Marah Launcher's end, so its own shutdown is never
+        # cut short (or 20 s after "log out", should Marah Launcher not end). Past it, logind ends this
+        # session and all that runs in it (gamescope, Steam), and the login screen comes back.
+        # Only the Marah Launcher session: started from a desktop's terminal, the desktop stays.
+        [ -n "$asked" ] || ! wrote_since "$mark" 'log out' || asked=$(date +%s)
+        if [ -n "$asked" ] && [ -z "$out" ] && { ! marah_runs "$pid" || [ $(($(date +%s) - asked)) -ge 20 ]; }; then
+            out=$(date +%s)
+        fi
+        if [ -n "$out" ] && [ $(($(date +%s) - out)) -ge "$logout_grace" ]; then
+            if marah_login_session; then
+                note "the display server was still up $logout_grace s after Marah Launcher ended (log out); ending the session"
+                loginctl terminate-session "$XDG_SESSION_ID" && exit 0
+            fi
+            note "the display server was still up $logout_grace s after Marah Launcher ended (log out); ending it"
+            kill "$pid" 2>/dev/null
+            sleep 3
+            kill -KILL "$pid" 2>/dev/null
+            break
+        fi
+        if [ -z "$shown" ] && [ $(($(date +%s) - t0)) -ge "$watchdog" ]; then
+            note "nothing on screen after $watchdog s; starting again"
+            kill "$pid"
+            wait "$pid"
+            return 0
+        fi
+        # cage doesn't always notice its app ending, and would sit on a black screen: it ends
+        # once Marah Launcher is gone, so the loop starts both again.
+        if [ -n "$kiosk" ]; then
+            running=''
+            for child in $(pgrep -P "$pid"); do
+                [ "$(cut -d' ' -f3 "/proc/$child/stat" 2>/dev/null)" != Z ] && running=1
+            done
+            [ -n "$running" ] || [ $(($(date +%s) - t0)) -lt 4 ] || { kill "$pid"; break; }
+        fi
+    done
+    wait "$pid"
+    return 1
+}
+
+failures=0
+while true; do
+    started=$(date +%s)
+    rotate_log
+    mark=$(stat -c %s "$log" 2>/dev/null || echo 0)
+    if ! command -v gamescope >/dev/null 2>&1; then
+        why="gamescope isn't installed"
+    elif ! "$bin" --supports gamescope 2>/dev/null; then
+        why="this Marah Launcher can't run in gamescope"
+    elif [ "$failures" -ge 2 ]; then
+        why="gamescope can't run on this graphics card"
+    else
+        why=''
+    fi
+    if [ -z "$why" ]; then
+        note "starting in gamescope"
+        gamescope "${gamescope_args[@]}" -- "$bin" >>"$log" 2>&1 &
+        if watch $! "$mark" ""; then
+            failures=$((failures + 1))
+        else
+            logged_out_since "$mark"
+            if [ $(($(date +%s) - started)) -lt 15 ]; then failures=$((failures + 1)); else failures=0; fi
+        fi
+    elif command -v cage >/dev/null 2>&1; then
+        note "$why; starting in a basic display (cage)"
+        cage -s -- "$bin" >>"$log" 2>&1 &
+        watch $! "$mark" kiosk || logged_out_since "$mark"
+    else
+        note "$why, and cage isn't installed either"
+        exit 1
+    fi
+    sleep 2
+done

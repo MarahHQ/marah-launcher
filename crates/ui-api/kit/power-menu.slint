@@ -1,0 +1,95 @@
+import { Vm, Host } from "../types.slint";
+import { Commands } from "commands.slint";
+import { Tokens } from "../tokens.slint";
+import { Look } from "look.slint";
+import { Pop } from "pop.slint";
+import { MenuRow } from "game-menu.slint";
+import { Brand } from "../brand.slint";
+
+// Leaving Marah Launcher, from any screen: hold the PS, Xbox or Logitech button with no game running
+// (`Vm.power-menu` goes up; over a game the hold closes it), or press Ctrl+P. When Marah Launcher is the whole screen: Log out (the Marah Launcher session on a desktop; on
+// Marah OS the session would only start again), Restart Marah Launcher, Restart and Shut down. In a
+// desktop's window: Quit Marah Launcher. Restart and Shut down ask again, as in Settings: the first press
+// arms them, the second acts. Up and down move, Enter picks, Escape closes.
+export global PowerMenu {
+    in-out property <bool> open;
+    in-out property <int> focus;
+    // The item pressed once, which the next press carries out; -1 for none.
+    in-out property <int> armed: -1;
+    out property <bool> whole: Vm.system.whole-screen;
+    out property <[{ id: string, label: string, icon: string, on: bool }]> items: [
+        { id: "log-out", label: "Log out", icon: "user", on: root.whole && !Vm.system.own-os },
+        { id: "quit", label: root.whole ? "Restart " + Brand.name : "Quit " + Brand.name, icon: root.whole ? "bolt" : "close", on: true },
+        { id: "restart", label: "Restart", icon: "power", on: root.whole && Vm.system.power-available },
+        { id: "shut-down", label: "Shut down", icon: "power", on: root.whole && Vm.system.power-available },
+    ];
+
+    public function show() {
+        root.open = true;
+        root.armed = -1;
+        root.focus = root.items[0].on ? 0 : 1;
+        Host.play-sound("select");
+    }
+    public function close() { root.open = false; root.armed = -1; }
+    // The next shown item that way, or the same one at an end.
+    function step(delta: int) {
+        let a = Math.clamp(root.focus + delta, 0, root.items.length - 1);
+        let b = Math.clamp(a + delta, 0, root.items.length - 1);
+        root.focus = root.items[a].on ? a : root.items[b].on ? b : root.focus;
+        root.armed = -1;
+    }
+    public function key(text: string) {
+        if (text == Key.UpArrow || text == Key.DownArrow) {
+            root.step(text == Key.DownArrow ? 1 : -1);
+            Host.play-sound("move");
+        } else if (text == Key.Return) {
+            root.pick(root.focus);
+        } else if (text == Key.Escape || text == Key.Backspace) {
+            root.close();
+            Host.play-sound("back");
+        }
+    }
+    public function pick(i: int) {
+        root.focus = i;
+        let id = root.items[i].id;
+        // The PC's power asks again first.
+        if ((id == "restart" || id == "shut-down") && root.armed != i) {
+            root.armed = i;
+            Host.play-sound("select");
+            return;
+        }
+        root.close();
+        Host.play-sound("select");
+        if (id == "log-out") { Host.log-out(); }
+        if (id == "quit") { Host.quit(); }
+        if (id == "restart") { Commands.restart-pc(); }
+        if (id == "shut-down") { Commands.shut-down-pc(); }
+    }
+}
+
+export component PowerMenuSheet inherits Pop {
+    card-width: 440 * Look.px;
+    dismissed => { PowerMenu.close(); }
+    col := VerticalLayout {
+        padding: 18 * Look.px;
+        padding-bottom: 12 * Look.px;
+        spacing: 0;
+        Text {
+            text: Brand.name;
+            font-size: 20 * Look.px;
+            font-weight: 600;
+            color: Tokens.color-text-muted;
+            horizontal-alignment: Look.rtl ? right : left;
+        }
+        Rectangle { height: 18 * Look.px; }
+        for item[i] in PowerMenu.items : MenuRow {
+            on: item.on;
+            label: PowerMenu.armed == i ? "Press again to " + (item.id == "restart" ? "restart" : "shut down") : item.label;
+            icon: item.icon;
+            focused: PowerMenu.focus == i;
+            danger: PowerMenu.armed == i;
+            name: "power-menu";
+            picked => { PowerMenu.pick(i); }
+        }
+    }
+}

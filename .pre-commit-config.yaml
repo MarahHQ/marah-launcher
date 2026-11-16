@@ -1,0 +1,37 @@
+# Git hooks, with https://pre-commit.com: `make hooks-install` installs them.
+# On each commit: file hygiene and the format check. Before each push: clippy and the tests.
+# The cargo hooks run scripts/check.sh, the same check as make and CI.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-toml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+        exclude: \.md$
+      - id: check-added-large-files
+        args: [--maxkb=2048]
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt --check
+        entry: scripts/check.sh fmt
+        language: system
+        types: [rust]
+        pass_filenames: false
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: scripts/check.sh clippy
+        language: system
+        types: [rust]
+        pass_filenames: false
+        stages: [pre-push]
+      - id: cargo-test
+        name: the tests
+        entry: scripts/check.sh test
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

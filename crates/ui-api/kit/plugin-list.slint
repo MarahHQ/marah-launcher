@@ -1,0 +1,147 @@
+import { Vm, Host, PluginRow } from "../types.slint";
+import { Commands } from "commands.slint";
+import { Tokens } from "../tokens.slint";
+import { Look } from "look.slint";
+import { Reveal } from "reveal.slint";
+import { BackButton } from "widgets.slint";
+import { Header, Row, Value } from "settings-rows.slint";
+
+// The focused plugin in the list on screen (Emulators or Themes), what the keys do there, and
+// how wide the two sheets are.
+export global PluginList {
+    in-out property <int> focus;
+    // The list's sheet, and the plugin's sheet that opens beside it.
+    out property <length> list-width: 560 * Look.tpx;
+    out property <length> page-width: 760 * Look.tpx;
+    // The list on screen, or the list a plugin's sheet was opened from.
+    out property <bool> themes: Vm.screen == "themes" || (Vm.screen == "plugin" && Vm.plugin-page.plugin.kind == "theme");
+    out property <[PluginRow]> rows: root.themes ? Vm.theme-plugins : Vm.emulator-plugins;
+
+    // Handles a key in the list. Returns whether it did anything.
+    public function key(text: string) -> bool {
+        if (root.rows.length == 0) { return false; }
+        if (text == Key.DownArrow) { root.focus = Math.min(root.focus + 1, root.rows.length - 1); Host.play-sound("move"); return true; }
+        if (text == Key.UpArrow) { root.focus = Math.max(root.focus - 1, 0); Host.play-sound("move"); return true; }
+        if (text == Key.Return || text == " ") { Commands.open-plugin(root.rows[Math.min(root.focus, root.rows.length - 1)].id); return true; }
+        false
+    }
+}
+
+// A list of plugins as a side sheet like Settings: the Emulators or the Themes. Opening one
+// slides its own sheet in at the edge, and this one moves over to stay beside it.
+export component PluginListSheet inherits Rectangle {
+    in property <string> title;
+    in property <string> subtitle;
+    // A plugin's sheet is open beside this one.
+    in property <bool> pushed;
+    // False while it slides out.
+    in property <bool> open: true;
+    // Slid in: from the edge when it opens, back out when it closes.
+    reveal := Reveal { open: root.open; }
+    // The wash's start, worked out at the first frame, so it fades in from it.
+    property <brush> start-wash;
+    init => { root.start-wash = root.background; }
+    property <bool> in-view: reveal.in-view;
+    // As the side sheets' wash: the screen behind shows through the glass.
+    background: root.in-view ? Tokens.color-overlay.with-alpha(0.55) : Tokens.color-overlay.with-alpha(0);
+    animate background { duration: Tokens.motion-normal; }
+    // Outside the sheets: back, which closes the plugin's sheet first.
+    TouchArea { enabled: root.open; clicked => { Commands.back(); } }
+
+    sheet-panel := Rectangle {
+        property <length> panel-width: Math.min(root.width, PluginList.list-width);
+        // How far it moves for the plugin's sheet, keeping on the window.
+        property <length> shift: root.pushed ? Math.min(Math.min(root.width, PluginList.page-width), root.width - self.panel-width) : 0;
+        // The move over for the plugin's sheet, as the sheet's own move in.
+        property <length> shift-now: self.shift;
+        animate shift-now { duration: Look.enter-time; easing: Look.enter-easing; }
+        // Dimmed while the plugin's sheet is in front of it.
+        property <float> dim: root.pushed ? 0.72 : 1;
+        animate dim { duration: Look.fade-time; easing: Look.fade-easing; }
+        x: (Look.rtl ? self.shift-now : root.width - self.panel-width - self.shift-now)
+            + (1 - reveal.move) * (Look.rtl ? -1 : 1) * (self.panel-width + self.shift-now + 48 * Look.px);
+        opacity: reveal.fade * self.dim;
+        width: self.panel-width;
+        // Glass, as the side sheets' panel.
+        background: @linear-gradient(180deg, Tokens.color-surface.with-alpha(0.84) 0%, Tokens.color-panel.with-alpha(0.9) 100%);
+        border-width: 1px;
+        border-color: Tokens.color-tint.with-alpha(0.14);
+        TouchArea {}
+        // The glass's lit top edge.
+        Rectangle { y: 0; height: 1px; background: Tokens.color-tint.with-alpha(0.22); }
+
+        flick := Flickable {
+
+            // Up and down only: nothing drags sideways.
+
+            viewport-width: self.width;
+            viewport-height: sheet.preferred-height;
+            animate viewport-y { duration: Tokens.motion-normal; easing: ease-out-quad; }
+
+            sheet := VerticalLayout {
+                width: parent.width;
+                padding-left: 48 * Look.px;
+                padding-right: 48 * Look.px;
+                padding-top: 64 * Look.px;
+                padding-bottom: 120 * Look.px;
+                spacing: 0;
+
+                HorizontalLayout {
+                    alignment: Look.rtl ? end : start;
+                    padding-bottom: 20 * Look.px;
+                    BackButton { pad: Vm.input-mode == "gamepad"; clicked => { Commands.back(); } }
+                }
+                Text { text: root.title; font-size: 44 * Look.px; font-weight: 600; color: Tokens.color-text; horizontal-alignment: Look.rtl ? right : left; }
+                Text {
+                    text: root.subtitle;
+                    font-size: 18 * Look.tpx;
+                    color: Look.text3;
+                    wrap: word-wrap;
+                    horizontal-alignment: Look.rtl ? right : left;
+                }
+
+                Header { text: "AVAILABLE"; }
+                for plugin[i] in PluginList.rows : Row {
+                    label: plugin.name;
+                    // An emulator: its build. A theme or a service: its version.
+                    hint: plugin.note != "" ? plugin.note
+                        : plugin.kind == "theme" ? "Version " + plugin.version
+                        : plugin.kind == "service" ? "Service"
+                        : plugin.build != "" ? "Installed · " + plugin.build-label
+                        : plugin.has-builds ? "Not installed"
+                        : "No install needed";
+                    // The open plugin stays lit while its sheet is beside this one.
+                    focused: root.pushed ? Vm.plugin-page.plugin.id == plugin.id : PluginList.focus == i;
+                    first: i == 0;
+                    last: i == PluginList.rows.length - 1;
+                    accessible-role: button;
+                    accessible-label: "plugin:" + plugin.id;
+                    accessible-value: plugin.enabled ? "on" : "off";
+                    accessible-description: self.hint;
+                    accessible-action-default => { self.open(); }
+                    reveal(y, h) => { root.reveal(y, h); }
+                    clicked => { self.open(); }
+                    function open() {
+                        PluginList.focus = i;
+                        Commands.open-plugin(plugin.id);
+                    }
+                    Value {
+                        text: plugin.enabled ? plugin.status : "Off";
+                        tone: plugin.status == "in use" ? 1 : plugin.enabled ? 0 : 2;
+                    }
+                }
+            }
+        }
+    }
+
+    // Scrolls the sheet so a row at `y` (absolute) and `h` high is in view.
+    function reveal(y: length, h: length) {
+        let top = y - flick.absolute-position.y;
+        let margin = 120 * Look.px;
+        if (top + h > flick.height - margin) {
+            flick.viewport-y = Math.max(flick.height - flick.viewport-height, flick.viewport-y - (top + h - flick.height + margin));
+        } else if (top < margin) {
+            flick.viewport-y = Math.min(0, flick.viewport-y + (margin - top));
+        }
+    }
+}

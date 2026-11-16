@@ -1,0 +1,156 @@
+import { Vm, Host } from "../types.slint";
+import { Commands } from "commands.slint";
+import { SheetFrame } from "sheet-frame.slint";
+import { Tokens } from "../tokens.slint";
+import { Look } from "look.slint";
+import { BackButton } from "widgets.slint";
+import { Icon } from "icon.slint";
+import { Prefs, RailTab } from "settings-rows.slint";
+import { GamesSection, UpdatesSection, LauncherSection, DownloadsSection, PcSection, SystemSection, BackupSection, PowerSection } from "settings-sections.slint";
+
+// Each section's name and icon, by its number.
+global Sections {
+    public pure function name(i: int) -> string {
+        i == 0 ? "Launcher" : i == 1 ? "Games" : i == 2 ? "Updates"
+            : i == 3 ? "Downloads" : i == 4 ? "This PC" : i == 5 && Vm.system.whole-screen ? "System"
+            : i == Prefs.backup-section ? "Backup" : "Power"
+    }
+    public pure function icon(i: int) -> string {
+        i == 0 ? "gear" : i == 1 ? "gamepad" : i == 2 ? "refresh"
+            : i == 3 ? "download" : i == 4 ? "desktop" : i == 5 && Vm.system.whole-screen ? "wifi-4"
+            : i == Prefs.backup-section ? "archive" : "power"
+    }
+}
+
+// The sections of Settings as a rail of icons, top to bottom.
+component Rail inherits VerticalLayout {
+    padding-top: 128 * Look.px;
+    padding-left: (Look.rtl ? 0 : 32) * Look.px;
+    padding-right: (Look.rtl ? 32 : 0) * Look.px;
+    spacing: 10 * Look.px;
+    alignment: start;
+    for i in Prefs.tab-count : RailTab {
+        section: i;
+        text: Sections.name(i);
+        icon: Sections.icon(i);
+        // A launcher update is there to get, or ready: Updates says so.
+        dot: i == 2 && (Vm.launcher-update.state == "available" || Vm.launcher-update.state == "ready"
+            || Vm.launcher-update.state == "installed");
+    }
+}
+
+// Settings: the app's own settings, in tabs, as a side sheet. A theme shows it as its Settings
+// screen, with its emblem for This PC's About card (`logo`).
+export component SettingsPage inherits SheetFrame {
+    // The theme's emblem, for This PC's About card.
+    in property <image> logo;
+    panel-width: 1080 * Look.tpx;
+
+    // Back to the top when the tab changes.
+    property <int> tab: Prefs.current-tab;
+    changed tab => { flick.viewport-y = 0; }
+    // A tab with no rows to focus scrolls a step at a time.
+    property <int> nudged: Prefs.scroll-serial;
+    changed nudged => {
+        flick.viewport-y = Math.min(0, Math.max(flick.height - flick.viewport-height, flick.viewport-y - Prefs.scroll-by * 160 * Look.px));
+    }
+    // The System tab goes when Marah Launcher is no longer the whole screen: back to the last tab.
+    property <int> count: Prefs.tab-count;
+    changed count => { if (Prefs.current-tab >= self.count) { Prefs.show(self.count - 1); } }
+
+
+    // The rail of sections on the near side, the rows beside it. From right to left the rail
+    // is on the right. One rail, placed by its x: an `if` at the end of a layout didn't show.
+    property <length> rail-width: 104 * Look.px;
+    Rail {
+        x: Look.rtl ? parent.width - self.width : 0;
+        y: 0;
+        width: root.rail-width;
+        height: parent.height;
+    }
+    VerticalLayout {
+        padding-left: Look.rtl ? 56 * Look.px : root.rail-width + 24 * Look.px;
+        padding-right: Look.rtl ? root.rail-width + 24 * Look.px : 56 * Look.px;
+        padding-top: 40 * Look.px;
+        spacing: 0;
+
+        // A short header: Back on the near side, "Settings" in the middle. The section's own
+        // header and its rows scroll under it.
+        Rectangle {
+            height: 56 * Look.px;
+            BackButton {
+                x: Look.rtl ? parent.width - self.width : 0;
+                y: (parent.height - self.height) / 2;
+                pad: Vm.input-mode == "gamepad";
+                clicked => { Commands.back(); }
+            }
+            Text {
+                text: "Settings";
+                font-size: 24 * Look.tpx;
+                font-weight: 600;
+                color: Tokens.color-text;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+        Rectangle { height: 1px; background: Look.line; }
+        Rectangle { height: 28 * Look.px; }
+        // The section's header: its icon and its name, as the rail's icon is.
+        HorizontalLayout {
+            spacing: 14 * Look.px;
+            alignment: Look.rtl ? end : start;
+            Icon { width: 30 * Look.px; height: 30 * Look.px; name: Sections.icon(Prefs.current-tab); color: Tokens.color-text; }
+            Text {
+                text: Sections.name(Prefs.current-tab);
+                font-size: 30 * Look.tpx;
+                font-weight: 600;
+                color: Tokens.color-text;
+                vertical-alignment: center;
+                accessible-role: text;
+                accessible-label: "settings-section";
+                accessible-value: self.text;
+            }
+        }
+        Text {
+            text: "Changes are saved automatically";
+            font-size: 16 * Look.tpx;
+            color: Look.text3;
+            horizontal-alignment: Look.rtl ? right : left;
+        }
+        Rectangle { height: 20 * Look.px; }
+
+        flick := Flickable {
+            // Up and down only: nothing drags sideways.
+            viewport-width: self.width;
+            viewport-height: sheet.preferred-height;
+            animate viewport-y { duration: Tokens.motion-normal; easing: ease-out-quad; }
+
+            sheet := VerticalLayout {
+                width: parent.width;
+                padding-bottom: 80 * Look.px;
+                spacing: 0;
+
+            if Prefs.section == 1 : GamesSection { reveal(y, h) => { root.reveal(y, h); } }
+            if Prefs.section == 2 : UpdatesSection { reveal(y, h) => { root.reveal(y, h); } }
+            if Prefs.section == 0 : LauncherSection { reveal(y, h) => { root.reveal(y, h); } }
+            if Prefs.section == 3 : DownloadsSection { reveal(y, h) => { root.reveal(y, h); } }
+            if Prefs.section == 4 : PcSection { logo: root.logo; reveal(y, h) => { root.reveal(y, h); } }
+            if Prefs.section == 5 && Vm.system.whole-screen : SystemSection { reveal(y, h) => { root.reveal(y, h); } }
+            if Prefs.section == Prefs.backup-section : BackupSection { reveal(y, h) => { root.reveal(y, h); } }
+            if Prefs.section == Prefs.power-section : PowerSection { reveal(y, h) => { root.reveal(y, h); } }
+            }
+        }
+    }
+
+
+    // Scrolls the sheet so a row at `y` (absolute) and `h` high is in view.
+    function reveal(y: length, h: length) {
+        let top = y - flick.absolute-position.y;
+        let margin = 120 * Look.px;
+        if (top + h > flick.height - margin) {
+            flick.viewport-y = Math.max(flick.height - flick.viewport-height, flick.viewport-y - (top + h - flick.height + margin));
+        } else if (top < margin) {
+            flick.viewport-y = Math.min(0, flick.viewport-y + (margin - top));
+        }
+    }
+}

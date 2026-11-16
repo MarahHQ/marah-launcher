@@ -1,0 +1,326 @@
+import { Vm, Host } from "types.slint";
+import { Tokens } from "tokens.slint";
+import { Assets } from "assets.slint";
+import { Look } from "kit/look.slint";
+import { Nav } from "components/nav.slint";
+import { Backdrop } from "components/backdrop.slint";
+import { Button } from "kit/button.slint";
+import { TopBar, Hints } from "components/top-bar.slint";
+import { HomeScreen } from "screens/home.slint";
+import { LibraryScreen } from "screens/library.slint";
+import { GameDetailScreen } from "screens/game-detail.slint";
+import { Hub } from "kit/game-detail.slint";
+import { CatalogScreen } from "screens/catalog.slint";
+import { DownloadsScreen } from "screens/downloads.slint";
+import { Dl } from "kit/downloads.slint";
+import { SettingsScreen } from "screens/settings.slint";
+import { Prefs } from "kit/settings-rows.slint";
+import { EmulatorsScreen } from "screens/emulators.slint";
+import { ThemesScreen } from "screens/themes.slint";
+import { PluginList } from "kit/plugin-list.slint";
+import { PluginScreen } from "screens/plugin.slint";
+import { GameSettingsScreen } from "screens/game-settings.slint";
+import { RunningScreen, Splash } from "screens/running.slint";
+import { BootScreen } from "components/boot.slint";
+import { Closing } from "kit/closing.slint";
+import { Lingering } from "kit/lingering.slint";
+import { GameMenu } from "kit/game-menu.slint";
+import { PowerMenu } from "kit/power-menu.slint";
+import { Browser } from "kit/backup-browser.slint";
+import { Viewer } from "kit/shot-viewer.slint";
+import { Trailers } from "kit/trailer-player.slint";
+import { Notices, NoticeStack } from "kit/notices.slint";
+import { Osk, OnScreenKeyboard } from "kit/keyboard.slint";
+import { Sys, SystemSheet } from "kit/system-panel.slint";
+import { Screens, ShellKeys, Overlays, ShellHints, Hint } from "kit/shell.slint";
+import { Reveal } from "kit/reveal.slint";
+import { Brand } from "brand.slint";
+
+// The Classic theme: a hero and a row of game tiles on Home. One backdrop of game art behind
+// every screen, the top bar over the main screens, and the keys that do something in a pill at
+// the bottom. A gamepad's
+// d-pad and buttons arrive as arrow, Return, Escape and Tab keys.
+export component Shell inherits Window {
+    title: Brand.name;
+    background: Tokens.color-bg;
+    preferred-width: 1280px;
+    preferred-height: 720px;
+    min-width: 640px;
+    min-height: 360px;
+    default-font-family: Tokens.font-family;
+    default-font-size: Tokens.font-size-m;
+    forward-focus: keys;
+
+    // Home, or the Library over it: the top bar is the same, and Home stays drawn under it.
+    property <bool> home: Screens.home;
+    property <bool> bar: root.home || Vm.screen == "catalog" || Vm.screen == "downloads";
+    property <bool> list: Screens.list;
+    property <bool> sheet: Screens.sheet;
+    // The art behind: the shown game's art once its details are loaded, its cover until then.
+    property <image> art: Vm.screen == "game-detail" && Vm.detail.background.width > 0 ? Vm.detail.background
+        : Vm.screen == "game-detail" ? Vm.detail.cover
+        : Nav.has-detail && Vm.detail.background.width > 0 ? Vm.detail.background
+        : Nav.has-game ? Nav.games[Nav.shown].cover
+        : Vm.detail.background;
+
+    // Sizes follow the window from its first frame.
+    init => { Look.window-height = root.height; }
+    changed height => { Look.window-height = root.height; }
+
+    // A game starts: the start sound. The screen stays as it is.
+    property <bool> has-running: Vm.has-running;
+    changed has-running => { if (root.has-running) { Host.play-sound("start"); } }
+    // A move in the Home row or a grid goes to the core once the moves stop: each move
+    // starts the wait again.
+    send := Timer {
+        interval: Look.select-after;
+        running: Nav.moving && !Nav.sent;
+        triggered => { Nav.send(); }
+    }
+    property <int> moves: Nav.moves;
+    changed moves => { send.restart(); }
+    // The core's selection changed: the cursor follows it, unless a move waits.
+    property <string> core-key: Nav.core-key;
+    changed core-key => { Nav.core-moved(); }
+    property <string> screen: Vm.screen;
+    changed screen => {
+        Hub.focus = 0;
+        Hub.details = false;
+        Hub.shots = false;
+        Hub.reading = -1;
+        Hub.release = -1;
+        Hub.consent = -1;
+        if (Nav.to-releases && Vm.screen == "game-detail") { Hub.release = 0; }
+        Nav.to-releases = false;
+        Dl.reset();
+        Viewer.open = false;
+        GameMenu.close();
+        Nav.sort-open = false;
+        // A search box closes with its screen. The shell's search opens the Library with the
+        // keys in its box (`Nav.to-search`).
+        Nav.typing = Vm.screen == "library" && Nav.to-search;
+        Nav.to-search = false;
+        // A sheet opens at its first row; the Catalog and the Library at their grid, or at the
+        // search box; Home at its row.
+        Prefs.reset();
+        if (Nav.typing) { Nav.zone = "bar"; Nav.bar = 0; }
+        if (Vm.screen == "catalog" || (Vm.screen == "library" && !Nav.typing)) { Nav.zone = "grid"; }
+        if (Vm.screen == "home") { Nav.zone = "row"; }
+        keys.focus();
+    }
+    // The backup browser opened: its keys come here, whatever had the focus.
+    property <bool> browsing: Browser.open;
+    changed browsing => { if (root.browsing) { keys.focus(); } }
+    // A text box closed: the keys come back here.
+    property <bool> editing: Prefs.editing;
+    changed editing => { if (!root.editing) { keys.focus(); } }
+    // A new notice that is a problem plays the error sound. The ids grow, so a notice that
+    // goes doesn't count as new.
+    property <int> newest-notice: Notices.count > 0 ? Vm.notice-cards[Notices.count - 1].id : -1;
+    property <int> notices-seen: -1;
+    changed newest-notice => {
+        if (root.newest-notice > root.notices-seen) {
+            if (Vm.notice-cards[Notices.count - 1].kind == "error") { Host.play-sound("error"); }
+            root.notices-seen = root.newest-notice;
+        }
+    }
+    // The Welcome screen closed: Start.
+    property <bool> welcome: Vm.boot.welcome;
+    changed welcome => { if (!root.welcome) { Host.play-sound("start"); } }
+    // The Library's search box closed: the keys come back here.
+    property <bool> typing: Nav.typing;
+    changed typing => { if (!root.typing) { keys.focus(); } }
+    // A Wi-Fi password was typed or given up: the keys come back here.
+    property <string> asking: Sys.asking;
+    changed asking => { if (root.asking == "") { keys.focus(); } }
+
+    Backdrop {
+        width: root.width;
+        height: root.height;
+        art: root.art;
+        // On Home, a newly selected game's art waits for its details.
+        ready: !root.home || !Nav.has-game || (Nav.extra && !Nav.library) || Nav.has-detail;
+        // Settings and the running card draw their own wash.
+        dim: root.home || Vm.screen == "game-detail" || root.sheet ? 0 : 0.84;
+    }
+
+    keys := ShellKeys {
+        sort-open: Nav.sort-open;
+        game-keys: root.game-keys;
+        splash-keys: Splash.keys;
+        sort-key(text) => { Nav.sort-key(text); }
+        theme-key(text) => {
+            // Triangle or /: search the Catalog on its screen, else the Library.
+            if (text == "/" && !Nav.typing && !Prefs.editing) {
+                if (Nav.catalog) {
+                    Nav.zone = "bar";
+                    Nav.bar = 0;
+                    Nav.typing = true;
+                } else {
+                    Nav.search-library();
+                }
+                return true;
+            }
+            // Square (the pad's Insert), or T outside the Library's typing: the shown game's trailer.
+            if ((text == Key.Insert || ((text == "t" || text == "T") && !Nav.library && !Nav.catalog))
+                && root.trailer-key) {
+                Trailers.watch();
+                return true;
+            }
+            // L1 and R1 on Home: along the top bar, round its ends. Enter opens the item.
+            if (root.home && !Prefs.editing && !Nav.typing && !Nav.sort-open
+                && (text == Key.Backtab || text == Key.Tab)) {
+                Nav.bar-step(text == Key.Tab ? 1 : -1);
+                return true;
+            }
+            false
+        }
+        screen-key(text) => { (root.home || Nav.catalog) && Nav.key(text) }
+
+        // Home stays under the other screens, so coming back doesn't rebuild it. Under a side
+        // sheet it steps back and dims, so the sheet sits in front of it.
+        HomeScreen {
+            width: parent.width;
+            height: parent.height;
+            opacity: root.home ? 1 : root.sheet ? 0.3 : 0;
+            visible: self.opacity > 0;
+            animate opacity { duration: Tokens.motion-normal; easing: ease-out-quad; }
+        }
+        // Made each time the Library opens, so its cards come in again.
+        // Each stays while it goes out, then goes; the one it leaves for comes in meanwhile.
+        library-screen := Lingering { open: Vm.screen == "library"; }
+        detail-screen := Lingering { open: Vm.screen == "game-detail"; }
+        catalog-screen := Lingering { open: Vm.screen == "catalog"; }
+        downloads-screen := Lingering { open: Vm.screen == "downloads"; }
+        if library-screen.shown : LibraryScreen { width: parent.width; height: parent.height; open: library-screen.open; }
+        if detail-screen.shown : GameDetailScreen { width: parent.width; height: parent.height; open: detail-screen.open; }
+        if catalog-screen.shown : CatalogScreen { width: parent.width; height: parent.height; open: catalog-screen.open; }
+        if downloads-screen.shown : DownloadsScreen { width: parent.width; height: parent.height; open: downloads-screen.open; }
+        // A plugin's sheet opens beside the Plugins sheet, which stays. Each sheet slides in
+        // from the edge and, when it closes, back out before it goes.
+        emulators-sheet := Lingering { open: Vm.screen == "emulators" || (Vm.screen == "plugin" && !PluginList.themes); }
+        themes-sheet := Lingering { open: Vm.screen == "themes" || (Vm.screen == "plugin" && PluginList.themes); }
+        plugin-sheet := Lingering { open: Vm.screen == "plugin"; }
+        settings-sheet := Lingering { open: Vm.screen == "settings"; }
+        game-settings-sheet := Lingering { open: Vm.screen == "game-settings"; }
+        if emulators-sheet.shown : EmulatorsScreen { width: parent.width; height: parent.height; open: emulators-sheet.open; pushed: Vm.screen == "plugin"; }
+        if themes-sheet.shown : ThemesScreen { width: parent.width; height: parent.height; open: themes-sheet.open; pushed: Vm.screen == "plugin"; }
+        if plugin-sheet.shown : PluginScreen { width: parent.width; height: parent.height; open: plugin-sheet.open; }
+        if settings-sheet.shown : SettingsScreen { width: parent.width; height: parent.height; open: settings-sheet.open; }
+        if game-settings-sheet.shown : GameSettingsScreen { width: parent.width; height: parent.height; open: game-settings-sheet.open; }
+
+        if root.bar : TopBar {
+            y: 0;
+            width: parent.width;
+            keys: root.home;
+        }
+        if Sys.open >= 0 && Vm.system.whole-screen : SystemSheet { width: parent.width; height: parent.height; }
+
+        RunningScreen { width: parent.width; height: parent.height; }
+        Overlays { width: parent.width; height: parent.height; logo: Assets.logo; }
+    }
+
+    // The shown game's menu and trailer: the keys that open them work here.
+    // The download sheet keeps them.
+    property <bool> game-keys: Vm.has-detail && Hub.consent < 0 && !Nav.sort-open
+        && (Vm.screen == "game-detail" || (root.home && Nav.has-detail && (Nav.library || !Nav.extra)));
+    property <bool> trailer-key: root.game-keys && Vm.detail.trailer-url != "";
+    property <bool> overlay: Vm.has-install-prompt || GameMenu.open || Vm.has-trailer || Viewer.open || Nav.sort-open
+        || Osk.open || PowerMenu.open;
+    // The PS or Xbox button, held: the host counts it up.
+    property <int> power-asks: Vm.power-menu;
+    changed power-asks => { PowerMenu.show(); }
+    // No pill over the Library's and the Catalog's cards: it would cover
+    // their titles. Over their header rows (search, filters, genres) it says how the keys move.
+    // Over a trailer, the hints hide with its controls.
+    // Home's hints: the theme's own top bar and row.
+    property <[Hint]> home-hints: !root.home ? []
+        : Nav.zone == "tabs" ? [
+            { pad: "✕", key: "Enter", label: "Select" },
+            { pad: "L1  R1", key: "Tab", label: "Top bar" },
+        ]
+        : root.trailer-key ? [
+            { pad: "✕", key: "Enter", label: "Select" },
+            { pad: "L1  R1", key: "Tab", label: "Top bar" },
+            { pad: "□", key: "T", label: "Trailer" },
+            { pad: "☰", key: "Menu", label: "Options" },
+        ]
+        : root.game-keys ? [
+            { pad: "✕", key: "Enter", label: "Select" },
+            { pad: "L1  R1", key: "Tab", label: "Top bar" },
+            { pad: "☰", key: "Menu", label: "Options" },
+        ]
+        : [
+            { pad: "✕", key: "Enter", label: "Select" },
+            { pad: "L1  R1", key: "Tab", label: "Top bar" },
+        ];
+    property <bool> grid-header: (Nav.library || Vm.screen == "catalog")
+        && (Nav.zone == "bar" || Nav.zone == "filters" || Nav.zone == "genres") && !Nav.typing;
+    if (root.overlay || root.grid-header || !(Nav.library || Vm.screen == "catalog"))
+        && !(Vm.has-trailer && Vm.trailer.playing && !Trailers.controls)
+        // The backup browser shows its own keys.
+        && !Browser.open
+        // Over the launch splash's keys, the keys are the game's.
+        && !Splash.keys
+        // The closing screen takes every key.
+        && !Closing.shows : Hints {
+        // In Settings the sheet is on the far side, so the hints go on the near one.
+        x: Look.rtl != root.sheet ? 76 * Look.px : root.width - self.width - 76 * Look.px;
+        y: root.height - self.height - 30 * Look.px;
+        hints: ShellHints.pick(Nav.sort-open, root.grid-header, root.home-hints, root.trailer-key);
+    }
+
+    // The notices, as notification cards, on the far side.
+    NoticeStack {
+        x: Look.rtl ? 40 * Look.px : root.width - self.width - 40 * Look.px;
+        y: 120 * Look.px;
+        width: 480 * Look.px;
+    }
+
+    // Work in the background, as a status pill at the bottom corner.
+    if Vm.task != "" && root.home && !root.sheet : Rectangle {
+        // It fades in after its first frame.
+        fade-in := Reveal { }
+        x: Look.rtl ? root.width - self.width - 36 * Look.px : 36 * Look.px;
+        y: root.height - self.height - 30 * Look.px;
+        width: task-row.preferred-width;
+        height: 50 * Look.px;
+        border-radius: 25 * Look.px;
+        background: #070a14e6;
+        border-width: 1px;
+        border-color: Look.line;
+        opacity: fade-in.fade;
+        task-row := HorizontalLayout {
+            padding-left: 18 * Look.px;
+            padding-right: 22 * Look.px;
+            spacing: 12 * Look.px;
+            alignment: center;
+            Path {
+                width: 20 * Look.px;
+                height: 20 * Look.px;
+                y: 15 * Look.px;
+                viewbox-width: 24;
+                viewbox-height: 24;
+                stroke: Tokens.color-text-muted;
+                stroke-width: 2.4 * Look.px;
+                commands: "M 12 3 A 9 9 0 1 1 3 12";
+                transform-rotation: Look.clock * 400deg;
+            }
+            Text {
+                text: Vm.task;
+                font-size: 17 * Look.px;
+                color: Tokens.color-text-muted;
+                vertical-alignment: center;
+                accessible-role: text;
+                accessible-label: "task";
+                accessible-value: self.text;
+            }
+        }
+    }
+
+    // The on-screen keyboard, over the screens and under the boot screen.
+    if Osk.open && Osk.owner != "" : OnScreenKeyboard { width: root.width; height: root.height; }
+
+    // The boot screen is over everything, from the first frame.
+    BootScreen { width: root.width; height: root.height; }
+}

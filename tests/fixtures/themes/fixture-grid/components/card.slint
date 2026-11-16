@@ -1,0 +1,49 @@
+import { GameCard } from "../types.slint";
+import { Tokens } from "../tokens.slint";
+import { SlotBadges } from "../kit/slot-badges.slint";
+
+// A tile: the cover fills it, the title sits on a strip at the bottom.
+export component Card inherits Rectangle {
+    in property <GameCard> game;
+    in property <length> cover-height: 200px;
+    callback activated();
+
+    width: 168px;
+    height: 268px;
+    border-radius: 14px;
+    background: Tokens.color-surface;
+    clip: true;
+    drop-shadow-blur: touch.has-hover ? 36px : 18px;
+    drop-shadow-color: #1518212e;
+    accessible-role: button;
+    accessible-label: root.game.title;
+    accessible-action-default => { root.activated(); }
+    animate drop-shadow-blur { duration: Tokens.motion-fast; }
+
+    touch := TouchArea { clicked => { root.activated(); } }
+
+    Rectangle {
+        y: 0;
+        height: root.cover-height;
+        background: Tokens.color-surface-raised;
+        Image { source: root.game.cover; width: parent.width; height: parent.height; image-fit: cover; }
+    }
+
+    VerticalLayout {
+        y: root.cover-height;
+        height: root.height - root.cover-height;
+        padding: 10px;
+        spacing: 4px;
+        Text {
+            text: root.game.title;
+            color: Tokens.color-text;
+            font-weight: 700;
+            overflow: elide;
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            Text { text: root.game.platform; color: Tokens.color-text-muted; font-size: 15px; vertical-alignment: center; }
+            SlotBadges { items: root.game.badges; }
+        }
+    }
+}

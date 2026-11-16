@@ -1,0 +1,37 @@
+import { Tokens } from "../tokens.slint";
+import { Look } from "look.slint";
+import { Reveal } from "reveal.slint";
+
+// A pop-up: a wash over the whole screen and a card in its middle that fades in and grows
+// into place. A click on the wash is `dismissed`. Put the card's rows inside it; the card is
+// as tall as they are. The game menu, the power menu and the result prompt are pop-ups.
+export component Pop inherits Rectangle {
+    in property <length> card-width;
+    callback dismissed();
+    // The card grows into place as the focus lands: the emphasis kind's easing, over a fade's
+    // time; it shows over the emphasis kind's shorter time.
+    reveal := Reveal {
+        move-time: Look.fade-time;
+        move-easing: Look.emphasis-easing;
+        fade-time: Look.emphasis-time;
+    }
+    background: reveal.in-view ? Tokens.color-overlay.with-alpha(0.6) : Tokens.color-overlay.with-alpha(0);
+    animate background { duration: Look.emphasis-time; }
+    TouchArea { clicked => { root.dismissed(); } }
+    Rectangle {
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2;
+        opacity: reveal.fade;
+        transform-scale: 0.94 + 0.06 * reveal.move;
+        width: root.card-width;
+        height: rows.preferred-height;
+        border-radius: 22 * Look.px;
+        background: Tokens.color-surface.with-alpha(0.98);
+        border-width: 1px;
+        border-color: Look.line;
+        drop-shadow-blur: 40 * Look.px;
+        drop-shadow-color: Tokens.color-shade.with-alpha(0.6);
+        TouchArea {}
+        rows := VerticalLayout { @children }
+    }
+}

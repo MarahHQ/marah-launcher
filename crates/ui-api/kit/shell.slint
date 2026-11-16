@@ -1,0 +1,271 @@
+import { Vm, Host } from "../types.slint";
+import { Commands } from "commands.slint";
+import { Look } from "look.slint";
+import { Hub } from "game-detail.slint";
+import { Dl } from "downloads.slint";
+import { Prefs } from "settings-rows.slint";
+import { PluginList } from "plugin-list.slint";
+import { Closing, ClosingScreen } from "closing.slint";
+import { GameMenu, GameMenuSheet } from "game-menu.slint";
+import { PowerMenu, PowerMenuSheet } from "power-menu.slint";
+import { Browser, BackupBrowser } from "backup-browser.slint";
+import { Viewer, ShotViewer } from "shot-viewer.slint";
+import { Trailers, TrailerPlayer } from "trailer-player.slint";
+import { Notices } from "notices.slint";
+import { Osk } from "keyboard.slint";
+import { Sys } from "system-panel.slint";
+import { Setup, InstallOs } from "install-os.slint";
+import { Prompt, InstallPrompt } from "install-prompt.slint";
+import { Ask, ResultPrompt } from "result-prompt.slint";
+
+// A key the hints at the bottom show: the pad's button, the keyboard's key and what it does.
+export struct Hint { pad: string, key: string, label: string }
+
+// The hints for what is up, in the order the keys answer: an overlay's, then the screen's.
+export global ShellHints {
+    // `sort-open`: a sort menu of the theme's is open. `grid-header`: the focus is on a grid's
+    // header rows (search, filters). `home`: the theme's own hints for Home, empty elsewhere.
+    // `trailer-key`: the shown game has a trailer, and its key opens it.
+    public pure function pick(sort-open: bool, grid-header: bool, home: [Hint], trailer-key: bool) -> [Hint] {
+        Osk.open ? [
+            { pad: "✕", key: "Enter", label: "Type" },
+            { pad: "□", key: "⌫", label: "Delete" },
+            { pad: "△", key: "Space", label: "Space" },
+            { pad: "R2", key: "Enter", label: "Done" },
+            { pad: "○", key: "Esc", label: "Close" },
+        ]
+        : Vm.has-install-prompt ? [
+            { pad: "✕", key: "Enter", label: Prompt.focus == 0 ? "Install and play" : "Not now" },
+            { pad: "○", key: "Esc", label: "Not now" },
+        ]
+        : GameMenu.open ? [
+            { pad: "✕", key: "Enter", label: "Pick" },
+            { pad: "○", key: "Esc", label: "Close" },
+        ]
+        : sort-open ? [
+            { pad: "✕", key: "Enter", label: "Pick" },
+            { pad: "○", key: "Esc", label: "Close" },
+        ]
+        : Vm.has-trailer ? [
+            { pad: "✕", key: "Enter", label: Vm.trailer.playing ? "Pause" : "Play" },
+            { pad: "⮜  ⮞", key: "← →", label: "10 s" },
+            { pad: "○", key: "Esc", label: "Close" },
+        ]
+        : Viewer.open ? [
+            { pad: "⮜  ⮞", key: "← →", label: "Move" },
+            { pad: "○", key: "Esc", label: "Close" },
+        ]
+        : grid-header ? [
+            { pad: "⮜  ⮞", key: "← →", label: "Move" },
+            { pad: "✕", key: "Enter", label: "Choose" },
+            { pad: "⮝  ⮟", key: "↑ ↓", label: "Rows" },
+            { pad: "○", key: "Esc", label: "Back" },
+        ]
+        : home.length > 0 ? home
+        : Vm.screen == "game-detail" && Hub.consent >= 0 ? [
+            { pad: "✕", key: "Enter", label: Hub.consent-focus == 0 ? "Look up metadata" : Hub.consent-focus == 1 ? "Not now" : "Change" },
+            { pad: "○", key: "Esc", label: "Not now" },
+        ]
+        : Vm.screen == "game-detail" && trailer-key ? [
+            { pad: "✕", key: "Enter", label: Hub.shots ? "View" : Vm.detail.can.play && Hub.focus == 0 ? "Play" : "Select" },
+            { pad: "○", key: "Esc", label: "Back" },
+            { pad: "□", key: "T", label: "Trailer" },
+            { pad: "☰", key: "Menu", label: "Options" },
+        ]
+        : Vm.screen == "game-detail" ? [
+            { pad: "✕", key: "Enter", label: Hub.shots ? "View" : Vm.detail.can.play && Hub.focus == 0 ? "Play" : "Select" },
+            { pad: "○", key: "Esc", label: "Back" },
+            { pad: "☰", key: "Menu", label: "Options" },
+        ]
+        : Vm.screen == "downloads" && Dl.removing ? [
+            { pad: "⮝  ⮟", key: "↑ ↓", label: "Choose" },
+            { pad: "✕", key: "Enter", label: Dl.remove-focus == 0 ? "Remove" : Dl.remove-focus == 1 ? "Delete files" : "Not now" },
+            { pad: "○", key: "Esc", label: "Not now" },
+        ]
+        : Vm.screen == "downloads" && Dl.install >= 0 ? [
+            { pad: "✕", key: "Enter", label: Dl.install-focus == 0 ? "Install" : Dl.install-focus == 1 ? "Not now" : "Change" },
+            { pad: "○", key: "Esc", label: "Not now" },
+        ]
+        : Vm.screen == "downloads" && Dl.rows > 0 ? [
+            { pad: "⮝  ⮟", key: "↑ ↓", label: "Move" },
+            { pad: "⮜  ⮞", key: "← →", label: "Buttons" },
+            { pad: "✕", key: "Enter", label: "Select" },
+            { pad: "○", key: "Esc", label: "Back" },
+        ]
+        : Screens.sheet && !Screens.list && Prefs.tabbed ? [
+            { pad: "✕", key: "Enter", label: "Change" },
+            { pad: "L1  R1", key: "Tab", label: "Tabs" },
+            { pad: "○", key: "Esc", label: "Back" },
+        ]
+        : Screens.sheet ? [
+            { pad: "✕", key: "Enter", label: Screens.list ? "Open" : "Change" },
+            { pad: "○", key: "Esc", label: "Back" },
+        ]
+        : [
+            { pad: "R1", key: "Tab", label: "Next" },
+            { pad: "○", key: "Esc", label: "Back" },
+        ]
+    }
+}
+
+// Which kind of screen is up, from `Vm.screen` alone.
+export global Screens {
+    // Home, or the Library over it.
+    out property <bool> home: Vm.screen == "home" || Vm.screen == "library";
+    // A list of plugins: Emulators or Themes.
+    out property <bool> list: Vm.screen == "emulators" || Vm.screen == "themes";
+    // A side sheet: Settings, a list of plugins, a plugin's page or a game's settings.
+    out property <bool> sheet: Vm.screen == "settings" || root.list || Vm.screen == "plugin" || Vm.screen == "game-settings";
+    // The side a screen moves on, from the way the screens move (`Vm.nav-direction`): 1 is the
+    // far side (the right, left to right), -1 the near side. Forward, the new screen comes in
+    // from the far side and the old one goes out to the near side; Back, the other way round.
+    // A screen reads it as it opens and as it starts to leave, and keeps it for that move.
+    public pure function side(leaving: bool) -> float {
+        (Vm.nav-direction == "back" ? -1 : 1) * (leaving ? -1 : 1) * (Look.rtl ? -1 : 1)
+    }
+}
+
+// The shell's keys, in the order every theme answers them: the overlays first (the closing
+// screen, the backup browser, the on-screen keyboard, the power menu, Welcome, Install OS, a
+// system panel, a notice, a trailer, the result prompt, the game menu, the screenshot viewer,
+// the install prompt), then the app's own keys, then the screen's. A gamepad's d-pad and
+// buttons arrive as arrow, Return, Escape and Tab keys.
+//
+// Put the theme's screens inside it (`@children`) and give it the focus. Some keys belong to
+// what only the theme knows, such as its Home row: the theme answers those in `sort-key`,
+// `theme-key` and `screen-key`, and says what its screens show with `sort-open`, `game-keys`
+// and `splash-keys`.
+export component ShellKeys inherits FocusScope {
+    // A sort menu of the theme's is open: its keys go to `sort-key`.
+    in property <bool> sort-open;
+    // The shown game's menu opens with Options (☰): a game's page or card is up.
+    in property <bool> game-keys;
+    // The launch splash lists the game's keys: they are the game's, but Escape and Ctrl+Q.
+    in property <bool> splash-keys;
+    // The key for the theme's open sort menu.
+    callback sort-key(string);
+    // A key the theme answers before the sheets' tabs: its search, its trailer key and its
+    // own top bar. True when it took the key.
+    callback theme-key(string) -> bool;
+    // A key for the theme's own screens, such as its Home row and its grids, after the app's
+    // tab keys. True when it took the key.
+    callback screen-key(string) -> bool;
+
+    // Every key comes here first, whichever element has the focus: the on-screen keyboard
+    // takes the controller's while it is open, and ✕ on a text field opens it again.
+    capture-key-pressed(event) => {
+        Osk.pad = Vm.pad-key;
+        // The launcher is going: nothing more to do.
+        if (Closing.shows) { return accept; }
+        // "Restore from another folder": a sheet over everything, with keys of its own,
+        // whichever screen behind has the focus. The power menu still opens over it.
+        if (Browser.open && !PowerMenu.open && !(event.modifiers.control && (event.text == "p" || event.text == "P"))) {
+            return Browser.key(event.text, event.repeat, event.modifiers.control) ? accept : reject;
+        }
+        if (Osk.open) {
+            return Osk.key(event.text, event.repeat, event.modifiers.control) ? accept : reject;
+        }
+        if (Osk.pad && event.text == Key.Return && !event.repeat && Osk.owner != "") {
+            Osk.reopen();
+            return accept;
+        }
+        reject
+    }
+    // The keys are back here: no text field has the focus.
+    changed has-focus => { if (self.has-focus) { Osk.drop(); } }
+    key-pressed(event) => {
+        Prefs.held = event.repeat;
+        // A held Enter doesn't repeat: it would play, download or install again.
+        if (event.repeat && event.text == Key.Return) { return accept; }
+        // The power menu, over everything: the PS or Xbox button held (Vm.power-menu), or Ctrl+P.
+        if (PowerMenu.open) { PowerMenu.key(event.text); return accept; }
+        if (event.modifiers.control && (event.text == "p" || event.text == "P")) { PowerMenu.show(); return accept; }
+        // The Welcome screen: Enter is Start, once the library is in.
+        if (Vm.boot.welcome) {
+            if (event.text == Key.Return && Vm.boot.ready && Vm.art-ready) { Commands.finish-welcome(); }
+            return accept;
+        }
+        // Marah OS's USB stick: Welcome, then installing, before anything else.
+        if (Setup.shown) { Setup.key(event.text); return accept; }
+        // A panel of the machine's settings is open under the top bar.
+        if (Sys.open >= 0 && Sys.key(event.text)) { return accept; }
+        // The launch splash lists the game's keys: they are the game's. Escape (Back) and
+        // Ctrl+Q still go on, as on the splash without the keys.
+        if (root.splash-keys && event.text != Key.Escape
+            && !(event.modifiers.control && (event.text == "q" || event.text == "Q"))) {
+            return accept;
+        }
+        // Delete closes the newest notice: no other screen uses it.
+        if (event.text == Key.Delete && Notices.count > 0) { Notices.close-newest(); return accept; }
+        if (Vm.has-trailer) { Trailers.key(event.text); return accept; }
+        if (Vm.has-result-prompt) { Ask.key(event.text); return accept; }
+        if (GameMenu.open) { GameMenu.key(event.text); return accept; }
+        if (Viewer.open) { Viewer.key(event.text); return accept; }
+        if (root.sort-open) { root.sort-key(event.text); return accept; }
+        // Options on a pad, or the Menu key: the shown game's menu.
+        if (event.text == Key.Menu && root.game-keys) {
+            GameMenu.show();
+            return accept;
+        }
+        if (Vm.has-install-prompt) { Prompt.key(event.text); return accept; }
+        // Ctrl+Q quits; Ctrl+D opens Downloads.
+        if (event.modifiers.control && (event.text == "q" || event.text == "Q")) { Host.quit(); return accept; }
+        if (event.modifiers.control && (event.text == "d" || event.text == "D")) { Commands.navigate("downloads"); return accept; }
+        if (root.theme-key(event.text)) { return accept; }
+        // L1 and R1 choose the tab of a sheet that has tabs, round the ends. Back (○) leaves.
+        if (!Screens.list && Screens.sheet && Prefs.tabbed && !Prefs.editing
+            && (event.text == Key.Backtab || event.text == Key.Tab)) {
+            Prefs.bar-step(event.text == Key.Tab ? 1 : -1);
+            return accept;
+        }
+        // L1 or Shift+Tab: the screen before.
+        if (event.text == Key.Backtab && !Prefs.editing) {
+            Commands.navigate(Vm.screen == "settings" ? "themes"
+                : Vm.screen == "themes" ? "emulators"
+                : Vm.screen == "emulators" ? "downloads"
+                : Vm.screen == "downloads" && Vm.catalog-available ? "catalog"
+                : "home");
+            return accept;
+        }
+        if (event.text == Key.Tab && !Prefs.editing) {
+            Commands.navigate(Vm.screen == "catalog" ? "downloads"
+                : Vm.screen == "downloads" ? "emulators"
+                : Vm.screen == "emulators" ? "themes"
+                : Vm.screen == "themes" ? "settings"
+                : "home");
+            return accept;
+        }
+        if (root.screen-key(event.text)) { return accept; }
+        if (!Screens.list && Screens.sheet && Prefs.key(event.text)) { return accept; }
+        if (Screens.list && PluginList.key(event.text)) { return accept; }
+        if (Vm.screen == "game-detail" && Hub.key(event.text)) { return accept; }
+        if (Vm.screen == "downloads" && Dl.key(event.text)) { return accept; }
+        if (event.text == Key.Escape || event.text == Key.Backspace) {
+            // Home is where back ends: no sound there.
+            if (!Screens.home) { Host.play-sound("back"); }
+            Commands.back();
+            return accept;
+        }
+        reject
+    }
+    @children
+}
+
+// What opens over the screens, each while it is open, the later over the earlier: the install
+// prompt, the screenshot viewer, a trailer, the game menu, the result prompt, the backup
+// browser, Install OS, the power menu, and the closing screen over everything. Put it over
+// your screens, the size of the window. `ShellKeys` sends each one its keys.
+export component Overlays inherits Rectangle {
+    // The theme's emblem, for the closing screen's steps about no game.
+    in property <image> logo;
+    if Vm.has-install-prompt : InstallPrompt { width: parent.width; height: parent.height; }
+    if Viewer.open : ShotViewer { width: parent.width; height: parent.height; }
+    if Vm.has-trailer : TrailerPlayer { width: parent.width; height: parent.height; }
+    if GameMenu.open : GameMenuSheet { width: parent.width; height: parent.height; }
+    if Vm.has-result-prompt : ResultPrompt { width: parent.width; height: parent.height; }
+    if Browser.open : BackupBrowser { width: parent.width; height: parent.height; }
+    if Setup.shown : InstallOs { width: parent.width; height: parent.height; }
+    if PowerMenu.open : PowerMenuSheet { width: parent.width; height: parent.height; }
+    // Log out, Restart or Shut down closing what runs: over everything.
+    if Closing.shows : ClosingScreen { width: parent.width; height: parent.height; logo: root.logo; }
+}

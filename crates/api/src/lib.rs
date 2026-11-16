@@ -1,0 +1,77 @@
+//! The plugin contract of the launcher.
+//!
+//! Emulator plugins depend on this crate only. Every type that crosses between host and plugin
+//! is `serde`-serializable.
+//!
+//! Versioning: this crate follows semver. A plugin's manifest names the versions it works with
+//! in `host_api`, and the host refuses plugins whose range doesn't include [`API_VERSION`].
+
+/// The product's names, from the workspace's `brand.toml`: `PRODUCT_NAME`, `FILES_GAME_FILE`
+/// and the rest.
+pub mod brand {
+    include!(concat!(env!("OUT_DIR"), "/brand.rs"));
+
+    /// The environment variable `name` of this product: [`ENV_PREFIX`] and `name`, such as
+    /// `MARAH_SCALE`.
+    pub fn env(name: &str) -> String {
+        format!("{ENV_PREFIX}{name}")
+    }
+}
+
+mod backup;
+mod catalog;
+mod config;
+mod context;
+mod error;
+mod event;
+mod extras;
+mod games;
+mod id;
+mod manifest;
+mod order;
+mod path;
+mod plans;
+mod plugin;
+mod releases;
+mod slots;
+mod system;
+mod theme;
+
+pub use async_trait::async_trait;
+#[cfg(feature = "inventory")]
+pub use inventory;
+// Re-exported so plugins need no other dependency. With derives, point them here:
+// `#[serde(crate = "launcher_api::serde")]`, `#[schemars(crate = "launcher_api::schemars")]`.
+pub use schemars;
+pub use semver;
+pub use serde;
+pub use serde_json;
+
+pub use backup::*;
+pub use catalog::*;
+pub use config::*;
+pub use context::*;
+pub use error::*;
+pub use event::*;
+pub use extras::*;
+pub use games::*;
+pub use id::*;
+pub use manifest::*;
+pub use order::*;
+pub use path::*;
+pub use plans::*;
+pub use plugin::*;
+pub use releases::*;
+pub use slots::*;
+pub use system::*;
+pub use theme::*;
+
+/// The version of this API, which plugins' `host_api` ranges name. It is not the crate's version:
+/// that is Marah Launcher's, which every release raises. This one changes by hand, with the API: a new
+/// minor for an addition before 1.0 breaks no plugin only if their ranges allow it, so raise it
+/// together with the built-in plugins' `host_api`.
+pub const API_VERSION: &str = "0.3.0";
+
+pub fn api_version() -> semver::Version {
+    semver::Version::parse(API_VERSION).expect("API_VERSION is valid semver")
+}
