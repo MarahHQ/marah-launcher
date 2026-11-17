@@ -114,6 +114,24 @@ pub trait ThemeDriver {
         self.settle();
     }
 
+    /// The mouse wheel over the middle of the first element labelled `label`, by `notches`:
+    /// a positive count turns it toward the player, so the page under it goes down.
+    fn wheel(&mut self, label: &str, notches: i32) {
+        let target = self.first(label);
+        let (at, size) = (target.absolute_position(), target.size());
+        let position = slint::LogicalPosition::new(at.x + size.width / 2.0, at.y + size.height / 2.0);
+        self.shown().window().dispatch_event(WindowEvent::PointerMoved { position });
+        let delta_y = if notches > 0 { -120.0 } else { 120.0 };
+        // A hand turns a notch at a time: the clock moves on between them, as on a display.
+        for _ in 0..notches.abs() {
+            self.shown().window().dispatch_event(WindowEvent::PointerScrolled { position, delta_x: 0.0, delta_y });
+            i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(100));
+            self.redraw();
+        }
+        self.carry_out();
+        self.settle();
+    }
+
     /// Presses and releases `key` in the window, and does nothing more.
     fn send_key(&self, key: Key) {
         let text: slint::SharedString = key.into();
