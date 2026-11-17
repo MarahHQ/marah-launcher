@@ -7,6 +7,7 @@ name: Weekly
 # - the desktop adapter against real windows (Xvfb and openbox);
 # - the trailer player plays a real video through libmpv;
 # - a game sandbox through the real bubblewrap;
+# - a real BitTorrent transfer between two sessions on the runner;
 # - cargo-deny with the newest advisories.
 on:
   schedule:
@@ -105,6 +106,19 @@ jobs:
       - run: cargo test --locked -p launcher-core --lib bubblewrap_shows
         env:
           MARAH_SANDBOX_TESTS: "1"
+
+  torrent:
+    name: Torrent transfer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: cargo test --locked -p launcher-app a_torrent_downloads
+        env:
+          MARAH_TORRENT_TESTS: "1"
 
   deny:
     name: cargo-deny
