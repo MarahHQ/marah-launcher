@@ -38,7 +38,7 @@ pub(crate) async fn refresh_emulator(core: &Core, plugin: &PluginId) {
     if let Some(installer) = &provided.installer {
         match kernel.guard(plugin, "installer.installed", installer.installed()).await {
             Ok(list) => {
-                emu.own = list.iter().any(|v| v.own);
+                emu.own = list.iter().any(|v| v.own) || uses_own_build(core, plugin);
                 emu.installed = list.into_iter().map(|v| v.version).collect();
             }
             Err(e) => core.notices().problem(e.to_string()),

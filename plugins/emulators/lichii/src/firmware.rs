@@ -62,7 +62,8 @@ impl StartupWork for Firmware {
             Phase::Complete(_) => {
                 (self.installed().await.unwrap_or_else(|| "Up to date".into()), Some(1.0), StartupState::Done)
             }
-            Phase::Failed(_) => ("Could not update".into(), None, StartupState::Failed),
+            Phase::Failed(_) if self.has_firmware().await => ("Could not update".into(), None, StartupState::Failed),
+            Phase::Failed(_) => ("Could not install".into(), None, StartupState::Failed),
         };
         Some(StartupStep { label: "Switch firmware".into(), detail, progress, state })
     }

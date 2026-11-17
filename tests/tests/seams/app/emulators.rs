@@ -230,7 +230,7 @@ async fn an_emulator_that_uses_your_own_build_gets_no_build_at_the_boot() {
     assert!(installed(&t.core).await.is_empty());
     assert!(t.http.requests().is_empty(), "nothing downloads");
     let step = t.core.view().boot.steps.into_iter().find(|s| s.label == "emu-a emulator").unwrap();
-    assert_eq!((step.detail.as_str(), step.state.as_str()), ("Installs on first play", "done"), "nothing failed");
+    assert_eq!((step.detail.as_str(), step.state.as_str()), ("Own build: none picked yet", "done"), "nothing failed");
 }
 
 #[tokio::test]
