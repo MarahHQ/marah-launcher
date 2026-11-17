@@ -1008,6 +1008,7 @@ async fn the_check_runs_again_after_6_hours_and_not_before() {
     asked(&test).await;
     test.core.dispatch(Command::AnswerQuestion(true)).await.unwrap();
     firmware_installed(&test, FIRMWARE).await;
+    firmware_settles(&test).await;
     assert!(firmware_status(&test).starts_with("Updated firmware"), "{}", firmware_status(&test));
     let downloads = firmware_downloads(&test).len();
 
@@ -1236,6 +1237,7 @@ async fn deleted_or_empty_firmware_is_found_at_the_next_check_which_downloads_no
     asked(&test).await;
     test.core.dispatch(Command::AnswerQuestion(true)).await.unwrap();
     firmware_installed(&test, FIRMWARE).await;
+    firmware_settles(&test).await;
     let downloads = firmware_downloads(&test).len();
     let folder = eden.path().join("nand/system/Contents/registered");
     for empty in [false, true] {
