@@ -17,8 +17,10 @@ fn root() -> PathBuf {
 #[test]
 fn the_names_that_leave_the_program_are_pinned() {
     assert_eq!(brand::FILES_DATA_FOLDER, "marah-launcher");
-    assert_eq!(brand::FILES_GAME_FILE, "marah_game.json");
-    assert_eq!(brand::FILES_ART_FOLDER, "marah_art");
+    assert_eq!(brand::FILES_WAS_GAME_FILE, "marah_game.json");
+    assert_eq!(brand::FILES_WAS_ART_FOLDER, "marah_art");
+    assert_eq!(launcher_api::GAME_FILE, "launcher_game.json");
+    assert_eq!(launcher_api::ART_FOLDER, "launcher_art");
     assert_eq!(brand::FILES_BACKUP_PREFIX, "marah-backup-");
     assert_eq!(brand::FILES_BACKUPS_FOLDER, "Marah Launcher Backups");
     assert_eq!(brand::IDS_APP_ID, "io.github.marahhq.marah-launcher");

@@ -442,12 +442,12 @@ async fn a_game_a_catalog_download_installed_has_the_offer_s_art_and_the_repack_
     let file = file();
     assert_eq!(file["source"]["release"], HASH, "{file}");
     assert!(file["source"]["offer"].as_str().is_some_and(|o| o.starts_with("release-catalog:")), "{file}");
-    assert_eq!(file["art"]["cover"], "marah_art/cover.jpg");
-    assert_eq!(std::fs::read(folder.join("marah_art/cover.jpg")).unwrap(), JPG);
+    assert_eq!(file["art"]["cover"], "launcher_art/cover.jpg");
+    assert_eq!(std::fs::read(folder.join("launcher_art/cover.jpg")).unwrap(), JPG);
     assert!(file["starts"].as_array().is_some_and(|s| !s.is_empty()), "the plugin's part stays: {file}");
 
     // The card and the Game Hub show the offer's art from the game's folder.
-    let saved = |image: &Option<launcher_ui_api::ImageRef>| matches!(image, Some(launcher_ui_api::ImageRef::Folder { path, .. }) if path.path.as_str().ends_with("/marah_art/cover.jpg"));
+    let saved = |image: &Option<launcher_ui_api::ImageRef>| matches!(image, Some(launcher_ui_api::ImageRef::Folder { path, .. }) if path.path.as_str().ends_with("/launcher_art/cover.jpg"));
     // The library takes the folder's art once the file is written: a moment after it is on disk.
     let card_cover = |t: &TestCore| t.core.view().home.games.first().and_then(|g| g.cover.clone());
     t.until(Area::Library, |_| saved(&card_cover(t))).await;
@@ -790,6 +790,40 @@ async fn a_dashed_folder_name_loses_its_dashes_and_its_version() {
     let mut titles: Vec<String> = p.titles().into_iter().map(|(title, _)| title).collect();
     titles.sort();
     assert_eq!(titles, ["EA SPORTS FC 27", "World Of Goo"], "one number at the end is part of the name");
+}
+
+/// A game folder that an older build wrote, with the game file and art folder under the
+/// product's old names, moves to the names that don't change: its title, starts and cover stay.
+#[tokio::test]
+async fn a_game_file_under_the_old_names_moves_to_the_new_ones() {
+    let p = boot(Platform::Linux).await;
+    let old = format!(
+        r#"{{"format": 1, "title": "World of Goo", "art": {{"cover": "{art}/cover.png"}},
+            "starts": [{{"kind": "script", "path": "data/noarch/start.sh"}}]}}"#,
+        art = launcher_api::brand::FILES_WAS_ART_FOLDER
+    );
+    let cover = format!("goo/{}/cover.png", launcher_api::brand::FILES_WAS_ART_FOLDER);
+    let file = format!("goo/{}", launcher_api::brand::FILES_WAS_GAME_FILE);
+    p.copy_in(&[
+        ("goo/data/noarch/start.sh", b"#!/bin/sh\n"),
+        (file.as_str(), old.as_bytes()),
+        (cover.as_str(), b"png"),
+    ]);
+    p.test.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
+
+    assert_eq!(p.titles(), [("World of Goo".to_owned(), "PC".to_owned())], "the old file's title");
+    assert_eq!(p.starts("goo"), ["data/noarch/start.sh"]);
+    let folder = p.games.path().join("PC/goo");
+    assert!(!folder.join(launcher_api::brand::FILES_WAS_GAME_FILE).exists(), "the old file is gone");
+    assert!(folder.join(GAME_FILE).exists() && folder.join(launcher_api::ART_FOLDER).join("cover.png").exists());
+    let card = p.test.core.view().home.games.first().cloned().expect("the game");
+    let moved =
+        HostPath::new("games", 0, RelPath::new(format!("PC/goo/{}/cover.png", launcher_api::ART_FOLDER)).unwrap());
+    assert_eq!(
+        card.cover,
+        Some(launcher_ui_api::ImageRef::Folder { plugin: pc(), path: moved }),
+        "the cover moved with it"
+    );
 }
 
 #[tokio::test]

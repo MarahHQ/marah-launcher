@@ -312,9 +312,10 @@ A PC game that is already unpacked needs no install:
 2. Optional: put a cover in the game's folder, named `cover.jpg`, `cover.png` or `cover.webp`.
 3. In Settings → Games, choose **Rescan game folders**.
 
-Marah Launcher looks through the folder once and writes `marah_game.json` in it. That file holds the
+Marah Launcher looks through the folder once and writes `launcher_game.json` in it. That file holds the
 game's name, the files that can start it, and later what the stores say about the game, with
-its art in `marah_art/`. A folder whose name starts with `.` or ends with
+its art in `launcher_art/`. Versions 0.2.0 and 0.3.0 named them `marah_game.json` and `marah_art/`:
+Marah Launcher renames them the first time it reads the folder. A folder whose name starts with `.` or ends with
 `.part` is never read. The full rules are in
 [reference/archives-and-pc-games.md](reference/archives-and-pc-games.md).
 

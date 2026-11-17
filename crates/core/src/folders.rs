@@ -192,6 +192,16 @@ impl HostFolders {
         }
     }
 
+    /// The real folders of each grant the plugin may write in.
+    pub(crate) fn writable_roots(&self) -> Vec<PathBuf> {
+        self.permissions
+            .filesystem
+            .iter()
+            .filter(|grant| grant.write)
+            .flat_map(|grant| roots(&self.config, self.home.as_deref(), self.platform, grant))
+            .collect()
+    }
+
     /// The folder of `console` for `purpose`, inside one of the plugin's grant folders:
     /// `chosen`, or else the one last picked for the console, or else `<console>` in the first
     /// grant folder. A saved pick that is in no grant folder any more reads as none.

@@ -28,9 +28,10 @@ windows_run_value = "Marah Launcher"
 [files]
 # The data folder's name, under the system's data folder.
 data_folder = "marah-launcher"
-# A game folder's file of what Marah Launcher knows of the game, and its folder of art.
-game_file = "marah_game.json"
-art_folder = "marah_art"
+# The names 0.2.0 and 0.3.0 gave a game folder's file and its folder of art. The launcher moves
+# them to launcher-api's GAME_FILE and ART_FOLDER, which don't carry the product's name.
+was_game_file = "marah_game.json"
+was_art_folder = "marah_art"
 # A backup file's name starts with this.
 backup_prefix = "marah-backup-"
 # The folder in the home folder that backups go to by default.

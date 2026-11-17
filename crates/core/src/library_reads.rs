@@ -36,6 +36,7 @@ pub(crate) fn installed_offers<'a>(
 pub(crate) async fn refresh_library(core: &Core) -> CoreResult<()> {
     core.library().start_loading();
     let kernel = core.kernel();
+    move_old_names(core).await;
     let mut library = Vec::new();
     let mut badges = HashMap::new();
     for (plugin, provided) in core.providers(Capability::Catalog).await {
@@ -273,4 +274,42 @@ pub(crate) async fn game_settings(
     }
     let values = core.config_value(plugin, &scope).await.unwrap_or(Value::Null);
     Some(GameSettings { schema, values })
+}
+
+/// Moves the game folders an older build wrote under the product's old names
+/// ([`crate::game_file::move_old_names`]), in every folder a game plugin may write: before the
+/// plugins list their games, so a plugin finds the file under its new name and doesn't take the
+/// folder for a new game. Once for each folder in a run.
+async fn move_old_names(core: &Core) {
+    static DONE: std::sync::Mutex<Vec<std::path::PathBuf>> = std::sync::Mutex::new(Vec::new());
+    let kernel = core.kernel();
+    let mut roots = Vec::new();
+    for (plugin, _) in core.providers(Capability::Catalog).await {
+        if let Some(folders) = kernel.host_folders(&plugin) {
+            roots.extend(folders.writable_roots());
+        }
+    }
+    let roots: Vec<_> = {
+        let mut done = DONE.lock().unwrap_or_else(|p| p.into_inner());
+        roots
+            .into_iter()
+            .filter(|root| {
+                !done.contains(root) && {
+                    done.push(root.clone());
+                    true
+                }
+            })
+            .collect()
+    };
+    if roots.is_empty() {
+        return;
+    }
+    let moved = tokio::task::spawn_blocking(move || {
+        roots.iter().map(|root| crate::game_file::move_old_names_under(root)).sum::<usize>()
+    })
+    .await
+    .unwrap_or(0);
+    if moved > 0 {
+        tracing::info!(moved, "game folders moved to the game file's new name");
+    }
 }

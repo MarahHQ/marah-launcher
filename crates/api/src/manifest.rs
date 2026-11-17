@@ -243,6 +243,12 @@ pub enum DefaultFolder {
 /// The player's game folders, shared by every plugin that asks for it: games of any console,
 /// each install in its console's folder inside the first one (`PS5`, `PS4`).
 pub const GAMES_FOLDER: &str = "games";
+
+/// A game folder's file of what the launcher knows of the game. Not the product's name: a
+/// rename of the product leaves players' game folders as they are.
+pub const GAME_FILE: &str = "launcher_game.json";
+/// A game folder's folder of art, beside [`GAME_FILE`].
+pub const ART_FOLDER: &str = "launcher_art";
 /// Where the games folder is until the player maps it.
 pub const GAMES_DEFAULT: &str = "~/Games";
 /// The player's packages to install, shared by every plugin that installs them: each plugin

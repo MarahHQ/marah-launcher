@@ -516,7 +516,7 @@ Everything Marah Launcher keeps lives in one data folder: `$XDG_DATA_HOME/marah-
 | `restored-settings.json` | The settings of the last restore, until the next start puts them back. |
 
 Each game's own folder holds its game file (`game_file.rs`, `game_files.rs`):
-`marah_game.json` in the game's root, and its art in `marah_art/` (`cover.jpg`,
+`launcher_game.json` in the game's root, and its art in `launcher_art/` (`cover.jpg`,
 `background.jpg`, `logo.png`, `screenshot_1.jpg` to `screenshot_6.jpg`). Every name is
 lowercase snake_case. The file holds what the stores and the catalogs said about the game and,
 for a game Marah Launcher downloaded, the offer and the release it came from. It fits every kind of

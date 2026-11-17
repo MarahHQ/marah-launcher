@@ -1,5 +1,5 @@
-//! Seam 1, core app API: the game files. Each game's folder gets `marah_game.json` and its art
-//! in `marah_art/`; the Library reads them before it asks any store.
+//! Seam 1, core app API: the game files. Each game's folder gets `launcher_game.json` and its art
+//! in `launcher_art/`; the Library reads them before it asks any store.
 
 use std::path::Path;
 
@@ -36,7 +36,7 @@ async fn games(store_knows_alpha: bool) -> (TestCore, tempfile::TempDir) {
 }
 
 fn game_file(dir: &Path) -> Option<serde_json::Value> {
-    Some(serde_json::from_slice(&std::fs::read(dir.join("marah_game.json")).ok()?).unwrap())
+    Some(serde_json::from_slice(&std::fs::read(dir.join("launcher_game.json")).ok()?).unwrap())
 }
 
 #[tokio::test]
@@ -45,7 +45,7 @@ async fn every_game_the_library_knows_gets_its_file_and_its_art_in_its_folder() 
 
     t.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
     let alpha = dir.path().join("Alpha");
-    t.until(Area::Library, |_| alpha.join("marah_game.json").exists()).await;
+    t.until(Area::Library, |_| alpha.join("launcher_game.json").exists()).await;
 
     let file = game_file(&alpha).unwrap();
     assert_eq!(file["format"], 1);
@@ -54,20 +54,20 @@ async fn every_game_the_library_knows_gets_its_file_and_its_art_in_its_folder() 
     assert_eq!(file["publisher"], "MOJANG AB");
     assert_eq!(file["genres"], serde_json::json!(["Adventure", "Arcade"]));
     assert_eq!(file["rating"]["score"], 4.5);
-    assert_eq!(file["art"]["cover"], "marah_art/cover.jpg");
+    assert_eq!(file["art"]["cover"], "launcher_art/cover.jpg");
     assert_eq!(
         file["art"]["screenshots"],
-        serde_json::json!(["marah_art/screenshot_1.png", "marah_art/screenshot_2.png"])
+        serde_json::json!(["launcher_art/screenshot_1.png", "launcher_art/screenshot_2.png"])
     );
-    assert_eq!(std::fs::read(alpha.join("marah_art/cover.jpg")).unwrap(), JPG);
-    assert_eq!(std::fs::read(alpha.join("marah_art/screenshot_2.png")).unwrap(), PNG);
+    assert_eq!(std::fs::read(alpha.join("launcher_art/cover.jpg")).unwrap(), JPG);
+    assert_eq!(std::fs::read(alpha.join("launcher_art/screenshot_2.png")).unwrap(), PNG);
     let names: Vec<String> =
         std::fs::read_dir(&alpha).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
-    assert!(names.iter().all(|n| n == "marah_game.json" || n == "marah_art"), "nothing else: {names:?}");
+    assert!(names.iter().all(|n| n == "launcher_game.json" || n == "launcher_art"), "nothing else: {names:?}");
 
     let card = t.core.view().home.games.into_iter().find(|g| g.title == "Alpha").unwrap();
     assert!(
-        matches!(&card.cover, Some(ImageRef::Folder { path, .. }) if path.path.as_str() == "Alpha/marah_art/cover.jpg"),
+        matches!(&card.cover, Some(ImageRef::Folder { path, .. }) if path.path.as_str() == "Alpha/launcher_art/cover.jpg"),
         "the card shows the art in the game's folder: {:?}",
         card.cover
     );
@@ -78,17 +78,17 @@ async fn every_game_the_library_knows_gets_its_file_and_its_art_in_its_folder() 
 async fn a_game_with_its_file_shows_whole_with_no_store_and_no_network() {
     let (t, dir) = games(false).await;
     let alpha = dir.path().join("Alpha");
-    std::fs::create_dir(alpha.join("marah_art")).unwrap();
-    std::fs::write(alpha.join("marah_art/cover.jpg"), JPG).unwrap();
+    std::fs::create_dir(alpha.join("launcher_art")).unwrap();
+    std::fs::write(alpha.join("launcher_art/cover.jpg"), JPG).unwrap();
     let file = serde_json::json!({
         "format": 1,
         "title": "Alpha",
         "publisher": "From The File",
         "genres": ["Racing"],
         "rating": { "score": 3.5, "total": 10 },
-        "art": { "cover": "marah_art/cover.jpg" }
+        "art": { "cover": "launcher_art/cover.jpg" }
     });
-    std::fs::write(alpha.join("marah_game.json"), file.to_string()).unwrap();
+    std::fs::write(alpha.join("launcher_game.json"), file.to_string()).unwrap();
 
     t.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
     t.until(Area::Library, |core| core.view().home.games.iter().any(|g| g.title == "Alpha" && g.rating == Some(3.5)))
@@ -96,7 +96,7 @@ async fn a_game_with_its_file_shows_whole_with_no_store_and_no_network() {
 
     let card = t.core.view().home.games.into_iter().find(|g| g.title == "Alpha").unwrap();
     assert!(
-        matches!(&card.cover, Some(ImageRef::Folder { path, .. }) if path.path.as_str() == "Alpha/marah_art/cover.jpg")
+        matches!(&card.cover, Some(ImageRef::Folder { path, .. }) if path.path.as_str() == "Alpha/launcher_art/cover.jpg")
     );
     t.core.dispatch(Command::OpenGame("emu-a:G0".parse().unwrap())).await.unwrap();
     let detail = t.core.view().detail.unwrap();
@@ -113,11 +113,11 @@ async fn a_game_file_on_disk_is_never_written_over() {
     let (t, dir) = games(true).await;
     let alpha = dir.path().join("Alpha");
     let own = r#"{"format": 1, "title": "Alpha", "publisher": "Mine"}"#;
-    std::fs::write(alpha.join("marah_game.json"), own).unwrap();
+    std::fs::write(alpha.join("launcher_game.json"), own).unwrap();
 
     t.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
     t.clock.run_until_idle().await;
 
-    assert_eq!(std::fs::read_to_string(alpha.join("marah_game.json")).unwrap(), own);
-    assert!(!alpha.join("marah_art").exists());
+    assert_eq!(std::fs::read_to_string(alpha.join("launcher_game.json")).unwrap(), own);
+    assert!(!alpha.join("launcher_art").exists());
 }
