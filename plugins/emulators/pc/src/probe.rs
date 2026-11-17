@@ -329,7 +329,7 @@ pub fn clean_name(title: &str) -> String {
 /// A game's name from a folder's or a file's: [`clean_name`], and a name in small letters
 /// ("cuphead_v1.3.4.run", "my_game") with a capital at each word.
 pub fn display_name(title: &str) -> String {
-    let name = clean_name(title);
+    let name = clean_name(&undashed(title));
     if name.chars().any(char::is_uppercase) {
         return name;
     }
@@ -340,6 +340,22 @@ pub fn display_name(title: &str) -> String {
         })
         .collect::<Vec<String>>()
         .join(" ")
+}
+
+/// A name written as a folder name, its words joined by dashes and no spaces
+/// ("world-of-goo-1-6-538-87464"), as words: the dashes are spaces, and two or more numbers at
+/// the end are a version and go. One number at the end is part of the name ("EA SPORTS FC 27").
+fn undashed(title: &str) -> String {
+    let title = title.trim();
+    if title.contains(' ') || title.matches('-').count() < 2 {
+        return title.to_owned();
+    }
+    let mut words: Vec<&str> = title.split('-').filter(|w| !w.is_empty()).collect();
+    let numbers = words.iter().rev().take_while(|w| w.chars().all(|c| c.is_ascii_digit())).count();
+    if numbers >= 2 && numbers < words.len() {
+        words.truncate(words.len() - numbers);
+    }
+    words.join(" ")
 }
 
 /// A folder name for a game: its name in safe characters.
@@ -469,6 +485,10 @@ pub(crate) mod tests {
         assert_eq!(clean_name("DROD The City Beneath v3.3.1"), "DROD The City Beneath");
         assert_eq!(clean_name("Age of Empires II (Definitive Edition)"), "Age of Empires II (Definitive Edition)");
         assert_eq!(clean_name("Some_Game_2024"), "Some Game 2024");
+        assert_eq!(display_name("Spider-Man"), "Spider-Man", "one dash is part of the name");
+        assert_eq!(display_name("Half-Life 2-Episode"), "Half-Life 2-Episode", "a name with spaces keeps its dashes");
+        assert_eq!(display_name("hades-1-38"), "Hades", "two numbers at the end are a version");
+        assert_eq!(display_name("sonic-mania-2017"), "Sonic Mania 2017", "one number at the end stays");
         assert_eq!(folder_name("Hollow Knight: Silksong"), "Hollow-Knight-Silksong");
         assert_eq!(folder_name("::"), "game");
     }
