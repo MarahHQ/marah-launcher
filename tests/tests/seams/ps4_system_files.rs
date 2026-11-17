@@ -43,7 +43,21 @@ fn host(plugin_files: Vec<SystemFile>) -> FakeHost {
 /// Starts the app with shadPS4's data folder in a temporary folder, after `prepare` put files
 /// in it, and runs the boot.
 async fn start(host: FakeHost, prepare: impl FnOnce(&Path)) -> (TestCore, tempfile::TempDir) {
+    start_saved(host, None, prepare).await
+}
+
+/// [`start`], with the System files settings an earlier run saved.
+async fn start_saved(
+    host: FakeHost,
+    settings: Option<serde_json::Value>,
+    prepare: impl FnOnce(&Path),
+) -> (TestCore, tempfile::TempDir) {
     let test = host.boot_core().await;
+    if let Some(settings) = settings {
+        let storage = test.host.data_dir().join("plugins/emu-shadps4");
+        std::fs::create_dir_all(&storage).unwrap();
+        std::fs::write(storage.join("system-files-settings.json"), settings.to_string()).unwrap();
+    }
     let data = tempfile::tempdir().unwrap();
     prepare(data.path());
     test.core
@@ -337,4 +351,46 @@ async fn the_switch_firmware_and_the_ps4_system_files_are_both_asked_one_after_t
     titles.sort();
     assert_eq!(titles, ["Install PS4 system files?", "Install Switch firmware 22.5.0?"]);
     assert!(test.core.view().question.is_none());
+}
+
+/// With "Ask at start" off, the start asks nothing and downloads nothing. The block still says
+/// what is missing, and its switch turns asking back on.
+#[tokio::test]
+async fn with_ask_at_start_off_the_start_asks_nothing() {
+    let (test, data) = start_saved(host(table()), Some(serde_json::json!({ "ask": false })), |_| {}).await;
+    test.until(Area::Library, |core| core.view().boot.ready).await;
+
+    assert!(test.core.view().question.is_none(), "no question with Ask at start off");
+    assert!(downloads(&test).is_empty(), "{:?}", downloads(&test));
+    assert!(tree(data.path()).is_empty());
+    test.core.dispatch(Command::Navigate(Route::Emulators)).await.unwrap();
+    test.until(Area::Plugins, |core| rows(core).is_some()).await;
+    assert_eq!(status(&test), "Missing 3 of 3");
+    let block = rows(&test.core).unwrap();
+    assert_eq!(row(&block, "Ask at start").expect("an Ask at start switch").switch, "off");
+    assert!(row(&block, "Install now").is_some(), "Install now still works");
+
+    let action = "toggle-system-files-ask".to_owned();
+    test.core
+        .dispatch(Command::RunAction { plugin: shad(), action, game: None, args: serde_json::Value::Null })
+        .await
+        .unwrap();
+    test.until(Area::Plugins, |core| {
+        rows(core).is_some_and(|r| row(&r, "Ask at start").is_some_and(|s| s.switch == "on"))
+    })
+    .await;
+    let saved = std::fs::read(test.host.data_dir().join("plugins/emu-shadps4/system-files-settings.json")).unwrap();
+    let saved: serde_json::Value = serde_json::from_slice(&saved).unwrap();
+    assert_eq!(saved["ask"], true);
+}
+
+/// By default the block's switch is on: the start asks.
+#[tokio::test]
+async fn ask_at_start_is_on_by_default() {
+    let (test, _data) = start(host(table()), |_| {}).await;
+    asked(&test).await;
+    test.core.dispatch(Command::Navigate(Route::Emulators)).await.unwrap();
+    test.until(Area::Plugins, |core| rows(core).is_some()).await;
+    let rows = rows(&test.core).unwrap();
+    assert_eq!(row(&rows, "Ask at start").expect("an Ask at start switch").switch, "on");
 }

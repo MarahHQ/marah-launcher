@@ -190,6 +190,8 @@ async fn the_emulators_keys_firmware_settings_and_saves_go_to_another_computer()
     write(&at(&a_folders, "shadps4-data").join("config.json"), b"{}");
     write(&at(&a_folders, "shadps4-data").join("savedata/1/CUSA1/SAVE.DAT"), b"ps4 save");
     write(&at(&a_folders, "shadps4-data").join("shader/big.bin"), b"cache");
+    write(&at(&a_folders, "shadps4-data").join("sys_modules/libSceFont.sprx"), b"module");
+    write(&at(&a_folders, "shadps4-data").join("fonts/font/SST-Roman.otf"), b"font");
     write(&at(&a_folders, "kyty-data").join("_SaveData/PPSA1/slot/save.dat"), b"ps5 save");
     a.core.dispatch(Command::Backup(BackupCmd::BackUp { large: false })).await.unwrap();
     let file = files(backups.path()).remove(0);
@@ -204,6 +206,8 @@ async fn the_emulators_keys_firmware_settings_and_saves_go_to_another_computer()
     assert_eq!(read("shadps4-data", "savedata/1/CUSA1/SAVE.DAT").as_deref(), Some(&b"ps4 save"[..]));
     assert_eq!(read("shadps4-data", "config.json").as_deref(), Some(&b"{}"[..]));
     assert_eq!(read("shadps4-data", "shader/big.bin"), None, "shadPS4's caches stay out");
+    assert_eq!(read("shadps4-data", "sys_modules/libSceFont.sprx"), None, "the PS4 system files stay out");
+    assert_eq!(read("shadps4-data", "fonts/font/SST-Roman.otf"), None, "the PS4 fonts stay out");
     assert_eq!(read("kyty-data", "_SaveData/PPSA1/slot/save.dat").as_deref(), Some(&b"ps5 save"[..]));
 }
 
