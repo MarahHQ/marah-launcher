@@ -57,6 +57,9 @@ export global Prefs {
     // Settings is one page of all its sections: `jump` counts the jumps to a section (the rail,
     // L1 and R1), so the page scrolls that section's header into view for each one.
     in-out property <int> jump;
+    // The section the mouse wheel scrolled into view, which the rail lights; -1 when the rail
+    // lights the focused section. A key puts it back to -1.
+    in-out property <int> seen: -1;
     // A text row is open for typing.
     in-out property <bool> editing;
     in-out property <string> edit-text;
@@ -132,6 +135,7 @@ export global Prefs {
         root.tabs = false;
         root.reading = false;
         root.editing = false;
+        root.seen = -1;
     }
     public pure function is(section: int, row: int) -> bool {
         !root.tabs && root.section == section && root.row == row
@@ -143,6 +147,7 @@ export global Prefs {
         root.row = 0;
         root.reading = false;
         root.editing = false;
+        root.seen = -1;
         root.jump += 1;
     }
     // Into the rows of the tab, if it has any.
@@ -159,6 +164,7 @@ export global Prefs {
         root.row = 0;
         // Another section: no longer reading This PC. Settings' page reads one with no rows.
         root.reading = root.rail && !root.tabs && root.rows(root.section) == 0;
+        root.seen = -1;
         root.jump += 1;
         return true;
     }
@@ -236,6 +242,7 @@ export global Prefs {
 
     // Handles a key in Settings. Returns whether it did anything.
     public function key(text: string) -> bool {
+        root.seen = -1;
         if (root.editing) {
             if (text == Key.Escape) { root.editing = false; return true; }
             return false;
@@ -347,8 +354,8 @@ export component RailTab inherits Rectangle {
     in property <int> section;
     // Something waits there for the player, as a launcher update: a dot by the icon.
     in property <bool> dot;
-    property <bool> current: Prefs.current-tab == root.section;
-    property <bool> focused: Prefs.tabs && root.current;
+    property <bool> current: (Prefs.seen >= 0 ? Prefs.seen : Prefs.current-tab) == root.section;
+    property <bool> focused: Prefs.tabs && Prefs.current-tab == root.section;
     width: 56 * Look.px;
     height: 56 * Look.px;
     background: root.current ? Tokens.color-tint.with-alpha(0.149) : (touch.has-hover ? Tokens.color-tint.with-alpha(0.059) : Tokens.color-tint.with-alpha(0));

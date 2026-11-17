@@ -533,6 +533,31 @@ fn the_rail_chooses_with_up_and_down_and_this_pc_is_read_and_left_again() {
     assert_ne!(lit_section(&host), "This PC", "Left came back to the rail, and Down chooses again");
 }
 
+/// The mouse wheel scrolls Settings' page and the rail lights the section in view; a key then
+/// lights the focused section again.
+#[test]
+fn the_rail_follows_the_page_the_mouse_wheel_scrolls() {
+    use slint::platform::Key;
+    let mut host = classic_theme();
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    host.settings_tab("Launcher");
+    assert_eq!(lit_section(&host), "Launcher");
+
+    host.wheel("settings-page", 60);
+    assert_eq!(lit_section(&host), "Power", "at the end of the page, the last section is lit");
+    host.wheel("settings-page", -60);
+    assert_eq!(lit_section(&host), "Launcher", "back at the top, the first section is lit");
+
+    host.wheel("settings-page", 60);
+    host.navigate(Key::DownArrow);
+    assert_eq!(lit_section(&host), "Games", "a key moves on from the focused section, not the one in view");
+
+    host.wheel("settings-page", 60);
+    host.click("settings-tab:Games");
+    assert_eq!(lit_section(&host), "Games", "a click on the focused section lights it again");
+}
+
 /// A held Up stops at a section's first row: the rail is one more press away.
 #[test]
 fn a_held_up_stops_at_the_first_row() {

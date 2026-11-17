@@ -92,6 +92,25 @@ export component SettingsPage inherits SheetFrame {
             : section == 4 ? s4.y : section == Prefs.backup-section ? s6.y
             : section == Prefs.power-section ? s7.y : s4.y + s4.height
     }
+    // The section in view, read from the top of the page: the last whose header is above a
+    // third of the way down, or the last section once the page can't scroll further.
+    function follow() {
+        let line = -flick.viewport-y + flick.height / 3;
+        Prefs.seen = flick.viewport-y <= flick.height - flick.viewport-height + 1px ? Prefs.tab-count - 1
+            : line >= root.top-of(Prefs.power-section) ? Prefs.power-section
+            : line >= root.top-of(Prefs.backup-section) ? Prefs.backup-section
+            : Vm.system.whole-screen && line >= root.top-of(5) ? 5
+            : line >= root.top-of(4) ? 4 : line >= root.top-of(3) ? 3
+            : line >= root.top-of(2) ? 2 : line >= root.top-of(1) ? 1 : 0;
+    }
+    // The wheel starts an animated scroll and says so once, at its start: the rail follows the
+    // page as it moves, until a key, a click or a jump puts `seen` back to -1.
+    property <length> page-y: flick.viewport-y;
+    changed page-y => { if (Prefs.seen >= 0) { root.follow(); } }
+    // A key, a click or a jump moves the focus: the rail lights the focused section again.
+    property <int> focused-tab: Prefs.current-tab;
+    changed focused-tab => { Prefs.seen = -1; }
+
     // This PC, with no rows to focus, scrolls a step at a time.
     property <int> nudged: Prefs.scroll-serial;
     changed nudged => {
@@ -150,6 +169,10 @@ export component SettingsPage inherits SheetFrame {
         flick := Flickable {
             // Up and down only: nothing drags sideways.
             viewport-width: self.width;
+            accessible-role: groupbox;
+            accessible-label: "settings-page";
+            // The wheel or a drag scrolled the page: the rail lights the section in view.
+            flicked => { root.follow(); }
             viewport-height: sheet.preferred-height;
             animate viewport-y { duration: Tokens.motion-normal; easing: ease-out-quad; }
 
