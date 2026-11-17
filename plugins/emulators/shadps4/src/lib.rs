@@ -26,6 +26,7 @@ use emulator_kit::installs::Format;
 use emulator_kit::{compat, versions};
 
 mod install;
+pub mod key_map;
 pub mod pkg4;
 mod pkg4_data;
 pub mod system_files;
@@ -285,6 +286,7 @@ impl Launcher for Shad {
         // `config` is the emulator settings with the game's settings on top.
         let settings = builds.settings().for_launch(config).await;
         let run = builds.run().await?;
+        key_map::set_up(self.emu.host()).await;
         // shadPS4 takes the game folder with -g; -f true|false sets full screen.
         let args = vec!["-g".into(), LaunchArg::path(found.dir), "-f".into(), settings.fullscreen.to_string().into()];
         Ok(LaunchSpec {

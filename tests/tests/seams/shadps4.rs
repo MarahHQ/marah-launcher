@@ -589,3 +589,73 @@ async fn with_your_own_build_on_no_build_downloads_at_the_start() {
     let builds: Vec<_> = test.http.requests().into_iter().filter(|(url, _)| url.ends_with("linux.zip")).collect();
     assert!(builds.is_empty(), "{builds:?}");
 }
+
+/// shadPS4's key map in its data folder, `input_config/<name>.ini`.
+fn key_map(data: &Path, name: &str) -> String {
+    std::fs::read_to_string(data.join("input_config").join(format!("{name}.ini"))).unwrap()
+}
+
+/// Installs the build, maps shadPS4's data folder to `data` and starts Firewatch.
+async fn launch_with_data(test: &TestCore, data: &Path) {
+    test.core.dispatch(Command::InstallEmulator { plugin: shad(), version: None }).await.unwrap();
+    test.core.dispatch(Command::SetFolders { name: "shadps4-data".into(), paths: vec![data.into()] }).await.unwrap();
+    test.core.dispatch(Command::Session(SessionCmd::Launch("emu-shadps4:CUSA04118".parse().unwrap()))).await.unwrap();
+    test.spawner.wait_for(2).await;
+}
+
+/// A PS1 game on PS4 reads a touchpad click on the right half as START and on the left half as
+/// SELECT. shadPS4's own map clicks the centre, which is neither, so such a game waits at "Press
+/// START" for ever. With no key map yet, the first launch writes shadPS4's defaults with the
+/// controller's Back button and Space on the right half, and Backspace on the left half.
+#[tokio::test]
+async fn a_first_launch_writes_a_key_map_whose_touchpad_button_is_start() {
+    let (test, _games) = boot().await;
+    let data = tempfile::tempdir().unwrap();
+
+    launch_with_data(&test, data.path()).await;
+
+    let map = key_map(data.path(), "default");
+    for line in ["touchpad_right = back", "touchpad_right = space", "touchpad_left = backspace", "cross = n"] {
+        assert!(map.lines().any(|l| l == line), "{line:?} in:\n{map}");
+    }
+    assert!(!map.contains("touchpad_center"), "{map}");
+}
+
+/// A key map shadPS4 wrote, for all games or for one, gets the same fix at the next launch. The
+/// player's other lines stay as they are, and the global map isn't touched.
+#[tokio::test]
+async fn shadps4_s_own_touchpad_lines_move_to_the_right_half_and_the_rest_stays() {
+    let (test, _games) = boot().await;
+    let data = tempfile::tempdir().unwrap();
+    let maps = data.path().join("input_config");
+    std::fs::create_dir_all(&maps).unwrap();
+    let theirs =
+        "# mine\ncross = z\noptions = enter\ntouchpad_center = space\n\noptions = options\ntouchpad_center = back\n";
+    std::fs::write(maps.join("default.ini"), theirs).unwrap();
+    std::fs::write(maps.join("CUSA04118.ini"), "touchpad_center = back\n").unwrap();
+    std::fs::write(maps.join("global.ini"), "touchpad_center = back\n").unwrap();
+
+    launch_with_data(&test, data.path()).await;
+
+    assert_eq!(
+        key_map(data.path(), "default"),
+        "# mine\ncross = z\noptions = enter\ntouchpad_right = space\ntouchpad_left = backspace\n\noptions = options\ntouchpad_right = back\n"
+    );
+    assert_eq!(key_map(data.path(), "CUSA04118"), "touchpad_right = back\n");
+    assert_eq!(key_map(data.path(), "global"), "touchpad_center = back\n", "the global map stays");
+}
+
+/// A touchpad the player mapped to other keys stays as it is.
+#[tokio::test]
+async fn a_touchpad_the_player_mapped_stays() {
+    let (test, _games) = boot().await;
+    let data = tempfile::tempdir().unwrap();
+    let maps = data.path().join("input_config");
+    std::fs::create_dir_all(&maps).unwrap();
+    let theirs = "touchpad_center = guide\ntouchpad_center = t\n";
+    std::fs::write(maps.join("default.ini"), theirs).unwrap();
+
+    launch_with_data(&test, data.path()).await;
+
+    assert_eq!(key_map(data.path(), "default"), theirs);
+}
