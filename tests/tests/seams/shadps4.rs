@@ -558,3 +558,30 @@ async fn packages_the_host_unpacked_from_archives_install_together() {
     assert_eq!(std::fs::read(games.path().join("PS4/CUSA12345/eboot.bin")).unwrap(), b"v1");
     assert_eq!(std::fs::read(games.path().join("PS4/CUSA12345-patch/eboot.bin")).unwrap(), b"v2");
 }
+
+/// Moves the clock past the first look for updates, a minute after the start: the start's pass
+/// over the builds runs then.
+async fn past_the_start_pass(test: &TestCore) {
+    test.clock.advance(std::time::Duration::from_secs(61)).await;
+}
+
+#[tokio::test]
+async fn the_newest_build_installs_a_minute_after_the_start() {
+    let (test, _games) = boot().await;
+    assert!(!app_run(&test, TAG).is_file(), "nothing before the pass");
+
+    past_the_start_pass(&test).await;
+    assert!(app_run(&test, TAG).is_file(), "the official build is in place");
+}
+
+#[tokio::test]
+async fn with_your_own_build_on_no_build_downloads_at_the_start() {
+    let (test, _games) = boot().await;
+    // On, but no program found yet: the plugin lists no build at all.
+    test.core.dispatch(set("own_build", "true")).await.unwrap();
+
+    past_the_start_pass(&test).await;
+    assert!(!app_run(&test, TAG).is_file());
+    let builds: Vec<_> = test.http.requests().into_iter().filter(|(url, _)| url.ends_with("linux.zip")).collect();
+    assert!(builds.is_empty(), "{builds:?}");
+}

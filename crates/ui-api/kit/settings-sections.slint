@@ -65,6 +65,23 @@ export component UpdatesSection inherits VerticalLayout {
             }
             Value { kind: "toggle"; on: Vm.auto-update; }
         }
+        Row {
+            label: "Install emulators automatically";
+            hint: "A minute after the start · each emulator you turned on gets its newest build";
+            focused: Prefs.is(2, 1);
+            last: false;
+            accessible-role: button;
+            accessible-label: "auto-install";
+            accessible-value: Vm.auto-install ? "on" : "off";
+            accessible-action-default => { Commands.set-auto-install(!Vm.auto-install); }
+            reveal(y, h) => { root.reveal(y, h); }
+            clicked => { Prefs.section = 2; Prefs.row = 1; Commands.set-auto-install(!Vm.auto-install); }
+            property <int> seen: Prefs.serial;
+            changed seen => {
+                if (self.focused && (Prefs.pending == 0 || (Prefs.pending > 0) != Vm.auto-install)) { Commands.set-auto-install(!Vm.auto-install); }
+            }
+            Value { kind: "toggle"; on: Vm.auto-install; }
+        }
         // Marah Launcher itself: check, download, then restart to put it in. A packaged install's
         // package manager puts it in at once ("installed"); on Marah OS it comes with the
         // system's update ("system").
@@ -72,14 +89,14 @@ export component UpdatesSection inherits VerticalLayout {
             property <string> state: Vm.launcher-update.state;
             label: Brand.name + " updates";
             hint: Vm.launcher-update.text;
-            focused: Prefs.is(2, 1);
+            focused: Prefs.is(2, 2);
             last: true;
             accessible-role: button;
             accessible-label: "launcher-update";
             accessible-value: self.state;
             accessible-action-default => { self.act(); }
             reveal(y, h) => { root.reveal(y, h); }
-            clicked => { Prefs.section = 2; Prefs.row = 1; self.act(); }
+            clicked => { Prefs.section = 2; Prefs.row = 2; self.act(); }
             property <int> seen: Prefs.serial;
             changed seen => { if (self.focused && Prefs.pending == 0) { self.act(); } }
             function act() {

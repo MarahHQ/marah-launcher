@@ -1149,6 +1149,7 @@ fn settings_vm(s: &Snapshot) -> SettingsVm {
         fullscreen: prefs.fullscreen,
         return_on_exit: prefs.return_on_exit,
         auto_update: prefs.auto_update,
+        auto_install: prefs.auto_install,
         scale: prefs.scale,
         can_start_at_login: s.can_start_at_login,
         start_at_login: prefs.start_at_login,
@@ -1545,6 +1546,8 @@ fn boot_vm(s: &Snapshot) -> BootVm {
         }
         let detail = if emu.own {
             "Your own build"
+        } else if emu.installed.is_empty() && s.prefs.auto_install {
+            "Installs in a minute"
         } else if emu.installed.is_empty() {
             "Installs on first play"
         } else if emu.update().is_some() {

@@ -162,6 +162,61 @@ fn settings_turn_automatic_updates_off() {
 }
 
 #[test]
+fn settings_turn_installing_emulators_automatically_off() {
+    // The row is under "Update automatically", in the UPDATES section.
+    let mut host = composed(|h| {
+        h.plugin(FakeCatalog::new("emu-x").named("Emu").playable().needing_its_emulator().games(["Astro"]).build())
+    });
+    host.ui.start().unwrap();
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    host.settings_tab("Updates");
+    assert_eq!(host.first("auto-install").accessible_value().as_deref(), Some("on"));
+    host.first("auto-install").invoke_accessible_default_action();
+    host.pump();
+    host.settle();
+    assert_eq!(host.first("auto-install").accessible_value().as_deref(), Some("off"));
+    assert!(!host.core().view().settings.auto_install);
+    assert!(host.core().view().settings.auto_update, "Update automatically stays as it was");
+}
+
+/// The keys reach each row of Updates in turn: Update automatically, Install emulators
+/// automatically, then the launcher's update.
+#[test]
+fn the_keys_reach_install_emulators_automatically_then_the_launcher_s_update() {
+    use launcher_core::launcher_update::{Install, package_key};
+    use slint::platform::Key;
+    let latest = "https://github.com/owner/marah-launcher/releases/latest/download/latest.json";
+    let url = "https://github.com/owner/marah-launcher/releases/download/v9.9.9/marah-launcher-9.9.9.x86_64.rpm";
+    let mut host = composed(|h| {
+        let h = h.install(Install::Rpm);
+        let sha = h.http().serve(url, b"a package".to_vec());
+        let key = package_key(Install::Rpm).unwrap();
+        let manifest = serde_json::json!({ "version": "9.9.9", "assets": { key: { "url": url, "sha256": sha } } });
+        h.http().serve(latest, manifest.to_string().into_bytes());
+        h
+    });
+    host.core().kernel().config().set(&["app", "update_repo"], "owner/marah-launcher".into()).unwrap();
+    host.ui.start().unwrap();
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    host.settings_tab("Updates");
+    host.navigate(Key::RightArrow);
+
+    host.navigate(Key::DownArrow);
+    host.navigate(Key::Return);
+    let settings = host.core().view().settings;
+    assert!(!settings.auto_install, "the second row is Install emulators automatically");
+    assert!(settings.auto_update, "not Update automatically");
+
+    host.navigate(Key::DownArrow);
+    host.navigate(Key::Return);
+    host.pump();
+    host.settle();
+    assert_eq!(host.first("launcher-update").accessible_value().as_deref(), Some("available"), "the third row");
+}
+
+#[test]
 fn settings_change_the_size_of_everything_and_the_rows_grow_with_it() {
     use slint::platform::Key;
     let mut host = classic_theme();

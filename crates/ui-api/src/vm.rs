@@ -753,6 +753,8 @@ pub struct SettingsVm {
     pub return_on_exit: bool,
     /// Emulator updates install by themselves, after the emulator's game closes.
     pub auto_update: bool,
+    /// A minute after the start, each turned-on emulator with no build gets its newest build.
+    pub auto_install: bool,
     /// The size of everything the theme draws, from 0.8 to 1.4.
     pub scale: f32,
     /// This build can start when the player logs in: it is installed.

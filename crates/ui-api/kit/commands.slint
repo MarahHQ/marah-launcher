@@ -149,6 +149,7 @@ export global Commands {
     public function set-fullscreen(on: bool) { Host.command("Pref", "[\"fullscreen\"," + Json.flag(on) + "]"); }
     public function set-return-on-exit(on: bool) { Host.command("Pref", "[\"return_on_exit\"," + Json.flag(on) + "]"); }
     public function set-auto-update(on: bool) { Host.command("Pref", "[\"auto_update\"," + Json.flag(on) + "]"); }
+    public function set-auto-install(on: bool) { Host.command("Pref", "[\"auto_install\"," + Json.flag(on) + "]"); }
     public function set-start-at-login(on: bool) { Host.command("Pref", "[\"start_at_login\"," + Json.flag(on) + "]"); }
     public function set-scale(size: float) { Host.command("Pref", "[\"scale\"," + size + "]"); }
     // A monitor's name, "" for the one the launcher is on.

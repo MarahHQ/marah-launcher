@@ -503,6 +503,8 @@ export global Vm {
     in-out property <bool> return-on-exit: true;
     // Emulator updates install by themselves, after the emulator's game closes.
     in-out property <bool> auto-update: true;
+    // A minute after the start, each turned-on emulator with no build gets its newest build.
+    in-out property <bool> auto-install: true;
     // "Size of everything" as the player set it, from 0.8 to 1.4. What the theme draws at is
     // `viewport.size`.
     in-out property <float> scale: 1;
