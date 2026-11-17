@@ -1,0 +1,41 @@
+import { Vm } from "../types.slint";
+import { Tokens } from "../tokens.slint";
+import { Look } from "look.slint";
+
+// A slowly drifting wall of the library's covers (`Vm.boot.covers`), dimmed, as the boot screen
+// and the closing screen show it behind their emblem. Each column drifts up at its own speed and
+// wraps round. It fades in when the first covers come.
+export component CoverWall inherits Rectangle {
+    // It drifts while on, and stands still off: the boot screen stops it once it has gone.
+    in property <bool> on: true;
+    property <float> t: root.on ? Look.clock : 0;
+    property <length> cw: 190 * Look.px;
+    property <length> ch: 285 * Look.px;
+    property <length> cg: 22 * Look.px;
+    property <int> cols: Math.ceil(root.width / (root.cw + root.cg)) + 1;
+    property <int> rows: Math.ceil(root.height / (root.ch + root.cg)) + 2;
+    opacity: Vm.boot.covers.length > 0 ? 0.30 : 0;
+    animate opacity { duration: Look.timed(1600ms); easing: ease-out-quad; }
+    for c in root.cols : Rectangle {
+        // Each column drifts at its own speed, in px a second.
+        property <float> speed: 14 + Math.mod(c * 7, 11);
+        property <length> shift: root.t * self.speed * Look.px + c * 97 * Look.px;
+        property <length> loop-h: root.rows * (root.ch + root.cg);
+        x: c * (root.cw + root.cg) - 40 * Look.px;
+        width: root.cw;
+        for r in root.rows : Rectangle {
+            property <int> k: Math.mod(c * 7 + r * 11, Math.max(1, Vm.boot.covers.length));
+            y: Math.mod(r * (root.ch + root.cg) / 1px - parent.shift / 1px, parent.loop-h / 1px) * 1px - root.ch;
+            height: root.ch;
+            border-radius: 14 * Look.px;
+            clip: true;
+            background: Tokens.color-surface;
+            if Vm.boot.covers.length > 0 : Image {
+                source: Vm.boot.covers[parent.k];
+                width: parent.width;
+                height: parent.height;
+                image-fit: cover;
+            }
+        }
+    }
+}

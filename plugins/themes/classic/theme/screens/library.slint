@@ -1,0 +1,24 @@
+import { Tokens } from "../tokens.slint";
+import { Look } from "../kit/look.slint";
+import { LibraryView } from "../components/library-view.slint";
+import { Reveal } from "../kit/reveal.slint";
+import { Screens } from "../kit/shell.slint";
+
+// The Library: every game in a grid, with its search, sort, systems and genres. It slides in
+// from the side over Home.
+export component LibraryScreen inherits Rectangle {
+    // False while it goes: Back, or another screen opened.
+    in property <bool> open: true;
+    // It slides in after its first frame from the side the screens move from, and out to the
+    // side they move to.
+    reveal := Reveal { open: root.open; }
+    property <float> side: Screens.side(false);
+    changed open => { self.side = Screens.side(!self.open); }
+    LibraryView {
+        active: root.open;
+        opacity: reveal.fade;
+        x: (1 - reveal.move) * 40 * Look.px * root.side;
+    }
+    // While it goes, a click on it does nothing.
+    if !root.open : TouchArea { }
+}

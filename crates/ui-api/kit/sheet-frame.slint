@@ -1,0 +1,48 @@
+import { Commands } from "commands.slint";
+import { Tokens } from "../tokens.slint";
+import { Look } from "look.slint";
+import { Reveal } from "reveal.slint";
+
+// The frame of a side sheet: the wash over the screen behind it, and the panel that slides in
+// from the edge (the far side in right-to-left). A click on the wash goes back. Settings, a
+// plugin's page and a game's own settings are sheets; each puts its rows in the panel.
+export component SheetFrame inherits Rectangle {
+    // False while it slides out.
+    in property <bool> open: true;
+    // The panel's width, at most the window's.
+    in property <length> panel-width: 760 * Look.tpx;
+    // The Plugins sheet beside which a plugin's page opens keeps the wash and a shadow.
+    in property <bool> shadow;
+    // False where the screen behind draws the wash and closes the sheet on a click outside.
+    in property <bool> wash: true;
+    in property <color> panel-top: Tokens.color-surface;
+    in property <color> panel-bottom: Tokens.color-panel;
+    // Slid in: from the edge when it opens, back out when it closes.
+    reveal := Reveal { open: root.open; }
+    // The wash's start, worked out at the first frame, so it fades in from it.
+    property <brush> start-wash;
+    init => { root.start-wash = root.background; }
+    property <bool> in-view: reveal.in-view;
+    // Light enough that the screen behind shows through the glass.
+    background: root.wash && root.in-view ? Tokens.color-overlay.with-alpha(0.55) : Tokens.color-overlay.with-alpha(0);
+    animate background { duration: Tokens.motion-normal; }
+    TouchArea { enabled: root.open && root.wash; clicked => { Commands.back(); } }
+
+    panel := Rectangle {
+        property <length> width-now: Math.min(root.width, root.panel-width);
+        x: (Look.rtl ? 0 : root.width - self.width-now)
+            + (1 - reveal.move) * (Look.rtl ? -1 : 1) * (self.width-now + 48 * Look.px);
+        opacity: reveal.fade;
+        width: self.width-now;
+        // Glass: tinted and see-through, as the slint renderer has no blur.
+        background: @linear-gradient(180deg, root.panel-top.with-alpha(0.84) 0%, root.panel-bottom.with-alpha(0.9) 100%);
+        drop-shadow-blur: root.shadow ? 40 * Look.px : 0;
+        drop-shadow-color: Tokens.color-shade.with-alpha(0.6);
+        border-width: 1px;
+        border-color: Tokens.color-tint.with-alpha(0.14);
+        TouchArea {}
+        // The glass's lit top edge.
+        Rectangle { y: 0; height: 1px; background: Tokens.color-tint.with-alpha(0.22); }
+        @children
+    }
+}

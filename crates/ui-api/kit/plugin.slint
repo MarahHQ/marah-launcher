@@ -1,0 +1,323 @@
+import { Vm, Host, Json } from "../types.slint";
+import { Commands } from "commands.slint";
+import { Tokens } from "../tokens.slint";
+import { Look } from "look.slint";
+import { SlotSections } from "slot-sections.slint";
+import { Prefs, Header, Row, Value, Editor, FieldRow, FolderRow } from "settings-rows.slint";
+import { PluginList } from "plugin-list.slint";
+import { SettingsFrame, PageSection } from "settings-frame.slint";
+
+// One plugin's sheet, opened from Emulators or Themes and drawn at the edge beside the list. It
+// is one page like Settings, each section under its header, with a rail of the sections' icons
+// when there are two or more. An emulator: General ("Turned on", its build and its actions),
+// then one section for each settings panel, then its folders when it has no settings
+// panel to hold them, then About (its blocks and facts). A service: General, then its settings. A theme: Theme ("Use this
+// theme"), then Options while it is the one in use. The section numbers are in `Prefs`. The
+// Plugins screen behind draws the wash and closes this sheet on a click outside.
+export component PluginPage inherits SettingsFrame {
+    panel-width: PluginList.page-width;
+    shadow: true;
+    panel-top: Tokens.color-surface;
+    panel-bottom: Tokens.color-panel;
+    wash: false;
+    title: Vm.plugin-page.plugin.name;
+    // The emulator's build first: the plugin's own version is a detail.
+    note: root.theme ? "Theme · " + Vm.plugin-page.plugin.version
+        : Vm.plugin-page.plugin.kind == "service" ? "Service · plugin " + Vm.plugin-page.plugin.version
+        : (Vm.plugin-page.plugin.build != "" ? "Emulator " + Vm.plugin-page.plugin.build-label : "Emulator · not installed")
+            + " · plugin " + Vm.plugin-page.plugin.version;
+    property <bool> on: Vm.plugin-page.plugin.enabled;
+    property <bool> theme: Vm.plugin-page.plugin.kind == "theme";
+    property <bool> installed: Vm.plugin-page.emulator.installed.length > 0;
+    // Another plugin opens in the sheet: its page starts at the top, on its first row.
+    property <string> shown: Vm.plugin-page.plugin.id;
+    changed shown => {
+        Prefs.reset();
+        root.to-top();
+    }
+
+    // ---------------------------------------------------------------- THEME
+    if root.theme : PageSection {
+        section: 0;
+        show(y) => { root.show-at(y); }
+        Row {
+            label: "Use this theme";
+            hint: Vm.plugin-page.current ? "This is the theme you see. Pick another one to change it" : "Changes the whole look";
+            focused: Prefs.is(0, 0);
+            first: true;
+            last: true;
+            accessible-role: button;
+            accessible-label: "theme-current";
+            accessible-value: Vm.plugin-page.current ? "on" : "off";
+            accessible-action-default => { self.use(); }
+            reveal(y, h) => { root.reveal(y, h); }
+            clicked => { Prefs.section = 0; Prefs.row = 0; self.use(); }
+            property <int> seen: Prefs.serial;
+            changed seen => { if (self.focused && (Prefs.pending == 0 || Prefs.pending > 0)) { self.use(); } }
+            function use() {
+                if (!Vm.plugin-page.current) { Host.switch-theme(Vm.plugin-page.plugin.id); }
+            }
+            Value { kind: "toggle"; on: Vm.plugin-page.current; }
+        }
+        if !Vm.plugin-page.current : Text {
+            text: "Use it to change its options";
+            font-size: 16 * Look.tpx;
+            color: Look.text3;
+            horizontal-alignment: Look.rtl ? right : left;
+            height: self.preferred-height + 14 * Look.px;
+            vertical-alignment: bottom;
+        }
+    }
+    if root.theme && Prefs.sections > 1 : PageSection {
+        section: 1;
+        show(y) => { root.show-at(y); }
+        for option[i] in Vm.theme-options : FieldRow {
+            field: option;
+            section: 1;
+            index: i;
+            first: i == 0;
+            last: i == Vm.theme-options.length - 1;
+            accessible-role: button;
+            accessible-label: "option:" + option.key;
+            accessible-value: option.value;
+            reveal(y, h) => { root.reveal(y, h); }
+            set(value) => { Commands.set-theme-option(option.key, value); }
+        }
+    }
+
+    // ---------------------------------------------------------------- GENERAL
+    // Sections 0 ("Turned on") and 1 (the build and the actions), under one header.
+    if !root.theme : PageSection {
+        section: 0;
+        show(y) => { root.show-at(y); }
+        if Vm.plugin-page.plugin.note != "" : Text {
+            text: Vm.plugin-page.plugin.note;
+            font-size: 16 * Look.tpx;
+            color: Tokens.color-warning;
+            wrap: word-wrap;
+            horizontal-alignment: Look.rtl ? right : left;
+            accessible-role: text;
+            accessible-label: "plugin-note";
+            accessible-value: self.text;
+        }
+        if Vm.plugin-page.plugin.note != "" : Rectangle { height: 14 * Look.px; }
+        Row {
+            label: "Turned on";
+            hint: !root.on ? "Turn it on to see its settings"
+                : Vm.plugin-page.plugin.kind == "service" ? "It adds to your games: their art and details"
+                : "Its games, builds and settings are in the app";
+            focused: Prefs.is(0, 0);
+            first: true;
+            last: true;
+            accessible-role: button;
+            accessible-label: "plugin-enabled";
+            accessible-value: root.on ? "on" : "off";
+            accessible-action-default => { self.flip(); }
+            reveal(y, h) => { root.reveal(y, h); }
+            clicked => { Prefs.section = 0; Prefs.row = 0; self.flip(); }
+            property <int> seen: Prefs.serial;
+            changed seen => { if (self.focused && (Prefs.pending == 0 || (Prefs.pending > 0) != root.on)) { self.flip(); } }
+            function flip() { Commands.set-plugin-enabled(Vm.plugin-page.plugin.id, !root.on); }
+            Value { kind: "toggle"; on: root.on; }
+        }
+
+        // The build and the actions: one card under "Turned on", with a gap between, as
+        // Settings' cards have.
+        if Prefs.builds + Prefs.actions > 0 : Rectangle { height: 24 * Look.px; }
+        if Prefs.builds > 0 : Row {
+            label: Vm.plugin-page.emulator.name;
+            hint: Vm.plugin-page.emulator.status;
+            focused: Prefs.is(1, 0);
+            first: true;
+            last: Prefs.builds + Prefs.actions == 1;
+            accessible-role: button;
+            accessible-label: "build";
+            accessible-action-default => { self.run(); }
+            reveal(y, h) => { root.reveal(y, h); }
+            clicked => { Prefs.section = 1; Prefs.row = 0; self.run(); }
+            property <int> seen: Prefs.serial;
+            changed seen => { if (self.focused && Prefs.pending == 0) { self.run(); } }
+            function run() {
+                if (Vm.plugin-page.emulator.busy) { return; }
+                if (!root.installed) { Commands.install(Vm.plugin-page.emulator.plugin, ""); }
+                else if (Vm.plugin-page.emulator.update != "") { Commands.update(Vm.plugin-page.emulator.plugin); }
+            }
+            Value {
+                kind: Vm.plugin-page.emulator.busy || (root.installed && Vm.plugin-page.emulator.update == "") ? "text" : "action";
+                text: Vm.plugin-page.emulator.busy ? "Working…"
+                    : !root.installed ? "Install"
+                    : Vm.plugin-page.emulator.update != "" ? "Update to " + Vm.plugin-page.emulator.update
+                    : Vm.plugin-page.emulator.installed[Vm.plugin-page.emulator.installed.length - 1] + " · Up to date";
+                tone: Vm.plugin-page.emulator.busy ? 0 : !root.installed || Vm.plugin-page.emulator.update != "" ? 3 : 1;
+            }
+        }
+        if Prefs.builds > 1 : Row {
+            label: "Uninstall " + Vm.plugin-page.emulator.installed[Vm.plugin-page.emulator.installed.length - 1];
+            danger: true;
+            focused: Prefs.is(1, 1);
+            last: Vm.plugin-page.actions.length == 0;
+            accessible-role: button;
+            accessible-label: "uninstall";
+            accessible-action-default => { self.run(); }
+            reveal(y, h) => { root.reveal(y, h); }
+            clicked => { Prefs.section = 1; Prefs.row = 1; self.run(); }
+            property <int> seen: Prefs.serial;
+            changed seen => { if (self.focused && Prefs.pending == 0) { self.run(); } }
+            function run() {
+                if (!Vm.plugin-page.emulator.busy) {
+                    Commands.uninstall(Vm.plugin-page.emulator.plugin, Vm.plugin-page.emulator.installed[Vm.plugin-page.emulator.installed.length - 1]);
+                }
+            }
+        }
+        // The plugin's actions: check for builds, go back, use your own build, install a
+        // game, refresh a catalog.
+        for action[i] in (Prefs.actions > 0 ? Vm.plugin-page.actions : []) : Row {
+            label: action.text;
+            focused: Prefs.is(1, Prefs.builds + i);
+            first: Prefs.builds == 0 && i == 0;
+            last: i == Vm.plugin-page.actions.length - 1;
+            accessible-role: button;
+            accessible-label: action.label;
+            accessible-action-default => { self.run(); }
+            reveal(y, h) => { root.reveal(y, h); }
+            clicked => { Prefs.section = 1; Prefs.row = Prefs.builds + i; self.run(); }
+            property <int> seen: Prefs.serial;
+            changed seen => { if (self.focused && Prefs.pending == 0) { self.run(); } }
+            function run() { Commands.run-action(action.plugin, action.action, "", action.args); }
+            Value { text: "›"; }
+        }
+    }
+
+    // ---------------------------------------------------------------- SETTINGS
+    // One section for each settings panel. The first panel holds the page's folders, right
+    // after one field.
+    for panel[p] in (root.on && !root.theme ? Vm.plugin-page.settings : []) : panelrows := PageSection {
+        section: p + 2;
+        show(y) => { root.show-at(y); }
+        accessible-role: text;
+        accessible-label: panel.slot.label;
+        property <int> held: p == 0 ? Vm.plugin-page.folders.length : 0;
+        property <int> after: p == 0 && panelrows.held > 0 ? Vm.plugin-page.folders-after : panel.fields.length - 1;
+        for field[i] in panel.fields : VerticalLayout {
+            if i <= panelrows.after : FieldRow {
+                field: field;
+                section: p + 2;
+                index: i;
+                first: i == 0;
+                last: i == panel.fields.length - 1 && panelrows.held == 0;
+                reveal(y, h) => { root.reveal(y, h); }
+                set(value) => { Commands.set-setting(panel.slot.plugin, panel.slot.scope, field.key, value); }
+            }
+        }
+        for folder[k] in (p == 0 ? Vm.plugin-page.folders : []) : FolderRow {
+            folder: folder;
+            section: 2;
+            index: panelrows.after + 1 + k;
+            first: panelrows.after < 0 && k == 0;
+            last: panelrows.after == panel.fields.length - 1 && k == panelrows.held - 1;
+            reveal(y, h) => { root.reveal(y, h); }
+        }
+        for field[i] in panel.fields : VerticalLayout {
+            if i > panelrows.after : FieldRow {
+                field: field;
+                section: p + 2;
+                index: i + panelrows.held;
+                first: false;
+                last: i == panel.fields.length - 1;
+                reveal(y, h) => { root.reveal(y, h); }
+                set(value) => { Commands.set-setting(panel.slot.plugin, panel.slot.scope, field.key, value); }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- FOLDERS
+    // The page's folders, when it has no settings panel to hold them.
+    if root.on && Prefs.folders-tab : PageSection {
+        section: Prefs.panels + 2;
+        show(y) => { root.show-at(y); }
+        for folder[i] in Vm.plugin-page.folders : FolderRow {
+            folder: folder;
+            section: Prefs.panels + 2;
+            index: i;
+            first: i == 0;
+            last: i == Vm.plugin-page.folders.length - 1;
+            reveal(y, h) => { root.reveal(y, h); }
+        }
+    }
+
+    // ---------------------------------------------------------------- ABOUT
+    // What the plugin says of itself, after everything the player sets: its blocks, its sections
+    // of facts and an emulator's controllers. The last section.
+    if Prefs.about : PageSection {
+        section: Prefs.about-section;
+        show(y) => { root.show-at(y); }
+        // The plugin's blocks: facts, bars, buttons and switches under a title. Their buttons
+        // are the section's rows.
+        for block in (root.on ? Vm.plugin-page.blocks : []) : VerticalLayout {
+            accessible-role: groupbox;
+            accessible-label: block.label;
+            Header { text: block.text.to-uppercase(); }
+            for row[i] in block.rows : blockrow := Row {
+                property <int> place: row.at;
+                // A row the player types a line into, while it is focused.
+                property <bool> typing: row.input && Prefs.editing && self.focused;
+                label: row.label;
+                hint: row.hint;
+                hint-kind: row.tone == "success" ? 1 : row.tone == "danger" ? 2 : 0;
+                progress: row.progress;
+                inert: row.action == "";
+                focused: row.at >= 0 && Prefs.is(Prefs.about-section, self.place);
+                first: i == 0;
+                last: i == block.rows.length - 1;
+                accessible-role: button;
+                accessible-label: "block-row:" + row.label;
+                accessible-value: row.switch != "" ? row.switch : row.value;
+                accessible-action-default => { self.run(); }
+                reveal(y, h) => { root.reveal(y, h); }
+                clicked => { if (row.at >= 0) { Prefs.section = Prefs.about-section; Prefs.row = self.place; self.run(); } }
+                property <int> seen: Prefs.serial;
+                // Return runs it; left and right turn a switch off and on.
+                changed seen => {
+                    if (self.focused && !Prefs.editing && (Prefs.pending == 0 || (row.switch != "" && (Prefs.pending > 0) != (row.switch == "on")))) { self.run(); }
+                }
+                // An input row opens an editor; any other action runs at once.
+                function run() {
+                    if (row.input) { Prefs.edit-text = row.value; Prefs.editing = true; }
+                    else if (row.action != "") { Commands.run-action(block.plugin, row.action, "", row.args); }
+                }
+                if !blockrow.typing : Value {
+                    kind: row.switch != "" ? "toggle" : "text";
+                    on: row.switch == "on";
+                    text: row.input ? (row.value != "" ? row.value : "—")
+                        : row.action != "" && row.switch == "" ? (row.value != "" ? row.value + "  ›" : "›") : row.value;
+                    tone: row.tone == "success" ? 1 : row.tone == "danger" ? 2 : row.tone == "warning" ? 4 : 0;
+                }
+                if blockrow.typing : Editor {
+                    horizontal-stretch: 2;
+                    title: row.label;
+                    done(text) => { Commands.run-action(block.plugin, row.action, "", Json.text(text)); }
+                }
+            }
+        }
+
+        // The plugin's sections (facts in cards) and the emulator's controllers.
+        if root.on : VerticalLayout {
+            padding-top: 24 * Look.px;
+            spacing: 22 * Look.px;
+            // Tests find the blocks by this label.
+            accessible-role: text;
+            accessible-label: "plugin-blocks";
+            SlotSections { items: Vm.plugin-page.sections; }
+            if Vm.plugin-page.has-emulator && Vm.plugin-page.emulator.controllers != "" : Text {
+                text: "Controllers: " + Vm.plugin-page.emulator.controllers;
+                font-size: 17 * Look.px;
+                color: Tokens.color-text-muted;
+                wrap: word-wrap;
+                horizontal-alignment: Look.rtl ? right : left;
+                accessible-role: text;
+                accessible-label: "controllers:" + Vm.plugin-page.emulator.plugin;
+                accessible-value: self.text;
+            }
+        }
+    }
+}

@@ -1,0 +1,683 @@
+//! Settings: the rows, the keys through them, the VPN and the theme's options.
+
+use super::*;
+
+#[test]
+fn settings_show_this_pc_and_how_each_emulator_runs_on_it() {
+    let specs = launcher_core::Specs {
+        cpu: "Apple M4 Max".into(),
+        cores: 14,
+        threads: 14,
+        memory_gb: 36.0,
+        avx2: None,
+        gpus: Some(vec![launcher_core::Gpu {
+            name: "Apple M4 Max".into(),
+            memory_gb: None,
+            discrete: false,
+            unified: true,
+            vulkan: Some((1, 3)),
+        }]),
+    };
+    let mut host =
+        composed(|h| h.hardware(specs).plugin(FakeCatalog::new("emu-a").playable().games(["Alpha"]).build()));
+    host.ui.start().unwrap();
+    host.until(Area::Hardware, |core| core.view().settings.hardware.known);
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    host.settings_tab("This PC");
+
+    assert_eq!(host.values("pc-cpu"), ["Apple M4 Max · 14 cores"]);
+    assert_eq!(host.values("pc-memory"), ["36 GB"]);
+    assert_eq!(host.values("pc-graphics"), ["Apple M4 Max · shared memory · Vulkan 1.3"]);
+    assert_eq!(host.values("pc-verdict"), ["emu-a: Should run well"], "a plugin that asks for nothing");
+}
+
+#[test]
+fn with_two_monitors_settings_choose_the_one_the_launcher_fills() {
+    let mut host = classic_theme();
+    host.ui.set_monitors(vec!["Built-in Retina Display".into(), "LEN G32qc-10".into()]);
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    host.settings_tab("Launcher");
+    host.press("monitor", "");
+    assert_eq!(host.core().prefs().monitor.as_deref(), Some("LEN G32qc-10"), "the next monitor after the one it is on");
+    host.ui.render().unwrap();
+    host.settle();
+    host.press("monitor", "LEN G32qc-10");
+    assert_eq!(host.core().prefs().monitor.as_deref(), Some("Built-in Retina Display"), "round again");
+}
+
+#[test]
+fn the_layout_direction_option_exists_but_the_theme_page_does_not_offer_it() {
+    let host = classic_theme();
+    let options = &host.ui.resolved().unwrap().merged.option_values;
+    let mut names: Vec<&str> = options.keys().map(String::as_str).collect();
+    names.sort();
+    // Animations is the launcher's own setting now (Settings → Launcher), not the theme's.
+    assert_eq!(names, ["direction"]);
+    let choice = |name: &str| match &options[name] {
+        launcher_ui_api::OptionValue::Choice(c) => c.clone(),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(choice("direction"), "ltr");
+    let mut host = host;
+    host.dispatch(Command::Navigate(launcher_core::Route::Plugin("classic".parse().unwrap())));
+    host.settle();
+    assert_eq!(host.count("option:direction"), 0, "Layout direction is hidden for now");
+}
+
+#[test]
+fn the_keys_move_down_the_settings_page_and_change_the_focused_row() {
+    use slint::platform::Key;
+    let mut host = classic_theme();
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+
+    // The Games tab, right into its first row: Enter on "Rescan game folders" scans the folders
+    // again.
+    host.settings_tab("Games");
+    host.navigate(Key::RightArrow);
+    let text: slint::SharedString = Key::Return.into();
+    host.instance().window().dispatch_event(slint::platform::WindowEvent::KeyPressed { text });
+    let asked =
+        host.requests.borrow().iter().any(|r| {
+            matches!(r, launcher_ui_host::UiRequest::Core(Command::Library(launcher_core::LibraryCmd::Refresh)))
+        });
+    assert!(asked, "Enter on Rescan asks the core to scan");
+    host.pump();
+
+    // One page, in its order: Down from GAMES' last row goes on into DOWNLOADS: "Download only
+    // through a VPN", then down past the row that says there is no VPN and "Add a VPN" to "Keep
+    // sharing finished downloads". Every section's rows are on the page.
+    host.navigate(Key::DownArrow);
+    assert_eq!(lit_section(&host), "Downloads", "the rail follows the focus");
+    host.navigate(Key::Return);
+    assert_eq!(host.first("vpn-only").accessible_value().as_deref(), Some("on"), "Enter turns the VPN switch on");
+    for _ in 0..3 {
+        host.navigate(Key::DownArrow);
+    }
+    assert_eq!(host.first("seed-downloads").accessible_value().as_deref(), Some("on"));
+    host.navigate(Key::Return);
+    assert_eq!(host.first("seed-downloads").accessible_value().as_deref(), Some("off"), "Enter stops sharing");
+    // Down at Downloads' last row goes on into LAUNCHER's first row; down to "Interface sounds"
+    // and "Start at login".
+    host.navigate(Key::DownArrow);
+    assert_eq!(lit_section(&host), "Launcher");
+    for _ in 0..3 {
+        host.navigate(Key::DownArrow);
+    }
+    assert_eq!(host.first("sounds").accessible_value().as_deref(), Some("on"));
+    host.navigate(Key::Return);
+    assert_eq!(host.first("sounds").accessible_value().as_deref(), Some("off"), "Enter turns the sounds off");
+    host.navigate(Key::DownArrow);
+    assert_eq!(host.first("start-at-login").accessible_value().as_deref(), Some("off"));
+    // L1 jumps back a section at a time: Downloads, then GAMES, the first.
+    host.navigate(Key::Backtab);
+    host.navigate(Key::Backtab);
+    assert_eq!(lit_section(&host), "Games");
+    // L1 from the first section goes round to POWER, the last: "Quit Marah Launcher".
+    host.navigate(Key::Backtab);
+    assert_eq!(lit_section(&host), "Power");
+    assert_eq!(host.count("option:direction"), 0, "no theme options in Settings");
+    let text: slint::SharedString = Key::Return.into();
+    host.instance().window().dispatch_event(slint::platform::WindowEvent::KeyPressed { text });
+    let quit = host.requests.borrow().iter().any(|r| matches!(r, launcher_ui_host::UiRequest::Quit));
+    assert!(quit, "Enter on Quit closes the launcher");
+    host.pump();
+}
+
+#[test]
+fn settings_keep_the_launcher_behind_a_closed_game() {
+    let mut host = composed(|h| h);
+    host.ui.start().unwrap();
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    host.settings_tab("Launcher");
+    assert_eq!(host.first("return-on-exit").accessible_value().as_deref(), Some("on"), "on by default");
+
+    host.first("return-on-exit").invoke_accessible_default_action();
+    host.pump();
+    host.settle();
+
+    assert_eq!(host.first("return-on-exit").accessible_value().as_deref(), Some("off"));
+    assert!(!host.core().prefs().return_on_exit);
+}
+
+#[test]
+fn settings_turn_automatic_updates_off() {
+    // The row is in the UPDATES section, which lists the emulators.
+    let mut host = composed(|h| {
+        h.plugin(FakeCatalog::new("emu-x").named("Emu").playable().needing_its_emulator().games(["Astro"]).build())
+    });
+    host.ui.start().unwrap();
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    host.settings_tab("Updates");
+    assert_eq!(host.first("auto-update").accessible_value().as_deref(), Some("on"));
+    host.first("auto-update").invoke_accessible_default_action();
+    host.pump();
+    host.settle();
+    assert_eq!(host.first("auto-update").accessible_value().as_deref(), Some("off"));
+    assert!(!host.core().view().settings.auto_update);
+}
+
+#[test]
+fn settings_turn_installing_emulators_automatically_off() {
+    // The row is under "Update automatically", in the UPDATES section.
+    let mut host = composed(|h| {
+        h.plugin(FakeCatalog::new("emu-x").named("Emu").playable().needing_its_emulator().games(["Astro"]).build())
+    });
+    host.ui.start().unwrap();
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    host.settings_tab("Updates");
+    assert_eq!(host.first("auto-install").accessible_value().as_deref(), Some("on"));
+    host.first("auto-install").invoke_accessible_default_action();
+    host.pump();
+    host.settle();
+    assert_eq!(host.first("auto-install").accessible_value().as_deref(), Some("off"));
+    assert!(!host.core().view().settings.auto_install);
+    assert!(host.core().view().settings.auto_update, "Update automatically stays as it was");
+}
+
+/// The keys reach each row of Updates in turn: Update automatically, Install emulators
+/// automatically, then the launcher's update.
+#[test]
+fn the_keys_reach_install_emulators_automatically_then_the_launcher_s_update() {
+    use launcher_core::launcher_update::{Install, package_key};
+    use slint::platform::Key;
+    let latest = "https://github.com/owner/marah-launcher/releases/latest/download/latest.json";
+    let url = "https://github.com/owner/marah-launcher/releases/download/v9.9.9/marah-launcher-9.9.9.x86_64.rpm";
+    let mut host = composed(|h| {
+        let h = h.install(Install::Rpm);
+        let sha = h.http().serve(url, b"a package".to_vec());
+        let key = package_key(Install::Rpm).unwrap();
+        let manifest = serde_json::json!({ "version": "9.9.9", "assets": { key: { "url": url, "sha256": sha } } });
+        h.http().serve(latest, manifest.to_string().into_bytes());
+        h
+    });
+    host.core().kernel().config().set(&["app", "update_repo"], "owner/marah-launcher".into()).unwrap();
+    host.ui.start().unwrap();
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    host.settings_tab("Updates");
+    host.navigate(Key::RightArrow);
+
+    host.navigate(Key::DownArrow);
+    host.navigate(Key::Return);
+    let settings = host.core().view().settings;
+    assert!(!settings.auto_install, "the second row is Install emulators automatically");
+    assert!(settings.auto_update, "not Update automatically");
+
+    host.navigate(Key::DownArrow);
+    host.navigate(Key::Return);
+    host.pump();
+    host.settle();
+    assert_eq!(host.first("launcher-update").accessible_value().as_deref(), Some("available"), "the third row");
+}
+
+#[test]
+fn settings_change_the_size_of_everything_and_the_rows_grow_with_it() {
+    use slint::platform::Key;
+    let mut host = classic_theme();
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    host.settings_tab("Launcher");
+    assert_eq!(host.values("scale"), ["1.0"]);
+    let before = host.first("fullscreen").size().height;
+
+    host.press("scale", "1.0");
+    assert_eq!(host.core().view().settings.scale, 1.1);
+    assert_eq!(host.values("scale"), ["1.1"]);
+    assert!(host.first("fullscreen").size().height > before, "everything draws bigger at once");
+
+    // Right into the rows, past Full screen to the size: right is bigger, left smaller.
+    host.navigate(Key::RightArrow);
+    host.navigate(Key::DownArrow);
+    host.navigate(Key::RightArrow);
+    assert_eq!(host.values("scale"), ["1.2"]);
+    host.navigate(Key::LeftArrow);
+    host.navigate(Key::LeftArrow);
+    assert_eq!(host.values("scale"), ["1.0"]);
+    // The largest goes round to the smallest.
+    host.dispatch(Command::Pref(Pref::Scale, 1.4.into()));
+    host.settle();
+    host.press("scale", "1.4");
+    assert_eq!(host.values("scale"), ["0.8"]);
+}
+
+#[test]
+fn marah_scale_wins_over_the_setting_for_the_run() {
+    let mut host = classic_theme();
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    host.settings_tab("Launcher");
+    let before = host.first("fullscreen").size().height;
+    host.ui.set_size(1.3);
+    host.ui.render().unwrap();
+    host.settle();
+    assert!(host.first("fullscreen").size().height > before);
+    assert_eq!(host.values("scale"), ["1.0"], "the setting stays");
+    let hint = host.first("scale").accessible_description().unwrap_or_default();
+    assert_eq!(hint.as_str(), "MARAH_SCALE sets it for this run");
+}
+
+#[test]
+fn settings_start_the_launcher_at_login_and_say_why_the_system_refused() {
+    let mut host = classic_theme();
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    host.settings_tab("Launcher");
+    host.press("start-at-login", "off");
+    assert_eq!(host.values("start-at-login"), ["on"]);
+    assert_eq!(host.test.login_session.logins(), [true]);
+
+    // The app logs a command that fails; the row says why.
+    host.test.login_session.refuse_login("reg.exe: access is denied");
+    host.first("start-at-login").invoke_accessible_default_action();
+    let asked: Vec<_> = host.requests.borrow_mut().drain(..).collect();
+    for request in asked {
+        if let launcher_ui_host::UiRequest::Core(command) = request {
+            assert!(host.rt.block_on(host.test.core.dispatch(command)).is_err());
+        }
+    }
+    host.ui.render().unwrap();
+    host.settle();
+    assert_eq!(host.values("start-at-login"), ["on"], "it stays as it was");
+    let why = host.first("start-at-login").accessible_description().unwrap_or_default();
+    assert_eq!(why.as_str(), "reg.exe: access is denied");
+}
+
+#[test]
+fn settings_hide_start_at_login_for_a_build_that_isn_t_installed() {
+    let mut host = composed(|h| {
+        h.login_session().no_login();
+        h
+    });
+    host.ui.start().unwrap();
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    host.settings_tab("Launcher");
+    assert_eq!(host.count("start-at-login"), 0);
+}
+
+#[test]
+fn settings_have_no_emulator_settings() {
+    let mut host = composed(|h| h.built_in(launcher_api::PluginBox::code(emu_kyty::KytyPlugin)));
+    host.ui.start().unwrap();
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    host.settings_tab("Games");
+    assert_eq!(host.count("setting:fullscreen"), 0, "they are on the plugin's page");
+    assert_eq!(host.count("folder:kyty-build"), 0, "and so are its own folders");
+    assert_eq!(host.count("folder:games"), 1, "the game folders stay");
+    assert_eq!(host.count("folder:packages"), 1, "and the packages folder, once for every emulator");
+}
+
+#[test]
+fn the_window_is_full_screen_by_default_and_settings_turn_it_off() {
+    let mut host = classic_theme();
+    assert!(host.instance().window().is_fullscreen(), "full screen by default");
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    host.settings_tab("Launcher");
+    assert_eq!(host.first("fullscreen").accessible_value().as_deref(), Some("on"));
+    host.first("fullscreen").invoke_accessible_default_action();
+    host.pump();
+    host.settle();
+    assert!(!host.instance().window().is_fullscreen());
+    assert_eq!(host.first("fullscreen").accessible_value().as_deref(), Some("off"));
+}
+
+/// Settings, down to the DOWNLOADS section, on a host whose VPNs `vpns` sets.
+fn downloads_settings(vpns: impl FnOnce(&launcher_testkit::FakeNetwork)) -> Composed {
+    let mut host = composed(|h| {
+        vpns(h.network());
+        h
+    });
+    host.ui.start().unwrap();
+    host.resize(1600.0, 900.0);
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    host.settings_tab("Downloads");
+    host
+}
+
+#[test]
+fn settings_list_the_vpns_and_say_where_downloads_go() {
+    let mut host = downloads_settings(|n| {
+        n.up("wg0");
+        n.down("work");
+    });
+    assert_eq!(host.values("vpn"), ["wg0", "work"]);
+    assert_eq!(host.description("vpn-only"), "Hides your IP address from other peers · uses your own VPN");
+
+    host.press("vpn-only", "off");
+    assert_eq!(host.values("vpn-only"), ["on"]);
+    assert_eq!(host.description("vpn-only"), "Protected · downloads only use wg0");
+    assert_eq!(host.description("vpn"), "WireGuard · connected · downloads use it");
+
+    // Enter on a VPN the system can switch connects or disconnects it.
+    host.press("vpn", "work");
+    host.press("vpn", "wg0");
+    assert_eq!(host.test.network.calls(), ["connect work", "disconnect wg0"]);
+    assert_eq!(host.description("vpn-only"), "Protected · downloads only use work");
+}
+
+#[test]
+fn settings_add_a_vpn_from_the_file_the_player_types() {
+    let mut host = downloads_settings(|_| {});
+    assert_eq!(host.count("vpn-none"), 1);
+    host.first("vpn-import").invoke_accessible_default_action();
+    host.settle();
+    let file = full_path("/vpn/se-1.conf");
+    host.send_text(&file);
+    host.navigate(slint::platform::Key::Return);
+    let calls = host.test.network.calls();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls, [format!("import {file}")]);
+    assert_eq!(host.values("vpn"), ["se-1"]);
+}
+
+#[test]
+fn where_the_system_can_t_tell_a_vpn_the_player_picks_the_network() {
+    let mut host = downloads_settings(|n| {
+        n.picks_only();
+        n.up("en0");
+        n.up("utun4");
+    });
+    host.press("vpn-only", "off");
+    assert_eq!(host.description("vpn-only"), "Downloads wait until you pick the network your VPN uses");
+    host.press("vpn", "utun4");
+    assert_eq!(host.core().view().settings.vpn.chosen, "utun4");
+    assert_eq!(host.description("vpn-only"), "Protected · downloads only use utun4");
+    assert!(host.test.network.calls().is_empty(), "nothing is connected for the player");
+}
+
+#[test]
+fn where_downloads_can_t_be_bound_the_vpn_switch_says_why_and_stays_off() {
+    let mut host = downloads_settings(|n| n.unavailable("Not available on Windows"));
+    assert_eq!(host.description("vpn-only"), "Not available on Windows");
+    assert_eq!((host.count("vpn"), host.count("vpn-none"), host.count("vpn-import")), (0, 0, 0));
+    host.press("vpn-only", "off");
+    assert_eq!(host.values("vpn-only"), ["off"]);
+}
+
+#[test]
+fn a_packaged_install_updates_from_settings_then_offers_a_restart() {
+    use launcher_core::launcher_update::{Install, package_key};
+    let latest = "https://github.com/owner/marah-launcher/releases/latest/download/latest.json";
+    let url = "https://github.com/owner/marah-launcher/releases/download/v9.9.9/marah-launcher-9.9.9.x86_64.rpm";
+    let mut host = composed(|h| {
+        let h = h.install(Install::Rpm);
+        let sha = h.http().serve(url, b"a package".to_vec());
+        let key = package_key(Install::Rpm).unwrap();
+        let manifest = serde_json::json!({ "version": "9.9.9", "assets": { key: { "url": url, "sha256": sha } } });
+        h.http().serve(latest, manifest.to_string().into_bytes());
+        h
+    });
+    host.core().kernel().config().set(&["app", "update_repo"], "owner/marah-launcher".into()).unwrap();
+    host.ui.start().unwrap();
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    host.settings_tab("Updates");
+
+    host.first("launcher-update").invoke_accessible_default_action();
+    host.pump();
+    host.settle();
+    assert_eq!(host.first("launcher-update").accessible_value().as_deref(), Some("available"));
+
+    host.first("launcher-update").invoke_accessible_default_action();
+    host.pump();
+    host.settle();
+    assert_eq!(host.first("launcher-update").accessible_value().as_deref(), Some("installed"));
+
+    host.first("launcher-update").invoke_accessible_default_action();
+    let asked = host.requests.borrow().iter().any(|r| matches!(r, launcher_ui_host::UiRequest::Restart));
+    assert!(asked, "the installed update offers a restart");
+}
+
+/// Settings with the backup folder in `backups`.
+fn backup_tab(backups: &std::path::Path) -> Composed {
+    let mut host = composed(|h| h);
+    host.ui.start().unwrap();
+    let folder = serde_json::json!(backups.display().to_string());
+    host.dispatch(Command::Pref(launcher_core::Pref::BackupFolder, folder));
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    host.settings_tab("Backup");
+    // The tab asks for the list and what a backup holds as it opens.
+    host.pump();
+    host.settle();
+    host
+}
+
+#[test]
+fn backup_backs_up_lists_the_file_and_restores_it_from_its_menu() {
+    let backups = tempfile::tempdir().unwrap();
+    let mut host = backup_tab(backups.path());
+    assert_eq!(host.value("backup-folder"), backups.path().display().to_string());
+    assert_eq!(host.count("backup"), 0);
+
+    host.press_first("back-up");
+    host.settle();
+    assert_eq!(host.count("backup"), 1, "the new backup is listed");
+    assert!(host.description("back-up").starts_with("Backed up to marah-backup-"), "{}", host.description("back-up"));
+
+    let file = host.value("backup");
+    host.press("backup", &file);
+    assert_eq!(host.description("backup"), "menu:Restore", "the first press opens its menu");
+    host.press("backup", &file);
+    assert_eq!(host.description("backup"), "armed:Restore", "Restore asks again");
+    assert_eq!(host.count("backup-restart"), 0);
+    host.press("backup", &file);
+    host.settle();
+    assert_eq!(host.count("backup"), 2, "with the backup of what was here before");
+    assert_eq!(host.count("backup-restart"), 1, "Restart Marah Launcher finishes the restore");
+}
+
+#[test]
+fn the_backup_folder_row_takes_a_typed_folder() {
+    let (backups, other) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let mut host = backup_tab(backups.path());
+    std::fs::write(other.path().join("marah-backup-not-really.tar.gz"), b"no").unwrap();
+    host.dispatch(Command::Pref(
+        launcher_core::Pref::BackupFolder,
+        serde_json::json!(other.path().display().to_string()),
+    ));
+    host.settle();
+    assert_eq!(host.value("backup-folder"), other.path().display().to_string());
+    assert_eq!(host.count("backup"), 0, "a file that isn't a backup isn't listed");
+}
+
+#[test]
+fn a_backup_s_menu_deletes_it_with_the_keys_after_asking_again() {
+    use slint::platform::Key;
+    let backups = tempfile::tempdir().unwrap();
+    let mut host = backup_tab(backups.path());
+    host.press_first("back-up");
+    host.settle();
+    // Right from the rail into the rows, down past Back up now, the backup folder and "Restore
+    // from another folder".
+    host.navigate(Key::RightArrow);
+    for _ in 0..3 {
+        host.navigate(Key::DownArrow);
+    }
+    host.navigate(Key::Return);
+    host.navigate(Key::RightArrow);
+    assert_eq!(host.description("backup"), "menu:Delete");
+    host.navigate(Key::Return);
+    assert_eq!(host.description("backup"), "armed:Delete");
+    host.navigate(Key::Return);
+    host.settle();
+    assert_eq!(host.count("backup"), 0);
+    assert!(std::fs::read_dir(backups.path()).unwrap().next().is_none(), "the file is gone");
+}
+
+#[test]
+fn restore_from_another_folder_opens_the_browser_over_settings_and_closing_it_stays_there() {
+    use slint::platform::Key;
+    let (backups, elsewhere) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    std::fs::create_dir_all(elsewhere.path().join("old-pc")).unwrap();
+    let mut host = backup_tab(backups.path());
+    host.dispatch(Command::Backup(launcher_core::BackupCmd::Browse(Some(elsewhere.path().into()))));
+    host.settle();
+    assert_eq!(host.count("backup-browser"), 1, "the browser opens over the tab");
+    assert_eq!(host.values("browser-folder"), ["old-pc"]);
+    host.press_first("browser-folder");
+    host.settle();
+    assert_eq!(host.value("backup-browser"), elsewhere.path().join("old-pc").display().to_string());
+    assert_eq!(host.values("browser-crumb").last().map(String::as_str), Some("old-pc"), "the path shows to go up");
+    // The places, then Back there closes it.
+    host.navigate(Key::LeftArrow);
+    host.navigate(Key::Escape);
+    host.settle();
+    assert_eq!(host.count("backup-browser"), 0, "Back closes the browser");
+    assert_eq!(host.count("back-up"), 1, "and stays in Settings");
+}
+
+#[test]
+fn with_no_large_items_there_is_no_switch_for_them() {
+    let backups = tempfile::tempdir().unwrap();
+    let host = backup_tab(backups.path());
+    assert_eq!(host.count("backup-large"), 0, "no plugin here has large items");
+    assert!(host.description("back-up").starts_with("Marah Launcher settings"), "{}", host.description("back-up"));
+}
+
+/// The lit section of Settings' rail.
+fn lit_section(host: &Composed) -> String {
+    ["Launcher", "Games", "Updates", "Downloads", "This PC", "System", "Backup", "Power"]
+        .into_iter()
+        .find(|name| {
+            i_slint_backend_testing::ElementHandle::find_by_accessible_label(
+                host.instance(),
+                &format!("settings-tab:{name}"),
+            )
+            .any(|e| e.accessible_checked() == Some(true))
+        })
+        .expect("one section is lit")
+        .to_owned()
+}
+
+/// Settings' rail: Up and Down choose the section, Right goes into its rows and Up from the
+/// first row comes back. This PC has no rows: Right reads it, Up and Down scroll it there, and
+/// Left comes back to the rail.
+#[test]
+fn the_rail_chooses_with_up_and_down_and_this_pc_is_read_and_left_again() {
+    use slint::platform::Key;
+    let mut host = classic_theme();
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    host.settings_tab("Games");
+    host.navigate(Key::DownArrow);
+    assert_eq!(lit_section(&host), "Downloads", "Down chooses the next section");
+    host.navigate(Key::UpArrow);
+    host.navigate(Key::UpArrow);
+    assert_eq!(lit_section(&host), "Games", "Up stops at the first");
+
+    host.settings_tab("This PC");
+    host.navigate(Key::RightArrow);
+    host.navigate(Key::DownArrow);
+    assert_eq!(lit_section(&host), "This PC", "reading This PC, Down scrolls it");
+    host.navigate(Key::LeftArrow);
+    host.navigate(Key::DownArrow);
+    assert_ne!(lit_section(&host), "This PC", "Left came back to the rail, and Down chooses again");
+}
+
+/// The mouse wheel scrolls Settings' page and the rail lights the section in view; a key then
+/// lights the focused section again.
+#[test]
+fn the_rail_follows_the_page_the_mouse_wheel_scrolls() {
+    use slint::platform::Key;
+    let mut host = classic_theme();
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    host.settings_tab("Games");
+    assert_eq!(lit_section(&host), "Games");
+
+    host.wheel("settings-page", 60);
+    assert_eq!(lit_section(&host), "Power", "at the end of the page, the last section is lit");
+    host.wheel("settings-page", -60);
+    assert_eq!(lit_section(&host), "Games", "back at the top, the first section is lit");
+
+    host.wheel("settings-page", 60);
+    host.navigate(Key::DownArrow);
+    assert_eq!(lit_section(&host), "Downloads", "a key moves on from the focused section, not the one in view");
+
+    host.wheel("settings-page", 60);
+    host.click("settings-tab:Downloads");
+    assert_eq!(lit_section(&host), "Downloads", "a click on the focused section lights it again");
+}
+
+/// A held Up stops at a section's first row: the rail is one more press away.
+#[test]
+fn a_held_up_stops_at_the_first_row() {
+    use slint::platform::Key;
+    let mut host = classic_theme();
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    // GAMES is the page's first section: into its first row, then Down into DOWNLOADS.
+    host.settings_tab("Games");
+    host.navigate(Key::RightArrow);
+    host.navigate(Key::DownArrow);
+    assert_eq!(lit_section(&host), "Downloads");
+    let held: slint::SharedString = Key::UpArrow.into();
+    for _ in 0..3 {
+        host.instance().window().dispatch_event(slint::platform::WindowEvent::KeyPressRepeated { text: held.clone() });
+    }
+    host.instance().window().dispatch_event(slint::platform::WindowEvent::KeyReleased { text: held });
+    host.pump();
+    // Still on Rescan game folders, the page's first row: Enter asks for a scan.
+    let text: slint::SharedString = Key::Return.into();
+    host.instance().window().dispatch_event(slint::platform::WindowEvent::KeyPressed { text });
+    let asked =
+        host.requests.borrow().iter().any(|r| {
+            matches!(r, launcher_ui_host::UiRequest::Core(Command::Library(launcher_core::LibraryCmd::Refresh)))
+        });
+    assert!(asked, "Enter acted on the first row");
+    assert_eq!(lit_section(&host), "Games");
+}
+
+/// From right to left the rows are on the rail's left: Left goes in.
+#[test]
+fn from_right_to_left_left_goes_into_the_rows() {
+    use slint::platform::Key;
+    let mut host = classic_theme();
+    host.dispatch(Command::SetThemeOption { key: "direction".into(), value: "rtl".into() });
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    // From right to left the rail is on the sheet's far edge, which slides in from the left:
+    // the click waits until it is on screen.
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(1000));
+    host.settle();
+    host.settings_tab("Launcher");
+    host.navigate(Key::LeftArrow);
+    let before = host.core().view().settings.fullscreen;
+    host.navigate(Key::Return);
+    assert_ne!(host.core().view().settings.fullscreen, before, "Left went into the rows: Enter acts on Full screen");
+}
+
+/// Reading This PC, L1 and R1 go to another section's rows as anywhere else: Enter acts on its
+/// first row there.
+#[test]
+fn l1_from_reading_this_pc_goes_to_another_section_s_rows() {
+    use slint::platform::Key;
+    let mut host = classic_theme();
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    host.settings_tab("Updates");
+    host.navigate(Key::RightArrow);
+    let before = host.core().view().settings.auto_update;
+    host.navigate(Key::Return);
+    assert_ne!(host.core().view().settings.auto_update, before, "Enter turns Update automatically");
+    host.navigate(Key::UpArrow);
+    host.settings_tab("This PC");
+    host.navigate(Key::RightArrow);
+    // L1 twice, past Downloads to Updates: its first row takes Enter.
+    host.navigate(Key::Backtab);
+    host.navigate(Key::Backtab);
+    assert_eq!(lit_section(&host), "Updates");
+    let before = host.core().view().settings.auto_update;
+    host.navigate(Key::Return);
+    assert_ne!(host.core().view().settings.auto_update, before, "Enter acts on the row, not on reading");
+}

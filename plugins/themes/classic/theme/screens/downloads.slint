@@ -1,0 +1,7 @@
+import { DownloadsPage } from "../kit/downloads.slint";
+
+// Downloads: the kit's page, drawn in this theme's tokens.
+export component DownloadsScreen inherits DownloadsPage {
+    // While it goes, a click on it does nothing: it can't start what it no longer shows.
+    if !root.open : TouchArea { }
+}

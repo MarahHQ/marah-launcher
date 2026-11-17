@@ -1,0 +1,259 @@
+import { Vm } from "../types.slint";
+import { Commands } from "commands.slint";
+import { SheetFrame } from "sheet-frame.slint";
+import { Tokens } from "../tokens.slint";
+import { Look } from "look.slint";
+import { BackButton } from "widgets.slint";
+import { Icon } from "icon.slint";
+import { Prefs, RailTab } from "settings-rows.slint";
+
+// Each section's name and icon, by its number, on the sheet on screen (see `Prefs`).
+export global Sections {
+    public pure function name(i: int) -> string {
+        Prefs.game-page ? "This game"
+            : Prefs.theme-page ? (i == 0 ? "Theme" : "Options")
+            : Prefs.page ? (i <= 1 ? "General"
+                : i <= Prefs.panels + 1 ? (Prefs.panels == 1 ? "Settings" : Vm.plugin-page.settings[i - 2].slot.text)
+                : Prefs.about && i == Prefs.about-section ? "About"
+                : "Folders")
+            : i == 0 ? "Launcher" : i == 1 ? "Games" : i == 2 ? "Updates"
+            : i == 3 ? "Downloads" : i == 4 ? "This PC" : i == 5 && Vm.system.whole-screen ? "System"
+            : i == Prefs.backup-section ? "Backup" : "Power"
+    }
+    public pure function icon(i: int) -> string {
+        Prefs.game-page ? "gamepad"
+            : Prefs.theme-page ? (i == 0 ? "palette" : "gear")
+            : Prefs.page ? (i <= 1 ? "power" : i <= Prefs.panels + 1 ? "gear"
+                : Prefs.about && i == Prefs.about-section ? "info" : "folder")
+            : i == 0 ? "gear" : i == 1 ? "gamepad" : i == 2 ? "refresh"
+            : i == 3 ? "download" : i == 4 ? "desktop" : i == 5 && Vm.system.whole-screen ? "wifi-4"
+            : i == Prefs.backup-section ? "archive" : "power"
+    }
+}
+
+// Which section the page shows: the sheet asks after the mouse wheel or a drag scrolled it, and
+// the section across the reading line answers by lighting its icon on the rail.
+export global PageScroll {
+    // Counts the asks, so each section sees each one.
+    in-out property <int> asks;
+    // -1 at the very top of the page (the first section is in view), 1 at its end (the last
+    // section is), 0 between.
+    in-out property <int> edge;
+    // The reading line, a third of the way down the page, in the window's coordinates.
+    in-out property <length> line;
+}
+
+// The sections of a sheet as a rail of icons, top to bottom.
+component Rail inherits VerticalLayout {
+    padding-top: 128 * Look.px;
+    padding-left: (Look.rtl ? 0 : 32) * Look.px;
+    padding-right: (Look.rtl ? 32 : 0) * Look.px;
+    spacing: 10 * Look.px;
+    alignment: start;
+    for i in Prefs.tab-count : RailTab {
+        section: Prefs.first-section(i);
+        text: Sections.name(self.section);
+        icon: Sections.icon(self.section);
+        // A launcher update is there to get, or ready: Settings' Updates says so.
+        dot: Vm.screen == "settings" && self.section == 2 && (Vm.launcher-update.state == "available"
+            || Vm.launcher-update.state == "ready" || Vm.launcher-update.state == "installed");
+    }
+}
+
+// A section's header on the page: its icon and its name, as the rail shows them.
+export component SectionHead inherits HorizontalLayout {
+    in property <int> section;
+    padding-top: 36 * Look.px;
+    padding-bottom: 14 * Look.px;
+    spacing: 14 * Look.px;
+    alignment: Look.rtl ? end : start;
+    Icon { width: 30 * Look.px; height: 30 * Look.px; name: Sections.icon(root.section); color: Tokens.color-text; }
+    Text {
+        text: Sections.name(root.section);
+        font-size: 30 * Look.tpx;
+        font-weight: 600;
+        color: Tokens.color-text;
+        vertical-alignment: center;
+        accessible-role: text;
+        accessible-label: "settings-section";
+        accessible-value: self.text;
+    }
+}
+
+// One section of a sheet's page: its header, then its rows (the children). A jump to it (the
+// rail, L1, R1) scrolls its header into view; `show` gets the header's place in the window.
+export component PageSection inherits VerticalLayout {
+    // The section's number; a plugin's General is section 0.
+    in property <int> section;
+    callback show(length);
+    property <int> tab: Prefs.tab-of(root.section);
+    spacing: 0;
+    SectionHead { section: root.section; }
+    @children
+
+    // At once, and again a moment later: the section's first row takes the focus in the same
+    // step, and its own reveal can scroll after this one and leave the header out of view.
+    property <int> jump: Prefs.jump;
+    changed jump => {
+        if (Prefs.current-tab == root.tab) {
+            root.show(self.absolute-position.y);
+            jumper.running = true;
+        }
+    }
+    jumper := Timer {
+        interval: 1ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            root.show(root.absolute-position.y);
+        }
+    }
+    // The page asks which section is in view: the first at the very top, the last at the end,
+    // else the one across the reading line.
+    property <int> asks: PageScroll.asks;
+    changed asks => {
+        let top = self.absolute-position.y;
+        if (PageScroll.edge < 0 ? root.tab == 0
+            : PageScroll.edge > 0 ? root.tab == Prefs.tab-count - 1
+            : top <= PageScroll.line && PageScroll.line < top + self.height) {
+            Prefs.seen = root.section;
+        }
+    }
+}
+
+// The frame of a settings sheet: Settings, a plugin's page and a game's own settings. A header
+// bar (Back on the near side, the title in the middle, a line, then `note`), a rail of the
+// sections' icons on the near side when there are two or more, and the page of sections (the
+// children, each a `PageSection`) that scrolls under the header. From right to left the rail is
+// on the right.
+export component SettingsFrame inherits SheetFrame {
+    in property <string> title;
+    // The line under the header bar.
+    in property <string> note;
+    // The title's label, for a screen reader and a test.
+    in property <string> title-label;
+    panel-width: 1080 * Look.tpx;
+
+    // The wheel starts an animated scroll and says so once, at its start: the rail follows the
+    // page as it moves, until a key, a click or a jump puts `seen` back to -1.
+    property <length> page-y: flick.viewport-y;
+    changed page-y => { if (Prefs.seen >= 0) { root.follow(); } }
+    // A key, a click or a jump moves the focus: the rail lights the focused section again.
+    property <int> focused-tab: Prefs.current-tab;
+    changed focused-tab => { Prefs.seen = -1; }
+    function follow() {
+        PageScroll.edge = flick.viewport-y >= -1px ? -1
+            : flick.viewport-y <= flick.height - flick.viewport-height + 1px ? 1 : 0;
+        PageScroll.line = flick.absolute-position.y + flick.height / 3;
+        PageScroll.asks += 1;
+    }
+
+    // A section with no rows to focus (This PC) scrolls a step at a time.
+    property <int> nudged: Prefs.scroll-serial;
+    changed nudged => {
+        flick.viewport-y = Math.min(0, Math.max(flick.height - flick.viewport-height, flick.viewport-y - Prefs.scroll-by * 160 * Look.px));
+    }
+    // A section goes (Settings' System when the launcher is no longer the whole screen, a
+    // plugin's settings when it is turned off): the focus in it goes to the last section.
+    property <int> count: Prefs.tab-count;
+    changed count => { if (Prefs.current-tab >= self.count) { Prefs.show(self.count - 1); } }
+
+    property <length> rail-width: Prefs.rail ? 104 * Look.px : 0;
+    // The rows' side margins: beside the rail on the near side.
+    property <length> near: Prefs.rail ? root.rail-width + 24 * Look.px : 56 * Look.px;
+    // `parent` here is this sheet, as wide as the window, not its panel: from right to left the
+    // rail goes at the panel's own far edge.
+    if Prefs.rail : Rail {
+        x: Look.rtl ? Math.min(root.width, root.panel-width) - self.width : 0;
+        y: 0;
+        width: 104 * Look.px;
+        height: parent.height;
+    }
+    VerticalLayout {
+        padding-left: Look.rtl ? 56 * Look.px : root.near;
+        padding-right: Look.rtl ? root.near : 56 * Look.px;
+        padding-top: 40 * Look.px;
+        spacing: 0;
+
+        // A short header: Back on the near side, the title in the middle. The sections' headers
+        // and their rows scroll under it.
+        Rectangle {
+            height: 56 * Look.px;
+            BackButton {
+                x: Look.rtl ? parent.width - self.width : 0;
+                y: (parent.height - self.height) / 2;
+                pad: Vm.input-mode == "gamepad";
+                clicked => { Commands.back(); }
+            }
+            // Clear of Back on both sides, so it stays in the middle; a long name is cut short.
+            Text {
+                x: 150 * Look.px;
+                width: parent.width - 300 * Look.px;
+                text: root.title;
+                font-size: 24 * Look.tpx;
+                font-weight: 600;
+                color: Tokens.color-text;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                overflow: elide;
+                accessible-role: text;
+                accessible-label: root.title-label;
+                accessible-value: self.text;
+            }
+        }
+        Rectangle { height: 1px; background: Look.line; }
+        Text {
+            text: root.note;
+            font-size: 16 * Look.tpx;
+            color: Look.text3;
+            horizontal-alignment: Look.rtl ? right : left;
+            height: self.preferred-height + 14 * Look.px;
+            vertical-alignment: bottom;
+            overflow: elide;
+        }
+
+        // The page in a plain box: the Flickable's own width would follow its rows' widths, and
+        // rows that wrap to the page's width would loop back to it.
+        Rectangle {
+            flick := Flickable {
+                width: parent.width;
+                height: parent.height;
+                // Up and down only: nothing drags sideways.
+                viewport-width: self.width;
+                accessible-role: groupbox;
+                accessible-label: "settings-page";
+                // The wheel or a drag scrolled the page: the rail lights the section in view.
+                flicked => { root.follow(); }
+                viewport-height: sheet.preferred-height;
+                animate viewport-y { duration: Tokens.motion-normal; easing: ease-out-quad; }
+
+                sheet := VerticalLayout {
+                    width: parent.width;
+                    padding-bottom: 80 * Look.px;
+                    spacing: 0;
+                    @children
+                }
+            }
+        }
+    }
+
+    // Scrolls the page so a section's header at `y` (in the window) is at its top, or as near
+    // as the page's end allows.
+    // Back to the top of the page, as another page opens in the same sheet.
+    protected function to-top() {
+        flick.viewport-y = 0;
+    }
+    protected function show-at(y: length) {
+        flick.viewport-y = Math.max(flick.height - flick.viewport-height, Math.min(0, flick.viewport-y - (y - flick.absolute-position.y)));
+    }
+    // Scrolls the page so a row at `y` (in the window) and `h` high is in view.
+    protected function reveal(y: length, h: length) {
+        let top = y - flick.absolute-position.y;
+        let margin = 120 * Look.px;
+        if (top + h > flick.height - margin) {
+            flick.viewport-y = Math.max(flick.height - flick.viewport-height, flick.viewport-y - (top + h - flick.height + margin));
+        } else if (top < margin) {
+            flick.viewport-y = Math.min(0, flick.viewport-y + (margin - top));
+        }
+    }
+}

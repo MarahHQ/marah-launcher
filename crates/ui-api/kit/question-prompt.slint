@@ -1,0 +1,104 @@
+import { Vm, Host } from "../types.slint";
+import { Commands } from "commands.slint";
+import { Tokens } from "../tokens.slint";
+import { Look } from "look.slint";
+import { Reveal } from "reveal.slint";
+import { Pill } from "widgets.slint";
+
+// Which button of a plugin's question the keys are on: 0 is its yes, 1 its no.
+export global Question {
+    in-out property <int> focus;
+
+    // Handles a key while the question is up. It takes every key: the question is modal, even
+    // over the boot screen.
+    public function key(text: string) -> bool {
+        // Yes is on the start side: Left, or Right from right to left, goes to it.
+        if (text == Key.LeftArrow || text == Key.RightArrow) {
+            root.focus = (text == Key.RightArrow) == Look.rtl ? 0 : 1;
+            Host.play-sound("move");
+        } else if (text == Key.Return || text == " ") {
+            Commands.answer-question(root.focus == 0);
+            root.focus = 0;
+        } else if (text == Key.Escape || text == Key.Backspace) {
+            Host.play-sound("back");
+            Commands.answer-question(false);
+            root.focus = 0;
+        }
+        true
+    }
+}
+
+// A plugin's question at the start, such as "Install Switch firmware 22.5.0?": the same card as
+// the install prompt, over a dark wash. Put it over the boot screen: the start waits for the
+// answer. `ShellKeys` sends it its keys.
+export component QuestionPrompt inherits Rectangle {
+    reveal := Reveal { }
+    background: reveal.in-view ? Tokens.color-overlay.with-alpha(0.8) : Tokens.color-overlay.with-alpha(0);
+    animate background { duration: Tokens.motion-normal; }
+    TouchArea {}
+
+    Rectangle {
+        width: Math.min(root.width - 80 * Look.px, 820 * Look.px);
+        height: box.preferred-height;
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2 + (1 - reveal.move) * 30 * Look.px;
+        opacity: reveal.fade;
+        border-radius: 24 * Look.px;
+        background: @linear-gradient(130deg, Tokens.color-surface.mix(Tokens.color-accent, 0.9), Tokens.color-surface);
+        border-width: 1px;
+        border-color: Tokens.color-tint.with-alpha(0.141);
+        drop-shadow-blur: 36 * Look.px;
+        drop-shadow-color: Tokens.color-shade.with-alpha(0.533);
+
+        box := VerticalLayout {
+            padding: 40 * Look.px;
+            spacing: 18 * Look.px;
+            Text {
+                text: Vm.question.title;
+                font-size: 38 * Look.px;
+                font-weight: 600;
+                color: Tokens.color-text;
+                wrap: word-wrap;
+                horizontal-alignment: Look.rtl ? right : left;
+                accessible-role: text;
+                accessible-label: "question";
+                accessible-value: self.text;
+            }
+            Text {
+                text: Vm.question.text;
+                font-size: 21 * Look.px;
+                color: Tokens.color-text-muted;
+                wrap: word-wrap;
+                horizontal-alignment: Look.rtl ? right : left;
+                accessible-role: text;
+                accessible-label: "question-text";
+                accessible-value: self.text;
+            }
+            // Yes first: on the left, or on the right from right to left.
+            HorizontalLayout {
+                padding-top: 16 * Look.px;
+                spacing: 16 * Look.px;
+                alignment: Look.rtl ? end : start;
+                height: 76 * Look.px;
+                if Look.rtl : Pill {
+                    text: Vm.question.no;
+                    focused: Question.focus == 1;
+                    clicked => { Question.focus = 0; Commands.answer-question(false); }
+                }
+                Pill {
+                    text: Vm.question.yes;
+                    icon: "download";
+                    primary: true;
+                    focused: Question.focus == 0;
+                    dim: Question.focus != 0;
+                    clicked => { Question.focus = 0; Commands.answer-question(true); }
+                }
+                if !Look.rtl : Pill {
+                    text: Vm.question.no;
+                    focused: Question.focus == 1;
+                    clicked => { Question.focus = 0; Commands.answer-question(false); }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,53 @@
+# The product's names, in one place. Code reads them from `launcher_api::brand` (generated from
+# this file by crates/api/build.rs); a test fails when the name appears anywhere else
+# that isn't on its list. Each name that leaves the program has its own key: a name written
+# into players' folders or backups can't change later without a move.
+
+[product]
+# What the player reads.
+name = "Marah Launcher"
+# The one word the name comes down to. The guard test looks for it.
+short_name = "Marah"
+# The operating system built around it.
+os_name = "Marah OS"
+# The owner's handle on GitHub.
+owner = "MarahHQ"
+
+[ids]
+# The macOS launch agent's label, and the app's id.
+app_id = "io.github.marahhq.marah-launcher"
+# The GitHub repo the launcher's own updates come from.
+update_repo = "MarahHQ/marah-launcher"
+# The program's file name, and the name its version line starts with.
+binary = "marah-launcher"
+# The file that starts it at login on Linux (in ~/.config/autostart).
+autostart_file = "marah-launcher.desktop"
+# The value under Windows' Run key that starts it at login.
+windows_run_value = "Marah Launcher"
+
+[files]
+# The data folder's name, under the system's data folder.
+data_folder = "marah-launcher"
+# The names 0.2.0 and 0.3.0 gave a game folder's file and its folder of art. The launcher moves
+# them to launcher-api's GAME_FILE and ART_FOLDER, which don't carry the product's name.
+was_game_file = "marah_game.json"
+was_art_folder = "marah_art"
+# A backup file's name starts with this.
+backup_prefix = "marah-backup-"
+# The folder in the home folder that backups go to by default.
+backups_folder = "Marah Launcher Backups"
+# Inside a game's sandbox: the path its session bus points to, which leads nowhere.
+sandbox_no_bus = "/run/marah-sandbox/no-session-bus"
+
+[env]
+# The environment variables it reads start with this: MARAH_SCALE, MARAH_SESSION and so on.
+prefix = "MARAH_"
+
+[os]
+# The operating system's marker file: it is there on the operating system only.
+release_marker = "/usr/lib/marah-os/release"
+# The operating system's installer, on its USB stick, and the command that runs it.
+installer = "/usr/libexec/marah-os/install"
+install_command = "marah-os-install"
+# The system service that updates the operating system.
+update_service = "marah-os-update.service"

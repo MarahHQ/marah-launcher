@@ -1,0 +1,7 @@
+import { GameDetailPage } from "../kit/game-detail.slint";
+
+// The Game Hub: the kit's page, drawn in this theme's tokens.
+export component GameDetailScreen inherits GameDetailPage {
+    // While it goes, a click on it does nothing: it can't start what it no longer shows.
+    if !root.open : TouchArea { }
+}

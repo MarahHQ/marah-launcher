@@ -1,0 +1,40 @@
+import { Look } from "look.slint";
+
+// How far something has come in, as two numbers from 0 to 1 that a site binds to its own
+// position and opacity: `move` for where it is, `fade` for how much it shows. It draws nothing.
+//
+//     r := Reveal { open: root.open; }
+//     x: root.width - self.width + (1 - r.move) * 48 * Look.px;
+//     opacity: r.fade;
+//
+// It comes in at the end of its first frame: Slint animates only from a value it has already
+// worked out, so the first frame works out the start. It goes back out when `open` turns false,
+// from wherever it is. The times and easings are the kinds of `Look`: `enter` for the move and
+// `fade` for the fade. A site that moves its own way gives its own.
+export component Reveal {
+    // False while it goes back out.
+    in property <bool> open: true;
+    // Its place in a list that comes in a row after another: it starts `order` steps of
+    // `Look.stagger` later.
+    in property <int> order;
+    // How long it waits before it starts, on top of its place in a list.
+    in property <duration> delay;
+    in property <duration> move-time: Look.enter-time;
+    in property <easing> move-easing: Look.enter-easing;
+    in property <duration> fade-time: Look.fade-time;
+    in property <easing> fade-easing: Look.fade-easing;
+    // It is in, or on its way in: past its first frame and open.
+    out property <bool> in-view: root.entered && root.open;
+    out property <float> move: root.in-view ? 1 : 0;
+    out property <float> fade: root.in-view ? 1 : 0;
+    animate move { duration: root.move-time; easing: root.move-easing; delay: root.delay + root.order * Look.stagger; }
+    animate fade { duration: root.fade-time; easing: root.fade-easing; delay: root.delay + root.order * Look.stagger; }
+    property <bool> entered;
+    property <float> start-move;
+    property <float> start-fade;
+    init => {
+        root.start-move = root.move;
+        root.start-fade = root.fade;
+    }
+    Timer { interval: 16ms; running: !root.entered; triggered => { root.entered = true; } }
+}

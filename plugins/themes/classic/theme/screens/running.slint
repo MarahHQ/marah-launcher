@@ -1,0 +1,104 @@
+import { Vm, Host } from "../types.slint";
+import { Tokens } from "../tokens.slint";
+import { Look } from "../kit/look.slint";
+import { GameStage } from "../kit/game-stage.slint";
+
+// While a game starts: the game's art dimmed behind its icon, its name, "Starting with
+// KytyPS5…" and a turning ring, until the game's window shows. Then it fades, and the home
+// screen is under it with Resume and Stop. The icon springs in and the art settles from a slight
+// zoom. Its motion runs only while it shows. Without a controller, it lists the emulator's
+// keyboard keys when the emulator names them (`Splash.keys`).
+export global Splash {
+    // The splash shows the emulator's keys. Only without a controller: with one, the player
+    // uses the pad, and the keyboard keys don't help. The keys are the game's, so the shell
+    // takes them all but Escape (Back) and Ctrl+Q.
+    out property <bool> keys: Vm.has-running && Vm.running.state == "starting" && Vm.pad-name == ""
+        && Vm.running.keymap.length > 0;
+}
+
+export component RunningScreen inherits Rectangle {
+    property <bool> on: Vm.has-running && Vm.running.state == "starting";
+    opacity: root.on ? 1 : 0;
+    visible: self.opacity > 0.01;
+    animate opacity { duration: root.on ? Look.timed(320ms) : Look.timed(Tokens.motion-slow + 200ms); easing: ease-out-quad; }
+    // It takes the pointer while it shows.
+    TouchArea { enabled: root.on; }
+    GameStage {
+        on: root.on;
+        // The running game's own art, whatever game is selected.
+        background-image: Vm.running.background;
+        cover-image: Vm.running.cover;
+        title: Vm.running.title;
+        title-label: root.on ? "launch-title" : "";
+        line: Vm.running.emulator != "" ? "Starting with " + Vm.running.emulator + "…" : "Starting…";
+        // What the game gets: the controller, or the keyboard.
+        if !Splash.keys : Text {
+            text: Vm.pad-name != "" ? "Controller: " + Vm.pad-name : "Keyboard: the keys are on " + (Vm.running.page != "" ? "the " + Vm.running.page + " page" : "the emulator's page");
+            font-size: 17 * Look.px;
+            color: Look.text3;
+            horizontal-alignment: center;
+            accessible-role: text;
+            accessible-label: root.on ? "launch-input" : "";
+            accessible-value: self.text;
+        }
+        // The emulator's keyboard keys, in two columns.
+        if Splash.keys : HorizontalLayout {
+            alignment: center;
+            padding-top: 18 * Look.px;
+            Rectangle {
+                width: 760 * Look.px;
+                height: Math.ceil(Vm.running.keymap.length / 2) * 34 * Look.px + 56 * Look.px;
+                border-radius: 18 * Look.px;
+                background: #ffffff0d;
+                border-width: 1px;
+                border-color: Look.line;
+                Text {
+                    x: 0;
+                    y: 14 * Look.px;
+                    width: parent.width;
+                    text: "Keyboard";
+                    font-size: 15 * Look.px;
+                    font-weight: 600;
+                    color: Look.text3;
+                    horizontal-alignment: center;
+                }
+                for key[i] in Vm.running.keymap : Rectangle {
+                    // Right to left, the first column is on the right, and the button comes first
+                    // from the right.
+                    property <int> column: Math.mod(i, 2);
+                    property <length> half: (parent.width - 72 * Look.px) / 2;
+                    x: 24 * Look.px + (Look.rtl ? 1 - self.column : self.column) * (self.half + 24 * Look.px);
+                    y: 44 * Look.px + Math.floor(i / 2) * 34 * Look.px;
+                    width: self.half;
+                    height: 30 * Look.px;
+                    accessible-role: text;
+                    accessible-label: root.on ? "launch-key" : "";
+                    accessible-value: key.button + " " + key.keys;
+                    Text {
+                        x: Look.rtl ? parent.width - self.width : 0;
+                        width: parent.width * 0.5;
+                        height: parent.height;
+                        text: key.button;
+                        font-size: 16 * Look.px;
+                        color: Tokens.color-text-muted;
+                        horizontal-alignment: Look.rtl ? right : left;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                    Text {
+                        x: Look.rtl ? 0 : parent.width * 0.52;
+                        width: parent.width * 0.48;
+                        height: parent.height;
+                        text: key.keys;
+                        font-size: 16 * Look.px;
+                        font-weight: 600;
+                        color: Tokens.color-text;
+                        horizontal-alignment: Look.rtl ? right : left;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                }
+            }
+        }
+    }
+}

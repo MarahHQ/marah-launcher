@@ -1,0 +1,27 @@
+import { Vm } from "../types.slint";
+import { Commands } from "commands.slint";
+import { FieldRow } from "settings-rows.slint";
+import { SettingsFrame, PageSection } from "settings-frame.slint";
+
+// One game's own settings, from its emulator, as a side sheet like Settings: the header bar with
+// the game's name, then its fields under one section, with the rows and keys of every sheet
+// (`Prefs`, section 0). Back returns to the Game Hub.
+export component GameSettingsPage inherits SettingsFrame {
+    title: Vm.detail.title;
+    title-label: "game-settings-title";
+    note: Vm.detail.settings.length > 0 ? Vm.detail.settings[0].slot.text : "";
+
+    for panel[p] in Vm.detail.settings : PageSection {
+        section: 0;
+        show(y) => { root.show-at(y); }
+        for field[i] in panel.fields : FieldRow {
+            field: field;
+            section: 0;
+            index: i;
+            first: i == 0;
+            last: i == panel.fields.length - 1;
+            reveal(y, h) => { root.reveal(y, h); }
+            set(value) => { Commands.set-setting(panel.slot.plugin, panel.slot.scope, field.key, value); }
+        }
+    }
+}

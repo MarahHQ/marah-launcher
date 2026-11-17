@@ -1,0 +1,289 @@
+//! A console emulator as a plugin: its games in the player's game folders, the community
+//! compatibility list, its settings, its packages to install, and its page on the Emulators
+//! screen. The plugin gives a [`ConsoleSpec`] and a [`Flavor`]; it keeps its launch arguments
+//! and its game installs. A plugin with a block of its own on its panel gives a [`Panel`].
+
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use launcher_api::serde_json::{self, Value};
+use launcher_api::{
+    ArtworkKind, Catalog, CompatInfo, CompatLevel, Compatibility, ConfigScope, Configurator, GAMES_FOLDER, GameDetails,
+    GameSummary, HOST_INSTALL_GAME, HOST_OPEN_EMULATOR, HostPath, ImageSource, Installable, Order, PACKAGES_FOLDER,
+    Page, PageRequest, Platform, PluginResult, RelPath, SearchQuery, SectionRow, SlotContent, SlotId, SlotItem,
+    SlotRequest, Slots, async_trait,
+};
+
+use crate::builds::{BuildManager, Flavor, LISTS_TTL};
+use crate::cache;
+use crate::controls::Controls;
+use crate::games::{self, Console, GameIndex};
+use crate::host::Host;
+use crate::installs::{self, Format};
+
+/// A community compatibility list.
+pub struct CompatList {
+    pub url: &'static str,
+    /// The list's page, for the player.
+    pub page: &'static str,
+    /// Reads the list for a system, by upper-case title id.
+    pub parse: fn(&Value, Option<Platform>) -> HashMap<String, CompatInfo>,
+}
+
+/// What sets one console emulator apart, besides its builds.
+pub struct ConsoleSpec {
+    pub console: Console,
+    /// How it knows the packages it installs games from.
+    pub packages: Packages,
+    /// `None` for an emulator without one: its games have no compatibility badge.
+    pub compat: Option<CompatList>,
+    /// Its default keyboard keys, as (button, keys).
+    pub keys: &'static [(&'static str, &'static str)],
+    /// The id of its section on a game's page.
+    pub section: &'static str,
+    /// The section lists the game's version.
+    pub version_row: bool,
+    /// The section's build row says "Your own build" while it is on.
+    pub own_row: bool,
+}
+
+/// How a console emulator knows a package to install, in its folder of a packages folder.
+pub enum Packages {
+    /// By the format its first bytes show.
+    Formats(&'static [Format]),
+    /// By its file name alone: a Switch game file's contents are encrypted.
+    Named(fn(&str) -> bool),
+}
+
+/// A plugin's own block on its emulator panel, such as Lichii's firmware. The console emulator
+/// shows its items after its own, and offers it each action before its own.
+#[async_trait]
+pub trait Panel: Send + Sync {
+    /// Its items on the emulator panel.
+    async fn items(&self) -> Vec<SlotItem>;
+    /// Runs `action` when it is one of its rows; `None` when it isn't.
+    async fn run_action(&self, action: &str, args: &Value) -> Option<PluginResult<()>>;
+}
+
+pub struct ConsoleEmulator<F: Flavor> {
+    spec: ConsoleSpec,
+    host: Host,
+    games: GameIndex,
+    builds: Arc<BuildManager<F>>,
+    panel: Option<Arc<dyn Panel>>,
+}
+
+impl<F: Flavor> ConsoleEmulator<F> {
+    /// The emulator.
+    pub async fn start(flavor: F, spec: ConsoleSpec, host: Host) -> PluginResult<Self> {
+        let builds = Arc::new(BuildManager::new(flavor, host.clone()));
+        let games = GameIndex::new(GAMES_FOLDER, spec.console);
+        Ok(Self { spec, host, games, builds, panel: None })
+    }
+
+    /// The emulator with `panel`, the plugin's own block, on its panel.
+    pub fn with_panel(mut self, panel: Arc<dyn Panel>) -> Self {
+        self.panel = Some(panel);
+        self
+    }
+
+    pub fn builds(&self) -> &Arc<BuildManager<F>> {
+        &self.builds
+    }
+
+    pub fn games(&self) -> &GameIndex {
+        &self.games
+    }
+
+    pub fn host(&self) -> &Host {
+        &self.host
+    }
+
+    pub fn controls(&self) -> Controls {
+        Controls { keys: self.spec.keys }
+    }
+
+    /// The packages to install in this console's folder of each packages folder, as installs go
+    /// to its folder of the games folder, known as the spec's [`Packages`] says.
+    pub async fn candidates(&self) -> PluginResult<Vec<Installable>> {
+        let folders = &self.host.folders;
+        let mut out = Vec::new();
+        for root in folders.roots(PACKAGES_FOLDER).await? {
+            let dir = HostPath::new(PACKAGES_FOLDER, root.root, RelPath::new(F::FOLDER)?);
+            let Ok(entries) = folders.list(&dir).await else { continue };
+            for entry in entries {
+                if entry.is_dir {
+                    continue;
+                }
+                // A name that can't be a path is no package this plugin can name.
+                let Ok(file) = dir.join(&entry.name) else { continue };
+                let known = match &self.spec.packages {
+                    Packages::Named(known) => known(&entry.name),
+                    Packages::Formats(formats) => {
+                        let head = folders.read_range(&file, 0, 512).await.unwrap_or_default();
+                        installs::format(&head).is_some_and(|f| formats.contains(&f))
+                    }
+                };
+                if known {
+                    out.push(Installable { source: file, label: entry.name });
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    async fn compat_list(&self) -> HashMap<String, CompatInfo> {
+        let Ok(cache) = RelPath::new("cache/compatibility.json") else { return Default::default() };
+        let host = &self.host;
+        let Some(list) = &self.spec.compat else { return Default::default() };
+        match cache::cached_json(
+            host.storage.as_ref(),
+            host.http.as_ref(),
+            &host.log,
+            host.calendar.as_ref(),
+            list.url,
+            &cache,
+            LISTS_TTL,
+        )
+        .await
+        {
+            Ok(json) => (list.parse)(&json, host.platform),
+            Err(e) => {
+                host.log.warn(&format!("compatibility list: {e}"));
+                Default::default()
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl<F: Flavor> Catalog for ConsoleEmulator<F> {
+    async fn list(&self, page: PageRequest) -> PluginResult<Page<GameSummary>> {
+        let all = self.games.refresh(self.host.folders.as_ref()).await?;
+        let total = all.len() as u32;
+        let items =
+            all.iter().skip(page.offset as usize).take(page.limit as usize).map(|g| g.summary(F::CONSOLE)).collect();
+        Ok(Page { items, total: Some(total) })
+    }
+
+    async fn search(&self, query: &SearchQuery) -> PluginResult<Vec<GameSummary>> {
+        let all = self.games.refresh(self.host.folders.as_ref()).await?;
+        Ok(games::search(all, query).iter().map(|g| g.summary(F::CONSOLE)).collect())
+    }
+
+    async fn details(&self, game: &str) -> PluginResult<GameDetails> {
+        self.games.details(self.host.folders.as_ref(), game, F::CONSOLE).await
+    }
+
+    async fn artwork(&self, game: &str, kind: ArtworkKind) -> PluginResult<Option<ImageSource>> {
+        let found = self.games.find(self.host.folders.as_ref(), game).await?;
+        Ok(match kind {
+            ArtworkKind::Background => found.background,
+            _ => found.icon,
+        }
+        .map(ImageSource::Folder))
+    }
+}
+
+#[async_trait]
+impl<F: Flavor> Compatibility for ConsoleEmulator<F> {
+    async fn status(&self, game: &str) -> PluginResult<CompatInfo> {
+        let found = self.games.find(self.host.folders.as_ref(), game).await?;
+        let page = self.spec.compat.as_ref().map(|c| c.page.to_owned());
+        Ok(match self.compat_list().await.remove(&found.title_id.to_uppercase()) {
+            Some(info) => CompatInfo { page, ..info },
+            None => CompatInfo { level: CompatLevel::Unknown, notes: None, source: None, page, tested: None },
+        })
+    }
+}
+
+#[async_trait]
+impl<F: Flavor> Configurator for ConsoleEmulator<F> {
+    async fn schema(&self, scope: &ConfigScope) -> PluginResult<Value> {
+        Configurator::schema(self.builds.settings(), scope).await
+    }
+
+    async fn defaults(&self, scope: &ConfigScope) -> PluginResult<Value> {
+        Configurator::defaults(self.builds.settings(), scope).await
+    }
+
+    async fn validate(&self, scope: &ConfigScope, value: &Value) -> PluginResult<()> {
+        Configurator::validate(self.builds.settings(), scope, value).await
+    }
+}
+
+#[async_trait]
+impl<F: Flavor> Slots for ConsoleEmulator<F> {
+    async fn items(&self, request: &SlotRequest) -> PluginResult<Vec<SlotItem>> {
+        let item = |id: &str, content| SlotItem { id: id.into(), order: Order::default(), content };
+        Ok(match (request.slot, request.game.as_deref()) {
+            (SlotId::GameBadge, Some(game)) if self.spec.compat.is_some() => {
+                vec![item("compat", games::compat_badge(&self.status(game).await?, self.host.platform))]
+            }
+            (SlotId::GameDetailSection, Some(game)) => {
+                let found = self.games.find(self.host.folders.as_ref(), game).await?;
+                let build = match self.spec.own_row {
+                    true => self.builds.build_label().await,
+                    false => self.builds.current_label().await,
+                };
+                let mut rows = vec![SectionRow { label: "Title id".into(), value: found.title_id }];
+                if self.spec.version_row {
+                    rows.push(SectionRow { label: "Version".into(), value: found.version });
+                }
+                rows.push(SectionRow { label: "Build".into(), value: build.unwrap_or_else(|| "not installed".into()) });
+                vec![item(self.spec.section, SlotContent::Section { title: F::NAME.into(), rows })]
+            }
+            (SlotId::EmulatorPanel, None) => {
+                let mut items = self.builds.switch_items().await;
+                // Its own window, once there is a build to open.
+                if F::HAS_WINDOW && self.builds.run().await.is_ok() {
+                    items.push(item(
+                        "open-emulator",
+                        SlotContent::Action {
+                            label: format!("Open {}", F::NAME),
+                            action: HOST_OPEN_EMULATOR.into(),
+                            args: Value::Null,
+                            style: launcher_api::ActionStyle::Secondary,
+                            icon: None,
+                        },
+                    ));
+                }
+                for found in self.candidates().await.unwrap_or_default() {
+                    items.push(item(
+                        &format!("install-{}", found.label),
+                        SlotContent::Action {
+                            label: format!("Install {}", found.label),
+                            action: HOST_INSTALL_GAME.into(),
+                            args: serde_json::to_value(&found.source)?,
+                            style: launcher_api::ActionStyle::Secondary,
+                            icon: None,
+                        },
+                    ));
+                }
+                // An emulator that lists no keys (its own window sets them) gets no empty block.
+                if !self.spec.keys.is_empty() {
+                    items.push(self.controls().keyboard_panel());
+                }
+                items.extend(self.builds.update_items().await);
+                if let Some(panel) = &self.panel {
+                    items.extend(panel.items().await);
+                }
+                items
+            }
+            (SlotId::SettingsPanel, None) => vec![item(
+                "settings",
+                SlotContent::SettingsPanel { title: F::NAME.into(), scope: ConfigScope::Emulator },
+            )],
+            _ => Vec::new(),
+        })
+    }
+
+    async fn run_action(&self, action: &str, _game: Option<&str>, args: &Value) -> PluginResult<()> {
+        if let Some(panel) = &self.panel
+            && let Some(done) = panel.run_action(action, args).await
+        {
+            return done;
+        }
+        self.builds.run_action(action).await
+    }
+}

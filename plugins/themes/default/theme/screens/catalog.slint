@@ -1,0 +1,27 @@
+import { Vm } from "../types.slint";
+import { Tokens } from "../tokens.slint";
+import { Look } from "../kit/look.slint";
+import { LibraryView } from "../components/library-view.slint";
+import { Reveal } from "../kit/reveal.slint";
+import { Screens } from "../kit/shell.slint";
+
+// The games the catalogs offer to download, as the Library shows its games: search, sort,
+// systems, genres and the grid, a page at a time. The Game Catalog's page says which copy of
+// each catalog is in use.
+export component CatalogScreen inherits Rectangle {
+    // False while it goes: Back, or another screen opened.
+    in property <bool> open: true;
+    // It slides in after its first frame from the side the screens move from, and out to the
+    // side they move to.
+    reveal := Reveal { open: root.open; }
+    property <float> side: Screens.side(false);
+    changed open => { self.side = Screens.side(!self.open); }
+    // It slides in from the side as the Library does.
+    LibraryView {
+        active: root.open;
+        opacity: reveal.fade;
+        x: (1 - reveal.move) * 40 * Look.px * root.side;
+    }
+    // While it goes, a click on it does nothing.
+    if !root.open : TouchArea { }
+}

@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Marah Launcher
+Comment=Marah Launcher as the whole screen, without a desktop: a console for the TV
+Exec=/usr/bin/marah-session
+DesktopNames=Marah
