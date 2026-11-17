@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/MarahHQ/marah-launcher/compare/v0.5.0...v0.5.1) (2026-11-17)
+
+
+### Bug Fixes
+
+* **kit:** a plugin's page ends with About (its blocks and facts), and another plugin's page opens at its top ([#27](https://github.com/MarahHQ/marah-launcher/issues/27)) ([b0ca42b](https://github.com/MarahHQ/marah-launcher/commit/b0ca42b0b80e23aaa2caebaaad821ebcb2036eca))
+
 ## [0.5.0](https://github.com/MarahHQ/marah-launcher/compare/v0.4.0...v0.5.0) (2026-11-17)
 
 
