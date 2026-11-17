@@ -39,22 +39,66 @@ component Rail inherits VerticalLayout {
     }
 }
 
-// Settings: the app's own settings, in tabs, as a side sheet. A theme shows it as its Settings
-// screen, with its emblem for This PC's About card (`logo`).
+// A section's header on the page: its icon and its name, as the rail shows them.
+component SectionHead inherits HorizontalLayout {
+    in property <int> section;
+    padding-top: 36 * Look.px;
+    padding-bottom: 14 * Look.px;
+    spacing: 14 * Look.px;
+    alignment: Look.rtl ? end : start;
+    Icon { width: 30 * Look.px; height: 30 * Look.px; name: Sections.icon(root.section); color: Tokens.color-text; }
+    Text {
+        text: Sections.name(root.section);
+        font-size: 30 * Look.tpx;
+        font-weight: 600;
+        color: Tokens.color-text;
+        vertical-alignment: center;
+        accessible-role: text;
+        accessible-label: "settings-section";
+        accessible-value: self.text;
+    }
+}
+
+// Settings: the app's own settings, one page of all its sections, as a side sheet. A theme shows
+// it as its Settings screen, with its emblem for This PC's About card (`logo`).
 export component SettingsPage inherits SheetFrame {
     // The theme's emblem, for This PC's About card.
     in property <image> logo;
     panel-width: 1080 * Look.tpx;
 
-    // Back to the top when the tab changes.
-    property <int> tab: Prefs.current-tab;
-    changed tab => { flick.viewport-y = 0; }
-    // A tab with no rows to focus scrolls a step at a time.
+    // A jump to a section (the rail, L1, R1): its header comes into view, at the top when the
+    // page is long enough.
+    // At once, and again a moment later: the section's first row takes the focus in the same
+    // step, and its own reveal can scroll after this one and leave the header out of view.
+    property <int> jump: Prefs.jump;
+    changed jump => {
+        root.to-header();
+        jumper.running = true;
+    }
+    jumper := Timer {
+        interval: 1ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            root.to-header();
+        }
+    }
+    function to-header() {
+        flick.viewport-y = Math.max(flick.height - flick.viewport-height, Math.min(0, -root.top-of(Prefs.current-tab)));
+    }
+    // Where a section's header is on the page. System, when it is there, comes right after This PC.
+    pure function top-of(section: int) -> length {
+        section == 0 ? s0.y : section == 1 ? s1.y : section == 2 ? s2.y : section == 3 ? s3.y
+            : section == 4 ? s4.y : section == Prefs.backup-section ? s6.y
+            : section == Prefs.power-section ? s7.y : s4.y + s4.height
+    }
+    // This PC, with no rows to focus, scrolls a step at a time.
     property <int> nudged: Prefs.scroll-serial;
     changed nudged => {
         flick.viewport-y = Math.min(0, Math.max(flick.height - flick.viewport-height, flick.viewport-y - Prefs.scroll-by * 160 * Look.px));
     }
-    // The System tab goes when Marah Launcher is no longer the whole screen: back to the last tab.
+    // The System section goes when Marah Launcher is no longer the whole screen: the focus in it
+    // goes to the last section.
     property <int> count: Prefs.tab-count;
     changed count => { if (Prefs.current-tab >= self.count) { Prefs.show(self.count - 1); } }
 
@@ -94,30 +138,14 @@ export component SettingsPage inherits SheetFrame {
             }
         }
         Rectangle { height: 1px; background: Look.line; }
-        Rectangle { height: 28 * Look.px; }
-        // The section's header: its icon and its name, as the rail's icon is.
-        HorizontalLayout {
-            spacing: 14 * Look.px;
-            alignment: Look.rtl ? end : start;
-            Icon { width: 30 * Look.px; height: 30 * Look.px; name: Sections.icon(Prefs.current-tab); color: Tokens.color-text; }
-            Text {
-                text: Sections.name(Prefs.current-tab);
-                font-size: 30 * Look.tpx;
-                font-weight: 600;
-                color: Tokens.color-text;
-                vertical-alignment: center;
-                accessible-role: text;
-                accessible-label: "settings-section";
-                accessible-value: self.text;
-            }
-        }
         Text {
             text: "Changes are saved automatically";
             font-size: 16 * Look.tpx;
             color: Look.text3;
             horizontal-alignment: Look.rtl ? right : left;
+            height: self.preferred-height + 14 * Look.px;
+            vertical-alignment: bottom;
         }
-        Rectangle { height: 20 * Look.px; }
 
         flick := Flickable {
             // Up and down only: nothing drags sideways.
@@ -130,14 +158,15 @@ export component SettingsPage inherits SheetFrame {
                 padding-bottom: 80 * Look.px;
                 spacing: 0;
 
-            if Prefs.section == 1 : GamesSection { reveal(y, h) => { root.reveal(y, h); } }
-            if Prefs.section == 2 : UpdatesSection { reveal(y, h) => { root.reveal(y, h); } }
-            if Prefs.section == 0 : LauncherSection { reveal(y, h) => { root.reveal(y, h); } }
-            if Prefs.section == 3 : DownloadsSection { reveal(y, h) => { root.reveal(y, h); } }
-            if Prefs.section == 4 : PcSection { logo: root.logo; reveal(y, h) => { root.reveal(y, h); } }
-            if Prefs.section == 5 && Vm.system.whole-screen : SystemSection { reveal(y, h) => { root.reveal(y, h); } }
-            if Prefs.section == Prefs.backup-section : BackupSection { reveal(y, h) => { root.reveal(y, h); } }
-            if Prefs.section == Prefs.power-section : PowerSection { reveal(y, h) => { root.reveal(y, h); } }
+                // Every section, in the rail's order, each under its header.
+                s0 := VerticalLayout { SectionHead { section: 0; } LauncherSection { reveal(y, h) => { root.reveal(y, h); } } }
+                s1 := VerticalLayout { SectionHead { section: 1; } GamesSection { reveal(y, h) => { root.reveal(y, h); } } }
+                s2 := VerticalLayout { SectionHead { section: 2; } UpdatesSection { reveal(y, h) => { root.reveal(y, h); } } }
+                s3 := VerticalLayout { SectionHead { section: 3; } DownloadsSection { reveal(y, h) => { root.reveal(y, h); } } }
+                s4 := VerticalLayout { SectionHead { section: 4; } PcSection { logo: root.logo; reveal(y, h) => { root.reveal(y, h); } } }
+                if Vm.system.whole-screen : VerticalLayout { SectionHead { section: 5; } SystemSection { reveal(y, h) => { root.reveal(y, h); } } }
+                s6 := VerticalLayout { SectionHead { section: Prefs.backup-section; } BackupSection { reveal(y, h) => { root.reveal(y, h); } } }
+                s7 := VerticalLayout { SectionHead { section: Prefs.power-section; } PowerSection { reveal(y, h) => { root.reveal(y, h); } } }
             }
         }
     }

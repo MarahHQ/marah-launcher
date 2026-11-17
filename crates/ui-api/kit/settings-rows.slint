@@ -8,9 +8,11 @@ import { Osk, TextField } from "keyboard.slint";
 import { LauncherRows, DownloadsRows, SystemRows, BackupRows, PowerRows } from "settings-layout.slint";
 
 // The rows of a settings sheet (Settings, and a plugin's page), and where the keys are in it.
-// A sheet is a list of sections; each has rows. Settings shows one section at a time, under a
-// row of tabs: Up from a section's first row goes to the tabs, Left and Right choose the tab,
-// Down or Return goes into its rows. A plugin's page has tabs too when it has settings or
+// A sheet is a list of sections; each has rows. Settings is one page: every section, each under
+// its own header, with a rail of the sections' icons beside it. Down from a section's last row
+// goes on into the next section's first row, and Up from a section's first row into the last
+// row of the one before; Up from the very first row goes to the rail. The rail, L1 and R1 jump
+// to a section. A plugin's page has tabs too when it has settings or
 // folders (`tab-count`): General holds its sections 0 and 1, and the keys cross those two. A
 // theme's page and a game's own settings are one scroll. In Settings:
 //   0   LAUNCHER: full screen, size of everything, back to the launcher, interface sounds,
@@ -21,7 +23,8 @@ import { LauncherRows, DownloadsRows, SystemRows, BackupRows, PowerRows } from "
 //       there is none), "Add a VPN" where the system can, then "Keep sharing finished
 //       downloads". Where the system can't bind downloads to a VPN: the switch and sharing.
 //   4   THIS PC: processor, memory, graphics, then one verdict per emulator, and About. It only
-//       shows: it has no rows to focus
+//       shows: it has no rows to focus, so Up and Down pass it by. The rail, L1 or R1 read it:
+//       Up and Down scroll the page, and the key away from the rows goes back to the rail
 //   5   SYSTEM, when Marah Launcher is the whole screen: Internet, Sound, Bluetooth (each opens its
 //       panel), Marah OS updates (on Marah OS), "Install Marah OS on this PC" (on its USB stick)
 //   5/6 BACKUP (6 after SYSTEM): "Back up now", "Include large items", the backup folder,
@@ -51,6 +54,9 @@ export global Prefs {
     in-out property <bool> reading;
     // Settings' tabs are a rail: Up and Down choose, the key toward the rows goes in.
     out property <bool> rail: Vm.screen == "settings";
+    // Settings is one page of all its sections: `jump` counts the jumps to a section (the rail,
+    // L1 and R1), so the page scrolls that section's header into view for each one.
+    in-out property <int> jump;
     // A text row is open for typing.
     in-out property <bool> editing;
     in-out property <string> edit-text;
@@ -137,6 +143,7 @@ export global Prefs {
         root.row = 0;
         root.reading = false;
         root.editing = false;
+        root.jump += 1;
     }
     // Into the rows of the tab, if it has any.
     function enter() {
@@ -150,8 +157,9 @@ export global Prefs {
         if (root.tab-count < 2) { return false; }
         root.section = root.first-section(Math.mod(root.tab-of(root.section) + delta + root.tab-count, root.tab-count));
         root.row = 0;
-        // Another section: no longer reading This PC.
-        root.reading = false;
+        // Another section: no longer reading This PC. Settings' page reads one with no rows.
+        root.reading = root.rail && !root.tabs && root.rows(root.section) == 0;
+        root.jump += 1;
         return true;
     }
     // L1 and R1: the previous or the next tab, round the ends.
@@ -163,6 +171,27 @@ export global Prefs {
         false
     }
     function step(delta: int) {
+        if (root.rail) {
+            // Settings' page: on through every section, past one with no rows (This PC).
+            if (delta > 0 && root.row + 1 < root.rows(root.section)) {
+                root.row += 1;
+                return;
+            }
+            if (delta < 0 && root.row > 0) {
+                root.row -= 1;
+                return;
+            }
+            let near = root.section + delta;
+            let next = near >= 0 && near < root.sections && root.rows(near) == 0 ? near + delta : near;
+            if (next >= 0 && next < root.sections && root.rows(next) > 0) {
+                root.section = next;
+                root.row = delta > 0 ? 0 : root.rows(next) - 1;
+            } else if (delta < 0 && !root.held) {
+                // Up from the very first row: to the rail. A held Up stops at the row.
+                root.tabs = true;
+            }
+            return;
+        }
         if (root.tabbed) {
             // Rows move on through the sections of the tab, never into another tab.
             let next = root.section + delta;
@@ -231,6 +260,7 @@ export global Prefs {
                 if (next >= 0 && next < root.tab-count) {
                     root.section = root.first-section(next);
                     root.row = 0;
+                    root.jump += 1;
                     Host.play-sound("move");
                 }
                 return true;

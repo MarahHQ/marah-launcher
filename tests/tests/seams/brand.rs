@@ -50,10 +50,12 @@ fn files_with(words: &[String]) -> BTreeSet<String> {
         for entry in std::fs::read_dir(&folder).unwrap() {
             let path = entry.unwrap().path();
             let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            // In a git worktree `.git` is a file naming the main checkout's path: skipped as well.
+            if SKIP.contains(&name.as_str()) {
+                continue;
+            }
             if path.is_dir() {
-                if !SKIP.contains(&name.as_str()) {
-                    folders.push(path);
-                }
+                folders.push(path);
                 continue;
             }
             let relative = path.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/");

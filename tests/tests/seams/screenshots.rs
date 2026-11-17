@@ -1521,6 +1521,24 @@ fn the_default_theme_renders_its_list_both_ways() {
     host.dispatch(Command::Navigate(Route::Plugin("firm".parse().unwrap())));
     follow(&mut host);
     shoot(&window, &out.join("default-block-downloading.png"));
+    // Settings, one page: its top, R1 twice on to Updates, then from right to left. Each shot
+    // waits out the scroll's animation.
+    let still = |host: &mut Composed| {
+        for _ in 0..3 {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            follow(host);
+        }
+    };
+    host.dispatch(Command::Navigate(Route::Settings));
+    still(&mut host);
+    shoot(&window, &out.join("default-settings.png"));
+    key(&mut host, slint::platform::Key::Tab);
+    key(&mut host, slint::platform::Key::Tab);
+    still(&mut host);
+    shoot(&window, &out.join("default-settings-updates.png"));
+    host.dispatch(Command::SetThemeOption { key: "direction".into(), value: "rtl".into() });
+    still(&mut host);
+    shoot(&window, &out.join("default-rtl-settings.png"));
     println!("screenshots in {}", out.display());
     not_blank(
         &out,
