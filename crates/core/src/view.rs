@@ -1382,7 +1382,10 @@ fn emulators_vm(s: &Snapshot) -> EmulatorsVm {
                 plugin: id,
             }
         })
-        .collect();
+        .collect::<Vec<_>>();
+    // Home lists the systems by name, after All games.
+    let mut emulators = emulators;
+    emulators.sort_by_cached_key(|e: &EmulatorVm| e.system_name.to_lowercase());
     let rows = plugins
         .order()
         .iter()
@@ -1429,12 +1432,19 @@ fn emulators_vm(s: &Snapshot) -> EmulatorsVm {
 fn plugin_lists(view: &mut AppView, registry: &Plugins) {
     let shown = view.settings.themes.iter().find(|t| t.current).map(|t| t.id.clone());
     let plugins = &view.emulators.plugins;
-    // Emulators, then the services that describe their games.
-    let kind = |kind: &'static str| plugins.iter().filter(move |p| p.kind == kind).cloned();
-    view.emulators.emulator_plugins = kind("emulator").chain(kind("service")).collect();
+    // Emulators, then the services that describe their games, each by name.
+    let kind = |kind: &'static str| {
+        let mut list: Vec<PluginRowVm> = plugins.iter().filter(|p| p.kind == kind).cloned().collect();
+        list.sort_by_cached_key(|p| p.name.to_lowercase());
+        list
+    };
+    view.emulators.emulator_plugins = kind("emulator").into_iter().chain(kind("service")).collect();
     // A theme's status says whether it is the one shown. The fallback theme comes first; the
     // others keep their order.
-    view.emulators.theme_plugins = kind("theme")
+    view.emulators.theme_plugins = plugins
+        .iter()
+        .filter(|p| p.kind == "theme")
+        .cloned()
         .map(|p| PluginRowVm {
             status: if shown.as_ref() == Some(&p.id) { "in use".into() } else { String::new() },
             ..p
