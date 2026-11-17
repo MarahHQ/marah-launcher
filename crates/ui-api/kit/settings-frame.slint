@@ -14,6 +14,7 @@ export global Sections {
             : Prefs.theme-page ? (i == 0 ? "Theme" : "Options")
             : Prefs.page ? (i <= 1 ? "General"
                 : i <= Prefs.panels + 1 ? (Prefs.panels == 1 ? "Settings" : Vm.plugin-page.settings[i - 2].slot.text)
+                : Prefs.about && i == Prefs.about-section ? "About"
                 : "Folders")
             : i == 0 ? "Launcher" : i == 1 ? "Games" : i == 2 ? "Updates"
             : i == 3 ? "Downloads" : i == 4 ? "This PC" : i == 5 && Vm.system.whole-screen ? "System"
@@ -22,7 +23,8 @@ export global Sections {
     public pure function icon(i: int) -> string {
         Prefs.game-page ? "gamepad"
             : Prefs.theme-page ? (i == 0 ? "palette" : "gear")
-            : Prefs.page ? (i <= 1 ? "info" : i <= Prefs.panels + 1 ? "gear" : "folder")
+            : Prefs.page ? (i <= 1 ? "power" : i <= Prefs.panels + 1 ? "gear"
+                : Prefs.about && i == Prefs.about-section ? "info" : "folder")
             : i == 0 ? "gear" : i == 1 ? "gamepad" : i == 2 ? "refresh"
             : i == 3 ? "download" : i == 4 ? "desktop" : i == 5 && Vm.system.whole-screen ? "wifi-4"
             : i == Prefs.backup-section ? "archive" : "power"
@@ -237,6 +239,10 @@ export component SettingsFrame inherits SheetFrame {
 
     // Scrolls the page so a section's header at `y` (in the window) is at its top, or as near
     // as the page's end allows.
+    // Back to the top of the page, as another page opens in the same sheet.
+    protected function to-top() {
+        flick.viewport-y = 0;
+    }
     protected function show-at(y: length) {
         flick.viewport-y = Math.max(flick.height - flick.viewport-height, Math.min(0, flick.viewport-y - (y - flick.absolute-position.y)));
     }
