@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/MarahHQ/marah-launcher/compare/v0.8.0...v0.9.0) (2026-11-17)
+
+
+### Features
+
+* **shadps4:** the start asks to install the missing PS4 system files ([#43](https://github.com/MarahHQ/marah-launcher/issues/43)) ([3a6c83a](https://github.com/MarahHQ/marah-launcher/commit/3a6c83a048cc294df0119d15eaab632ccc30cccf))
+
 ## [0.8.0](https://github.com/MarahHQ/marah-launcher/compare/v0.7.1...v0.8.0) (2026-11-17)
 
 
