@@ -54,6 +54,7 @@ mod sessions;
 mod settings_schema;
 mod snapshot;
 mod stack;
+mod startup;
 mod storage;
 pub mod system;
 mod themes;

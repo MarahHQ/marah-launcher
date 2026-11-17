@@ -1541,31 +1541,66 @@ const BOOT_COVERS: usize = 30;
 
 fn boot_vm(s: &Snapshot) -> BootVm {
     let library = &s.library;
-    let ready = library.booted;
+    let booted = library.booted;
+    let startup = &s.state.startup;
+    let ready = booted && startup.over;
     let games = library.library().count();
-    let step = |label: String, detail: String| BootStepVm {
-        label,
-        detail,
-        state: if ready { "done".into() } else { "working".into() },
-    };
-    let mut steps = vec![step("Game folders".into(), if ready { Look::games(games) } else { "Looking…".into() })];
+    let step = |label: String, detail: String, state: &str| BootStepVm { label, detail, state: state.into() };
+    let loaded = if booted { "done" } else { "working" };
+    let mut steps =
+        vec![step("Game folders".into(), if booted { Look::games(games) } else { "Looking…".into() }, loaded)];
+    // The start's installs: each one's share of the way, from 0 to 1.
+    let mut shares: Vec<f32> = Vec::new();
     for (plugin, emu) in &s.state.emulators {
         let Some(manifest) = s.plugins.manifest(plugin) else { continue };
         if !manifest.capabilities.contains(&Capability::Installer) {
             continue;
         }
-        let detail = if emu.own {
-            "Your own build"
-        } else if emu.installed.is_empty() && s.prefs.auto_install {
-            "Installs now"
+        let download = s.downloads.iter().rev().find(|j| &j.plugin == plugin && !j.phase.is_over());
+        let (detail, state) = if emu.busy {
+            let share =
+                download.and_then(|j| j.total.filter(|t| *t > 0).map(|t| (j.received as f32 / t as f32).min(1.0)));
+            shares.push(share.unwrap_or(0.0));
+            let detail = match (download, share) {
+                (Some(_), Some(share)) => format!("Downloading · {}%", (share * 100.0) as u32),
+                (Some(_), None) => "Downloading…".into(),
+                (None, _) => "Installing…".into(),
+            };
+            (detail, "working")
+        } else if startup.failed.contains(plugin) && emu.installed.is_empty() {
+            ("Could not install".into(), "failed")
+        } else if startup.failed.contains(plugin) {
+            ("Could not update".into(), "failed")
+        } else if emu.own {
+            ("Your own build".into(), "done")
+        } else if startup.emulators.contains(plugin) && !startup.over {
+            let next = if emu.installed.is_empty() { "Installs now" } else { "Updates now" };
+            (next.into(), "waiting")
+        } else if emu.installed.is_empty() && s.prefs.auto_install && !booted {
+            ("Installs now".into(), "working")
         } else if emu.installed.is_empty() {
-            "Installs on first play"
+            ("Installs on first play".into(), loaded)
         } else if emu.update().is_some() {
-            "Update available"
+            ("Update available".into(), loaded)
         } else {
-            "Latest build"
+            ("Latest build".into(), loaded)
         };
-        steps.push(step(format!("{} emulator", manifest.emulator_name()), detail.into()));
+        steps.push(step(format!("{} emulator", manifest.emulator_name()), detail, state));
+    }
+    for (_, work) in &startup.work {
+        let state = match work.state {
+            launcher_api::StartupState::Working => {
+                shares.push(work.progress.unwrap_or(0.0));
+                "working"
+            }
+            launcher_api::StartupState::Done => "done",
+            launcher_api::StartupState::Failed => "failed",
+        };
+        let detail = match (work.state, work.progress) {
+            (launcher_api::StartupState::Working, Some(p)) => format!("{} · {}%", work.detail, (p * 100.0) as u32),
+            _ => work.detail.clone(),
+        };
+        steps.push(step(work.label.clone(), detail, state));
     }
     if let Some((done, total)) = library.describing {
         steps.push(BootStepVm {
@@ -1580,12 +1615,18 @@ fn boot_vm(s: &Snapshot) -> BootVm {
             state: if library.described { "done".into() } else { "working".into() },
         });
     }
-    steps.push(step("Covers & Home screen".into(), if ready { "Ready".into() } else { "Loading…".into() }));
+    steps.push(step("Covers & Home screen".into(), if booted { "Ready".into() } else { "Loading…".into() }, loaded));
+    let installing = booted && !startup.over;
     BootVm {
         ready,
+        installing,
         welcome: !s.prefs.welcomed,
+        // The library is the first 60%, the start's installs the rest.
         progress: if ready {
             1.0
+        } else if installing {
+            let done = if shares.is_empty() { 0.0 } else { shares.iter().sum::<f32>() / shares.len() as f32 };
+            0.6 + 0.4 * done
         } else if library.loading {
             0.6
         } else {
@@ -1593,6 +1634,8 @@ fn boot_vm(s: &Snapshot) -> BootVm {
         },
         status: if ready {
             format!("All set · {games} installed game{} found", if games == 1 { "" } else { "s" })
+        } else if installing {
+            "Installing emulators and updates…".into()
         } else {
             "Loading...".into()
         },

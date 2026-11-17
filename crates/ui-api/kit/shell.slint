@@ -185,6 +185,8 @@ export component ShellKeys inherits FocusScope {
             if (event.text == Key.Return && Vm.boot.ready && Vm.art-ready) { Commands.finish-welcome(); }
             return accept;
         }
+        // The boot screen, while the start's installs run: nothing behind it moves.
+        if (Vm.boot.installing) { return accept; }
         // Marah OS's USB stick: Welcome, then installing, before anything else.
         if (Setup.shown) { Setup.key(event.text); return accept; }
         // A panel of the machine's settings is open under the top bar.

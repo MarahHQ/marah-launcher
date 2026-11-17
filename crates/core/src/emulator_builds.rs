@@ -18,11 +18,8 @@ use crate::changes::Area;
 use crate::error::require;
 use crate::{CoreError, CoreResult};
 
-/// How often the core looks for emulator updates by itself, and how long after start it
-/// looks first.
+/// How often the core looks for emulator updates by itself, after the start's round.
 pub const UPDATE_CHECK_EVERY: std::time::Duration = std::time::Duration::from_secs(6 * 3600);
-/// The first round waits this long after the start: the plugins and the library load first.
-const FIRST_UPDATE_CHECK: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// An install in progress, saved under `app.installs.<plugin>` so a crash resumes it.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -57,7 +54,11 @@ pub(crate) async fn refresh_emulator(core: &Core, plugin: &PluginId) {
             emu.panels = items;
         }
     }
-    core.state().emulators.insert(plugin.clone(), emu);
+    // An install that started or ended during the reads set `busy`: the read doesn't put back
+    // what it saw before them.
+    let mut state = core.state();
+    emu.busy = state.emulators.get(plugin).is_some_and(|now| now.busy);
+    state.emulators.insert(plugin.clone(), emu);
 }
 
 pub(crate) async fn refresh_emulators(core: &Core) {
@@ -177,37 +178,29 @@ pub(crate) async fn resume_installs(core: &Core) {
     }
 }
 
-/// Runs [`Command::CheckUpdates`] every few hours while the app runs. The first round, right
-/// after the start, is [`start_pass`].
+/// Runs [`Command::CheckUpdates`] every few hours while the app runs, the first one
+/// [`UPDATE_CHECK_EVERY`] after the start. The start's own round is [`start_pass`], which the
+/// boot runs.
 pub(crate) fn schedule_update_checks(core: &Core) {
     let weak = Arc::downgrade(&core.inner);
     let clock = core.ports().clock.clone();
     tokio::spawn(async move {
-        clock.sleep(FIRST_UPDATE_CHECK).await;
-        let mut first = true;
         loop {
+            clock.sleep(UPDATE_CHECK_EVERY).await;
             let Some(inner) = weak.upgrade() else { return };
             let core = Core { inner };
-            if std::mem::take(&mut first) {
-                start_pass(&core).await;
-            } else if core.prefs().auto_update {
+            if core.prefs().auto_update {
                 check_updates(&core).await;
             }
-            drop(core);
-            clock.sleep(UPDATE_CHECK_EVERY).await;
         }
     });
 }
 
-/// The first round, right after the start: it reads each emulator's builds once, installs
-/// the missing ones, then the updates. Only this round installs, so a build the player removes
-/// stays removed until the next start.
-async fn start_pass(core: &Core) {
+/// The start's round, right after the boot read each emulator's builds: it installs the
+/// missing builds, then the updates. Only this round installs, so a build the player removes
+/// stays removed until the next start. The boot screen waits for it ([`crate::startup`]).
+pub(crate) async fn start_pass(core: &Core) {
     let prefs = core.prefs();
-    if !prefs.auto_install && !prefs.auto_update {
-        return;
-    }
-    refresh_builds(core).await;
     if prefs.auto_install {
         install_missing(core).await;
     }
@@ -233,47 +226,75 @@ async fn refresh_builds(core: &Core) {
 /// Installs the updates the last read found, when automatic updates are on. One whose game is
 /// running waits for it to close.
 async fn install_updates(core: &Core) {
+    let mut acted = false;
     for plugin in core.kernel().of_kind(PluginKind::Emulator) {
-        let emu = core.state().emulators.get(&plugin).cloned().unwrap_or_default();
-        if !has_builds(core, &plugin)
-            || emu.installed.is_empty()
-            || emu.own
-            || emu.update().is_none()
-            || !core.prefs().auto_update
-        {
+        if !wants_update(core, &plugin) {
             continue;
         }
+        acted = true;
         if plays(core, &plugin) {
             tracing::info!(plugin_id = %plugin, "an update waits for the game to close");
             core.state().pending_updates.insert(plugin);
             continue;
         }
         if let Err(e) = update(core, &plugin).await {
+            core.state().startup.failed.insert(plugin);
             core.notices().problem(e.to_string());
         }
     }
-    core.changed(Area::Downloads);
+    if acted {
+        core.changed(Area::Downloads);
+    }
 }
 
 /// Installs the newest build of each turned-on emulator that has official builds and none
-/// installed. It leaves alone an emulator the player runs with their own build, and one whose
-/// install is under way or waits to resume. It reads the builds [`refresh_builds`] read. A
-/// failed install is a notice from [`install`]; the next start tries again.
+/// installed: see [`wants_build`]. It reads the builds the boot read. A failed install is a
+/// notice from [`install`]; the next start tries again.
 async fn install_missing(core: &Core) {
     for plugin in core.kernel().of_kind(PluginKind::Emulator) {
-        if !has_builds(core, &plugin) || uses_own_build(core, &plugin) || busy(core, &plugin) || resuming(core, &plugin)
-        {
-            continue;
-        }
-        let emu = core.state().emulators.get(&plugin).cloned().unwrap_or_default();
-        if !emu.installed.is_empty() || emu.own || emu.available.is_empty() {
+        if !wants_build(core, &plugin) {
             continue;
         }
         tracing::info!(plugin_id = %plugin, "installing the emulator's newest build");
         if let Err(e) = install(core, &plugin, None, None).await {
+            core.state().startup.failed.insert(plugin.clone());
             tracing::warn!(error = %e, plugin_id = %plugin, "could not install the emulator's build");
         }
     }
+}
+
+/// The emulators [`start_pass`] installs or updates now: a missing build, or an update whose
+/// game isn't running.
+pub(crate) fn start_pass_installs(core: &Core) -> std::collections::BTreeSet<PluginId> {
+    let auto_install = core.prefs().auto_install;
+    core.kernel()
+        .of_kind(PluginKind::Emulator)
+        .into_iter()
+        .filter(|plugin| {
+            (auto_install && wants_build(core, plugin)) || (wants_update(core, plugin) && !plays(core, plugin))
+        })
+        .collect()
+}
+
+/// The emulator gets an update: automatic updates are on, and the last read found one for its
+/// official build.
+fn wants_update(core: &Core, plugin: &PluginId) -> bool {
+    let emu = core.state().emulators.get(plugin).cloned().unwrap_or_default();
+    has_builds(core, plugin)
+        && !emu.installed.is_empty()
+        && !emu.own
+        && emu.update().is_some()
+        && core.prefs().auto_update
+}
+
+/// The emulator has official builds and none installed. It isn't one the player runs with their
+/// own build, nor one whose install is under way or waits to resume.
+fn wants_build(core: &Core, plugin: &PluginId) -> bool {
+    if !has_builds(core, plugin) || uses_own_build(core, plugin) || busy(core, plugin) || resuming(core, plugin) {
+        return false;
+    }
+    let emu = core.state().emulators.get(plugin).cloned().unwrap_or_default();
+    emu.installed.is_empty() && !emu.own && !emu.available.is_empty()
 }
 
 /// The emulator installs official builds: it isn't one that only starts games, as PC.

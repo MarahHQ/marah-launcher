@@ -523,6 +523,7 @@ async fn one_game_runs_at_a_time() {
 #[tokio::test]
 async fn play_time_adds_up_and_the_game_page_shows_it() {
     let (t, _) = core_with(FakeEmulator::new(vec!["A"])).await;
+    no_auto_install(&t).await;
     t.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
     t.core.dispatch(Command::OpenGame(key("emu-a:G0"))).await.unwrap();
     let detail = t.core.view().detail.unwrap();

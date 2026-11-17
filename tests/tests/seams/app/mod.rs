@@ -37,6 +37,19 @@ async fn core_with(mut emu: FakeEmulator) -> (TestCore, FakeEmulator) {
     (core, emu)
 }
 
+/// Turns Install emulators automatically off, as a player can: the boot installs nothing, and
+/// Play asks first.
+async fn no_auto_install(t: &TestCore) {
+    t.core.dispatch(Command::Pref(Pref::AutoInstall, false.into())).await.unwrap();
+}
+
+/// Reads the library at the start, as the app does, and waits until the boot screen can go:
+/// the start's installs are over.
+async fn boot(t: &TestCore) {
+    t.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
+    t.until(Area::Library, |core| core.view().boot.ready).await;
+}
+
 async fn install(core: &Core) {
     core.dispatch(Command::InstallEmulator { plugin: id("emu-a"), version: None }).await.unwrap();
 }

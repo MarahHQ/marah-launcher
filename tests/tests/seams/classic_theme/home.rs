@@ -112,6 +112,43 @@ fn a_tile_shows_a_light_while_its_cover_loads_and_the_name_only_without_art() {
     assert_eq!(host.values("cover-name"), ["Beta"]);
 }
 
+/// On a run that isn't the first, the boot screen shows its checklist while the start's
+/// installs run: the emulator's build installs before Home opens.
+#[test]
+fn the_boot_screen_shows_the_start_s_installs_on_any_run() {
+    let mut host = composed(|h| {
+        h.plugin(FakeCatalog::new("emu-a").system("PS4").playable().needing_its_emulator().games(["Alpha"]).build())
+    });
+    host.ui.start().unwrap();
+    host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
+    host.settle();
+    assert_eq!(host.values("boot"), ["Installing emulators and updates…"], "not Home yet");
+    let steps = host.values("welcome-step");
+    assert!(steps.contains(&"emu-a emulator: Installs now".to_owned()), "the checklist shows: {steps:?}");
+}
+
+/// While the boot screen waits for the start's installs, keys and the pad don't move Home or
+/// open a game behind it.
+#[test]
+fn keys_don_t_reach_home_behind_the_boot_screen() {
+    use slint::platform::Key;
+    let mut host = composed(|h| {
+        h.plugin(FakeCatalog::new("emu-a").system("PS4").playable().needing_its_emulator().games(["Alpha"]).build())
+    });
+    host.ui.start().unwrap();
+    host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
+    host.settle();
+    assert!(!host.core().view().boot.ready, "the boot screen waits");
+    let before = host.core().view();
+    for key in [Key::DownArrow, Key::RightArrow, Key::Return, Key::Return] {
+        host.navigate(key);
+    }
+    let after = host.core().view();
+    assert_eq!(after.screen, before.screen);
+    assert!(after.running.is_none() && after.install_prompt.is_none(), "no game started");
+    assert_eq!(after.home.selected, before.home.selected, "Home's selection stays");
+}
+
 #[test]
 fn the_first_run_welcomes_the_player_and_enter_starts() {
     use slint::platform::Key;

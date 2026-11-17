@@ -90,6 +90,8 @@ pub(crate) struct AppState {
     pub install_prompt: Option<InstallPrompt>,
     /// Emulators with an update that waits for their game to close.
     pub pending_updates: BTreeSet<PluginId>,
+    /// The start's installs, which the boot screen waits for.
+    pub startup: crate::startup::Startup,
     /// The installs stores are doing (Steam's), by the catalog plugin, as last read.
     pub store_installs: Vec<(PluginId, launcher_api::StoreInstall)>,
     /// Until when the stores' installs are read often: a minute after Marah Launcher asked a store to
@@ -120,6 +122,7 @@ impl AppState {
             system: Default::default(),
             install_prompt: None,
             pending_updates: BTreeSet::new(),
+            startup: Default::default(),
             store_installs: Vec::new(),
             store_watch_until: None,
             catalog_grid: ShownGrid::default(),

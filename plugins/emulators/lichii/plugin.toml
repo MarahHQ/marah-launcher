@@ -5,13 +5,13 @@ name = "Switch"
 # The program the plugin installs and runs. Sentences about the program name it.
 emulator = "Lichii"
 version = "0.1.0"
-host_api = "^0.3"
+host_api = "^0.3.1"
 # The official build this plugin installs: the Linux AppImage. Lichii's Windows and macOS
 # builds are not wired yet.
 platforms = ["linux"]
 # The console it plays: it gets that console's catalog (switch.json).
 console = "Switch"
-capabilities = ["catalog", "downloader", "installer", "configurator", "launcher", "slots", "game_installer", "backup"]
+capabilities = ["catalog", "downloader", "installer", "configurator", "launcher", "slots", "game_installer", "backup", "startup"]
 # What the install sheet says this emulator installs from.
 install_note = "Installs a Switch game from its game files (.nsp, .nsz, .xci, .xcz, .nup), with its update and DLC files, into the Switch folder of your game folders. A solid .nsz, which Lichii can't play, becomes the .nsp it was made from. Marah Launcher downloads the set firmware release and its keys into Lichii's data folder once you turn on Automatic updates in the Firmware block on Lichii's page, or press Update now."
 

@@ -1076,8 +1076,12 @@ pub struct RunningVm {
 /// The start of a run: loading, and on the first run the Welcome screen with its checklist.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct BootVm {
-    /// The library and the first game's details are in.
+    /// The library and the first game's details are in, and the start's installs are over: the
+    /// emulators' builds and the plugins' own work, such as the Switch firmware.
     pub ready: bool,
+    /// The start's installs run: the boot screen shows their checklist on every run, not only
+    /// on the first.
+    pub installing: bool,
     /// The player hasn't been welcomed yet: the theme shows Welcome until `finish-welcome`.
     pub welcome: bool,
     /// 0 to 1.
@@ -1090,7 +1094,7 @@ pub struct BootVm {
     pub covers: Vec<ImageRef>,
 }
 
-/// One line of the Welcome checklist: "KytyPS5 emulator · Latest build".
+/// One line of the boot checklist: "KytyPS5 emulator · Latest build".
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BootStepVm {
     pub label: String,

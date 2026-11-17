@@ -11,12 +11,15 @@ import { Brand } from "../brand.slint";
 
 // The boot screen: a slowly drifting wall of the library's covers behind the Marah Launcher emblem and a
 // progress bar. On the first run it is the Welcome screen: a checklist of what was set up, and
-// Start.
+// Start. On any run, while the start's installs run (emulators, their updates, the Switch
+// firmware), it shows the same checklist with each install's progress.
 //
-// It shows from the first frame until the library is in (and, on the first run, until Start),
-// then fades out over Home. Its motion clock runs only while it shows.
+// It shows from the first frame until the library is in and the start's installs are over (and,
+// on the first run, until Start), then fades out over Home. Its motion clock runs only while it shows.
 export component BootScreen inherits Rectangle {
     property <bool> welcome: Vm.boot.welcome;
+    // The checklist: on the first run, and on any run while the start's installs run.
+    property <bool> checklist: root.welcome || Vm.boot.installing;
     // Home's art in too: Home opens whole.
     property <bool> ready: Vm.boot.ready && Vm.art-ready;
     property <bool> shown: !root.ready || root.welcome;
@@ -91,10 +94,10 @@ export component BootScreen inherits Rectangle {
             color: Tokens.color-text-muted;
             horizontal-alignment: center;
         }
-        Rectangle { height: root.welcome ? 44 * Look.px : 6 * Look.px; }
+        Rectangle { height: root.checklist ? 44 * Look.px : 6 * Look.px; }
 
-        // What was set up (first run only).
-        if root.welcome : HorizontalLayout {
+        // What is set up: on the first run, and while the start's installs run.
+        if root.checklist : HorizontalLayout {
             alignment: center;
             Rectangle {
                 width: 560 * Look.px;
@@ -157,14 +160,14 @@ export component BootScreen inherits Rectangle {
                 }
             }
         }
-        Rectangle { height: root.welcome ? 28 * Look.px : 4 * Look.px; }
+        Rectangle { height: root.checklist ? 28 * Look.px : 4 * Look.px; }
 
         // The progress bar with a moving sheen, and the percentage.
         HorizontalLayout {
             alignment: center;
             spacing: 16 * Look.px;
             Rectangle {
-                width: root.welcome ? 480 * Look.px : 360 * Look.px;
+                width: root.checklist ? 480 * Look.px : 360 * Look.px;
                 height: 6 * Look.px;
                 y: 10 * Look.px;
                 border-radius: 3 * Look.px;
@@ -186,7 +189,7 @@ export component BootScreen inherits Rectangle {
                     visible: Vm.boot.progress < 1;
                 }
             }
-            if root.welcome : Text {
+            if root.checklist : Text {
                 text: Math.round(Vm.boot.progress * 100) + "%";
                 font-size: 18 * Look.px;
                 font-weight: 600;

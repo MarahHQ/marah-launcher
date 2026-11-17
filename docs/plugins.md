@@ -20,6 +20,7 @@ are in [development.md](development.md). Terms are in [GLOSSARY.md](../GLOSSARY.
 - [Permissions and folders](#permissions-and-folders)
 - [Capabilities](#capabilities)
 - [Backup](#backup)
+- [Startup work](#startup-work)
 - [Settings and the plugin page](#settings-and-the-plugin-page)
 - [Errors](#errors)
 - [Shared code: emulator-kit](#shared-code-emulator-kit)
@@ -211,7 +212,7 @@ cover = "cover.jpg"
 | `name` | yes | What the player sees: in the plugin list, on the plugin page, and where a sentence means the console. An emulator names its console: `PS5`. |
 | `emulator` | no | For an emulator, the name of the program it installs and runs, such as `KytyPS5`. Sentences about the program use it. Empty when the program has no name of its own; then `name` is used. |
 | `version` | yes | The plugin's semver version. |
-| `host_api` | yes | A semver range of the API versions the plugin works with, such as `^0.3`. The host refuses the plugin when the range doesn't include `launcher_api::API_VERSION` (now `0.3.0`). |
+| `host_api` | yes | A semver range of the API versions the plugin works with, such as `^0.3`. The host refuses the plugin when the range doesn't include `launcher_api::API_VERSION` (now `0.3.1`). |
 | `platforms` | no | `linux`, `macos`, `windows`. Empty means every system. |
 | `console` | no | For an emulator, the console it plays: ASCII letters, digits and `-`, kept in uppercase (`ps5` and `PS5` are one console). A `releases` plugin gives the emulator that console's catalog. Not the systems the plugin runs on. |
 | `capabilities` | no | The capabilities `init` provides. See [Capabilities](#capabilities). |
@@ -487,6 +488,7 @@ for each in `Provided`. Each one is a trait in `crates/api/src`.
 | `metadata` | `metadata` | `Metadata` | `catalog.rs` |
 | `releases` | `releases` | `Releases` | `releases.rs` |
 | `backup` | `backup` | `Backup` | `backup.rs` |
+| `startup` | `startup` | `StartupWork` | `startup.rs` |
 | `theme` | none | `ThemePlugin` | `plugin.rs` |
 | `network`, `vpn`, `bluetooth`, `audio`, `power`, `os_updates`, `os_install` | `network`, `vpn`, `bluetooth`, `audio`, `power`, `os_updates`, `os_install` | `NetworkSettings`, `VpnSettings`, `BluetoothSettings`, `AudioSettings`, `PowerSettings`, `OsUpdates`, `OsInstall` | `system.rs` |
 
@@ -752,6 +754,28 @@ backup: Some(emulator_kit::backup::Items::provided(vec![
 Back up the plugin's own data only. Leave out what Marah Launcher keeps itself (the plugin's settings
 are in `config.json` already). Use `skip` for what the emulator makes again, as shadPS4 leaves
 out its caches, logs and downloads.
+
+## Startup work
+
+The `startup` capability (API 0.3.1 and later) is work a plugin does on its own when the
+launcher starts, such as Lichii's Switch firmware update. The boot screen shows it as a row of
+its checklist, and waits until it is over.
+
+```rust
+#[async_trait]
+pub trait StartupWork: Send + Sync {
+    async fn status(&self) -> Option<StartupStep>;
+}
+```
+
+- The core asks for `status` after it reads the plugin's slots at the start, then every half
+  second while the work runs. `None` means no work this run: the boot screen doesn't wait.
+- A `StartupStep` has a `label` ("Switch firmware"), a `detail` of a few words for one line
+  ("Checking…", "Downloading"), a `progress` from 0 to 1 when known, and a `state`: `Working`,
+  `Done` or `Failed`. The boot screen adds the percent to a working step's detail.
+- The boot screen goes when no work runs, or after two minutes in which nothing moved. The
+  work goes on behind Home.
+- A plugin that declares `startup` needs `host_api = "^0.3.1"`.
 
 ## Settings and the plugin page
 
