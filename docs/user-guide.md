@@ -261,6 +261,20 @@ Some emulator notes:
 - **KytyPS5**: a build that knows the `--data-folder` option keeps its saves in one folder that
   every such build shares: "KytyPS5 saves" on its page, `~/.local/share/KytyPS5` until you
   change it.
+- **shadPS4**: some PS4 games need the PS4's system modules and fonts: 14 `.sprx` files in
+  `sys_modules` and 45 fonts in `fonts/font` and `fonts/font2`, in **shadPS4 data**
+  (`~/.local/share/shadPS4` until you change it). If any of them are missing, a question comes up
+  over the boot screen: **Install PS4 system files?** **Install** downloads the missing files,
+  about 38 MB for all of them, from the
+  [retrobios collection](https://github.com/Abdess/retrobios) on GitHub, at a fixed commit.
+  Marah Launcher checks the size and SHA-256 of each file before it puts the file in place. The
+  boot screen shows the download and waits for it. **Not now** downloads nothing, and the start
+  asks again next time. The **System files** block on the PS4 page shows the files:
+  **Installed**, **Missing** and how many, or **Your own files**. **Install now** installs the
+  missing files at once. Files you put there yourself are never replaced, and files that aren't
+  on the list are never touched. If a download fails, or a file doesn't match its SHA-256, the
+  block says why, the boot goes on, and no half-written file is left in shadPS4's folders. These
+  are Sony's files: check that you may use them where you live.
 - **Lichii**: Lichii keeps its data in `~/.local/share/lichii` from build-150 on. If you
   played with an older build, open Lichii from its page once and import your Eden data
   (`~/.local/share/eden`): until then, Lichii starts no game. An older build, or your own

@@ -1612,6 +1612,7 @@ dependencies = [
  "rsa",
  "sha2",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]

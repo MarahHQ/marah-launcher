@@ -13,6 +13,8 @@
 //!   every build shares, so a build change moves nothing.
 //! - Compatibility: the community list from `shadps4-compatibility`.
 //! - Installs: PS4 packages and unpacked game folders, in [`install`].
+//! - The PS4's system modules and fonts, which some games need: the start asks to install them
+//!   when they are missing, in [`system_files`].
 
 use std::sync::Arc;
 
@@ -26,6 +28,7 @@ use emulator_kit::{compat, versions};
 mod install;
 pub mod pkg4;
 mod pkg4_data;
+pub mod system_files;
 use launcher_api::schemars::JsonSchema;
 use launcher_api::serde::{Deserialize, Serialize};
 use launcher_api::serde_json::Value;
@@ -198,47 +201,73 @@ impl Plugin for ShadPlugin {
 #[async_trait]
 impl CodePlugin for ShadPlugin {
     async fn init(&self, ctx: PluginContext) -> PluginResult<Provided> {
-        let host = Host::of(&ctx);
-        let spec = ConsoleSpec {
-            console: Console::Ps4,
-            packages: Packages::Formats(&[Format::Ps4Package]),
-            compat: Some(CompatList { url: COMPATIBILITY, page: LIST_PAGE, parse: compat::shad }),
-            keys: KEYS,
-            section: "shadps4",
-            version_row: true,
-            own_row: false,
-        };
-        let emu = Arc::new(ConsoleEmulator::start(ShadFlavor { platform: host.platform }, spec, host).await?);
-        let shad = Arc::new(Shad { emu: emu.clone() });
-        Ok(Provided {
-            catalog: Some(shad.clone()),
-            downloader: Some(emu.builds().clone()),
-            installer: Some(emu.builds().clone()),
-            configurator: Some(emu.clone()),
-            launcher: Some(shad.clone()),
-            compatibility: Some(emu.clone()),
-            game_installer: Some(shad),
-            slots: Some(emu),
-            backup: Some(emulator_kit::backup::Items::provided(vec![
-                // Its settings, keys, saves and trophies; not its caches, logs and downloads.
-                BackupItem::new(
-                    "data",
-                    "PS4 settings and saves",
-                    BackupPlace::Folder(HostPath::new(DATA, 0, RelPath::root())),
-                )
-                .skip(&["cache", "log", "shader", "temp", "download", "addcont"]),
-                // DLC can take many GB: only when asked for.
-                BackupItem::new(
-                    "dlc",
-                    "PS4 DLC",
-                    BackupPlace::Folder(HostPath::new(DATA, 0, RelPath::new("addcont")?)),
-                )
-                .large(),
-            ])),
-            assets: Some(launcher_api::system_art!()),
-            ..Provided::default()
-        })
+        init(ctx, system_files::table()).await
     }
+}
+
+/// The plugin with another list of PS4 system files in place of the real one: for tests, which
+/// serve fake files.
+#[cfg(feature = "fixtures")]
+pub struct ShadWithFiles(pub Vec<system_files::SystemFile>);
+
+#[cfg(feature = "fixtures")]
+#[async_trait]
+impl Plugin for ShadWithFiles {
+    fn manifest(&self) -> PluginManifest {
+        ShadPlugin.manifest()
+    }
+}
+
+#[cfg(feature = "fixtures")]
+#[async_trait]
+impl CodePlugin for ShadWithFiles {
+    async fn init(&self, ctx: PluginContext) -> PluginResult<Provided> {
+        init(ctx, self.0.clone()).await
+    }
+}
+
+/// The plugin's parts, with `files` as the list of PS4 system files.
+async fn init(ctx: PluginContext, files: Vec<system_files::SystemFile>) -> PluginResult<Provided> {
+    let host = Host::of(&ctx);
+    let spec = ConsoleSpec {
+        console: Console::Ps4,
+        packages: Packages::Formats(&[Format::Ps4Package]),
+        compat: Some(CompatList { url: COMPATIBILITY, page: LIST_PAGE, parse: compat::shad }),
+        keys: KEYS,
+        section: "shadps4",
+        version_row: true,
+        own_row: false,
+    };
+    let system = system_files::SystemFiles::new(host.clone(), ctx.events().clone(), files);
+    let emu =
+        ConsoleEmulator::start(ShadFlavor { platform: host.platform }, spec, host).await?.with_panel(system.clone());
+    let emu = Arc::new(emu);
+    let shad = Arc::new(Shad { emu: emu.clone() });
+    Ok(Provided {
+        catalog: Some(shad.clone()),
+        downloader: Some(emu.builds().clone()),
+        installer: Some(emu.builds().clone()),
+        configurator: Some(emu.clone()),
+        launcher: Some(shad.clone()),
+        compatibility: Some(emu.clone()),
+        game_installer: Some(shad),
+        slots: Some(emu),
+        backup: Some(emulator_kit::backup::Items::provided(vec![
+            // Its settings, keys, saves and trophies; not its caches, logs and downloads.
+            BackupItem::new(
+                "data",
+                "PS4 settings and saves",
+                BackupPlace::Folder(HostPath::new(DATA, 0, RelPath::root())),
+            )
+            .skip(&["cache", "log", "shader", "temp", "download", "addcont"]),
+            // DLC can take many GB: only when asked for.
+            BackupItem::new("dlc", "PS4 DLC", BackupPlace::Folder(HostPath::new(DATA, 0, RelPath::new("addcont")?)))
+                .large(),
+        ])),
+        startup: Some(system),
+        assets: Some(launcher_api::system_art!()),
+        ..Provided::default()
+    })
 }
 
 inventory::submit! { PluginFactory::code(|| Box::new(ShadPlugin)) }

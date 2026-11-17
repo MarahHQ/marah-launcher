@@ -203,6 +203,8 @@ player installs them. They keep their own licences, and this repository holds no
 - KytyPS5, from the GitHub releases of `KytyPS5/KytyPS5`.
 - shadPS4, from the GitHub releases of `shadps4-emu/shadPS4`.
 - Lichii, from the GitHub releases of `zortos293/Lichii` (GPL-3.0).
+- The PS4 system modules and fonts that shadPS4 can use, from the retrobios collection
+  (`Abdess/retrobios`, at a fixed commit), when the player installs them. They are Sony's files.
 - umu-launcher, from the GitHub releases of `Open-Wine-Components/umu-launcher`. It downloads
   Proton (GE-Proton) by itself when a Windows game runs.
 

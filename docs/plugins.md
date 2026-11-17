@@ -758,7 +758,7 @@ out its caches, logs and downloads.
 ## Startup work
 
 The `startup` capability (API 0.3.1 and later) is work a plugin does on its own when the
-launcher starts, such as Lichii's Switch firmware update. The boot screen shows it as a row of
+launcher starts, such as Lichii's Switch firmware update or shadPS4's PS4 system files. The boot screen shows it as a row of
 its checklist, and waits until it is over.
 
 ```rust
@@ -783,8 +783,10 @@ pub trait StartupWork: Send + Sync {
   `no` buttons ("Install", "Not now"). The core shows it over the boot screen, one plugin at a
   time, and the boot waits for the answer. While it is asked, `status` says `None`.
 - The core calls `answer` with the player's choice, and doesn't ask that plugin again in this
-  run. With yes, the plugin starts its work: its `status` says `Working`, and the boot screen
-  shows it and waits for it.
+  run. With yes, the plugin starts its work: its `status` says `Working` before `answer`
+  returns, and the boot screen shows it and waits for it.
+- After an answer, the core asks the next plugin that has a question, in the plugins' order.
+  This holds also when the answer came after the boot screen stopped waiting.
 - A plugin that declares `startup` needs `host_api = "^0.3.1"`, and `^0.3.2` for a question.
 
 ## Settings and the plugin page
@@ -965,9 +967,12 @@ its saves in the shared `kyty-data` folder, which is the plugin's one backup ite
 PS5 game folders, exFAT images and unsigned PS5 packages.
 
 **PS4: shadPS4** (`plugins/emulators/shadps4`, `emu-shadps4`). The same capabilities as
-KytyPS5. Builds come from shadPS4's official release; on Linux the host takes the AppImage out
-of the zip and extracts it. Games are PS4 game folders. Backup: its data folder without caches
-and logs, and its DLC as a large item.
+KytyPS5, and `startup`. Builds come from shadPS4's official release; on Linux the host takes the
+AppImage out of the zip and extracts it. Games are PS4 game folders. Backup: its data folder
+without caches and logs, and its DLC as a large item. Its startup work asks to install the
+missing PS4 system files (`src/system_files.rs`): 14 system modules and 45 fonts, from a pinned
+commit of the retrobios collection, each checked against the size and SHA-256 in
+`src/system_files.tsv`. Its System files block on the plugin page has Install now.
 
 **Switch: Lichii** (`plugins/emulators/lichii`, `emu-lichii`, Linux only). Capabilities:
 `catalog`, `downloader`, `installer`, `configurator`, `launcher`, `slots`, `game_installer`,
