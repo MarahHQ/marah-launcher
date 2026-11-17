@@ -1674,3 +1674,57 @@ fn the_boot_screen_renders_the_start_s_installs() {
         drop(gate);
     }
 }
+
+/// A plugin that asks the firmware's question at the start, for the screenshot.
+struct FirmwareAsker;
+
+#[launcher_api::async_trait]
+impl launcher_api::StartupWork for FirmwareAsker {
+    async fn status(&self) -> Option<launcher_api::StartupStep> {
+        None
+    }
+
+    async fn question(&self) -> Option<launcher_api::StartupQuestion> {
+        Some(launcher_api::StartupQuestion {
+            title: "Install Switch firmware 22.5.0?".into(),
+            text: "Switch games need the firmware and its keys. Marah Launcher downloads firmware 22.5.0 from \
+                   THZoria/NX_Firmware on GitHub, and the keys of the same version, into Eden's folder."
+                .into(),
+            yes: "Install".into(),
+            no: "Not now".into(),
+        })
+    }
+}
+
+/// A plugin's question over the boot screen, as `{classic,default}-boot-question.png`.
+#[test]
+fn the_boot_screen_renders_a_plugin_s_question() {
+    let (window, out) = offscreen();
+    for theme in ["classic", "default"] {
+        let mut host = composed_on_current_platform(|h| {
+            h.plugin(
+                launcher_testkit::StubPlugin::from_toml(
+                    "id = \"asker\"\nkind = \"service\"\nname = \"Asker\"\nversion = \"1.0.0\"\n\
+                     host_api = \"^0.3.2\"\ncapabilities = [\"startup\"]",
+                )
+                .provides(|_| {
+                    Ok(launcher_api::Provided {
+                        startup: Some(std::sync::Arc::new(FirmwareAsker)),
+                        ..Default::default()
+                    })
+                }),
+            )
+        });
+        if theme == "default" {
+            host.ui.start_with(Some(id(theme_default::ID))).unwrap();
+        } else {
+            host.ui.start().unwrap();
+        }
+        host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
+        run_until(&host, 2000, |core| core.view().question.is_some());
+        host.load_images();
+        assert_eq!(host.values("question"), ["Install Switch firmware 22.5.0?"], "{theme}");
+        shoot(&window, &out.join(format!("{theme}-boot-question.png")));
+    }
+    not_blank(&out, &["classic-boot-question", "default-boot-question"]);
+}

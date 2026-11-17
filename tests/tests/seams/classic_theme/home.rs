@@ -124,7 +124,7 @@ fn the_boot_screen_shows_the_start_s_installs_on_any_run() {
     host.settle();
     assert_eq!(host.values("boot"), ["Installing emulators and updates…"], "not Home yet");
     let steps = host.values("welcome-step");
-    assert!(steps.contains(&"emu-a emulator: Installs now".to_owned()), "the checklist shows: {steps:?}");
+    assert!(steps.contains(&"PlayStation 4: Installs now".to_owned()), "the checklist shows: {steps:?}");
 }
 
 /// While the boot screen waits for the start's installs, keys and the pad don't move Home or

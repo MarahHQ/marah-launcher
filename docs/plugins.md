@@ -212,7 +212,7 @@ cover = "cover.jpg"
 | `name` | yes | What the player sees: in the plugin list, on the plugin page, and where a sentence means the console. An emulator names its console: `PS5`. |
 | `emulator` | no | For an emulator, the name of the program it installs and runs, such as `KytyPS5`. Sentences about the program use it. Empty when the program has no name of its own; then `name` is used. |
 | `version` | yes | The plugin's semver version. |
-| `host_api` | yes | A semver range of the API versions the plugin works with, such as `^0.3`. The host refuses the plugin when the range doesn't include `launcher_api::API_VERSION` (now `0.3.1`). |
+| `host_api` | yes | A semver range of the API versions the plugin works with, such as `^0.3`. The host refuses the plugin when the range doesn't include `launcher_api::API_VERSION` (now `0.3.2`). |
 | `platforms` | no | `linux`, `macos`, `windows`. Empty means every system. |
 | `console` | no | For an emulator, the console it plays: ASCII letters, digits and `-`, kept in uppercase (`ps5` and `PS5` are one console). A `releases` plugin gives the emulator that console's catalog. Not the systems the plugin runs on. |
 | `capabilities` | no | The capabilities `init` provides. See [Capabilities](#capabilities). |
@@ -765,6 +765,9 @@ its checklist, and waits until it is over.
 #[async_trait]
 pub trait StartupWork: Send + Sync {
     async fn status(&self) -> Option<StartupStep>;
+    // API 0.3.2 and later; both have default bodies.
+    async fn question(&self) -> Option<StartupQuestion> { None }
+    async fn answer(&self, yes: bool) {}
 }
 ```
 
@@ -775,7 +778,14 @@ pub trait StartupWork: Send + Sync {
   `Done` or `Failed`. The boot screen adds the percent to a working step's detail.
 - The boot screen goes when no work runs, or after two minutes in which nothing moved. The
   work goes on behind Home.
-- A plugin that declares `startup` needs `host_api = "^0.3.1"`.
+- Work that downloads something the player didn't ask for asks first. A `StartupQuestion` has a
+  `title` ("Install Switch firmware 22.5.0?"), a `text` of a sentence or two, and its `yes` and
+  `no` buttons ("Install", "Not now"). The core shows it over the boot screen, one plugin at a
+  time, and the boot waits for the answer. While it is asked, `status` says `None`.
+- The core calls `answer` with the player's choice, and doesn't ask that plugin again in this
+  run. With yes, the plugin starts its work: its `status` says `Working`, and the boot screen
+  shows it and waits for it.
+- A plugin that declares `startup` needs `host_api = "^0.3.1"`, and `^0.3.2` for a question.
 
 ## Settings and the plugin page
 

@@ -22,6 +22,7 @@ import { PluginScreen } from "screens/plugin.slint";
 import { GameSettingsScreen } from "screens/game-settings.slint";
 import { RunningScreen, Splash } from "screens/running.slint";
 import { BootScreen } from "components/boot.slint";
+import { QuestionPrompt } from "kit/question-prompt.slint";
 import { Closing } from "kit/closing.slint";
 import { Lingering } from "kit/lingering.slint";
 import { GameMenu } from "kit/game-menu.slint";
@@ -224,7 +225,7 @@ export component Shell inherits Window {
     property <bool> game-keys: Vm.has-detail && Hub.consent < 0 && !Nav.sort-open
         && (Vm.screen == "game-detail" || (Nav.library && Nav.has-detail));
     property <bool> trailer-key: root.game-keys && Vm.detail.trailer-url != "";
-    property <bool> overlay: Vm.has-install-prompt || GameMenu.open || Vm.has-trailer || Viewer.open || Nav.sort-open
+    property <bool> overlay: Vm.has-install-prompt || Vm.has-question || GameMenu.open || Vm.has-trailer || Viewer.open || Nav.sort-open
         || Osk.open || PowerMenu.open;
     // The PS or Xbox button, held: the host counts it up.
     property <int> power-asks: Vm.power-menu;
@@ -322,4 +323,6 @@ export component Shell inherits Window {
 
     // The boot screen is over everything, from the first frame.
     BootScreen { width: root.width; height: root.height; }
+    // A plugin's question at the start, over the boot screen: the start waits for the answer.
+    if Vm.has-question : QuestionPrompt { width: root.width; height: root.height; }
 }

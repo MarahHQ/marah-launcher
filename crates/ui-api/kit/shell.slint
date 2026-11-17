@@ -16,6 +16,7 @@ import { Osk } from "keyboard.slint";
 import { Sys } from "system-panel.slint";
 import { Setup, InstallOs } from "install-os.slint";
 import { Prompt, InstallPrompt } from "install-prompt.slint";
+import { Question } from "question-prompt.slint";
 import { Ask, ResultPrompt } from "result-prompt.slint";
 
 // A key the hints at the bottom show: the pad's button, the keyboard's key and what it does.
@@ -180,6 +181,8 @@ export component ShellKeys inherits FocusScope {
         // The power menu, over everything: the PS or Xbox button held (Vm.power-menu), or Ctrl+P.
         if (PowerMenu.open) { PowerMenu.key(event.text); return accept; }
         if (event.modifiers.control && (event.text == "p" || event.text == "P")) { PowerMenu.show(); return accept; }
+        // A plugin's question at the start: over the boot screen and Welcome, it takes the keys.
+        if (Vm.has-question) { Question.key(event.text); return accept; }
         // The Welcome screen: Enter is Start, once the library is in.
         if (Vm.boot.welcome) {
             if (event.text == Key.Return && Vm.boot.ready && Vm.art-ready) { Commands.finish-welcome(); }

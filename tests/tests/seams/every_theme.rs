@@ -413,3 +413,57 @@ fn a_launcher_update_puts_a_dot_by_updates_in_every_theme() {
         assert_eq!(host.values("update-dot"), ["Updates"], "{theme}: the dot is by Updates");
     }
 }
+
+/// A plugin that asks a question at the start, and keeps the answers.
+#[derive(Default)]
+struct Asker {
+    answers: std::sync::Mutex<Vec<bool>>,
+}
+
+#[launcher_api::async_trait]
+impl launcher_api::StartupWork for Asker {
+    async fn status(&self) -> Option<launcher_api::StartupStep> {
+        None
+    }
+
+    async fn question(&self) -> Option<launcher_api::StartupQuestion> {
+        self.answers.lock().unwrap().is_empty().then(|| launcher_api::StartupQuestion {
+            title: "Install the thing?".into(),
+            text: "It downloads the thing.".into(),
+            yes: "Install".into(),
+            no: "Not now".into(),
+        })
+    }
+
+    async fn answer(&self, yes: bool) {
+        self.answers.lock().unwrap().push(yes);
+    }
+}
+
+/// The asker, as a plugin with the startup capability.
+fn asker(work: std::sync::Arc<Asker>) -> launcher_testkit::StubPlugin {
+    launcher_testkit::StubPlugin::from_toml(
+        "id = \"asker\"\nkind = \"service\"\nname = \"Asker\"\nversion = \"1.0.0\"\nhost_api = \"^0.3.2\"\n\
+         capabilities = [\"startup\"]",
+    )
+    .provides(move |_| Ok(launcher_api::Provided { startup: Some(work.clone()), ..Default::default() }))
+}
+
+/// A plugin's question shows over the boot screen, in every theme; the boot waits for it, and
+/// Enter answers its yes, Escape its no.
+#[test]
+fn a_plugin_s_question_shows_over_the_boot_screen_and_the_keys_answer_it() {
+    for (theme, key, answer) in [(THEMES[0], Key::Return, true), (THEMES[1], Key::Escape, false)] {
+        let work = std::sync::Arc::new(Asker::default());
+        let mut host = in_theme(theme, |h| two_emulators(h).plugin(asker(work.clone())));
+        assert_eq!(host.values("question"), ["Install the thing?"], "{theme}");
+        assert_eq!(host.values("question-text"), ["It downloads the thing."], "{theme}");
+        assert!(!host.core().view().boot.ready, "{theme}: the boot waits for the answer");
+
+        host.navigate(key);
+        host.settle();
+        assert_eq!(*work.answers.lock().unwrap(), [answer], "{theme}");
+        assert!(host.values("question").is_empty(), "{theme}: the question is gone");
+        assert!(host.core().view().question.is_none(), "{theme}: asked once a run");
+    }
+}

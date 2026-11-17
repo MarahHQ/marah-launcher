@@ -1140,6 +1140,10 @@ pub struct AppView {
     /// A game was started whose emulator isn't installed: the player is asked first.
     #[serde(serialize_with = "mark::has")]
     pub install_prompt: Option<InstallPromptVm>,
+    /// A question a plugin asks at the start, before its work downloads anything: "Install Switch
+    /// firmware 22.5.0?". The theme shows it over the boot screen.
+    #[serde(serialize_with = "mark::has")]
+    pub question: Option<QuestionVm>,
     pub boot: BootVm,
     /// Work going on in the background, for example "Downloading game art 3/40".
     #[serde(serialize_with = "mark::text")]
@@ -1304,6 +1308,17 @@ pub struct NoticeVm {
     pub art: Option<ImageRef>,
     /// What clicking the notice opens, for example "Open Downloads". Empty for nothing.
     pub opens: String,
+}
+
+/// A plugin's question at the start, with its two buttons: `Commands.answer-question`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct QuestionVm {
+    pub title: String,
+    pub text: String,
+    /// The yes button, such as "Install".
+    pub yes: String,
+    /// The no button, such as "Not now".
+    pub no: String,
 }
 
 /// "Install KytyPS5 to play Astro Bot?": what the player is asked before a first play

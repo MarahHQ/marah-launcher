@@ -32,7 +32,8 @@ async fn a_plugin_named_by_its_console_names_its_program_where_a_sentence_means_
     no_auto_install(&t).await;
     t.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
     let steps: Vec<String> = t.core.view().boot.steps.into_iter().map(|s| s.label).collect();
-    assert!(steps.contains(&"KytyPS5 emulator".to_owned()), "the first start's step: {steps:?}");
+    // The boot screen names the console, as Home does; the Game Hub's sentence names the program.
+    assert!(steps.contains(&"PS5".to_owned()), "the first start's step: {steps:?}");
     t.core.dispatch(Command::OpenGame(key("emu-a:G0"))).await.unwrap();
     let detail = t.core.view().detail.expect("the Game Hub");
     assert_eq!(detail.launch_hint, "Play installs KytyPS5 first");
@@ -229,7 +230,7 @@ async fn an_emulator_that_uses_your_own_build_gets_no_build_at_the_boot() {
     boot(&t).await;
     assert!(installed(&t.core).await.is_empty());
     assert!(t.http.requests().is_empty(), "nothing downloads");
-    let step = t.core.view().boot.steps.into_iter().find(|s| s.label == "emu-a emulator").unwrap();
+    let step = t.core.view().boot.steps.into_iter().find(|s| s.label == "emu-a").unwrap();
     assert_eq!((step.detail.as_str(), step.state.as_str()), ("Own build: none picked yet", "done"), "nothing failed");
 }
 
@@ -243,7 +244,7 @@ async fn a_failed_install_at_the_boot_is_a_notice_and_doesn_t_run_again() {
     assert!(tries > 0, "the boot tried the download");
     let notices = t.core.view().notices;
     assert_eq!(notices.iter().filter(|n| n.contains("Could not install emu-a")).count(), 1, "{notices:?}");
-    let step = t.core.view().boot.steps.into_iter().find(|s| s.label == "emu-a emulator").unwrap();
+    let step = t.core.view().boot.steps.into_iter().find(|s| s.label == "emu-a").unwrap();
     assert_eq!((step.detail.as_str(), step.state.as_str()), ("Could not install", "failed"));
 
     // Two looks for updates later, six hours apart.
@@ -271,6 +272,41 @@ async fn an_update_at_the_boot_waits_until_the_emulator_s_game_closes() {
     panic!("the update didn't run after the game closed");
 }
 
+/// The start's installs run side by side: a second emulator's download doesn't wait for the
+/// first's to end.
+#[tokio::test]
+async fn the_start_s_installs_download_side_by_side() {
+    let host = FakeHost::new();
+    let mut gates = Vec::new();
+    let mut emus = Vec::new();
+    for id in ["emu-a", "emu-b"] {
+        let mut emu = FakeEmulator::new(vec!["A"]);
+        emu.build_url = format!("https://builds.example/{id}.zip");
+        emu.build_sha = host.http().serve(&emu.build_url, vec![7u8; 20_480]);
+        emu.build_size = Some(20_480);
+        // Each download stops part-way until its gate opens.
+        gates.push(host.http().hold_after(&emu.build_url, 8_192));
+        emus.push((id, emu));
+    }
+    let mut host = host;
+    for (id, emu) in emus {
+        host = host.plugin(emu.plugin(id));
+    }
+    let t = host.boot_core().await;
+    t.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
+
+    let both = t
+        .until_clock(Duration::from_millis(100), 50, || {
+            let steps = t.core.view().boot.steps;
+            ["emu-a", "emu-b"].iter().all(|id| steps.iter().any(|s| s.label == *id && s.detail == "Downloading · 40%"))
+        })
+        .await;
+    assert!(both, "both download at once: {:?}", t.core.view().boot.steps);
+    for gate in gates {
+        gate.release();
+    }
+}
+
 /// The boot screen stays while the start's install downloads, with the download's progress in
 /// its checklist on any run, and goes once the build is in.
 #[tokio::test]
@@ -284,7 +320,7 @@ async fn the_boot_screen_shows_the_start_s_install_and_waits_for_it() {
     t.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
     let shown = t
         .until_clock(Duration::from_millis(100), 50, || {
-            t.core.view().boot.steps.iter().any(|s| s.label == "emu-a emulator" && s.detail == "Downloading · 40%")
+            t.core.view().boot.steps.iter().any(|s| s.label == "emu-a" && s.detail == "Downloading · 40%")
         })
         .await;
     assert!(shown, "{:?}", t.core.view().boot.steps);
@@ -292,7 +328,7 @@ async fn the_boot_screen_shows_the_start_s_install_and_waits_for_it() {
     assert!(!boot.ready, "it waits for the install");
     assert!(boot.installing, "the checklist shows on a run that isn't the first");
     assert!(!boot.welcome);
-    let step = boot.steps.iter().find(|s| s.label == "emu-a emulator").unwrap();
+    let step = boot.steps.iter().find(|s| s.label == "emu-a").unwrap();
     assert_eq!((step.detail.as_str(), step.state.as_str()), ("Downloading · 40%", "working"));
     assert!(boot.progress > 0.6 && boot.progress < 1.0, "past the library, not done: {}", boot.progress);
 
@@ -300,7 +336,7 @@ async fn the_boot_screen_shows_the_start_s_install_and_waits_for_it() {
     t.until(Area::Library, |core| core.view().boot.ready).await;
     let boot = t.core.view().boot;
     assert!(!boot.installing);
-    let step = boot.steps.iter().find(|s| s.label == "emu-a emulator").unwrap();
+    let step = boot.steps.iter().find(|s| s.label == "emu-a").unwrap();
     assert_eq!((step.detail.as_str(), step.state.as_str()), ("Latest build", "done"));
 }
 
@@ -320,7 +356,7 @@ async fn a_start_install_that_hangs_lets_home_open_after_two_minutes() {
     assert!(ready, "the boot screen went");
     let waited = t.clock.now() - started;
     assert!(waited >= Duration::from_secs(120) && waited < Duration::from_secs(130), "{waited:?}");
-    let step = t.core.view().boot.steps.into_iter().find(|s| s.label == "emu-a emulator").unwrap();
+    let step = t.core.view().boot.steps.into_iter().find(|s| s.label == "emu-a").unwrap();
     assert_eq!(step.state, "working", "still downloading behind Home");
 }
 
