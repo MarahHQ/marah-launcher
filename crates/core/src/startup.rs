@@ -8,6 +8,7 @@
 //! - The wait ends when nothing runs, or when nothing moved for [`STALL_LIMIT`]: a download that
 //!   hangs doesn't keep the player out. What still runs goes on behind Home.
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -29,6 +30,10 @@ pub struct Startup {
     pub over: bool,
     /// The plugins' own work, as each plugin last said, in the plugins' order.
     pub work: Vec<(PluginId, StartupStep)>,
+    /// The emulators the start's pass installs or updates.
+    pub emulators: BTreeSet<PluginId>,
+    /// The emulators whose install or update failed in the pass.
+    pub failed: BTreeSet<PluginId>,
 }
 
 impl Startup {
@@ -44,8 +49,9 @@ impl Startup {
 pub(crate) async fn start(core: &Core) {
     let work = read_work(core).await;
     core.state().startup.work = work;
-    let works = core.state().startup.works();
-    let waits = works || !installing(core).is_empty() || crate::emulator_builds::start_pass_installs(core);
+    let emulators = crate::emulator_builds::start_pass_installs(core);
+    let waits = !emulators.is_empty() || !installing(core).is_empty() || core.state().startup.works();
+    core.state().startup.emulators = emulators;
     if !waits {
         core.state().startup.over = true;
     }

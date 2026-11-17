@@ -229,6 +229,8 @@ async fn an_emulator_that_uses_your_own_build_gets_no_build_at_the_boot() {
     boot(&t).await;
     assert!(installed(&t.core).await.is_empty());
     assert!(t.http.requests().is_empty(), "nothing downloads");
+    let step = t.core.view().boot.steps.into_iter().find(|s| s.label == "emu-a emulator").unwrap();
+    assert_eq!((step.detail.as_str(), step.state.as_str()), ("Installs on first play", "done"), "nothing failed");
 }
 
 #[tokio::test]
@@ -242,7 +244,7 @@ async fn a_failed_install_at_the_boot_is_a_notice_and_doesn_t_run_again() {
     let notices = t.core.view().notices;
     assert_eq!(notices.iter().filter(|n| n.contains("Could not install emu-a")).count(), 1, "{notices:?}");
     let step = t.core.view().boot.steps.into_iter().find(|s| s.label == "emu-a emulator").unwrap();
-    assert_eq!((step.detail.as_str(), step.state.as_str()), ("Not installed", "failed"));
+    assert_eq!((step.detail.as_str(), step.state.as_str()), ("Could not install", "failed"));
 
     // Two looks for updates later, six hours apart.
     t.clock.advance(Duration::from_secs(13 * 3600)).await;

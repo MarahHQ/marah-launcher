@@ -1567,12 +1567,17 @@ fn boot_vm(s: &Snapshot) -> BootVm {
                 (None, _) => "Installing…".into(),
             };
             (detail, "working")
+        } else if startup.failed.contains(plugin) && emu.installed.is_empty() {
+            ("Could not install".into(), "failed")
+        } else if startup.failed.contains(plugin) {
+            ("Could not update".into(), "failed")
         } else if emu.own {
             ("Your own build".into(), "done")
-        } else if emu.installed.is_empty() && s.prefs.auto_install && startup.over {
-            ("Not installed".into(), "failed")
-        } else if emu.installed.is_empty() && s.prefs.auto_install {
-            ("Installs now".into(), if booted { "waiting" } else { "working" })
+        } else if startup.emulators.contains(plugin) && !startup.over {
+            let next = if emu.installed.is_empty() { "Installs now" } else { "Updates now" };
+            (next.into(), "waiting")
+        } else if emu.installed.is_empty() && s.prefs.auto_install && !booted {
+            ("Installs now".into(), "working")
         } else if emu.installed.is_empty() {
             ("Installs on first play".into(), loaded)
         } else if emu.update().is_some() {

@@ -29,6 +29,8 @@ fn a_first_play_asks_before_the_emulator_downloads_and_enter_agrees() {
         h.plugin(FakeCatalog::new("emu-x").named("Emu").playable().needing_its_emulator().games(["Astro"]).build())
     });
     host.ui.start().unwrap();
+    // Install emulators automatically off: the first play asks.
+    host.dispatch(Command::Pref(launcher_core::Pref::AutoInstall, false.into()));
     host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
     host.dispatch(Command::Session(SessionCmd::Launch("emu-x:G0".parse().unwrap())));
     host.settle();
@@ -67,6 +69,8 @@ fn not_now_closes_the_install_prompt() {
         h.plugin(FakeCatalog::new("emu-x").named("Emu").playable().needing_its_emulator().games(["Astro"]).build())
     });
     host.ui.start().unwrap();
+    // Install emulators automatically off: the first play asks.
+    host.dispatch(Command::Pref(launcher_core::Pref::AutoInstall, false.into()));
     host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
     host.dispatch(Command::Session(SessionCmd::Launch("emu-x:G0".parse().unwrap())));
     host.settle();
@@ -532,6 +536,8 @@ fn right_to_left_the_install_prompt_has_install_and_play_on_the_right_and_the_ke
         h.plugin(FakeCatalog::new("emu-x").named("Emu").playable().needing_its_emulator().games(["Astro"]).build())
     });
     host.ui.start().unwrap();
+    // Install emulators automatically off: the first play asks.
+    host.dispatch(Command::Pref(launcher_core::Pref::AutoInstall, false.into()));
     host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
     host.dispatch(Command::SetThemeOption { key: "direction".into(), value: "rtl".into() });
     host.dispatch(Command::Session(SessionCmd::Launch("emu-x:G0".parse().unwrap())));

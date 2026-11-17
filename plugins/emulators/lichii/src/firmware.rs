@@ -9,7 +9,9 @@
 //!   panel; Update now runs one at any time. The block is the only place that shows or sets the
 //!   firmware settings: the release and Automatic updates, in the plugin's storage
 //!   ([`SETTINGS`]). With Automatic updates on, a check starts when the core reads the panel
-//!   (at the start and at each update check), at most once every [`RELEASE_TTL`]. The boot
+//!   (at the start and at each update check), at most once every [`RELEASE_TTL`]. Automatic
+//!   updates manage only firmware Marah Launcher installed, or none: firmware the player put
+//!   there stays until they press Update now. The boot
 //!   screen shows the update that starts with Marah Launcher, and waits for it
 //!   ([`StartupWork`]). A failed update isn't tried again on its own until Marah Launcher starts
 //!   again.
@@ -48,18 +50,19 @@ pub const SETTINGS: &str = "firmware-settings.json";
 /// The release installed until the player types another.
 const DEFAULT_RELEASE: &str = "22.5.0";
 
-/// The update that runs, as the boot screen shows it: from the start of a check to its end.
-/// Nothing before the first check of the run.
+/// The update that runs, as the boot screen shows it on one line: from the start of a check
+/// to its end. Nothing before the first check of the run. The Firmware block has the whole text.
 #[async_trait]
 impl StartupWork for Firmware {
     async fn status(&self) -> Option<StartupStep> {
         let (detail, progress, state) = match self.phase() {
             Phase::Idle => return None,
-            // The download's megabytes say more than its name; the boot screen adds the percent.
-            Phase::Updating(step) if step.detail.is_empty() => (step.what, step.progress, StartupState::Working),
-            Phase::Updating(step) => (step.detail, step.progress, StartupState::Working),
-            Phase::Complete(message) => (message, Some(1.0), StartupState::Done),
-            Phase::Failed(error) => (error, None, StartupState::Failed),
+            // The boot screen adds the percent.
+            Phase::Updating(step) => (step.short.to_owned(), step.progress, StartupState::Working),
+            Phase::Complete(_) => {
+                (self.installed().await.unwrap_or_else(|| "Up to date".into()), Some(1.0), StartupState::Done)
+            }
+            Phase::Failed(_) => ("Could not update".into(), None, StartupState::Failed),
         };
         Some(StartupStep { label: "Switch firmware".into(), detail, progress, state })
     }
@@ -219,6 +222,8 @@ enum Phase {
 /// A step of an update that runs: what it does, and for a download how far it is.
 #[derive(Clone, Debug, PartialEq)]
 struct Step {
+    /// A few words for the boot screen's one-line row, such as "Checking…".
+    short: &'static str,
     what: String,
     /// From 0 to 1.
     progress: Option<f32>,
@@ -227,14 +232,15 @@ struct Step {
 }
 
 impl Step {
-    fn new(what: impl Into<String>) -> Self {
-        Self { what: what.into(), progress: None, detail: String::new() }
+    fn new(short: &'static str, what: impl Into<String>) -> Self {
+        Self { short, what: what.into(), progress: None, detail: String::new() }
     }
 
     /// The download's step, at `at` of `size` bytes.
     fn download(at: u64, size: u64) -> Self {
         let mb = |b: u64| format!("{:.1} MB", b as f64 / 1_000_000.0);
         Self {
+            short: "Downloading",
             what: "Downloading the firmware".into(),
             progress: Some(at as f32 / size.max(1) as f32),
             detail: format!("{} of {}", mb(at), mb(size)),
@@ -298,12 +304,16 @@ impl Firmware {
         self.save(&settings).await
     }
 
-    /// Starts a check on its own, bypassing the normal interval when firmware is missing.
+    /// Starts a check on its own, bypassing the normal interval when firmware is missing. It
+    /// leaves alone firmware the player put there: one Marah Launcher didn't install.
     async fn start_auto(&self, version: String) {
         if matches!(self.phase(), Phase::Updating(_)) {
             return;
         }
         let missing = !self.has_firmware().await;
+        if !missing && self.installed().await.is_none() {
+            return;
+        }
         {
             let mut last = self.last_auto.lock().unwrap_or_else(|p| p.into_inner());
             if !missing && last.is_some_and(|t| t.elapsed() < RELEASE_TTL) {
@@ -340,7 +350,7 @@ impl Firmware {
             match &*phase {
                 Phase::Updating(_) => return,
                 Phase::Failed(_) if !asked => return,
-                _ => *phase = Phase::Updating(Step::new("Checking for firmware updates…")),
+                _ => *phase = Phase::Updating(Step::new("Checking…", "Checking for firmware updates…")),
             }
         }
         if let Err(e) = self.events.publish(SLOTS_CHANGED, Value::Null) {
@@ -503,11 +513,14 @@ impl Firmware {
                 release.tag
             ));
         }
-        self.set_phase(Phase::Updating(Step::new(format!(
-            "Firmware {} is {}. Downloading keys {version}…",
-            release.tag,
-            if current { "up to date" } else { "available" }
-        ))));
+        self.set_phase(Phase::Updating(Step::new(
+            "Downloading keys…",
+            format!(
+                "Firmware {} is {}. Downloading keys {version}…",
+                release.tag,
+                if current { "up to date" } else { "available" }
+            ),
+        )));
         let keys = self.download_keys(version).await?;
         if current {
             self.install_keys(keys).await?;
@@ -531,7 +544,7 @@ impl Firmware {
             .ok_or_else(|| PluginError::Precondition(format!("GitHub gives no SHA-256 for {}", asset.name)))?;
         let unpacked = async {
             self.download(&asset.url, asset.size, &sha256, &zip).await?;
-            self.set_phase(Phase::Updating(Step::new(format!("Unpacking firmware {}…", release.tag))));
+            self.set_phase(Phase::Updating(Step::new("Unpacking…", format!("Unpacking firmware {}…", release.tag))));
             unpack(folders, &zip, &firmware.staged).await
         }
         .await;
@@ -540,7 +553,10 @@ impl Firmware {
             self.clean(&firmware.staged).await;
             return Err(e);
         }
-        self.set_phase(Phase::Updating(Step::new(format!("Installing firmware {} and keys {version}…", release.tag))));
+        self.set_phase(Phase::Updating(Step::new(
+            "Installing…",
+            format!("Installing firmware {} and keys {version}…", release.tag),
+        )));
         let had_live = match firmware.swap(folders, &self.host.log).await {
             Ok(had_live) => had_live,
             Err(e) => {

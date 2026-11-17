@@ -54,7 +54,11 @@ pub(crate) async fn refresh_emulator(core: &Core, plugin: &PluginId) {
             emu.panels = items;
         }
     }
-    core.state().emulators.insert(plugin.clone(), emu);
+    // An install that started or ended during the reads set `busy`: the read doesn't put back
+    // what it saw before them.
+    let mut state = core.state();
+    emu.busy = state.emulators.get(plugin).is_some_and(|now| now.busy);
+    state.emulators.insert(plugin.clone(), emu);
 }
 
 pub(crate) async fn refresh_emulators(core: &Core) {
@@ -234,6 +238,7 @@ async fn install_updates(core: &Core) {
             continue;
         }
         if let Err(e) = update(core, &plugin).await {
+            core.state().startup.failed.insert(plugin);
             core.notices().problem(e.to_string());
         }
     }
@@ -252,18 +257,23 @@ async fn install_missing(core: &Core) {
         }
         tracing::info!(plugin_id = %plugin, "installing the emulator's newest build");
         if let Err(e) = install(core, &plugin, None, None).await {
+            core.state().startup.failed.insert(plugin.clone());
             tracing::warn!(error = %e, plugin_id = %plugin, "could not install the emulator's build");
         }
     }
 }
 
-/// [`start_pass`] has an install to run now: a missing build, or an update whose game isn't
-/// running.
-pub(crate) fn start_pass_installs(core: &Core) -> bool {
+/// The emulators [`start_pass`] installs or updates now: a missing build, or an update whose
+/// game isn't running.
+pub(crate) fn start_pass_installs(core: &Core) -> std::collections::BTreeSet<PluginId> {
     let auto_install = core.prefs().auto_install;
-    core.kernel().of_kind(PluginKind::Emulator).iter().any(|plugin| {
-        (auto_install && wants_build(core, plugin)) || (wants_update(core, plugin) && !plays(core, plugin))
-    })
+    core.kernel()
+        .of_kind(PluginKind::Emulator)
+        .into_iter()
+        .filter(|plugin| {
+            (auto_install && wants_build(core, plugin)) || (wants_update(core, plugin) && !plays(core, plugin))
+        })
+        .collect()
 }
 
 /// The emulator gets an update: automatic updates are on, and the last read found one for its

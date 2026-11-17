@@ -5,7 +5,7 @@ name = "Switch"
 # The program the plugin installs and runs. Sentences about the program name it.
 emulator = "Lichii"
 version = "0.1.0"
-host_api = "^0.3"
+host_api = "^0.3.1"
 # The official build this plugin installs: the Linux AppImage. Lichii's Windows and macOS
 # builds are not wired yet.
 platforms = ["linux"]
