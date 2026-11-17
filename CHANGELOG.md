@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/MarahHQ/marah-launcher/compare/v0.4.0...v0.5.0) (2026-11-17)
+
+
+### Features
+
+* **kit:** a plugin's page and a game's own settings are one page like Settings ([#25](https://github.com/MarahHQ/marah-launcher/issues/25)) ([1d87954](https://github.com/MarahHQ/marah-launcher/commit/1d87954ea47beb4184b98123616a41f8193c7db9))
+
 ## [0.4.0](https://github.com/MarahHQ/marah-launcher/compare/v0.3.0...v0.4.0) (2026-11-17)
 
 
