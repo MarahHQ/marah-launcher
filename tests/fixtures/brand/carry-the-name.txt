@@ -72,7 +72,6 @@ crates/ui-api/kit/game-menu.slint
 crates/ui-api/kit/install-os.slint
 crates/ui-api/kit/power-menu.slint
 crates/ui-api/kit/settings-layout.slint
-crates/ui-api/kit/settings-page.slint
 crates/ui-api/kit/settings-rows.slint
 crates/ui-api/kit/settings-sections.slint
 crates/ui-api/kit/shell.slint

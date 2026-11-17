@@ -12,7 +12,8 @@ export global PluginList {
     in-out property <int> focus;
     // The list's sheet, and the plugin's sheet that opens beside it.
     out property <length> list-width: 560 * Look.tpx;
-    out property <length> page-width: 760 * Look.tpx;
+    // As wide as Settings: a plugin's page is a settings sheet too.
+    out property <length> page-width: 1080 * Look.tpx;
     // The list on screen, or the list a plugin's sheet was opened from.
     out property <bool> themes: Vm.screen == "themes" || (Vm.screen == "plugin" && Vm.plugin-page.plugin.kind == "theme");
     out property <[PluginRow]> rows: root.themes ? Vm.theme-plugins : Vm.emulator-plugins;

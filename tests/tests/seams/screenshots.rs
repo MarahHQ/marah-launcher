@@ -229,9 +229,10 @@ fn shoot_classic(host: &mut Composed, window: &MinimalSoftwareWindow, out: &Path
     host.dispatch(Command::Navigate(Route::Plugin("emu-kyty".parse().unwrap())));
     host.load_images();
     shoot(window, &out.join(format!("{prefix}-plugin.png")));
-    // Up to the tabs and along to its settings.
-    key(host, Key::UpArrow);
-    key(host, if prefix.contains("rtl") { Key::LeftArrow } else { Key::RightArrow });
+    // R1 jumps on to its settings, on the same page.
+    key(host, Key::Tab);
+    std::thread::sleep(Duration::from_millis(300));
+    follow(host);
     shoot(window, &out.join(format!("{prefix}-plugin-settings.png")));
     // The Game Catalog's page: its settings, the catalog sources and the catalog refresh.
     host.dispatch(Command::Navigate(Route::Plugin("release-catalog".parse().unwrap())));
@@ -1328,6 +1329,37 @@ shots! {
     the_keyboard => shoot_keyboard,
     the_pad_hints => shoot_pad_hints,
     the_system_controls => shoot_system,
+    a_game_s_own_settings => shoot_game_settings,
+}
+
+/// A KytyPS5 game's own settings in each built-in theme, as `<theme>[-rtl]-game-settings.png`.
+fn shoot_game_settings(window: &MinimalSoftwareWindow, out: &Path) {
+    window.set_size(slint::PhysicalSize::new(WIDTH, HEIGHT));
+    let games = tempfile::tempdir().unwrap();
+    let sce = games.path().join("PS5/Astro/sce_sys");
+    std::fs::create_dir_all(&sce).unwrap();
+    let param = serde_json::json!({
+        "titleId": "PPSA01234", "contentVersion": "01.000.000",
+        "localizedParameters": { "defaultLanguage": "en-US", "en-US": { "titleName": "Astro Bot" } },
+    });
+    std::fs::write(sce.join("param.json"), param.to_string()).unwrap();
+    let mut host = composed_on_current_platform(|h| h.built_in(launcher_api::PluginBox::code(emu_kyty::KytyPlugin)));
+    host.ui.start().unwrap();
+    host.dispatch(Command::SetFolders { name: "games".into(), paths: vec![games.path().into()] });
+    host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
+    host.dispatch(Command::Notice(launcher_core::NoticeCmd::DismissAll));
+    host.dispatch(Command::Navigate(Route::GameSettings("emu-kyty:PPSA01234".parse().unwrap())));
+    assert_eq!(host.core().view().screen, launcher_ui_api::ScreenId::GameSettings);
+    for theme in [theme_classic::ID, theme_default::ID] {
+        host.ui.switch(&id(theme)).unwrap();
+        for (direction, name) in [("ltr", theme.to_string()), ("rtl", format!("{theme}-rtl"))] {
+            host.dispatch(Command::SetThemeOption { key: "direction".into(), value: direction.into() });
+            follow(&mut host);
+            shoot(window, &out.join(format!("{name}-game-settings.png")));
+        }
+        host.dispatch(Command::SetThemeOption { key: "direction".into(), value: "ltr".into() });
+    }
+    not_blank(out, &["classic-game-settings", "default-game-settings"]);
 }
 
 /// The library the default screens show: a home folder (for the packages folder downloads go

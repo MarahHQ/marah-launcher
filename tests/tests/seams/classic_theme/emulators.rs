@@ -111,46 +111,157 @@ fn a_plugin_s_page_changes_its_settings() {
     assert_eq!(host.first("setting:own_build").accessible_value().as_deref(), Some("true"));
 }
 
+/// The lit section of a plugin page's rail, among `names`.
+fn lit_page_section(host: &Composed, names: &[&str]) -> String {
+    names
+        .iter()
+        .find(|name| {
+            i_slint_backend_testing::ElementHandle::find_by_accessible_label(
+                host.instance(),
+                &format!("settings-tab:{name}"),
+            )
+            .any(|e| e.accessible_checked() == Some(true))
+        })
+        .expect("one section is lit")
+        .to_string()
+}
+
+/// KytyPS5's sections: General, then its one settings panel.
+const KYTY_SECTIONS: [&str; 2] = ["General", "Settings"];
+
+/// A plugin's page is one page like Settings: General, then its settings, each under its header,
+/// with a rail of the two. Up from Turned on goes to the rail, Down there chooses Settings and
+/// Right goes into its rows; Up from its first row goes back into General's last row.
 #[test]
-fn the_keys_move_along_a_plugin_page_s_tabs_and_into_the_rows_of_one() {
+fn the_keys_move_down_a_plugin_page_s_one_page_and_across_its_sections() {
     use slint::platform::Key;
     let mut host = kyty_page();
-    assert_eq!(host.count("setting:own_build"), 0, "General shows no settings");
-    // Up from the first row to the tabs, Right to Settings, Down into its first row.
+    assert_eq!(host.count("settings-tab:General"), 1, "the rail lists General");
+    assert_eq!(host.count("settings-tab:Settings"), 1, "and Settings");
+    assert_eq!(lit_page_section(&host, &KYTY_SECTIONS), "General", "Turned on has the focus");
+    // Up from the first row to the rail, Down to Settings, Right into its first row.
     host.navigate(Key::UpArrow);
-    host.navigate(Key::RightArrow);
-    assert_eq!(host.count("plugin-enabled"), 0, "and Settings shows no General rows");
     host.navigate(Key::DownArrow);
+    assert_eq!(lit_page_section(&host, &KYTY_SECTIONS), "Settings", "Down on the rail chooses Settings");
+    host.navigate(Key::RightArrow);
     host.navigate(Key::Return);
     assert_eq!(host.first("setting:own_build").accessible_value().as_deref(), Some("true"), "Enter changes the row");
-    // Left goes back to General, which is where Turned on is.
+    // Up from Settings' first row: General's last row, on the same page.
     host.navigate(Key::UpArrow);
-    host.navigate(Key::LeftArrow);
-    assert_eq!(host.count("plugin-enabled"), 1);
+    assert_eq!(lit_page_section(&host, &KYTY_SECTIONS), "General", "Up crosses into General");
+    host.navigate(Key::DownArrow);
+    assert_eq!(lit_page_section(&host, &KYTY_SECTIONS), "Settings", "and Down back into Settings");
+    host.navigate(Key::Return);
+    assert_eq!(host.first("setting:own_build").accessible_value().as_deref(), Some("false"), "on its first row again");
 }
 
 #[test]
-fn l1_and_r1_choose_the_tab_of_a_plugin_page() {
+fn l1_and_r1_jump_between_the_sections_of_a_plugin_page() {
     use slint::platform::Key;
     let mut host = kyty_page();
-    assert_eq!(host.count("plugin-enabled"), 1, "General is first");
+    assert_eq!(lit_page_section(&host, &KYTY_SECTIONS), "General", "General is first");
     host.navigate(Key::Tab);
-    assert_eq!(host.count("plugin-enabled"), 0, "R1 is the next tab");
-    assert_eq!(host.count("setting:own_build"), 1);
+    assert_eq!(lit_page_section(&host, &KYTY_SECTIONS), "Settings", "R1 is the next section");
+    host.navigate(Key::Return);
+    assert_eq!(host.first("setting:own_build").accessible_value().as_deref(), Some("true"), "on Settings' first row");
     host.navigate(Key::Backtab);
-    assert_eq!(host.count("plugin-enabled"), 1, "and L1 the one before");
+    assert_eq!(lit_page_section(&host, &KYTY_SECTIONS), "General", "and L1 the one before");
+    host.navigate(Key::Return);
+    assert_eq!(host.first("plugin-enabled").accessible_value().as_deref(), Some("off"), "on Turned on");
+}
+
+/// Each section of a plugin's page is under its own header, on one page that scrolls as
+/// Settings does: a jump to a section brings its header into view.
+#[test]
+fn a_plugin_s_page_has_a_header_for_each_section_and_a_jump_shows_it() {
+    use slint::platform::Key;
+    let mut host = slid_in(kyty_page());
+    assert_eq!(host.count("settings-page"), 1);
+    assert_eq!(host.values("settings-section").first().map(String::as_str), Some("General"));
+    host.navigate(Key::Tab);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(1000));
+    host.settle();
+    assert!(
+        host.values("settings-section").iter().any(|s| s == "Settings"),
+        "R1 scrolled the Settings header into view: {:?}",
+        host.values("settings-section")
+    );
+}
+
+/// A sheet once its slide in has ended: the mouse goes where it is drawn.
+fn slid_in(mut host: Composed) -> Composed {
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(1000));
+    host.settle();
+    host
+}
+
+/// The mouse wheel scrolls a plugin's page and the rail lights the section in view; a key then
+/// lights the focused section again.
+#[test]
+fn the_rail_follows_a_plugin_page_the_mouse_wheel_scrolls() {
+    use slint::platform::Key;
+    let mut host = slid_in(kyty_page());
+    host.wheel("settings-page", 60);
+    assert_eq!(lit_page_section(&host, &KYTY_SECTIONS), "Settings", "at the end of the page, the last section is lit");
+    host.wheel("settings-page", -60);
+    assert_eq!(lit_page_section(&host, &KYTY_SECTIONS), "General", "back at the top, the first section is lit");
+    host.wheel("settings-page", 60);
+    host.navigate(Key::DownArrow);
+    assert_eq!(lit_page_section(&host, &KYTY_SECTIONS), "General", "a key moves on from the focused row");
+}
+
+/// A theme's page with no options is one section: no rail.
+#[test]
+fn a_plugin_page_with_one_section_has_no_rail() {
+    let mut host = classic_theme();
+    host.dispatch(Command::Navigate(launcher_core::Route::Themes));
+    host.dispatch(Command::Navigate(launcher_core::Route::Plugin(id("classic"))));
+    host.settle();
+    assert_eq!(host.values("settings-section"), ["Theme"]);
+    assert_eq!(host.count("settings-tab:Theme"), 0, "one section: no rail");
+    assert_eq!(host.count("theme-current"), 1);
+}
+
+/// A KytyPS5 game's own settings: one section under the header bar with the game's name.
+#[test]
+fn a_game_s_own_settings_are_one_section_under_the_header_bar() {
+    use slint::platform::Key;
+    let games = tempfile::tempdir().unwrap();
+    let sce = games.path().join("PS5/Astro/sce_sys");
+    std::fs::create_dir_all(&sce).unwrap();
+    let param = serde_json::json!({
+        "titleId": "PPSA01234", "contentVersion": "01.000.000",
+        "localizedParameters": { "defaultLanguage": "en-US", "en-US": { "titleName": "Astro Bot" } },
+    });
+    std::fs::write(sce.join("param.json"), param.to_string()).unwrap();
+    let mut host = composed(|h| h.built_in(launcher_api::PluginBox::code(emu_kyty::KytyPlugin)));
+    host.ui.start().unwrap();
+    host.dispatch(Command::SetFolders { name: "games".into(), paths: vec![games.path().into()] });
+    host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
+    host.dispatch(Command::Navigate(launcher_core::Route::GameSettings("emu-kyty:PPSA01234".parse().unwrap())));
+    host.settle();
+    assert_eq!(host.core().view().screen, launcher_ui_api::ScreenId::GameSettings);
+    assert_eq!(host.value("game-settings-title"), "Astro Bot");
+    assert_eq!(host.values("settings-section"), ["This game"]);
+    assert_eq!(host.count("settings-tab:This game"), 0, "one section: no rail");
+    // Down to Video out, and Return chooses its next value.
+    let before = host.first("setting:video_out").accessible_value().map(|v| v.to_string());
+    host.navigate(Key::DownArrow);
+    host.navigate(Key::Return);
+    let after = host.first("setting:video_out").accessible_value().map(|v| v.to_string());
+    assert_ne!(before, after, "Down moved to Video out and Return changed it");
 }
 
 #[test]
 fn kytyps5_s_own_build_folder_is_a_row_in_its_settings_under_the_release_repo() {
     use slint::platform::Key;
     let mut host = kyty_page();
-    assert_eq!(host.count("settings-tab:Folders"), 0, "the page has no Folders tab");
+    assert_eq!(host.count("settings-tab:Folders"), 0, "the page has no Folders section");
     host.settings_tab("Settings");
     assert_eq!(host.count("folder:kyty-build"), 1);
     assert_eq!(host.count("folder:kyty-data"), 1);
-    // Own build, Release repo, then its two folders, then Prereleases.
-    host.navigate(Key::DownArrow);
+    // Right from the rail into Own build; then Release repo, its two folders, and Prereleases.
+    host.navigate(Key::RightArrow);
     for _ in 0..4 {
         host.navigate(Key::DownArrow);
     }
@@ -170,11 +281,11 @@ fn shadps4_s_folders_are_rows_in_its_settings_under_use_your_own_build() {
     host.first("plugin:emu-shadps4").invoke_accessible_default_action();
     host.pump();
     host.settle();
-    assert_eq!(host.count("settings-tab:Folders"), 0, "the page has no Folders tab");
+    assert_eq!(host.count("settings-tab:Folders"), 0, "the page has no Folders section");
     host.settings_tab("Settings");
     assert_eq!((host.count("folder:shadps4-data"), host.count("folder:shadps4-build")), (1, 1));
-    // Own build, the two folders, then Full screen.
-    host.navigate(Key::DownArrow);
+    // Right from the rail into Own build; then the two folders, and Full screen.
+    host.navigate(Key::RightArrow);
     for _ in 0..3 {
         host.navigate(Key::DownArrow);
     }
