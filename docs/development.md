@@ -261,7 +261,6 @@ Three ways make pictures of the app:
   written. -->
 - **`scripts/screenshots.sh`** takes the user-guide screenshots (`docs/screenshots/*.jpg`)
   from the running app, with your real library; see the script's header.
-  <!-- TODO: unverified: scripts/screenshots.sh is being written and has not run. -->
 
 ### Tests that touch the real system
 
