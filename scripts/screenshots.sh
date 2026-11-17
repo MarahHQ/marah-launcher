@@ -48,9 +48,14 @@ press() {
     sleep 1.5
 }
 
-# The window may show its last frame a moment late: wait before each capture.
+# X hands `import` the frame the window showed last, which can be the screen before: a resize by
+# a pixel and back makes the window draw twice, so the frame it shows is the one on screen.
 shoot() {
     sleep 2
+    xdotool windowsize --sync "$window" 1601 900
+    sleep 0.5
+    xdotool windowsize --sync "$window" 1600 900
+    sleep 1
     import -window "$window" -quality 90 "$out/$1.jpg"
     echo "$out/$1.jpg"
 }
@@ -58,6 +63,7 @@ shoot() {
 shoot home
 # Enter on the first entry, All games: the Library.
 press Return
+sleep 3
 shoot library
 # Enter on the first game: its Game Hub. Its art and details come from the network.
 press Return
@@ -67,6 +73,7 @@ shoot detail
 press Escape Escape
 # Ctrl+D opens Downloads.
 press ctrl+d
+sleep 3
 shoot downloads
 press Escape
 # L1 (Tab) on Home goes to the top bar's first item, Search: the Catalog.
@@ -77,14 +84,16 @@ press Escape Escape
 # Settings is the top bar's last item: Search, Downloads, Emulators, Themes, Settings.
 press Tab Tab Tab Tab Tab Return
 shoot settings
-# Up to the tabs, and along them to Backup.
-press Up Right Right Right Right Right
+# Up from the first row to the rail of sections, down it to Backup (Launcher, Games, Updates,
+# Downloads, This PC, Backup: no System section in a window), and Right into its rows.
+press Up Down Down Down Down Down Right
 shoot backup
 # Down to "Restore from another folder": below Back up now, Include large items and the
 # backup folder. Enter opens the browser.
-press Down Down Down Down Return
-# The places, then down from the backup folder to the first drive, which opens.
-press Left Down Return
+press Down Down Down Return
+# The places, then down from Home past Downloads, Desktop and Documents to the first drive,
+# which opens: no folder of yours shows in the picture.
+press Left Down Down Down Down Return
 sleep 1
 shoot backup-browser
 # The places, where Escape closes it.

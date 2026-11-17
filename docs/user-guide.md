@@ -333,7 +333,8 @@ column of their icons on the left that lights the section you are in. Up and Dow
 the rows, from one section into the next. Press L1 and R1 to jump to the section before or after.
 You can also press Up from the very first row to reach the icons, Up and Down to choose one, and
 Right to go into its rows. This PC only shows, so Up and Down pass it by: jump to it, and Up and
-Down scroll it, and Left comes back to the icons.
+Down scroll it, and Left comes back to the icons. When you scroll the page with the mouse wheel,
+the icons light the section in view.
 
 ### Launcher
 
@@ -398,7 +399,7 @@ The power menu (hold the PS button, or Ctrl+P) has the same items, from any scre
 
 ## Backup and restore
 
-![Settings, Backup tab](screenshots/backup.jpg)
+![Settings, Backup section](screenshots/backup.jpg)
 
 Settings → Backup keeps your settings, keys, firmware and saves in one file.
 
