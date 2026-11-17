@@ -32,6 +32,9 @@ pub(crate) struct Ownership<'a> {
     /// The games of [`MIN_PREFIX_WORDS`] words or more, with their console and their title's
     /// words, for a name that starts an offer's.
     by_words: Vec<(&'a Entry, String, Vec<String>)>,
+    /// The games of [`MIN_PREFIX_WORDS`] words or more by the emulator, the console and their
+    /// [`loose`] name, for a name that differs from an offer's by a plural or a bracket.
+    by_loose: HashMap<(&'a PluginId, String, String), Vec<&'a Entry>>,
 }
 
 /// The fewest words a game's name has for it to link to an offer whose name it starts: one
@@ -59,19 +62,38 @@ impl<'a> Ownership<'a> {
         let mut by_id = HashMap::new();
         let mut by_name = HashMap::new();
         let mut by_words = Vec::new();
+        let mut by_loose: HashMap<_, Vec<&Entry>> = HashMap::new();
+        let offer_names: std::collections::HashSet<String> = library
+            .offers
+            .iter()
+            .flat_map(|o| o.releases.iter().filter_map(|r| name(&o.entry.summary.platform, &r.title)))
+            .collect();
+        // A game named after its dashed folder: the offer name its folder gives, first, so the
+        // title it lost a number from doesn't take another game's offer.
+        let mut named_by_folder = std::collections::HashSet::new();
+        for e in &games {
+            if let Some(name) = folder_name(&e.key.local, &e.summary.platform, &offer_names) {
+                by_name.entry((&e.key.plugin, name)).or_insert(*e);
+                named_by_folder.insert(&e.key);
+            }
+        }
         for e in &games {
             let title = words(&e.summary.title);
             if title.len() >= MIN_PREFIX_WORDS {
                 by_words.push((*e, e.summary.platform.to_ascii_lowercase(), title));
+                let key = (&e.key.plugin, e.summary.platform.to_ascii_lowercase(), loose(&e.summary.title));
+                by_loose.entry(key).or_default().push(*e);
             }
             if let Some(id) = e.summary.title_id.as_deref().filter(|t| !t.is_empty()) {
                 by_id.entry((&e.key.plugin, id)).or_insert(*e);
             }
-            if let Some(name) = name(&e.summary.platform, &e.summary.title) {
+            if !named_by_folder.contains(&e.key)
+                && let Some(name) = name(&e.summary.platform, &e.summary.title)
+            {
                 by_name.entry((&e.key.plugin, name)).or_insert(*e);
             }
         }
-        Self { library, jobs, installs, games, by_id, by_name, by_words }
+        Self { library, jobs, installs, games, by_id, by_name, by_words, by_loose }
     }
 
     /// The game of the emulator's library that the download `job` installed: the one with the
@@ -87,7 +109,26 @@ impl<'a> Ownership<'a> {
     /// of its releases installed, else the game with one of its title ids, else the game of its
     /// name on the same console. A PS4 and a PS5 game of one name are two games.
     pub fn installed_game(&self, offer: &Offer) -> Option<&'a Entry> {
-        self.linked(offer).or_else(|| self.by_prefix(offer))
+        self.linked(offer).or_else(|| self.by_prefix(offer)).or_else(|| self.by_loose(offer))
+    }
+
+    /// The one installed game, of the offer's emulator and console, whose [`loose`] name is one
+    /// of [`loose_names`] of the offer's releases. `None` when no game or more than one fits.
+    fn by_loose(&self, offer: &Offer) -> Option<&'a Entry> {
+        let console = offer.entry.summary.platform.to_ascii_lowercase();
+        let mut found: Option<&'a Entry> = None;
+        for release in &offer.releases {
+            for name in loose_names(&release.title) {
+                let Some(games) = self.by_loose.get(&(&offer.emulator, console.clone(), name)) else { continue };
+                for game in games {
+                    match found {
+                        Some(other) if other.key != game.key => return None,
+                        _ => found = Some(game),
+                    }
+                }
+            }
+        }
+        found
     }
 
     /// The installed game the offer is, by its download, its title id or its name.
@@ -196,6 +237,52 @@ fn words(title: &str) -> Vec<String> {
     title.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(str::to_owned).collect()
 }
 
+/// A word without a plural `s`: "generations" is "generation". Not "ss" ("boss"), nor a word of
+/// three letters or fewer ("gas").
+fn singular(word: &str) -> &str {
+    if word.len() > 3 && word.ends_with('s') && !word.ends_with("ss") { &word[..word.len() - 1] } else { word }
+}
+
+/// A title as its words in the singular, for a match that a plural doesn't break.
+fn loose(title: &str) -> String {
+    words(title).iter().map(|w| singular(w)).collect::<Vec<_>>().join(" ")
+}
+
+/// The [`loose`] names an offer's release title stands for: the title without a "+ 5 DLC"
+/// tail, and for a name with a bracket, as "Teenage Mutant Ninja Turtles (TMNT) Splintered
+/// Fate", the name without the bracket and the bracket's short name with the rest ("TMNT
+/// Splintered Fate").
+fn loose_names(title: &str) -> Vec<String> {
+    let title = title.split(" + ").next().unwrap_or(title);
+    let mut names = vec![title.to_owned()];
+    if let Some(open) = title.find('(')
+        && let Some(close) = title[open..].find(')').map(|c| open + c)
+    {
+        let (before, inner, after) = (&title[..open], &title[open + 1..close], &title[close + 1..]);
+        names.push(format!("{before} {after}"));
+        names.push(format!("{inner} {after}"));
+    }
+    names.iter().map(|n| loose(n)).filter(|n| n.split(' ').count() >= MIN_PREFIX_WORDS).collect()
+}
+
+/// The offer name of a game named after its folder: a folder whose name has its words joined by
+/// dashes and numbers at the end (`world-of-goo-2-1-0-13120-81588`) is the offer, of the names
+/// in `offers`, of its words with the most of those numbers ("World of Goo 2").
+fn folder_name(folder: &str, console: &str, offers: &std::collections::HashSet<String>) -> Option<String> {
+    if folder.contains(' ') || folder.matches('-').count() < 2 {
+        return None;
+    }
+    let parts: Vec<&str> = folder.split('-').filter(|p| !p.is_empty()).collect();
+    let numbers = parts.iter().rev().take_while(|p| p.chars().all(|c| c.is_ascii_digit())).count();
+    if numbers == 0 || numbers == parts.len() {
+        return None;
+    }
+    (0..=numbers)
+        .rev()
+        .filter_map(|kept| name(console, &parts[..parts.len() - numbers + kept].join(" ")))
+        .find(|name| offers.contains(name))
+}
+
 /// A game's name to find it by: its console and its title, as letters and digits.
 fn name(console: &str, title: &str) -> Option<String> {
     let title = crate::releases::plain(title);
@@ -268,6 +355,64 @@ mod tests {
     fn owned<T>(library: &LibrarySnapshot, read: impl FnOnce(&Ownership) -> T) -> T {
         let (jobs, installs) = (BTreeMap::new(), InstallsSnapshot::default());
         read(&Ownership::new(library, &jobs, &installs))
+    }
+
+    /// The offer each installed game links to, by key.
+    fn links(library: &LibrarySnapshot) -> Vec<(String, Option<String>)> {
+        owned(library, |o| {
+            library
+                .offers
+                .iter()
+                .map(|offer| (offer.entry.key.to_string(), o.installed_game(offer).map(|e| e.key.to_string())))
+                .collect()
+        })
+    }
+
+    /// A name that differs from the offer's by a plural, by a "+ 5 DLC" tail, or by the long
+    /// form of a name the offer gives in brackets still links: "TMNT Splintered Fate" is
+    /// "Teenage Mutant Ninja Turtles (TMNT) Splintered Fate + 5 DLC".
+    #[test]
+    fn a_name_links_across_a_plural_a_dlc_tail_and_a_bracketed_short_name() {
+        let sonic = game("emu:sonic", "Sonic x Shadow Generation", "SWITCH", None);
+        let tmnt = game("emu:tmnt", "TMNT Splintered Fate", "SWITCH", None);
+        let offers = vec![
+            offer("cat:o1", "SWITCH", vec![release("a", "SONIC X SHADOW GENERATIONS", "", "1.0")]),
+            offer(
+                "cat:o2",
+                "SWITCH",
+                vec![release("b", "Teenage Mutant Ninja Turtles (TMNT) Splintered Fate + 5 DLC", "", "1.0")],
+            ),
+            offer("cat:o3", "SWITCH", vec![release("c", "Shadow Fate", "", "1.0")]),
+        ];
+        let library = library(vec![sonic, tmnt], Vec::new(), offers);
+        assert_eq!(
+            links(&library),
+            [
+                ("cat:o1".to_owned(), Some("emu:sonic".to_owned())),
+                ("cat:o2".to_owned(), Some("emu:tmnt".to_owned())),
+                ("cat:o3".to_owned(), None),
+            ]
+        );
+    }
+
+    /// A PC game named after its dashed folder lost the numbers at the end of the folder's name:
+    /// the offer whose name is the folder's words with the most of those numbers links to it.
+    #[test]
+    fn a_dashed_folder_links_to_the_offer_with_the_most_of_its_numbers() {
+        let one = game("emu:world-of-goo-1-6-538-87464", "World Of Goo", "PC", None);
+        let two = game("emu:world-of-goo-2-1-0-13120-81588", "World Of Goo", "PC", None);
+        let offers = vec![
+            offer("cat:goo", "PC", vec![release("a", "World of Goo", "", "1.6")]),
+            offer("cat:goo2", "PC", vec![release("b", "World of Goo 2", "", "2.1")]),
+        ];
+        let library = library(vec![one, two], Vec::new(), offers);
+        assert_eq!(
+            links(&library),
+            [
+                ("cat:goo".to_owned(), Some("emu:world-of-goo-1-6-538-87464".to_owned())),
+                ("cat:goo2".to_owned(), Some("emu:world-of-goo-2-1-0-13120-81588".to_owned())),
+            ]
+        );
     }
 
     #[test]
