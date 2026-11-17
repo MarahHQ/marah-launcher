@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.7.0](https://github.com/MarahHQ/marah-launcher/compare/v0.6.0...v0.7.0) (2026-11-17)
+
+
+### Features
+
+* the boot screen shows and waits for the start's installs; Switch firmware updates on its own ([#37](https://github.com/MarahHQ/marah-launcher/issues/37)) ([2d76d95](https://github.com/MarahHQ/marah-launcher/commit/2d76d95144e5fe80f3944caf7419524e979ddfbf))
+
+
+### Bug Fixes
+
+* **core:** Home's systems and the Emulators list go by name; services last ([#35](https://github.com/MarahHQ/marah-launcher/issues/35)) ([ceee1fc](https://github.com/MarahHQ/marah-launcher/commit/ceee1fc835ccab734ea7a49e725d779e1a0fb450))
+
 ## [0.6.0](https://github.com/MarahHQ/marah-launcher/compare/v0.5.2...v0.6.0) (2026-11-17)
 
 
