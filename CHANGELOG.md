@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/MarahHQ/marah-launcher/compare/v0.7.1...v0.8.0) (2026-11-17)
+
+
+### Features
+
+* the Switch firmware asks before it installs; consoles on the boot screen; parallel installs ([#40](https://github.com/MarahHQ/marah-launcher/issues/40)) ([5e2a4ec](https://github.com/MarahHQ/marah-launcher/commit/5e2a4ec94b64b164f29b1519f3a1233ecd4224fd))
+
 ## [0.7.1](https://github.com/MarahHQ/marah-launcher/compare/v0.7.0...v0.7.1) (2026-11-17)
 
 
