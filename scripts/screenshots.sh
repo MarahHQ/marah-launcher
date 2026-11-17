@@ -84,9 +84,9 @@ press Escape Escape
 # Settings is the top bar's last item: Search, Downloads, Emulators, Themes, Settings.
 press Tab Tab Tab Tab Tab Return
 shoot settings
-# Up from the first row to the rail of sections, down it to Backup (Launcher, Games, Updates,
-# Downloads, This PC, Backup: no System section in a window), and Right into its rows.
-press Up Down Down Down Down Down Right
+# Up from the first row to the rail of sections, down it to Backup (Games, Downloads, Launcher,
+# Updates, Backup: no System section in a window), and Right into its rows.
+press Up Down Down Down Down Right
 shoot backup
 # Down to "Restore from another folder": below Back up now, Include large items and the
 # backup folder. Enter opens the browser.

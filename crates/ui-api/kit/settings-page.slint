@@ -30,11 +30,11 @@ component Rail inherits VerticalLayout {
     spacing: 10 * Look.px;
     alignment: start;
     for i in Prefs.tab-count : RailTab {
-        section: i;
-        text: Sections.name(i);
-        icon: Sections.icon(i);
+        section: Prefs.first-section(i);
+        text: Sections.name(self.section);
+        icon: Sections.icon(self.section);
         // A launcher update is there to get, or ready: Updates says so.
-        dot: i == 2 && (Vm.launcher-update.state == "available" || Vm.launcher-update.state == "ready"
+        dot: self.section == 2 && (Vm.launcher-update.state == "available" || Vm.launcher-update.state == "ready"
             || Vm.launcher-update.state == "installed");
     }
 }
@@ -84,24 +84,26 @@ export component SettingsPage inherits SheetFrame {
         }
     }
     function to-header() {
-        flick.viewport-y = Math.max(flick.height - flick.viewport-height, Math.min(0, -root.top-of(Prefs.current-tab)));
+        flick.viewport-y = Math.max(flick.height - flick.viewport-height, Math.min(0, -root.top-of(Prefs.section)));
     }
-    // Where a section's header is on the page. System, when it is there, comes right after This PC.
+    // Where a section's header is on the page. System, when it is there, is the first.
     pure function top-of(section: int) -> length {
         section == 0 ? s0.y : section == 1 ? s1.y : section == 2 ? s2.y : section == 3 ? s3.y
             : section == 4 ? s4.y : section == Prefs.backup-section ? s6.y
-            : section == Prefs.power-section ? s7.y : s4.y + s4.height
+            : section == Prefs.power-section ? s7.y : 0
     }
-    // The section in view, read from the top of the page: the last whose header is above a
-    // third of the way down, or the last section once the page can't scroll further.
+    // The section in view, read from the top of the page: the first at the very top, the last
+    // section once the page can't scroll further, else the last whose header is above a third
+    // of the way down.
     function follow() {
         let line = -flick.viewport-y + flick.height / 3;
-        Prefs.seen = flick.viewport-y <= flick.height - flick.viewport-height + 1px ? Prefs.tab-count - 1
-            : line >= root.top-of(Prefs.power-section) ? Prefs.power-section
-            : line >= root.top-of(Prefs.backup-section) ? Prefs.backup-section
-            : Vm.system.whole-screen && line >= root.top-of(5) ? 5
-            : line >= root.top-of(4) ? 4 : line >= root.top-of(3) ? 3
-            : line >= root.top-of(2) ? 2 : line >= root.top-of(1) ? 1 : 0;
+        Prefs.seen = Prefs.first-section(
+            flick.viewport-y >= -1px ? 0
+            : flick.viewport-y <= flick.height - flick.viewport-height + 1px ? Prefs.tab-count - 1
+            : Prefs.tab-count > 7 && line >= root.top-of(Prefs.first-section(7)) ? 7
+            : line >= root.top-of(Prefs.first-section(6)) ? 6 : line >= root.top-of(Prefs.first-section(5)) ? 5
+            : line >= root.top-of(Prefs.first-section(4)) ? 4 : line >= root.top-of(Prefs.first-section(3)) ? 3
+            : line >= root.top-of(Prefs.first-section(2)) ? 2 : line >= root.top-of(Prefs.first-section(1)) ? 1 : 0);
     }
     // The wheel starts an animated scroll and says so once, at its start: the rail follows the
     // page as it moves, until a key, a click or a jump puts `seen` back to -1.
@@ -181,14 +183,14 @@ export component SettingsPage inherits SheetFrame {
                 padding-bottom: 80 * Look.px;
                 spacing: 0;
 
-                // Every section, in the rail's order, each under its header.
-                s0 := VerticalLayout { SectionHead { section: 0; } LauncherSection { reveal(y, h) => { root.reveal(y, h); } } }
-                s1 := VerticalLayout { SectionHead { section: 1; } GamesSection { reveal(y, h) => { root.reveal(y, h); } } }
-                s2 := VerticalLayout { SectionHead { section: 2; } UpdatesSection { reveal(y, h) => { root.reveal(y, h); } } }
-                s3 := VerticalLayout { SectionHead { section: 3; } DownloadsSection { reveal(y, h) => { root.reveal(y, h); } } }
-                s4 := VerticalLayout { SectionHead { section: 4; } PcSection { logo: root.logo; reveal(y, h) => { root.reveal(y, h); } } }
+                // Every section, in the rail's order (`Prefs.first-section`), each under its header.
                 if Vm.system.whole-screen : VerticalLayout { SectionHead { section: 5; } SystemSection { reveal(y, h) => { root.reveal(y, h); } } }
+                s1 := VerticalLayout { SectionHead { section: 1; } GamesSection { reveal(y, h) => { root.reveal(y, h); } } }
+                s3 := VerticalLayout { SectionHead { section: 3; } DownloadsSection { reveal(y, h) => { root.reveal(y, h); } } }
+                s0 := VerticalLayout { SectionHead { section: 0; } LauncherSection { reveal(y, h) => { root.reveal(y, h); } } }
+                s2 := VerticalLayout { SectionHead { section: 2; } UpdatesSection { reveal(y, h) => { root.reveal(y, h); } } }
                 s6 := VerticalLayout { SectionHead { section: Prefs.backup-section; } BackupSection { reveal(y, h) => { root.reveal(y, h); } } }
+                s4 := VerticalLayout { SectionHead { section: 4; } PcSection { logo: root.logo; reveal(y, h) => { root.reveal(y, h); } } }
                 s7 := VerticalLayout { SectionHead { section: Prefs.power-section; } PowerSection { reveal(y, h) => { root.reveal(y, h); } } }
             }
         }
