@@ -444,6 +444,7 @@ fn full_view() -> AppView {
             game: s(),
             size_bytes: Some(1),
         }),
+        question: Some(QuestionVm { title: s(), text: s(), yes: s(), no: s() }),
         boot: BootVm {
             steps: vec![BootStepVm { label: s(), detail: s(), state: s() }],
             covers: vec![image()],

@@ -63,6 +63,8 @@ export global Commands {
     public function show-game(session: int) { Host.command("Session", "{\"ShowGame\":" + session + "}"); }
     public function confirm-install() { Host.command("ConfirmInstall", ""); }
     public function cancel-install() { Host.command("CancelInstall", ""); }
+    // The answer to a plugin's question at the start: true for its yes button.
+    public function answer-question(yes: bool) { Host.command("AnswerQuestion", yes ? "true" : "false"); }
 
     // Downloads. A folder "" is the one the sheet offers.
     public function pause-download(id: int) { Host.command("PauseDownload", "" + id); }

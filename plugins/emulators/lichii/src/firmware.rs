@@ -64,8 +64,54 @@ impl StartupWork for Firmware {
             }
             Phase::Failed(_) if self.has_firmware().await => ("Could not update".into(), None, StartupState::Failed),
             Phase::Failed(_) => ("Could not install".into(), None, StartupState::Failed),
+            Phase::CheckFailed(_) => ("Could not check".into(), None, StartupState::Failed),
+            // The question is up, or was answered no: nothing runs, so the boot doesn't wait on it.
+            Phase::Asking(_) | Phase::Declined(_) => return None,
         };
         Some(StartupStep { label: "Switch firmware".into(), detail, progress, state })
+    }
+
+    async fn question(&self) -> Option<StartupQuestion> {
+        let Phase::Asking(offer) = self.phase() else { return None };
+        let tag = &offer.tag;
+        let (title, text, yes) = if offer.keys_only {
+            (
+                format!("Install the keys for Switch firmware {tag}?"),
+                format!(
+                    "Switch games need the keys of their firmware. Marah Launcher downloads keys {tag} into Eden's folder."
+                ),
+                "Install",
+            )
+        } else if offer.missing {
+            (
+                format!("Install Switch firmware {tag}?"),
+                format!(
+                    "Switch games need the firmware and its keys. Marah Launcher downloads firmware {tag} from \
+                     THZoria/NX_Firmware on GitHub, and the keys of the same version, into Eden's folder."
+                ),
+                "Install",
+            )
+        } else {
+            (
+                format!("Update Switch firmware to {tag}?"),
+                format!(
+                    "Marah Launcher downloads firmware {tag} from THZoria/NX_Firmware on GitHub, and the keys of \
+                     the same version, in place of the firmware it installed."
+                ),
+                "Update",
+            )
+        };
+        Some(StartupQuestion { title, text, yes: yes.into(), no: "Not now".into() })
+    }
+
+    /// Install starts the download; Not now leaves everything as it is until the next start.
+    async fn answer(&self, yes: bool) {
+        let Phase::Asking(offer) = self.phase() else { return };
+        if yes {
+            self.start(false, true, self.settings().await.release);
+        } else {
+            self.set_phase(Phase::Declined(offer));
+        }
     }
 }
 
@@ -73,7 +119,9 @@ impl StartupWork for Firmware {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(crate = "launcher_api::serde")]
 struct FirmwareSettings {
-    /// Automatic updates: a read of the panel starts a check, at most every [`RELEASE_TTL`].
+    /// "Ask at start": a read of the panel starts a check, at most every [`RELEASE_TTL`]. A check
+    /// never downloads: at the start it asks first, later the Firmware block says what's new.
+    /// The key keeps its old name, so a saved file still reads.
     automatic: bool,
     /// The Switch firmware release to install, like 22.5.0, with the keys of the same version:
     /// firmware newer than its keys can't be read.
@@ -89,8 +137,8 @@ impl Default for FirmwareSettings {
 /// The Firmware block on Lichii's panel, through the console emulator.
 #[async_trait]
 impl Panel for Firmware {
-    /// With Automatic updates on, a read of the block starts a check, at most every
-    /// [`RELEASE_TTL`]: the core reads the panel at the start and at each update check.
+    /// With "Ask at start" on, a read of the block starts a check, at most every [`RELEASE_TTL`]:
+    /// the core reads the panel at the start and at each update check. A check downloads nothing.
     async fn items(&self) -> Vec<SlotItem> {
         let read = self.read_settings().await;
         let settings = read.clone().unwrap_or_default();
@@ -105,7 +153,7 @@ impl Panel for Firmware {
     async fn run_action(&self, action: &str, args: &Value) -> Option<PluginResult<()>> {
         Some(match action {
             UPDATE_NOW => {
-                self.start(true, self.settings().await.release);
+                self.start(true, true, self.settings().await.release);
                 Ok(())
             }
             TOGGLE_AUTO => {
@@ -217,7 +265,30 @@ enum Phase {
     Idle,
     Complete(String),
     Updating(Step),
+    /// An install or update that failed.
     Failed(String),
+    /// A check that failed, such as offline: nothing was installed or asked.
+    CheckFailed(String),
+    /// A check found what to install, and the start asks the player first.
+    Asking(Offer),
+    /// The player said "Not now": nothing more happens on its own in this run.
+    Declined(Offer),
+}
+
+/// What a check found to install: firmware `tag`, or only its keys.
+#[derive(Clone, Debug, PartialEq)]
+struct Offer {
+    tag: String,
+    /// No firmware is in Lichii's folder yet: an install, not an update.
+    missing: bool,
+    /// The firmware is current, and only its keys are missing or of another version.
+    keys_only: bool,
+}
+
+/// How an update ended: done, or, for a check, what it would install.
+enum Outcome {
+    Done(String),
+    Needs(Offer),
 }
 
 /// A step of an update that runs: what it does, and for a download how far it is.
@@ -308,7 +379,7 @@ impl Firmware {
     /// Starts a check on its own, bypassing the normal interval when firmware is missing. It
     /// leaves alone firmware the player put there: one Marah Launcher didn't install.
     async fn start_auto(&self, version: String) {
-        if matches!(self.phase(), Phase::Updating(_)) {
+        if matches!(self.phase(), Phase::Updating(_) | Phase::Asking(_) | Phase::Declined(_)) {
             return;
         }
         let missing = !self.has_firmware().await;
@@ -322,7 +393,7 @@ impl Firmware {
             }
             *last = Some(Instant::now());
         }
-        self.start(false, version);
+        self.start(false, false, version);
     }
 
     fn phase(&self) -> Phase {
@@ -345,12 +416,14 @@ impl Firmware {
 
     /// Starts an update in the background, unless one is running. `asked`: the player pressed
     /// the button, so the release is asked for again, and an update that failed runs again.
-    fn start(&self, asked: bool, version: String) {
+    /// `install`: it downloads what it finds. Without it, it is a check: it only finds out, and
+    /// asks (Update now and a yes to the start's question are the only installs).
+    fn start(&self, asked: bool, install: bool, version: String) {
         {
             let mut phase = self.phase.lock().unwrap_or_else(|p| p.into_inner());
             match &*phase {
                 Phase::Updating(_) => return,
-                Phase::Failed(_) if !asked => return,
+                Phase::Failed(_) | Phase::CheckFailed(_) if !asked && !install => return,
                 _ => *phase = Phase::Updating(Step::new("Checking…", "Checking for firmware updates…")),
             }
         }
@@ -359,8 +432,13 @@ impl Firmware {
         }
         let Some(this) = self.me.upgrade() else { return };
         tokio::spawn(async move {
-            let phase = match this.update(asked, &version).await {
-                Ok(message) => Phase::Complete(message),
+            let phase = match this.update(asked, install, &version).await {
+                Ok(Outcome::Done(message)) => Phase::Complete(message),
+                Ok(Outcome::Needs(offer)) => Phase::Asking(offer),
+                Err(e) if !install => {
+                    this.host.log.warn(&format!("the firmware check failed: {e}"));
+                    Phase::CheckFailed(e.to_string())
+                }
                 Err(e) => {
                     this.host.log.warn(&format!("the firmware update failed: {e}"));
                     Phase::Failed(e.to_string())
@@ -409,6 +487,18 @@ impl Firmware {
             Phase::Failed(error) => {
                 rows.push(row("The last update failed", String::new(), error.clone(), Tone::Danger))
             }
+            Phase::CheckFailed(error) => {
+                rows.push(row("The last check failed", String::new(), error.clone(), Tone::Warning))
+            }
+            Phase::Asking(offer) | Phase::Declined(offer) => {
+                let what = if offer.keys_only { "Keys" } else { "Firmware" };
+                rows.push(row(
+                    "Available",
+                    format!("{what} {}", offer.tag),
+                    "Update now installs it".into(),
+                    Tone::Info,
+                ))
+            }
             Phase::Complete(message) => rows.push(row("Last check", String::new(), message.clone(), Tone::Neutral)),
             Phase::Idle => {}
         }
@@ -426,10 +516,10 @@ impl Firmware {
             action: Some(TOGGLE_AUTO.into()),
             switch: Some(auto),
             ..row(
-                "Automatic updates",
+                "Ask at start",
                 String::new(),
-                "Marah Launcher keeps the set release installed, checked every 6 hours. Nintendo's firmware: check that \
-                 you may use it where you live."
+                "At each start, Marah Launcher checks for the set release and asks before it downloads. Nintendo's \
+                 firmware: check that you may use it where you live."
                     .into(),
                 Tone::Neutral,
             )
@@ -467,15 +557,12 @@ impl Firmware {
     }
 
     /// Installs the firmware `version` and the keys of the same version.
-    async fn update(&self, asked: bool, version: &str) -> PluginResult<String> {
+    async fn update(&self, asked: bool, install: bool, version: &str) -> PluginResult<Outcome> {
         let version = clean_version(version)?;
         let folders = self.host.folders.as_ref();
         let firmware =
             Swap { live: self.place(CONTENTS).await?, staged: self.place(PART).await?, old: self.place(OLD).await? };
         let zip = self.place(ZIP).await?;
-        firmware.recover(folders).await?;
-        folders.remove(&firmware.staged).await?;
-        folders.remove(&zip).await?;
 
         let cache_path = RelPath::new(release_cache(version))?;
         if asked {
@@ -509,11 +596,19 @@ impl Firmware {
             .is_some_and(|v| v == version);
         let keys_exist = self.host.folders.exists(&self.place("keys/prod.keys").await?).await?;
         if current && keys_current && keys_exist {
-            return Ok(format!(
+            return Ok(Outcome::Done(format!(
                 "Firmware {} is up to date. Keys {version} are installed. No updates needed.",
                 release.tag
-            ));
+            )));
         }
+        if !install {
+            let missing = !self.has_firmware().await;
+            return Ok(Outcome::Needs(Offer { tag: release.tag.clone(), missing, keys_only: current }));
+        }
+        // An install: first put back what an update that stopped left, then clean up.
+        firmware.recover(folders).await?;
+        folders.remove(&firmware.staged).await?;
+        folders.remove(&zip).await?;
         self.set_phase(Phase::Updating(Step::new(
             "Downloading keys…",
             format!(
@@ -532,7 +627,7 @@ impl Firmware {
                     &serde_json::to_vec(version).map_err(|e| PluginError::InvalidInput(e.to_string()))?,
                 )
                 .await?;
-            return Ok(format!("Firmware {} is up to date. Installed keys {version}.", release.tag));
+            return Ok(Outcome::Done(format!("Firmware {} is up to date. Installed keys {version}.", release.tag)));
         }
         let asset = release
             .assets
@@ -578,7 +673,7 @@ impl Firmware {
         self.host.storage.write(&RelPath::new(MARKER)?, marker.to_string().as_bytes()).await?;
         // The new firmware is in place: an old one left behind goes at the next update.
         self.clean(&firmware.old).await;
-        Ok(format!("Updated firmware to {}. Installed keys {version}.", release.tag))
+        Ok(Outcome::Done(format!("Updated firmware to {}. Installed keys {version}.", release.tag)))
     }
 
     /// Reads only known key files, without trusting paths supplied by the archive.

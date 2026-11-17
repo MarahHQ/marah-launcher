@@ -362,6 +362,8 @@ export struct Running { session: int, key: string, title: string, cover: image, 
 // A first play waits for the player to agree to install the emulator. `size` is in bytes,
 // 0 when the download's size isn't known.
 export struct InstallPrompt { plugin: string, emulator: string, version: string, game: string, size: float }
+// A plugin's question at the start: "Install Switch firmware 22.5.0?", with its two buttons.
+export struct Question { title: string, text: string, yes: string, no: string }
 
 // This PC, once `known`: "Apple M4 Max · 14 cores", "36 GB", one line per graphics card.
 export struct Hardware { known: bool, cpu: string, memory: string, graphics: [string], verdicts: [Verdict] }
@@ -527,6 +529,8 @@ export global Vm {
     in-out property <image> trailer-frame;
     in-out property <bool> has-install-prompt;
     in-out property <InstallPrompt> install-prompt;
+    in-out property <bool> has-question;
+    in-out property <Question> question;
     in-out property <[Emulator]> emulators;
     in-out property <[PluginRow]> plugins;
     // `plugins` by kind: the Emulators list (emulators, then services) and the Themes list.

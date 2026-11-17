@@ -248,7 +248,7 @@ and struct holds. Read that file as the reference.
 | Settings | `vpn`, `backup`, `settings`, `theme-options`, `themes`, `folders`, `sounds`, `fullscreen`, `return-on-exit`, `auto-update`, `scale`, `can-start-at-login`, `start-at-login`, `start-at-login-error`, `hardware`, `launcher-update`, `system`, `monitors`, `monitor` |
 | Plugins | `emulators`, `plugins`, `emulator-plugins`, `theme-plugins`, `has-plugin-page`, `plugin-page` |
 | Trailers | `can-play-trailers`, `has-trailer`, `trailer`, `trailer-frame` |
-| Prompts | `has-install-prompt`, `install-prompt`, `has-result-prompt`, `result-prompt` |
+| Prompts | `has-install-prompt`, `install-prompt`, `has-result-prompt`, `result-prompt`, `has-question`, `question` |
 | Start | `boot`, `art-ready` |
 | Status | `task`, `clock`, `has-running`, `running`, `closing`, `has-closing-game`, `closing-game`, `notices`, `notice-cards` |
 | Window and input | `viewport`, `input-mode`, `pad-key`, `power-menu`, `pad-name` |
@@ -420,6 +420,7 @@ Three rules hold for every kit file. Tests in `contract.rs` check them:
 | `icon.slint` | `Icon` | The launcher's icons, drawn as paths. |
 | `install-os.slint` | `Setup`, `InstallOs` | Marah OS's USB stick: welcome, the disks, the question before erasing, progress. |
 | `install-prompt.slint` | `Prompt`, `InstallPrompt` | The prompt to install an emulator before a first play. |
+| `question-prompt.slint` | `Question`, `QuestionPrompt` | A plugin's question at the start, such as "Install Switch firmware 22.5.0?", with its two buttons. |
 | `keyboard.slint` | `Osk`, `TextField`, `OnScreenKeyboard` | A text field, and the on-screen keyboard it opens for a controller. |
 | `lingering.slint` | `Lingering` | Keeps a sheet on screen while it slides out. |
 | `list-item.slint` | `ListItem` | A row: a label, a line under it, a value at the end. |
@@ -470,6 +471,10 @@ game's keys. `plugins/themes/default/theme/shell.slint` shows each one.
 
 Put `Overlays` over your screens, the size of the window, with `logo` set to your emblem: it
 shows each sheet while it is open.
+
+Put `QuestionPrompt` over your boot screen, the size of the window, while `Vm.has-question`:
+a plugin's question at the start comes up while the boot screen is, and `ShellKeys` gives it
+every key until it is answered. A theme without it leaves the player unable to answer.
 
 A screen can go out as the next comes in. Keep it with a `Lingering` (`open: Vm.screen ==
 "library"`), show it while `shown`, and pass it `open`: the kit's Game Hub and Downloads pages

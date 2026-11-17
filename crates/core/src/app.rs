@@ -198,6 +198,8 @@ pub enum Command {
     ConfirmInstall,
     /// The player said "not now" to that.
     CancelInstall,
+    /// The answer to the question a plugin asks at the start: `true` for its yes button.
+    AnswerQuestion(bool),
 }
 
 pub use launcher_api::HOST_INSTALL_GAME;
@@ -592,6 +594,7 @@ impl Core {
                 Ok(())
             }
             Command::ConfirmInstall => emulator_builds::confirm_install(self).await,
+            Command::AnswerQuestion(yes) => crate::startup::answer(self, yes).await,
             Command::CancelInstall => emulator_builds::cancel_install(self),
             Command::Session(command) => crate::launch::session(self, command).await,
             Command::AskResult(game) => crate::launch::ask_result(self, game),

@@ -227,6 +227,8 @@ async fn refresh_builds(core: &Core) {
 /// running waits for it to close.
 async fn install_updates(core: &Core) {
     let mut acted = false;
+    // The updates download side by side, each emulator's on its own.
+    let mut updates = Vec::new();
     for plugin in core.kernel().of_kind(PluginKind::Emulator) {
         if !wants_update(core, &plugin) {
             continue;
@@ -237,11 +239,14 @@ async fn install_updates(core: &Core) {
             core.state().pending_updates.insert(plugin);
             continue;
         }
-        if let Err(e) = update(core, &plugin).await {
-            core.state().startup.failed.insert(plugin);
-            core.notices().problem(e.to_string());
-        }
+        updates.push(async move {
+            if let Err(e) = update(core, &plugin).await {
+                core.state().startup.failed.insert(plugin);
+                core.notices().problem(e.to_string());
+            }
+        });
     }
+    futures::future::join_all(updates).await;
     if acted {
         core.changed(Area::Downloads);
     }
@@ -251,16 +256,17 @@ async fn install_updates(core: &Core) {
 /// installed: see [`wants_build`]. It reads the builds the boot read. A failed install is a
 /// notice from [`install`]; the next start tries again.
 async fn install_missing(core: &Core) {
-    for plugin in core.kernel().of_kind(PluginKind::Emulator) {
-        if !wants_build(core, &plugin) {
-            continue;
-        }
-        tracing::info!(plugin_id = %plugin, "installing the emulator's newest build");
-        if let Err(e) = install(core, &plugin, None, None).await {
-            core.state().startup.failed.insert(plugin.clone());
-            tracing::warn!(error = %e, plugin_id = %plugin, "could not install the emulator's build");
-        }
-    }
+    // The emulators install side by side: one's download doesn't wait for another's.
+    let installs = core.kernel().of_kind(PluginKind::Emulator).into_iter().filter(|p| wants_build(core, p)).map(
+        |plugin| async move {
+            tracing::info!(plugin_id = %plugin, "installing the emulator's newest build");
+            if let Err(e) = install(core, &plugin, None, None).await {
+                core.state().startup.failed.insert(plugin.clone());
+                tracing::warn!(error = %e, plugin_id = %plugin, "could not install the emulator's build");
+            }
+        },
+    );
+    futures::future::join_all(installs).await;
 }
 
 /// The emulators [`start_pass`] installs or updates now: a missing build, or an update whose

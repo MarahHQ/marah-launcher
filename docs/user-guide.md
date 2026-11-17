@@ -267,8 +267,14 @@ Some emulator notes:
   build from before build-150, still reads `~/.local/share/eden`: set **Lichii data** on
   Lichii's page to that folder. For firmware and keys, use the
   **Firmware** block on Lichii's page. It shows the firmware installed and the update that runs,
-  with a bar while it downloads. Turn on **Automatic updates** there, or press **Update now**. Marah Launcher
-  then downloads the **Firmware release** set in that block from
+  with a bar while it downloads. With **Ask at start** on, as it is by default, each start
+  checks for the set release. If no firmware is there, or Marah Launcher installed an older one,
+  a question comes up over the boot screen: **Install** downloads it, and the boot screen shows
+  the download and waits for it. **Not now** downloads nothing, and the start asks again next
+  time. The checks every 6 hours and a visit to Lichii's page never download: the block shows
+  **Available** and the firmware it would install. Firmware you put there yourself is left
+  alone. **Update now** installs at once. Marah Launcher downloads the **Firmware release** set
+  in that block from
   [THZoria/NX_Firmware](https://github.com/THZoria/NX_Firmware), checks its SHA-256 against the
   one GitHub gives, and puts it in place of the firmware in that folder. Lichii uses it from its next
   start. `prod.keys` and any `title.keys` from the versioned archive at

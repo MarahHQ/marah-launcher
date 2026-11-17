@@ -330,6 +330,12 @@ pub(crate) fn build(s: &Snapshot) -> AppView {
         running: running_vm(s),
         notices: notices.iter().map(|n| n.message.clone()).collect(),
         notice_cards: notices.iter().map(|n| notice_vm(s, n)).collect(),
+        question: state.startup.question.as_ref().map(|(_, q)| QuestionVm {
+            title: q.title.clone(),
+            text: q.text.clone(),
+            yes: q.yes.clone(),
+            no: q.no.clone(),
+        }),
         install_prompt: state.install_prompt.as_ref().map(|p| InstallPromptVm {
             plugin: p.game.plugin.clone(),
             emulator: p.emulator.clone(),
@@ -1587,7 +1593,9 @@ fn boot_vm(s: &Snapshot) -> BootVm {
         } else {
             ("Latest build".into(), loaded)
         };
-        steps.push(step(format!("{} emulator", manifest.emulator_name()), detail, state));
+        // The system's name, as Home shows it ("PlayStation 5"), not the emulator's.
+        let name = manifest.system.as_ref().map(|l| l.name.clone()).unwrap_or_else(|| manifest.name.clone());
+        steps.push(step(name, detail, state));
     }
     for (_, work) in &startup.work {
         let state = match work.state {
