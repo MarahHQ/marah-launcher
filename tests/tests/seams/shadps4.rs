@@ -452,6 +452,9 @@ async fn a_download_with_the_game_its_update_and_its_dlc_installs_all_three_in_o
         build::{Spec, package},
     };
     let (test, games) = boot().await;
+    // The start's pass installs the emulator's build in a job of its own: it ends first.
+    past_the_start_pass(&test).await;
+    let jobs_before = test.core.view().downloads.jobs.len();
     let (p, data) = packages(&test, &[]).await;
     let dlc = |label: &'static str, song: &'static [u8]| {
         package(&Spec { files: &[("music.bin", song)], kind: Kind::Dlc, label, ..Default::default() })
@@ -467,7 +470,7 @@ async fn a_download_with_the_game_its_update_and_its_dlc_installs_all_three_in_o
     );
 
     assert_eq!(install_download(&test, "torrent-abc").await.trim(), "done");
-    assert_eq!(test.core.view().downloads.jobs.len(), 1, "one job");
+    assert_eq!(test.core.view().downloads.jobs.len(), jobs_before + 1, "one job");
     assert_eq!(std::fs::read(games.path().join("PS4/CUSA12345/eboot.bin")).unwrap(), b"v1");
     assert_eq!(std::fs::read(games.path().join("PS4/CUSA12345-patch/eboot.bin")).unwrap(), b"v2");
     let addcont = data.path().join("addcont/CUSA12345");
