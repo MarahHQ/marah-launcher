@@ -42,8 +42,8 @@ buttons. On an Xbox controller, ✕ is A and ○ is B.
 L1 and R1 do one of three things:
 
 - On Home and in the Library: move along the top bar, round the ends. ✕ opens the item.
-- In Settings: jump to the section before or after. On a plugin page that has tabs: go to the
-  tab before or after.
+- In Settings, and on a plugin page with two sections or more: jump to the section before or
+  after.
 - On other screens: go to the screen before or after, in the order Catalog, Downloads,
   Emulators, Themes, Settings, then back to Home.
 
@@ -244,9 +244,11 @@ A plugin's page has:
 - The plugin's actions.
 - Its settings, and its folders.
 
-When a page has settings or folders, it has tabs: **General**, one tab for each group of
-settings (one tab named **Settings** when there is one group), then **Folders**. L1 and R1
-change the tab.
+The page is one page, as Settings is. Each section is under its own header: **General**, one
+section for each group of settings (one named **Settings** when there is one group), then
+**Folders** when there is no group of settings to hold them. With two sections or more, a rail
+of their icons is beside the page. L1, R1 and the rail jump to a section, and Up and Down go on
+across the sections.
 
 For KytyPS5, shadPS4 and Lichii, Marah Launcher downloads the official builds and keeps the build before
 the current one. To run a build of your own, map its folder on the emulator's page: "Your own

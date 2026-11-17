@@ -92,9 +92,9 @@ export global ShellHints {
             { pad: "✕", key: "Enter", label: "Select" },
             { pad: "○", key: "Esc", label: "Back" },
         ]
-        : Screens.sheet && !Screens.list && Prefs.tabbed ? [
+        : Screens.sheet && !Screens.list && Prefs.rail ? [
             { pad: "✕", key: "Enter", label: "Change" },
-            { pad: "L1  R1", key: "Tab", label: Prefs.rail ? "Sections" : "Tabs" },
+            { pad: "L1  R1", key: "Tab", label: "Sections" },
             { pad: "○", key: "Esc", label: "Back" },
         ]
         : Screens.sheet ? [
@@ -212,8 +212,8 @@ export component ShellKeys inherits FocusScope {
         if (event.modifiers.control && (event.text == "q" || event.text == "Q")) { Host.quit(); return accept; }
         if (event.modifiers.control && (event.text == "d" || event.text == "D")) { Commands.navigate("downloads"); return accept; }
         if (root.theme-key(event.text)) { return accept; }
-        // L1 and R1 choose the tab of a sheet that has tabs, round the ends. Back (○) leaves.
-        if (!Screens.list && Screens.sheet && Prefs.tabbed && !Prefs.editing
+        // L1 and R1 jump to the section of a sheet that has a rail, round the ends. Back (○) leaves.
+        if (!Screens.list && Screens.sheet && Prefs.rail && !Prefs.editing
             && (event.text == Key.Backtab || event.text == Key.Tab)) {
             Prefs.bar-step(event.text == Key.Tab ? 1 : -1);
             return accept;

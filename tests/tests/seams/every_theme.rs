@@ -81,6 +81,37 @@ fn the_keys_move_through_the_settings_page_and_act_on_a_row_in_every_theme() {
     }
 }
 
+/// A plugin's page is one page like Settings in every theme: the rail lists its sections, R1
+/// jumps to its settings, and Up from their first row crosses back into General.
+#[test]
+fn a_plugin_s_page_is_one_page_with_a_rail_in_every_theme() {
+    for theme in THEMES {
+        let mut host = in_theme(theme, |h| h.built_in(launcher_api::PluginBox::code(emu_kyty::KytyPlugin)));
+        host.dispatch(Command::Navigate(Route::Emulators));
+        host.dispatch(Command::Navigate(Route::Plugin(id("emu-kyty"))));
+        host.settle();
+        let lit = |host: &Composed| {
+            ["General", "Settings"]
+                .into_iter()
+                .find(|name| {
+                    i_slint_backend_testing::ElementHandle::find_by_accessible_label(
+                        host.instance(),
+                        &format!("settings-tab:{name}"),
+                    )
+                    .any(|e| e.accessible_checked() == Some(true))
+                })
+                .map(str::to_owned)
+        };
+        assert_eq!(lit(&host).as_deref(), Some("General"), "{theme}: the rail lights General");
+        host.navigate(Key::Tab);
+        assert_eq!(lit(&host).as_deref(), Some("Settings"), "{theme}: R1 jumps to Settings");
+        host.navigate(Key::Return);
+        assert_eq!(host.first("setting:own_build").accessible_value().as_deref(), Some("true"), "{theme}");
+        host.navigate(Key::UpArrow);
+        assert_eq!(lit(&host).as_deref(), Some("General"), "{theme}: Up crosses into General");
+    }
+}
+
 /// Settings → Launcher's Animations row: a press turns the theme's motion off, and the row
 /// says so; a second turns it on again.
 #[test]

@@ -591,6 +591,10 @@ fn from_right_to_left_left_goes_into_the_rows() {
     host.dispatch(Command::SetThemeOption { key: "direction".into(), value: "rtl".into() });
     host.dispatch(Command::Navigate(launcher_core::Route::Settings));
     host.settle();
+    // From right to left the rail is on the sheet's far edge, which slides in from the left:
+    // the click waits until it is on screen.
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(1000));
+    host.settle();
     host.settings_tab("Launcher");
     host.navigate(Key::LeftArrow);
     let before = host.core().view().settings.fullscreen;

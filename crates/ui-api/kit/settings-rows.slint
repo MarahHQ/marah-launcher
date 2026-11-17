@@ -7,14 +7,13 @@ import { Switch } from "widgets.slint";
 import { Osk, TextField } from "keyboard.slint";
 import { LauncherRows, DownloadsRows, SystemRows, BackupRows, PowerRows } from "settings-layout.slint";
 
-// The rows of a settings sheet (Settings, and a plugin's page), and where the keys are in it.
-// A sheet is a list of sections; each has rows. Settings is one page: every section, each under
-// its own header, with a rail of the sections' icons beside it. Down from a section's last row
-// goes on into the next section's first row, and Up from a section's first row into the last
-// row of the one before; Up from the very first row goes to the rail. The rail, L1 and R1 jump
-// to a section. A plugin's page has tabs too when it has settings or
-// folders (`tab-count`): General holds its sections 0 and 1, and the keys cross those two. A
-// theme's page and a game's own settings are one scroll. In Settings:
+// The rows of a settings sheet (Settings, a plugin's page and a game's own settings), and where
+// the keys are in it. A sheet is a list of sections; each has rows. Every sheet is one page:
+// every section, each under its own header, with a rail of the sections' icons beside it when
+// there are two or more (`rail`). Down from a section's last row goes on into the next
+// section's first row, and Up from a section's first row into the last row of the one before;
+// Up from the very first row goes to the rail. The rail, L1 and R1 jump to a section. On a
+// plugin's page, General holds its sections 0 and 1 under one header. In Settings:
 //   0   LAUNCHER: full screen, size of everything, back to the launcher, interface sounds,
 //       start at login (in an installed build), the screen (with two monitors or more)
 //   1   GAMES: the game folders, then "Rescan game folders"
@@ -45,16 +44,17 @@ import { LauncherRows, DownloadsRows, SystemRows, BackupRows, PowerRows } from "
 export global Prefs {
     in-out property <int> section;
     in-out property <int> row;
-    // The focus is on Settings' tabs, not on a row. In Settings the tabs are a rail of icons.
+    // The focus is on the rail of the sheet's sections, not on a row.
     in-out property <bool> tabs;
     // The key that came is held down: a held Up stops at a section's first row.
     in-out property <bool> held;
     // In Settings, This PC is being read: its rows only show, so Up and Down scroll it, and
     // the key away from the rows goes back to the rail.
     in-out property <bool> reading;
-    // Settings' tabs are a rail: Up and Down choose, the key toward the rows goes in.
-    out property <bool> rail: Vm.screen == "settings";
-    // Settings is one page of all its sections: `jump` counts the jumps to a section (the rail,
+    // The sheet has a rail of its sections: Settings, and a page with two sections or more. On
+    // the rail Up and Down choose, the key toward the rows goes in, and L1 and R1 jump.
+    out property <bool> rail: Vm.screen == "settings" || ((root.page || root.game-page) && root.tab-count > 1);
+    // A sheet is one page of all its sections: `jump` counts the jumps to a section (the rail,
     // L1 and R1), so the page scrolls that section's header into view for each one.
     in-out property <int> jump;
     // The section the mouse wheel scrolled into view, which the rail lights; -1 when the rail
@@ -76,22 +76,25 @@ export global Prefs {
     // A game's own settings: one section, its fields.
     out property <bool> game-page: Vm.screen == "game-settings";
     out property <bool> theme-page: root.page && Vm.plugin-page.plugin.kind == "theme";
-    // The page's tabs. Settings: one for each section. A plugin's page: "General" (Turned on, the
-    // build, the actions and the blocks), one for each settings panel, then its folders, when it
-    // is on and has more than one. A page with no tabs is one scroll.
+    // The page's sections under a header, as the rail lists them (its "tabs"). Settings: one for
+    // each section. A plugin's page: "General" (Turned on, the build, the actions and the
+    // blocks), one for each settings panel, then its folders. A theme's page: the theme, then its
+    // options. A game's own settings: one.
     out property <int> tab-count: root.page && !root.theme-page && root.on
         ? 1 + root.panels + (root.folders-tab ? 1 : 0)
         : root.sections;
-    // With settings panels, the page's folders are rows in the first panel; else they are a tab.
+    // With settings panels, the page's folders are rows in the first panel; else they are a
+    // section of their own.
     out property <bool> folders-tab: root.panels == 0 && Vm.plugin-page.folders.length > 0;
-    out property <bool> tabbed: Vm.screen == "settings" || (root.page && !root.theme-page && root.tab-count > 1);
+    // The old name of `rail`, for themes that read it.
+    out property <bool> tabbed: root.rail;
     // The tab a section's rows are in, and a tab's first section. Settings shows its sections in
     // their order of use, not their numbers: System first (the machine, when Marah Launcher is
     // the whole screen), then Games, Downloads, Launcher, Updates, Backup, This PC, and Power
     // last. The rail, the page, L1 and R1, and Up and Down all go in this order.
     public pure function tab-of(section: int) -> int {
-        root.page ? (section <= 1 ? 0 : section - 1)
-            : !root.rail ? section
+        root.page && !root.theme-page ? (section <= 1 ? 0 : section - 1)
+            : Vm.screen != "settings" ? section
             : Vm.system.whole-screen
             ? (section == 5 ? 0 : section == 1 ? 1 : section == 3 ? 2 : section == 0 ? 3
                 : section == 2 ? 4 : section == 6 ? 5 : section == 4 ? 6 : 7)
@@ -99,8 +102,8 @@ export global Prefs {
                 : section == 5 ? 4 : section == 4 ? 5 : 6)
     }
     public pure function first-section(tab: int) -> int {
-        root.page ? (tab == 0 ? 0 : tab + 1)
-            : !root.rail ? tab
+        root.page && !root.theme-page ? (tab == 0 ? 0 : tab + 1)
+            : Vm.screen != "settings" ? tab
             : Vm.system.whole-screen
             ? (tab == 0 ? 5 : tab == 1 ? 1 : tab == 2 ? 3 : tab == 3 ? 0
                 : tab == 4 ? 2 : tab == 5 ? 6 : tab == 6 ? 4 : 7)
@@ -108,12 +111,12 @@ export global Prefs {
                 : tab == 4 ? 5 : tab == 5 ? 4 : 6)
     }
 
-    out property <int> current-tab: root.tabbed ? root.tab-of(root.section) : 0;
+    out property <int> current-tab: root.tab-of(root.section);
     out property <bool> on: Vm.plugin-page.plugin.enabled;
     out property <int> panels: root.page && !root.theme-page && root.on ? Vm.plugin-page.settings.length : 0;
     out property <int> sections: root.game-page ? 1
-        : root.theme-page ? (Vm.plugin-page.current ? 2 : 1)
-        : root.page ? (root.on ? 3 + root.panels : 1)
+        : root.theme-page ? (Vm.plugin-page.current && Vm.theme-options.length > 0 ? 2 : 1)
+        : root.page ? (root.on ? 2 + root.panels + (root.folders-tab ? 1 : 0) : 1)
         : 7 + (Vm.system.whole-screen ? 1 : 0);
     // Backup, then Power, the last tab: after System when Marah Launcher is the whole screen.
     out property <int> backup-section: Vm.system.whole-screen ? 6 : 5;
@@ -192,49 +195,15 @@ export global Prefs {
         }
         false
     }
+    // A section's place on the page, and the section at a place. Settings shows its sections in
+    // their order of use; a plugin's page and a game's own settings in their numbers' order.
+    pure function place-of(section: int) -> int {
+        Vm.screen == "settings" ? root.tab-of(section) : section
+    }
+    pure function at-place(place: int) -> int {
+        Vm.screen == "settings" ? root.first-section(place) : place
+    }
     function step(delta: int) {
-        if (root.rail) {
-            // Settings' page: on through every section, past one with no rows (This PC).
-            if (delta > 0 && root.row + 1 < root.rows(root.section)) {
-                root.row += 1;
-                return;
-            }
-            if (delta < 0 && root.row > 0) {
-                root.row -= 1;
-                return;
-            }
-            // The next section on the page, in its order; past one with no rows.
-            let near = root.tab-of(root.section) + delta;
-            let next = near >= 0 && near < root.tab-count && root.rows(root.first-section(near)) == 0 ? near + delta : near;
-            if (next >= 0 && next < root.tab-count && root.rows(root.first-section(next)) > 0) {
-                root.section = root.first-section(next);
-                root.row = delta > 0 ? 0 : root.rows(root.section) - 1;
-            } else if (delta < 0 && !root.held) {
-                // Up from the very first row: to the rail. A held Up stops at the row.
-                root.tabs = true;
-            }
-            return;
-        }
-        if (root.tabbed) {
-            // Rows move on through the sections of the tab, never into another tab.
-            let next = root.section + delta;
-            let more = next >= 0 && next < root.sections && root.tab-of(next) == root.tab-of(root.section) && root.rows(next) > 0;
-            if (delta > 0 && root.row + 1 < root.rows(root.section)) {
-                root.row += 1;
-            } else if (delta > 0 && more) {
-                root.section = next;
-                root.row = 0;
-            } else if (delta < 0 && root.row > 0) {
-                root.row -= 1;
-            } else if (delta < 0 && more) {
-                root.section = next;
-                root.row = root.rows(next) - 1;
-            } else if (delta < 0 && !root.held) {
-                // Up from the first row: to the tabs. A held Up stops at the row.
-                root.tabs = true;
-            }
-            return;
-        }
         if (delta > 0 && root.row + 1 < root.rows(root.section)) {
             root.row += 1;
             return;
@@ -243,28 +212,26 @@ export global Prefs {
             root.row -= 1;
             return;
         }
-        // The next section with rows, if there is one.
-        let next = root.section + delta;
-        if (next >= 0 && next < root.sections && root.rows(next) > 0) {
-            root.section = next;
-            root.row = delta > 0 ? 0 : root.rows(next) - 1;
-        } else if (next >= 0 && next < root.sections) {
-            let after = next + delta;
-            if (after >= 0 && after < root.sections && root.rows(after) > 0) {
-                root.section = after;
-                root.row = delta > 0 ? 0 : root.rows(after) - 1;
-            }
+        // The next section on the page, in its order; past one with no rows (This PC).
+        let near = root.place-of(root.section) + delta;
+        let next = near >= 0 && near < root.sections && root.rows(root.at-place(near)) == 0 ? near + delta : near;
+        if (next >= 0 && next < root.sections && root.rows(root.at-place(next)) > 0) {
+            root.section = root.at-place(next);
+            root.row = delta > 0 ? 0 : root.rows(root.section) - 1;
+        } else if (delta < 0 && root.rail && !root.held) {
+            // Up from the very first row: to the rail. A held Up stops at the row.
+            root.tabs = true;
         }
     }
 
-    // Handles a key in Settings. Returns whether it did anything.
+    // Handles a key in a settings sheet. Returns whether it did anything.
     public function key(text: string) -> bool {
         root.seen = -1;
         if (root.editing) {
             if (text == Key.Escape) { root.editing = false; return true; }
             return false;
         }
-        // Settings' rail: Up and Down choose the section, the key toward the rows (Right; Left
+        // The rail: Up and Down choose the section, the key toward the rows (Right; Left
         // from right to left), Return or Space goes in. This PC has no row to focus: going in
         // reads it, Up and Down scroll it, and the key away from the rows comes back.
         let toward = Look.rtl ? Key.LeftArrow : Key.RightArrow;
@@ -301,21 +268,6 @@ export global Prefs {
             }
             return false;
         }
-        if (root.tabs) {
-            if (text == Key.LeftArrow) { if (root.tab-step(Look.rtl ? 1 : -1)) { Host.play-sound("move"); } return true; }
-            if (text == Key.RightArrow) { if (root.tab-step(Look.rtl ? -1 : 1)) { Host.play-sound("move"); } return true; }
-            if (root.rows(root.section) == 0) {
-                if (text == Key.DownArrow || text == Key.UpArrow) {
-                    root.scroll-by = text == Key.DownArrow ? 1 : -1;
-                    root.scroll-serial += 1;
-                    return true;
-                }
-                return false;
-            }
-            if (text == Key.DownArrow || text == Key.Return || text == " ") { root.enter(); Host.play-sound("move"); return true; }
-            // Nothing is above the tabs.
-            return text == Key.UpArrow;
-        }
         if (text == Key.DownArrow) { root.step(1); Host.play-sound("move"); return true; }
         if (text == Key.UpArrow) { root.step(-1); Host.play-sound("move"); return true; }
         if (text == Key.LeftArrow) { root.act(Look.rtl ? 1 : -1); return true; }
@@ -329,8 +281,8 @@ export global Prefs {
     }
 }
 
-// One tab of Settings: a section's name. The tab in use is lit; the focus ring shows when the
-// keys are on the tabs.
+// One tab: a section's name. The tab in use is lit; the focus ring shows when the keys are on
+// the tabs. The kit's sheets show a rail (`RailTab`); this stays for themes that draw tabs.
 export component Tab inherits Rectangle {
     in property <string> text;
     // The tab's number.
@@ -361,7 +313,7 @@ export component Tab inherits Rectangle {
     }
 }
 
-// One icon of Settings' rail: a section, as its icon. The section in use sits on a lit square;
+// One icon of a sheet's rail: a section, as its icon. The section in use sits on a lit square;
 // the focus ring shows when the keys are on the rail. It is the section's tab to a screen
 // reader and a test (`settings-tab:<name>`).
 export component RailTab inherits Rectangle {
@@ -371,8 +323,9 @@ export component RailTab inherits Rectangle {
     in property <int> section;
     // Something waits there for the player, as a launcher update: a dot by the icon.
     in property <bool> dot;
-    property <bool> current: (Prefs.seen >= 0 ? Prefs.seen : Prefs.section) == root.section;
-    property <bool> focused: Prefs.tabs && Prefs.section == root.section;
+    // A plugin's General holds two sections: the rail lights it for either.
+    property <bool> current: Prefs.tab-of(Prefs.seen >= 0 ? Prefs.seen : Prefs.section) == Prefs.tab-of(root.section);
+    property <bool> focused: Prefs.tabs && Prefs.tab-of(Prefs.section) == Prefs.tab-of(root.section);
     width: 56 * Look.px;
     height: 56 * Look.px;
     background: root.current ? Tokens.color-tint.with-alpha(0.149) : (touch.has-hover ? Tokens.color-tint.with-alpha(0.059) : Tokens.color-tint.with-alpha(0));
