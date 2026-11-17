@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/MarahHQ/marah-launcher/compare/v0.2.0...v0.3.0) (2026-11-17)
+
+
+### Features
+
+* **kit:** Settings is one page of every section; the rail, L1 and R1 jump to one ([#13](https://github.com/MarahHQ/marah-launcher/issues/13)) ([f0e612d](https://github.com/MarahHQ/marah-launcher/commit/f0e612ded8b81d7c1d2573273ed2a4a964975f62))
+* the macOS icon is the Arctic Ice logo, made with png2icns away from a Mac ([#10](https://github.com/MarahHQ/marah-launcher/issues/10)) ([d074e9e](https://github.com/MarahHQ/marah-launcher/commit/d074e9ea38e8a76ac52458faac4d9bfcc954423d))
+
 ## [0.2.0](https://github.com/MarahHQ/marah-launcher/compare/v0.1.0...v0.2.0) (2026-11-16)
 
 
