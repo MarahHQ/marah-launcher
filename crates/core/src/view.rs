@@ -1571,6 +1571,8 @@ fn boot_vm(s: &Snapshot) -> BootVm {
             ("Could not install".into(), "failed")
         } else if startup.failed.contains(plugin) {
             ("Could not update".into(), "failed")
+        } else if emu.own && emu.installed.is_empty() {
+            ("Own build: none picked yet".into(), loaded)
         } else if emu.own {
             ("Your own build".into(), "done")
         } else if startup.emulators.contains(plugin) && !startup.over {

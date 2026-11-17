@@ -30,7 +30,8 @@ pub(crate) struct InstallPrompt {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct EmulatorState {
     pub installed: Vec<String>,
-    /// The installed build is the player's own: it never updates by itself.
+    /// "Use your own build" is on: the installed build, if the player picked one, is theirs,
+    /// and it never updates by itself.
     pub own: bool,
     pub available: Vec<String>,
     pub busy: bool,

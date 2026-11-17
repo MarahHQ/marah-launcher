@@ -818,6 +818,19 @@ async fn the_boot_screen_shows_the_firmware_update_and_waits_for_it() {
     assert_eq!(files_in(&eden.path().join("nand/system/Contents/registered")), ["1b.nca"]);
 }
 
+/// With no firmware yet, a check that fails at the start is an install that failed: the boot
+/// screen doesn't say "update".
+#[tokio::test]
+async fn a_first_firmware_download_that_fails_at_the_boot_says_it_could_not_install() {
+    let (test, _games, _eden) = with_eden_by_default(&[]).await;
+    // Nothing is served: the check fails, as offline.
+
+    test.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
+    test.until(launcher_core::Area::Library, |core| core.view().boot.ready).await;
+    let step = test.core.view().boot.steps.into_iter().find(|s| s.label == "Switch firmware").expect("a firmware step");
+    assert_eq!((step.detail.as_str(), step.state.as_str()), ("Could not install", "failed"));
+}
+
 /// Firmware settings with Automatic updates turned off, as the player can leave them.
 fn automatic_off() -> serde_json::Value {
     serde_json::json!({ "automatic": false, "release": FIRMWARE })
