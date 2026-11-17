@@ -66,6 +66,18 @@ The icons need `rsvg-convert` (librsvg) to make them again after a logo change, 
 `.icns` for macOS needs macOS's `iconutil`, or `png2icns` elsewhere: `icnsutils` on Ubuntu and
 Debian, `libicns-utils` on Fedora.
 
+The README demo (`scripts/record_demo.sh`) needs four more tools:
+
+| Tool | For | Ubuntu and Debian | Fedora |
+| --- | --- | --- | --- |
+| Xvfb | The hidden display the launcher runs on | `xvfb` | `xorg-x11-server-Xvfb` |
+| xdotool | The key presses that drive the launcher | `xdotool` | `xdotool` |
+| ffmpeg | The recording, and the WebP made from it. It needs libx264 and libwebp. | `ffmpeg` | `ffmpeg` |
+| ImageMagick (`magick`) | The art of the sample games | `imagemagick` | `ImageMagick` |
+
+The script also runs the launcher with no network through `unshare` (util-linux), which most
+systems have already.
+
 The AppImage also needs [linuxdeploy](https://github.com/linuxdeploy/linuxdeploy), named by
 `LINUXDEPLOY`.
 
@@ -235,14 +247,20 @@ Unit tests sit beside the code in each crate. `launcher-app`'s desktop tests
 
 ### Screenshots
 
-Two ways make pictures of the app:
+Three ways make pictures of the app:
 
 - **Offscreen tests.** `cargo test -p launcher-tests --test seams screenshots::` renders the
   screens of both built-in themes with made-up games, with Slint's software renderer and no
   window. The PNG files go to `target/tmp/screenshots/`, at 1280 × 760. Look at them after a
   theme change: the pull request template asks for it.
-- **`scripts/screenshots.sh`** takes the README and user-guide screenshots
-  (`docs/screenshots/*.jpg`) from the running app; see the script's header.
+- **`scripts/record_demo.sh`** records the README demo, `docs/demo/demo-loop.webp`. It runs
+  the release build on a hidden display (Xvfb) at 1920 × 1080, with a temporary home folder,
+  five sample PC games and no network, and drives it with key presses. The WebP loops, and the
+  script keeps it under 2000 KB, below the git hook's limit. See the script's header.
+  <!-- TODO: unverified: scripts/record_demo.sh has not run yet: Xvfb was missing when it was
+  written. -->
+- **`scripts/screenshots.sh`** takes the user-guide screenshots (`docs/screenshots/*.jpg`)
+  from the running app, with your real library; see the script's header.
   <!-- TODO: unverified: scripts/screenshots.sh is being written and has not run. -->
 
 ### Tests that touch the real system

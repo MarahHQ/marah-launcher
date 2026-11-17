@@ -1,5 +1,9 @@
 # Marah Launcher
 
+![A short loop of the launcher in the Default theme with five sample PC games: Home, the Library, a game's Game Hub, back to Home, then down the one-page Settings from Launcher to Updates, and back to Home](docs/demo/demo-loop.webp)
+
+`scripts/record_demo.sh` records this demo on a hidden display, with sample games only.
+
 Marah Launcher is a game launcher for a TV and a controller. It puts your games from emulators, PC
 folders and Steam in one library, and you play them from the couch. It runs on Linux, macOS and
 Windows, and it is the whole screen of Marah OS.
@@ -26,26 +30,6 @@ games.
 
 Marah Launcher ships two themes, **Default** and **Classic**. A theme changes the whole layout, not only
 the colours. You can add more themes; a theme is data and runs no code.
-
-## Screenshots
-
-| Home | Library |
-| --- | --- |
-| ![Home](docs/screenshots/home.jpg) | ![Library](docs/screenshots/library.jpg) |
-
-| Game Hub | Downloads |
-| --- | --- |
-| ![Game Hub](docs/screenshots/detail.jpg) | ![Downloads](docs/screenshots/downloads.jpg) |
-
-| Settings | Settings → Backup |
-| --- | --- |
-| ![Settings](docs/screenshots/settings.jpg) | ![Settings, Backup tab](docs/screenshots/backup.jpg) |
-
-The backup browser:
-
-![The backup browser](docs/screenshots/backup-browser.jpg)
-
-The screenshots show the Default theme at 1600 × 900.
 
 ## Install
 
