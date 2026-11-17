@@ -81,8 +81,14 @@ export global Prefs {
     // blocks), one for each settings panel, then its folders. A theme's page: the theme, then its
     // options. A game's own settings: one.
     out property <int> tab-count: root.page && !root.theme-page && root.on
-        ? 1 + root.panels + (root.folders-tab ? 1 : 0)
+        ? 1 + root.panels + (root.folders-tab ? 1 : 0) + (root.about ? 1 : 0)
         : root.sections;
+    // A plugin's About, the page's last section: what it says of itself (its blocks, its
+    // sections of facts, an emulator's controllers), after everything the player sets.
+    out property <bool> about: root.page && !root.theme-page && root.on
+        && (Vm.plugin-page.blocks.length > 0 || Vm.plugin-page.sections.length > 0
+            || (Vm.plugin-page.has-emulator && Vm.plugin-page.emulator.controllers != ""));
+    out property <int> about-section: 2 + root.panels + (root.folders-tab ? 1 : 0);
     // With settings panels, the page's folders are rows in the first panel; else they are a
     // section of their own.
     out property <bool> folders-tab: root.panels == 0 && Vm.plugin-page.folders.length > 0;
@@ -116,7 +122,7 @@ export global Prefs {
     out property <int> panels: root.page && !root.theme-page && root.on ? Vm.plugin-page.settings.length : 0;
     out property <int> sections: root.game-page ? 1
         : root.theme-page ? (Vm.plugin-page.current && Vm.theme-options.length > 0 ? 2 : 1)
-        : root.page ? (root.on ? 2 + root.panels + (root.folders-tab ? 1 : 0) : 1)
+        : root.page ? (root.on ? 2 + root.panels + (root.folders-tab ? 1 : 0) + (root.about ? 1 : 0) : 1)
         : 7 + (Vm.system.whole-screen ? 1 : 0);
     // Backup, then Power, the last tab: after System when Marah Launcher is the whole screen.
     out property <int> backup-section: Vm.system.whole-screen ? 6 : 5;
@@ -134,7 +140,8 @@ export global Prefs {
         root.game-page ? (Vm.detail.settings.length > 0 ? Vm.detail.settings[0].fields.length : 0)
             : root.theme-page ? (section == 0 ? 1 : Vm.theme-options.length)
             : root.page ? (section == 0 ? 1
-                : section == 1 ? root.builds + root.actions + root.block-buttons
+                : section == 1 ? root.builds + root.actions
+                : root.about && section == root.about-section ? root.block-buttons
                 : section <= root.panels + 1 ? Vm.plugin-page.settings[section - 2].fields.length
                     + (section == 2 ? Vm.plugin-page.folders.length : 0)
                 : Vm.plugin-page.folders.length)

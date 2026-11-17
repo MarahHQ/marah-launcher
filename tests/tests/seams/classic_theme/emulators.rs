@@ -126,8 +126,8 @@ fn lit_page_section(host: &Composed, names: &[&str]) -> String {
         .to_string()
 }
 
-/// KytyPS5's sections: General, then its one settings panel.
-const KYTY_SECTIONS: [&str; 2] = ["General", "Settings"];
+/// KytyPS5's sections: General, its one settings panel, then About (its keyboard controls).
+const KYTY_SECTIONS: [&str; 3] = ["General", "Settings", "About"];
 
 /// A plugin's page is one page like Settings: General, then its settings, each under its header,
 /// with a rail of the two. Up from Turned on goes to the rail, Down there chooses Settings and
@@ -202,12 +202,59 @@ fn the_rail_follows_a_plugin_page_the_mouse_wheel_scrolls() {
     use slint::platform::Key;
     let mut host = slid_in(kyty_page());
     host.wheel("settings-page", 60);
-    assert_eq!(lit_page_section(&host, &KYTY_SECTIONS), "Settings", "at the end of the page, the last section is lit");
+    assert_eq!(lit_page_section(&host, &KYTY_SECTIONS), "About", "at the end of the page, the last section is lit");
     host.wheel("settings-page", -60);
     assert_eq!(lit_page_section(&host, &KYTY_SECTIONS), "General", "back at the top, the first section is lit");
     host.wheel("settings-page", 60);
     host.navigate(Key::DownArrow);
     assert_eq!(lit_page_section(&host, &KYTY_SECTIONS), "General", "a key moves on from the focused row");
+}
+
+/// What a plugin says of itself (its blocks, an emulator's keyboard controls) is About, the
+/// page's last section, after everything the player sets.
+#[test]
+fn a_plugin_page_ends_with_about() {
+    let host = kyty_page();
+    let names: Vec<String> = KYTY_SECTIONS
+        .iter()
+        .filter(|name| host.count(&format!("settings-tab:{name}")) == 1)
+        .map(|name| name.to_string())
+        .collect();
+    assert_eq!(names, KYTY_SECTIONS, "the rail lists General, Settings, then About");
+    let y = |name: &str| host.first(&format!("settings-tab:{name}")).absolute_position().y;
+    assert!(y("About") > y("Settings") && y("Settings") > y("General"), "About is last on the rail");
+}
+
+/// Another plugin's page opens at its top, on its first row: not where the last page was.
+#[test]
+fn another_plugin_s_page_opens_at_its_top() {
+    let mut host = composed(|h| {
+        h.built_in(launcher_api::PluginBox::code(emu_kyty::KytyPlugin))
+            .built_in(launcher_api::PluginBox::code(emu_shadps4::ShadPlugin))
+    });
+    host.ui.start().unwrap();
+    host.dispatch(Command::Navigate(launcher_core::Route::Emulators));
+    host.settle();
+    host.first("plugin:emu-kyty").invoke_accessible_default_action();
+    host.pump();
+    let mut host = slid_in(host);
+    host.wheel("settings-page", 60);
+    assert_ne!(host.values("settings-section").first().map(String::as_str), Some("General"), "scrolled down");
+    // From the list beside the page, as a player moves from plugin to plugin: the sheet stays.
+    host.first("plugin:emu-shadps4").invoke_accessible_default_action();
+    host.pump();
+    host.settle();
+    assert_eq!(
+        host.values("settings-section").first().map(String::as_str),
+        Some("General"),
+        "shadPS4's page at its top"
+    );
+    host.wheel("settings-page", 60);
+    host.first("plugin:emu-kyty").invoke_accessible_default_action();
+    host.pump();
+    host.settle();
+    assert_eq!(host.values("settings-section").first().map(String::as_str), Some("General"), "at the top again");
+    assert_eq!(lit_page_section(&host, &KYTY_SECTIONS), "General", "on its first section");
 }
 
 /// A theme's page with no options is one section: no rail.
@@ -356,13 +403,17 @@ fn the_game_catalog_page_shows_its_sources_its_refresh_and_refresh_now() {
     host.dispatch(Command::Navigate(launcher_core::Route::Plugin(id("release-catalog"))));
     host.settle();
     // The blocks: the theme's section cards carry no label a test can find, so the blocks are
-    // checked in the view, and their place on the page by its label.
+    // checked in the view, and their place on the page by its label. They are in About, the
+    // page's last section, after the settings.
+    host.settings_tab("About");
     assert_eq!(host.count("plugin-blocks"), 1, "the page draws the service's blocks");
     let page = host.core().view().plugin_page.expect("the plugin's page");
     let labels: Vec<String> = page.sections.iter().map(|s| s.label.clone()).collect();
     for label in ["release-catalog:sources", "release-catalog:refresh"] {
         assert!(labels.iter().any(|l| l == label), "{label} in {labels:?}");
     }
+    // Refresh now is an action, in General at the top.
+    host.settings_tab("General");
     assert_eq!(host.count("release-catalog:refresh-now"), 1, "the Refresh now row");
     assert_eq!(host.count("build"), 0, "a service has no build");
 
