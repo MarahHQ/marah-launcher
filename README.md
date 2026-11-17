@@ -1,6 +1,6 @@
 # Marah Launcher
 
-![A short loop of the launcher in the Default theme with five sample PC games: Home, the Library, a game's Game Hub, back to Home, then Settings and back to Home](docs/demo/demo-loop.webp)
+![A short loop of the launcher in the Default theme with five sample PC games: Home, the Library, a game's Game Hub, back to Home, then down the one-page Settings from Launcher to Updates, and back to Home](docs/demo/demo-loop.webp)
 
 `scripts/record_demo.sh` records this demo on a hidden display, with sample games only.
 
