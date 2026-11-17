@@ -5,12 +5,12 @@ name = "PS4"
 # The program the plugin installs and runs. Sentences about the program name it.
 emulator = "shadPS4"
 version = "0.1.0"
-host_api = "^0.3"
+host_api = "^0.3.2"
 # The official builds this plugin installs: the Linux AppImage and the Windows program.
 platforms = ["linux", "macos", "windows"]
 # The console it plays: it gets that console's catalog.
 console = "PS4"
-capabilities = ["catalog", "downloader", "installer", "configurator", "launcher", "compatibility", "slots", "game_installer", "backup"]
+capabilities = ["catalog", "downloader", "installer", "configurator", "launcher", "compatibility", "slots", "game_installer", "backup", "startup"]
 # What the install sheet says this emulator installs from.
 install_note = "Installs a PS4 game from its folder or from PS4 packages (.pkg), with its update and DLC. Installing checks that it holds a game, not that its files are genuine, and never runs them."
 
@@ -67,7 +67,8 @@ gpu_memory_gb = 3.5
 discrete_gpu = true
 
 [permissions]
-# GitHub's API, release downloads and the CDN they redirect to (builds and the compatibility list).
+# GitHub's API, release downloads and the CDN they redirect to (builds and the compatibility list),
+# and raw.githubusercontent.com, where the PS4 system files come from.
 network = ["api.github.com", "github.com", "*.githubusercontent.com"]
 # The AppImage is unpacked once, so running it needs no FUSE.
 # The host runs the downloaded AppImage once, to unpack it.
@@ -93,7 +94,8 @@ write = true
 [[permissions.filesystem]]
 folder = "packages"
 
-# shadPS4's own data folder: DLC goes into its addcont folder.
+# shadPS4's own data folder: DLC goes into its addcont folder, and the PS4 system files into its
+# sys_modules and fonts folders.
 [[permissions.filesystem]]
 folder = "shadps4-data"
 default = "~/.local/share/shadPS4"

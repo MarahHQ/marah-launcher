@@ -156,6 +156,9 @@ pub(crate) async fn answer(core: &Core, yes: bool) -> crate::CoreResult<()> {
     let work = read_work(core).await;
     core.state().startup.work = work;
     core.changed(Area::Library);
+    // The next plugin's question, also when the wait already ended: a late answer doesn't
+    // keep the other plugins from asking.
+    ask(core).await;
     Ok(())
 }
 
