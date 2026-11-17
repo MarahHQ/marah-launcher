@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.0](https://github.com/MarahHQ/marah-launcher/compare/v0.5.2...v0.6.0) (2026-11-17)
+
+
+### Features
+
+* **core:** emulators with no build install a minute after the start ([#32](https://github.com/MarahHQ/marah-launcher/issues/32)) ([992479a](https://github.com/MarahHQ/marah-launcher/commit/992479ae680e0b7644f9e1911f3a54b594856b2c))
+
+
+### Bug Fixes
+
+* **core:** emulators install and update right after the start, not a minute later ([#34](https://github.com/MarahHQ/marah-launcher/issues/34)) ([ec1ad77](https://github.com/MarahHQ/marah-launcher/commit/ec1ad7789eb6cabe7c8c5f07f5718ee91247e0f3))
+
 ## [0.5.2](https://github.com/MarahHQ/marah-launcher/compare/v0.5.1...v0.5.2) (2026-11-17)
 
 
