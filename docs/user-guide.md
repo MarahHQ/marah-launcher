@@ -219,8 +219,10 @@ Each emulator's page also offers to install the packages it finds in your packag
 
 ## Playing a game
 
-Press **Play** on the Game Hub. When the game's emulator is not installed yet, Marah Launcher asks
-"Install <emulator>?". Choose **Install and play** to install it and start the game.
+Press **Play** on the Game Hub. A minute after the start, Marah Launcher installs each emulator
+you turned on (see **Install emulators automatically** under [Updates](#updates)). When you press
+**Play** before that, or with the setting off, Marah Launcher asks "Install <emulator>?". Choose
+**Install and play** to install it and start the game.
 
 A splash shows while the game starts. Without a controller, it lists the emulator's keyboard
 keys.
@@ -360,7 +362,8 @@ path with `~` for your home folder. **Rescan game folders** looks for games agai
 
 | Setting | What it does |
 | --- | --- |
-| Update automatically | Checks for emulator updates every few hours. An update waits until you close your game. |
+| Update automatically | Checks for emulator updates a minute after the start, then every few hours. An update waits until you close your game. |
+| Install emulators automatically | A minute after the start, each emulator you turned on that has no build gets its newest build. It skips an emulator that uses your own build. On by default. A first start downloads a few hundred MB. Turn it off to install each emulator on its first play. |
 | Marah Launcher updates | Checks for a new Marah Launcher. Then **Download** (or **Update**), then **Restart** to start the new version. |
 
 On Marah OS, Marah Launcher comes with the system's update.
