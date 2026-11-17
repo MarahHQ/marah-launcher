@@ -183,3 +183,82 @@ async fn emulator_updates_are_looked_for_a_minute_after_the_start_on_the_clock()
     t.clock.advance(Duration::from_secs(2)).await;
     assert!(installed(&t.core).await.contains(&"2.0".to_owned()), "the check found and installed 2.0");
 }
+
+/// Moves the clock past the first look for updates, a minute after the start: the start's pass
+/// over the emulators' builds runs then.
+async fn past_the_start_pass(t: &TestCore, started: std::time::Instant) {
+    t.clock.advance(Duration::from_secs(61).saturating_sub(t.clock.now() - started)).await;
+}
+
+#[tokio::test]
+async fn an_emulator_with_no_build_gets_its_newest_build_at_the_start() {
+    let (t, _emu) = core_with(FakeEmulator::new(vec!["A"])).await;
+    let started = t.clock.now();
+    assert!(t.core.view().settings.auto_install, "on by default");
+    assert!(installed(&t.core).await.is_empty(), "nothing before the pass");
+
+    past_the_start_pass(&t, started).await;
+    assert_eq!(installed(&t.core).await, ["1.0"]);
+}
+
+#[tokio::test]
+async fn with_install_automatically_off_nothing_installs_at_the_start() {
+    let (t, _emu) = core_with(FakeEmulator::new(vec!["A"])).await;
+    let started = t.clock.now();
+    t.core.dispatch(Command::Pref(Pref::AutoInstall, false.into())).await.unwrap();
+    assert!(!t.core.view().settings.auto_install);
+
+    past_the_start_pass(&t, started).await;
+    assert!(installed(&t.core).await.is_empty());
+    assert!(t.http.requests().is_empty(), "nothing downloads");
+}
+
+#[tokio::test]
+async fn an_emulator_that_uses_your_own_build_gets_no_build_at_the_start() {
+    let (t, _emu) = core_with(FakeEmulator::new(vec!["A"])).await;
+    let started = t.clock.now();
+    // "Use your own build" is on, but no program is picked yet: the plugin lists no build.
+    t.core.kernel().config().set(&["plugins", "emu-a", "emulator", "own_build"], true.into()).unwrap();
+
+    past_the_start_pass(&t, started).await;
+    assert!(installed(&t.core).await.is_empty());
+    assert!(t.http.requests().is_empty(), "nothing downloads");
+}
+
+#[tokio::test]
+async fn a_failed_install_at_the_start_is_a_notice_and_doesn_t_run_again() {
+    // The build isn't served: its download fails.
+    let t = FakeHost::new().plugin(FakeEmulator::new(vec!["A"]).plugin("emu-a")).boot_core().await;
+    let started = t.clock.now();
+
+    past_the_start_pass(&t, started).await;
+    let tries = t.http.requests().len();
+    assert!(tries > 0, "the pass tried the download");
+    let notices = t.core.view().notices;
+    assert_eq!(notices.iter().filter(|n| n.contains("Could not install emu-a")).count(), 1, "{notices:?}");
+
+    // Two looks for updates later, six hours apart.
+    t.clock.advance(Duration::from_secs(13 * 3600)).await;
+    assert_eq!(t.http.requests().len(), tries, "not again while the app runs");
+    assert!(installed(&t.core).await.is_empty());
+}
+
+#[tokio::test]
+async fn an_update_at_the_start_waits_until_the_emulator_s_game_closes() {
+    let (t, emu) = core_with(FakeEmulator::new(vec!["A"])).await;
+    let started = t.clock.now();
+    let (_, process) = play(&t).await;
+    emu.release("2.0");
+
+    past_the_start_pass(&t, started).await;
+    assert_eq!(installed(&t.core).await, ["1.0"], "not while the game runs");
+
+    process.exit(0);
+    for _ in 0..100 {
+        if installed(&t.core).await.contains(&"2.0".to_owned()) {
+            return;
+        }
+        t.clock.advance(WATCH_EVERY).await;
+    }
+    panic!("the update didn't run after the game closed");
+}

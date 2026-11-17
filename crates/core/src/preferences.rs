@@ -51,6 +51,9 @@ pub enum Pref {
     StartAtLogin,
     /// Emulator updates install by themselves. On by default.
     AutoUpdate,
+    /// A minute after the start, each turned-on emulator with no build gets its newest build.
+    /// On by default.
+    AutoInstall,
     /// The monitor the launcher goes on, by name; null for the one it is on.
     Monitor,
     /// The player pressed Start on the Welcome screen: it doesn't show again.
@@ -91,7 +94,7 @@ pub struct PrefSpec {
 
 impl Pref {
     /// Every preference.
-    pub const ALL: [Pref; 13] = [
+    pub const ALL: [Pref; 14] = [
         Pref::Sounds,
         Pref::Animations,
         Pref::Fullscreen,
@@ -99,6 +102,7 @@ impl Pref {
         Pref::Scale,
         Pref::StartAtLogin,
         Pref::AutoUpdate,
+        Pref::AutoInstall,
         Pref::Monitor,
         Pref::Welcomed,
         Pref::Theme,
@@ -117,6 +121,7 @@ impl Pref {
             Pref::Scale => "scale",
             Pref::StartAtLogin => "start_at_login",
             Pref::AutoUpdate => "auto_update",
+            Pref::AutoInstall => "auto_install",
             Pref::Monitor => "monitor",
             Pref::Welcomed => "welcomed",
             Pref::Theme => "theme",
@@ -128,9 +133,12 @@ impl Pref {
 
     pub fn spec(self) -> PrefSpec {
         let (kind, default, by_player) = match self {
-            Pref::Sounds | Pref::Animations | Pref::Fullscreen | Pref::ReturnOnExit | Pref::AutoUpdate => {
-                (PrefKind::Flag, Value::Bool(true), true)
-            }
+            Pref::Sounds
+            | Pref::Animations
+            | Pref::Fullscreen
+            | Pref::ReturnOnExit
+            | Pref::AutoUpdate
+            | Pref::AutoInstall => (PrefKind::Flag, Value::Bool(true), true),
             Pref::StartAtLogin | Pref::Welcomed => (PrefKind::Flag, Value::Bool(false), true),
             Pref::Scale => (PrefKind::Size { min: MIN_SCALE, max: MAX_SCALE }, Value::from(1.0), true),
             Pref::Monitor | Pref::BackupFolder => (PrefKind::Name, Value::Null, true),
@@ -193,6 +201,7 @@ pub struct PreferencesSnapshot {
     /// Why the system refused "Start at login" last; `None` once it agreed.
     pub start_at_login_error: Option<String>,
     pub auto_update: bool,
+    pub auto_install: bool,
     pub monitor: Option<String>,
     pub welcomed: bool,
     /// The theme the player chose last, when its id is valid.
@@ -239,6 +248,7 @@ impl Preferences {
             start_at_login: flag(Pref::StartAtLogin),
             start_at_login_error: self.login_error().clone(),
             auto_update: flag(Pref::AutoUpdate),
+            auto_install: flag(Pref::AutoInstall),
             monitor: name(Pref::Monitor),
             welcomed: flag(Pref::Welcomed),
             theme: name(Pref::Theme).and_then(|id| PluginId::new(id).ok()),
@@ -309,6 +319,7 @@ mod tests {
             (Pref::Scale, Value::from(1.0)),
             (Pref::StartAtLogin, Value::Bool(false)),
             (Pref::AutoUpdate, Value::Bool(true)),
+            (Pref::AutoInstall, Value::Bool(true)),
             (Pref::Monitor, Value::Null),
             (Pref::Welcomed, Value::Bool(false)),
             (Pref::Theme, Value::Null),
