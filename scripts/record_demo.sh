@@ -42,7 +42,15 @@ done
 
 # The tools first, so a missing one stops the script before the long build.
 missing=()
-command -v Xvfb >/dev/null || missing+=("Xvfb (xorg-x11-server-Xvfb on Fedora, xvfb on Ubuntu and Debian)")
+# Xvfb, else Xwayland as a window of its own on a Wayland desktop (rootful): the launcher and the
+# key presses stay on that display either way, away from yours.
+if command -v Xvfb >/dev/null; then
+    server=xvfb
+elif command -v Xwayland >/dev/null && [[ -n ${WAYLAND_DISPLAY:-} ]]; then
+    server=xwayland
+else
+    missing+=("Xvfb (xorg-x11-server-Xvfb on Fedora, xvfb on Ubuntu and Debian)")
+fi
 command -v xdotool >/dev/null || missing+=("xdotool")
 command -v ffmpeg >/dev/null || missing+=("ffmpeg")
 command -v ffprobe >/dev/null || missing+=("ffprobe (comes with ffmpeg)")
@@ -53,8 +61,10 @@ if ((${#missing[@]})); then
     printf '  - %s\n' "${missing[@]}" >&2
     exit 1
 fi
+encoders=$(ffmpeg -hide_banner -encoders 2>/dev/null)
 for codec in libx264 libwebp_anim; do
-    ffmpeg -hide_banner -encoders 2>/dev/null | grep -q " $codec " || { echo "ffmpeg has no $codec encoder" >&2; exit 1; }
+    # The list goes to a variable first: `ffmpeg | grep -q` fails under pipefail when grep stops early.
+    [[ $encoders == *" $codec "* ]] || { echo "ffmpeg has no $codec encoder" >&2; exit 1; }
 done
 
 # The product's names, from brand.toml: `key "section" "name"`.
@@ -178,13 +188,18 @@ for n in $(seq 90 120); do
     [[ -e /tmp/.X11-unix/X$n || -e /tmp/.X$n-lock ]] || { display=:$n; break; }
 done
 [[ -n $display ]] || { echo "no free X display number from :90 to :120" >&2; exit 1; }
-Xvfb "$display" -screen 0 1920x1080x24 +extension GLX -nolisten tcp -noreset >"$work/xvfb.log" 2>&1 &
+if [[ $server == xvfb ]]; then
+    Xvfb "$display" -screen 0 1920x1080x24 +extension GLX -nolisten tcp -noreset >"$work/xvfb.log" 2>&1 &
+else
+    # A 1920x1080 window on your desktop; it closes when the recording ends.
+    Xwayland "$display" -geometry 1920x1080 -nolisten tcp -noreset >"$work/xvfb.log" 2>&1 &
+fi
 xvfb_pid=$!
 for _ in $(seq 50); do
     [[ -e /tmp/.X11-unix/X${display#:} ]] && break
     sleep 0.1
 done
-[[ -e /tmp/.X11-unix/X${display#:} ]] || { echo "Xvfb did not start; see $work/xvfb.log" >&2; keep=true; exit 1; }
+[[ -e /tmp/.X11-unix/X${display#:} ]] || { echo "the X server ($server) did not start; see $work/xvfb.log" >&2; keep=true; exit 1; }
 
 # xdotool and ffmpeg talk to the hidden display only.
 x() { DISPLAY=$display "$@"; }
@@ -245,9 +260,12 @@ press() { # <pause> <key>...
 # --- The recording ---------------------------------------------------------------------------
 
 raw=$work/raw.mkv
-x ffmpeg -loglevel error -y -f x11grab -draw_mouse 0 -framerate 30 -video_size 1920x1080 \
+# ffmpeg itself, not through x(): a function in the background is a subshell, which would take
+# the stop signal in ffmpeg's place.
+DISPLAY=$display ffmpeg -loglevel error -y -f x11grab -draw_mouse 0 -framerate 30 -video_size 1920x1080 \
     -i "$display" -t 60 -c:v libx264 -preset ultrafast -qp 0 "$raw" </dev/null &
 rec_pid=$!
+rec_start=$(date +%s.%N)
 sleep 2.5
 
 # Home, on "All games". Enter opens the Library.
@@ -260,24 +278,27 @@ press 2 Escape Escape
 # L1 (Tab) along the top bar: Search, Downloads, Emulators, Themes, Settings.
 press 0.3 Tab Tab Tab Tab Tab
 press 3 Return
-# Down the first tab of Settings.
-press 1.5 Down Down Down
+# Down Settings' one page, across the edges of its sections, a row at a time.
+for _ in 1 2 3 4 5 6 7 8; do press 0.5 Down; done
+press 1.5
 # Back to Home, where the loop starts.
 press 2.5 Escape Escape
 
+# The loop ends at the last key press and its pause, whatever the recording's own length.
+active=$(echo "$(date +%s.%N) - $rec_start" | bc)
 kill -INT "$rec_pid"
 wait "$rec_pid" || true
 rec_pid=""
 
 # --- The WebP --------------------------------------------------------------------------------
 
-duration=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$raw")
+duration=$active
 webp=$out/demo-loop.webp
 # The repo's pre-commit hook takes no file over 2048 KB: the first try that fits wins.
 limit=$((2000 * 1024))
 for try in "1280 15 70" "1120 12 65" "960 12 60" "800 10 55"; do
     read -r width fps quality <<<"$try"
-    ffmpeg -loglevel error -y -i "$raw" -vf "fps=$fps,scale=$width:-2:flags=lanczos" \
+    ffmpeg -loglevel error -y -t "$active" -i "$raw" -vf "fps=$fps,scale=$width:-2:flags=lanczos" \
         -c:v libwebp_anim -lossless 0 -quality "$quality" -compression_level 6 -loop 0 -an "$webp"
     size=$(stat -c %s "$webp")
     echo "$webp: ${width} px wide, $fps fps, quality $quality: $((size / 1024)) KB"
