@@ -253,13 +253,14 @@ async fn init(ctx: PluginContext, files: Vec<system_files::SystemFile>) -> Plugi
         game_installer: Some(shad),
         slots: Some(emu),
         backup: Some(emulator_kit::backup::Items::provided(vec![
-            // Its settings, keys, saves and trophies; not its caches, logs and downloads.
+            // Its settings, keys, saves and trophies; not its caches, logs and downloads, and not
+            // the PS4 system files, which the System files block downloads again.
             BackupItem::new(
                 "data",
                 "PS4 settings and saves",
                 BackupPlace::Folder(HostPath::new(DATA, 0, RelPath::root())),
             )
-            .skip(&["cache", "log", "shader", "temp", "download", "addcont"]),
+            .skip(&["cache", "log", "shader", "temp", "download", "addcont", "sys_modules", "fonts"]),
             // DLC can take many GB: only when asked for.
             BackupItem::new("dlc", "PS4 DLC", BackupPlace::Folder(HostPath::new(DATA, 0, RelPath::new("addcont")?)))
                 .large(),

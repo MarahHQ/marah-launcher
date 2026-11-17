@@ -734,13 +734,14 @@ with a fixed list. From `plugins/emulators/shadps4/src/lib.rs`:
 
 ```rust
 backup: Some(emulator_kit::backup::Items::provided(vec![
-    // Its settings, keys, saves and trophies; not its caches, logs and downloads.
+    // Its settings, keys, saves and trophies; not its caches, logs and downloads, and not
+    // the PS4 system files, which the System files block downloads again.
     BackupItem::new(
         "data",
         "PS4 settings and saves",
         BackupPlace::Folder(HostPath::new(DATA, 0, RelPath::root())),
     )
-    .skip(&["cache", "log", "shader", "temp", "download", "addcont"]),
+    .skip(&["cache", "log", "shader", "temp", "download", "addcont", "sys_modules", "fonts"]),
     // DLC can take many GB: only when asked for.
     BackupItem::new(
         "dlc",
@@ -972,7 +973,7 @@ AppImage out of the zip and extracts it. Games are PS4 game folders. Backup: its
 without caches and logs, and its DLC as a large item. Its startup work asks to install the
 missing PS4 system files (`src/system_files.rs`): 14 system modules and 45 fonts, from a pinned
 commit of the retrobios collection, each checked against the size and SHA-256 in
-`src/system_files.tsv`. Its System files block on the plugin page has Install now.
+`src/system_files.tsv`. Its System files block on the plugin page has Install now, and an Ask at start switch.
 
 **Switch: Lichii** (`plugins/emulators/lichii`, `emu-lichii`, Linux only). Capabilities:
 `catalog`, `downloader`, `installer`, `configurator`, `launcher`, `slots`, `game_installer`,

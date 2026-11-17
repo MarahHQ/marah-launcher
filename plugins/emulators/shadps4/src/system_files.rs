@@ -46,6 +46,9 @@ const MARKER: &str = "system-files.json";
 
 /// The actions of the System files block.
 const INSTALL_NOW: &str = "install-system-files";
+const TOGGLE_ASK: &str = "toggle-system-files-ask";
+/// The block's settings, in the plugin's storage: `{"ask": true}` asks at start (the default).
+const SETTINGS: &str = "system-files-settings.json";
 
 /// A file of the list.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -212,6 +215,20 @@ impl SystemFiles {
         self.host.storage.write(&RelPath::new(MARKER)?, marker.to_string().as_bytes()).await
     }
 
+    /// "Ask at start": on unless the player turned it off. A file that doesn't read counts as on.
+    async fn ask(&self) -> bool {
+        let read = async {
+            let bytes = self.host.storage.read(&RelPath::new(SETTINGS).ok()?).await.ok()?;
+            serde_json::from_slice::<Value>(&bytes).ok()?["ask"].as_bool()
+        };
+        read.await.unwrap_or(true)
+    }
+
+    async fn toggle_ask(&self) -> PluginResult<()> {
+        let settings = serde_json::json!({ "ask": !self.ask().await });
+        self.host.storage.write(&RelPath::new(SETTINGS)?, settings.to_string().as_bytes()).await
+    }
+
     /// Which listed files are in shadPS4's folder: one listing of each folder, no hashing.
     async fn find(&self) -> PluginResult<Found> {
         let mut present = BTreeSet::new();
@@ -373,6 +390,16 @@ impl SystemFiles {
                 )
             });
         }
+        rows.push(BlockRow {
+            action: Some(TOGGLE_ASK.into()),
+            switch: Some(self.ask().await),
+            ..row(
+                "Ask at start",
+                String::new(),
+                format!("When files are missing, {product} asks at each start before it downloads them"),
+                Tone::Neutral,
+            )
+        });
         let block = SlotContent::Block { title: "System files".into(), rows };
         vec![SlotItem { id: "system-files".into(), order: Order::default(), content: block }]
     }
@@ -396,7 +423,7 @@ impl StartupWork for SystemFiles {
     /// The first call of a run looks at the folder; it asks when listed files are missing.
     async fn question(&self) -> Option<StartupQuestion> {
         let first = !std::mem::replace(&mut *self.checked.lock().unwrap_or_else(|p| p.into_inner()), true);
-        if first && self.phase() == Phase::Idle {
+        if first && self.phase() == Phase::Idle && self.ask().await {
             match self.find().await {
                 Ok(found) if !found.missing.is_empty() => {
                     let bytes = found.missing.iter().map(|f| f.size).sum();
@@ -445,9 +472,13 @@ impl Panel for SystemFiles {
     }
 
     async fn run_action(&self, action: &str, _args: &Value) -> Option<PluginResult<()>> {
-        (action == INSTALL_NOW).then(|| {
-            self.start();
-            Ok(())
+        Some(match action {
+            INSTALL_NOW => {
+                self.start();
+                Ok(())
+            }
+            TOGGLE_ASK => self.toggle_ask().await,
+            _ => return None,
         })
     }
 }

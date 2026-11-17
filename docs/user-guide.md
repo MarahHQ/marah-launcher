@@ -271,7 +271,8 @@ Some emulator notes:
   boot screen shows the download and waits for it. **Not now** downloads nothing, and the start
   asks again next time. The **System files** block on the PS4 page shows the files:
   **Installed**, **Missing** and how many, or **Your own files**. **Install now** installs the
-  missing files at once. Files you put there yourself are never replaced, and files that aren't
+  missing files at once. Turn off **Ask at start** in the same block, and the start no longer
+  asks. Files you put there yourself are never replaced, and files that aren't
   on the list are never touched. If a download fails, or a file doesn't match its SHA-256, the
   block says why, the boot goes on, and no half-written file is left in shadPS4's folders. These
   are Sony's files: check that you may use them where you live.
@@ -445,7 +446,9 @@ A backup is one file, `marah-backup-<date>-<time>.tar.gz`, with the time in UTC.
   installed games are not in it: they belong to this computer.
 - PS5: "PS5 saves", the KytyPS5 saves folder. Saves of a build without `--data-folder` stay in
   that build's folder and out of the backup.
-- PS4: "PS4 settings and saves", shadPS4's data folder without its caches, logs and downloads.
+- PS4: "PS4 settings and saves", shadPS4's data folder without its caches, logs and downloads,
+  and without the PS4 system files (`sys_modules`, `fonts`): the System files block downloads
+  them again.
   "PS4 DLC" is a large item.
 - Switch: "Switch keys", "Switch firmware and saves", "Switch SD card", "amiibo", "Switch mods",
   "Lichii settings" and "Switch firmware settings".
