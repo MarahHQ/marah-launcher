@@ -134,8 +134,8 @@ _Avoid_: handler, service
 **Forum list**: a forum's list of topics with a torrent, from the tracker's API: the hash, size,
 peers and upload time of each topic, with no titles.
 
-**Game file** (`game_file::GameFile`): `marah_game.json` in a game's own folder, with its art in
-`marah_art/`: what Marah Launcher knows about the game, so the Library shows it whole without asking any
+**Game file** (`game_file::GameFile`): `launcher_game.json` in a game's own folder, with its art in
+`launcher_art/`: what Marah Launcher knows about the game, so the Library shows it whole without asking any
 store, and the game takes its card with it to another computer.
 
 **Game install**: a plugin's `GameInstaller` decoding a package or a finished download into a

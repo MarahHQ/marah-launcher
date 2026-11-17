@@ -337,7 +337,7 @@ a 32-bit one, and then the path decides.
 
 ### The game file
 
-Every game's folder has one game file, `marah_game.json` (`GAME_FILE` in `manifest.rs`; see
+Every game's folder has one game file, `launcher_game.json` (`GAME_FILE` in `manifest.rs`; see
 [architecture.md](../architecture.md#data-folder)). The PC plugin's part of it is `title` and
 `starts`: every file that can start the game, best first. The rest is the core's: the plugin
 keeps it as it is when it writes. The file is at most 256 KiB (`MAX_GAME_FILE`). The plugin

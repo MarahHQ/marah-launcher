@@ -75,8 +75,9 @@ brand() {
     ' brand.toml
 }
 bin_name=$(brand ids binary)
-game_file=$(brand files game_file)
-art_folder=$(brand files art_folder)
+# A game folder's file and art folder: launcher-api's GAME_FILE and ART_FOLDER.
+game_file=launcher_game.json
+art_folder=launcher_art
 data_folder=$(brand files data_folder)
 product=$(brand product name)
 for value in "$bin_name" "$game_file" "$art_folder" "$data_folder" "$product"; do

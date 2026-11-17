@@ -1,4 +1,4 @@
-//! The PC plugin's part of the game file in a game's folder (`marah_game.json`, which every
+//! The PC plugin's part of the game file in a game's folder (`launcher_game.json`, which every
 //! game of every console has): the game's title and every file in it that can start it, best
 //! first (`starts`). The rest of the file is the core's: the plugin keeps it as it is when it
 //! writes. What the install found doesn't change after; what Play starts is the player's
@@ -11,7 +11,7 @@ use launcher_api::serde_json::{self, Value};
 use crate::probe::{self, Kind};
 
 /// The game file in an installed game's folder.
-pub const GAME_FILE: &str = launcher_api::brand::FILES_GAME_FILE;
+pub const GAME_FILE: &str = launcher_api::GAME_FILE;
 /// The most a game file may be.
 pub const MAX_GAME_FILE: u64 = 256 * 1024;
 /// The game file's format, when the plugin writes the file alone.
@@ -131,7 +131,7 @@ mod tests {
     #[test]
     fn writing_the_game_file_keeps_what_the_rest_of_marah_wrote_in_it() {
         let core = br#"{ "format": 1, "title": "Cuphead (Store)", "description": "Run and gun.",
-            "art": { "cover": "marah_art/cover.jpg" }, "starts": [{ "kind": "windows", "path": "old.exe" }] }"#;
+            "art": { "cover": "launcher_art/cover.jpg" }, "starts": [{ "kind": "windows", "path": "old.exe" }] }"#;
         let ours = starts(&[("Cuphead.x86_64", Kind::Native)]);
 
         let written: Value = serde_json::from_slice(&ours.game_file(Some(core))).unwrap();
@@ -139,7 +139,7 @@ mod tests {
         assert_eq!(written["starts"], serde_json::json!([{ "kind": "native", "path": "Cuphead.x86_64" }]));
         assert_eq!(written["title"], "Cuphead (Store)", "a title already there stays");
         assert_eq!(written["description"], "Run and gun.");
-        assert_eq!(written["art"]["cover"], "marah_art/cover.jpg");
+        assert_eq!(written["art"]["cover"], "launcher_art/cover.jpg");
         assert_eq!(written["format"], 1);
 
         let alone: Value = serde_json::from_slice(&ours.game_file(None)).unwrap();

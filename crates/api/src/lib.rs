@@ -6,7 +6,7 @@
 //! Versioning: this crate follows semver. A plugin's manifest names the versions it works with
 //! in `host_api`, and the host refuses plugins whose range doesn't include [`API_VERSION`].
 
-/// The product's names, from the workspace's `brand.toml`: `PRODUCT_NAME`, `FILES_GAME_FILE`
+/// The product's names, from the workspace's `brand.toml`: `PRODUCT_NAME`, `FILES_DATA_FOLDER`
 /// and the rest.
 pub mod brand {
     include!(concat!(env!("OUT_DIR"), "/brand.rs"));

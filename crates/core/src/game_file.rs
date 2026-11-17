@@ -2,21 +2,21 @@
 //! Library shows the game whole without asking any store again, and the game takes its card
 //! with it when its folder moves to another computer.
 //!
-//! The folder of a game holds `marah_game.json` in its root and the art in `marah_art/`:
+//! The folder of a game holds `launcher_game.json` in its root and the art in `launcher_art/`:
 //!
 //! ```text
 //! <the game's folder>/
-//! ├── marah_game.json
-//! └── marah_art/
+//! ├── launcher_game.json
+//! └── launcher_art/
 //!     ├── cover.jpg
 //!     ├── background.jpg
 //!     ├── logo.png
 //!     └── screenshot_1.jpg … screenshot_6.jpg
 //! ```
 //!
-//! Every name Marah Launcher writes is lowercase snake_case, and starts with `marah_` in the game's
+//! Every name Marah Launcher writes is lowercase snake_case, and starts with `launcher_` in the game's
 //! root. Marah Launcher never renames or deletes the player's own files. The file names its art by paths
-//! relative to the game's folder, and only inside `marah_art/`.
+//! relative to the game's folder, and only inside `launcher_art/`.
 //!
 //! The file fits every kind of game. A plugin may keep its own keys in it, such as the PC
 //! plugin's `starts` (the files that start the game): the core keeps every key it doesn't own
@@ -28,9 +28,9 @@ use launcher_api::{GameMetadata, HostPath, ImageSource, Rating, RelPath};
 use serde::{Deserialize, Serialize};
 
 /// The file's name, in the game's folder.
-pub(crate) const FILE: &str = launcher_api::brand::FILES_GAME_FILE;
+pub(crate) const FILE: &str = launcher_api::GAME_FILE;
 /// The folder of the art, in the game's folder.
-pub(crate) const ART_DIR: &str = launcher_api::brand::FILES_ART_FOLDER;
+pub(crate) const ART_DIR: &str = launcher_api::ART_FOLDER;
 /// The file format this build writes and reads. A file of a later format isn't read.
 pub(crate) const FORMAT: u32 = 1;
 /// The most screenshots a file keeps.
@@ -43,7 +43,7 @@ pub(crate) struct Source {
     pub release: String,
 }
 
-/// The art's paths, relative to the game's folder: `marah_art/cover.jpg`.
+/// The art's paths, relative to the game's folder: `launcher_art/cover.jpg`.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct Art {
@@ -74,7 +74,7 @@ impl ArtKind {
     }
 }
 
-/// `marah_game.json`.
+/// `launcher_game.json`.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct GameFile {
@@ -176,7 +176,7 @@ impl GameFile {
             && art.screenshots.is_empty())
     }
 
-    /// Drops any art path that isn't a plain file in `marah_art/`, such as `../x` or a folder
+    /// Drops any art path that isn't a plain file in `launcher_art/`, such as `../x` or a folder
     /// beyond it: the file names only its own art.
     fn keep_own_art(mut self) -> Self {
         let own = |p: &String| is_art_path(p);
@@ -189,7 +189,7 @@ impl GameFile {
     }
 }
 
-/// The art's path for `kind`, from its bytes: `marah_art/cover.jpg`. `None` when the bytes are
+/// The art's path for `kind`, from its bytes: `launcher_art/cover.jpg`. `None` when the bytes are
 /// no picture this build knows (JPEG, PNG, WebP or GIF).
 pub(crate) fn art_path(kind: ArtKind, bytes: &[u8]) -> Option<String> {
     let extension = picture_extension(bytes)?;
@@ -211,7 +211,7 @@ fn picture_extension(bytes: &[u8]) -> Option<&'static str> {
     }
 }
 
-/// `marah_art/<name>`: lowercase letters, digits and `_`, then a picture's extension.
+/// `launcher_art/<name>`: lowercase letters, digits and `_`, then a picture's extension.
 fn is_art_path(path: &str) -> bool {
     let Some(name) = path.strip_prefix(&format!("{ART_DIR}/")) else { return false };
     let Some((stem, extension)) = name.rsplit_once('.') else { return false };
@@ -279,6 +279,73 @@ fn replace(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     std::fs::rename(&temporary, path)
 }
 
+/// The game file's and the art folder's names in 0.2.0 and 0.3.0, which carried the product's
+/// name.
+const WAS_FILE: &str = launcher_api::brand::FILES_WAS_GAME_FILE;
+const WAS_ART_DIR: &str = launcher_api::brand::FILES_WAS_ART_FOLDER;
+
+/// Moves a game folder `dir` written under the old names to [`FILE`] and [`ART_DIR`]: the art
+/// folder is renamed, the file's art paths follow it, the new file is written, and the old file
+/// goes last. A folder that has the new file already is left as it is, old files and all;
+/// nothing is overwritten. Whether it moved.
+pub(crate) fn move_old_names(dir: &Path) -> std::io::Result<bool> {
+    let old = dir.join(WAS_FILE);
+    if !old.is_file() || dir.join(FILE).exists() {
+        return Ok(false);
+    }
+    let mut file: serde_json::Value = serde_json::from_slice(&std::fs::read(&old)?)?;
+    let (was_art, art) = (dir.join(WAS_ART_DIR), dir.join(ART_DIR));
+    if was_art.is_dir() && !art.exists() {
+        std::fs::rename(&was_art, &art)?;
+    }
+    renamed_art(&mut file);
+    replace(&dir.join(FILE), &serde_json::to_vec_pretty(&file)?)?;
+    std::fs::remove_file(&old)?;
+    Ok(true)
+}
+
+/// Each text in `value` that is a path in the old art folder, as the same path in [`ART_DIR`].
+fn renamed_art(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::String(text) => {
+            if let Some(rest) = text.strip_prefix(&format!("{WAS_ART_DIR}/")) {
+                *text = format!("{ART_DIR}/{rest}");
+            }
+        }
+        serde_json::Value::Array(items) => items.iter_mut().for_each(renamed_art),
+        serde_json::Value::Object(map) => map.values_mut().for_each(renamed_art),
+        _ => {}
+    }
+}
+
+/// Moves every game folder under `root` written under the old names, down to three folders
+/// deep (`<console>/<game>`, and a folder inside one). How many moved; a folder that fails is
+/// logged and left for the next start.
+pub(crate) fn move_old_names_under(root: &Path) -> usize {
+    let mut moved = 0;
+    let mut level = vec![root.to_path_buf()];
+    for _ in 0..3 {
+        let mut next = Vec::new();
+        for dir in level {
+            let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+            for entry in entries.flatten() {
+                if !entry.file_type().is_ok_and(|t| t.is_dir()) {
+                    continue;
+                }
+                let path = entry.path();
+                match move_old_names(&path) {
+                    Ok(true) => moved += 1,
+                    Ok(false) => {}
+                    Err(e) => tracing::warn!(dir = %path.display(), error = %e, "a game folder kept its old names"),
+                }
+                next.push(path);
+            }
+        }
+        level = next;
+    }
+    moved
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -305,12 +372,12 @@ mod tests {
 
     #[test]
     fn art_is_named_by_what_it_is_and_by_its_bytes() {
-        assert_eq!(art_path(ArtKind::Cover, JPG).as_deref(), Some("marah_art/cover.jpg"));
-        assert_eq!(art_path(ArtKind::Logo, PNG).as_deref(), Some("marah_art/logo.png"));
-        assert_eq!(art_path(ArtKind::Screenshot(3), JPG).as_deref(), Some("marah_art/screenshot_3.jpg"));
+        assert_eq!(art_path(ArtKind::Cover, JPG).as_deref(), Some("launcher_art/cover.jpg"));
+        assert_eq!(art_path(ArtKind::Logo, PNG).as_deref(), Some("launcher_art/logo.png"));
+        assert_eq!(art_path(ArtKind::Screenshot(3), JPG).as_deref(), Some("launcher_art/screenshot_3.jpg"));
         assert_eq!(
             art_path(ArtKind::Background, b"RIFF\0\0\0\0WEBPVP8 ").as_deref(),
-            Some("marah_art/background.webp")
+            Some("launcher_art/background.webp")
         );
         assert_eq!(art_path(ArtKind::Cover, b"<html>").as_deref(), None, "a page is no picture");
     }
@@ -319,8 +386,8 @@ mod tests {
     fn a_written_file_reads_back_with_its_art() {
         let dir = tempfile::tempdir().unwrap();
         let art = Art {
-            cover: Some("marah_art/cover.jpg".into()),
-            logo: Some("marah_art/logo.png".into()),
+            cover: Some("launcher_art/cover.jpg".into()),
+            logo: Some("launcher_art/logo.png".into()),
             ..Art::default()
         };
         let source = Source { offer: "release-catalog:switch/1".into(), release: "6223729".into() };
@@ -329,22 +396,22 @@ mod tests {
         write(
             dir.path(),
             &file,
-            &[("marah_art/cover.jpg".into(), JPG.to_vec()), ("marah_art/logo.png".into(), PNG.to_vec())],
+            &[("launcher_art/cover.jpg".into(), JPG.to_vec()), ("launcher_art/logo.png".into(), PNG.to_vec())],
         )
         .unwrap();
 
         assert_eq!(read(dir.path()), Some(file));
-        assert_eq!(std::fs::read(dir.path().join("marah_art/cover.jpg")).unwrap(), JPG);
+        assert_eq!(std::fs::read(dir.path().join("launcher_art/cover.jpg")).unwrap(), JPG);
         let names: Vec<String> =
             std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
-        assert!(names.iter().all(|n| n.starts_with("marah_")), "no temporary file is left: {names:?}");
+        assert!(names.iter().all(|n| n.starts_with("launcher_")), "no temporary file is left: {names:?}");
     }
 
     #[test]
     fn its_metadata_points_into_the_game_s_folder() {
         let art = Art {
-            cover: Some("marah_art/cover.jpg".into()),
-            screenshots: vec!["marah_art/screenshot_1.jpg".into()],
+            cover: Some("launcher_art/cover.jpg".into()),
+            screenshots: vec!["launcher_art/screenshot_1.jpg".into()],
             ..Art::default()
         };
         let file = GameFile::new("Mario Strikers", "Switch", None, &about(), None, art);
@@ -352,8 +419,8 @@ mod tests {
         let meta = file.metadata(&folder());
 
         let at = |path: &str| ImageSource::Folder(HostPath::new("games", 0, RelPath::new(path).unwrap()));
-        assert_eq!(meta.cover, Some(at("SWITCH/Mario Strikers/marah_art/cover.jpg")));
-        assert_eq!(meta.screenshots, [at("SWITCH/Mario Strikers/marah_art/screenshot_1.jpg")]);
+        assert_eq!(meta.cover, Some(at("SWITCH/Mario Strikers/launcher_art/cover.jpg")));
+        assert_eq!(meta.screenshots, [at("SWITCH/Mario Strikers/launcher_art/screenshot_1.jpg")]);
         assert_eq!(meta.background, None);
         assert_eq!(meta.title, "Mario Strikers", "the game's own title, not the store's");
         assert_eq!(meta.publisher, "Nintendo");
@@ -368,9 +435,9 @@ mod tests {
             "title": "A",
             "art": {
                 "cover": "../../etc/passwd.jpg",
-                "background": "marah_art/Back Ground.jpg",
-                "logo": "marah_art/logo.png",
-                "screenshots": ["marah_art/sub/screenshot_1.jpg", "marah_art/screenshot_2.jpg"]
+                "background": "launcher_art/Back Ground.jpg",
+                "logo": "launcher_art/logo.png",
+                "screenshots": ["launcher_art/sub/screenshot_1.jpg", "launcher_art/screenshot_2.jpg"]
             }
         });
         std::fs::write(dir.path().join(FILE), text.to_string()).unwrap();
@@ -379,8 +446,8 @@ mod tests {
 
         assert_eq!(file.art.cover, None, "outside its folder");
         assert_eq!(file.art.background, None, "not snake_case");
-        assert_eq!(file.art.logo.as_deref(), Some("marah_art/logo.png"));
-        assert_eq!(file.art.screenshots, ["marah_art/screenshot_2.jpg"]);
+        assert_eq!(file.art.logo.as_deref(), Some("launcher_art/logo.png"));
+        assert_eq!(file.art.screenshots, ["launcher_art/screenshot_2.jpg"]);
     }
 
     #[test]
@@ -418,7 +485,7 @@ mod tests {
         let parent = tempfile::tempdir().unwrap();
         let dir = parent.path().join("CUSA04118");
         let file = GameFile::new("A", "PS4", None, &about(), None, Art::default());
-        let art = [("marah_art/cover.jpg".to_owned(), JPG.to_vec())];
+        let art = [("launcher_art/cover.jpg".to_owned(), JPG.to_vec())];
         assert!(write(&dir, &file, &art).is_err(), "nothing to write into");
         assert!(!dir.exists(), "the folder stays gone");
     }

@@ -167,7 +167,6 @@ tests/tests/seams/classic_theme/releases.rs
 tests/tests/seams/classic_theme/settings.rs
 tests/tests/seams/compare.rs
 tests/tests/seams/every_theme.rs
-tests/tests/seams/game_files.rs
 tests/tests/seams/kyty.rs
 tests/tests/seams/launcher_update.rs
 tests/tests/seams/lichii.rs
