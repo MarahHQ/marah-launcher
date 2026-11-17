@@ -765,6 +765,33 @@ async fn a_game_copied_into_pc_by_hand_shows_and_plays_as_an_installed_one() {
     assert!(!run.keep_running, "a game Marah Launcher started stops with Marah Launcher");
 }
 
+/// A GOG installer unpacked by hand keeps its `gameinfo` beside its start script, in
+/// `data/noarch/`: its first line names the game.
+#[tokio::test]
+async fn an_unpacked_gog_installer_is_named_by_its_gameinfo() {
+    let p = boot(Platform::Linux).await;
+    p.copy_in(&[
+        ("world-of-goo-1-6-538-87464/data/noarch/start.sh", b"#!/bin/sh\n"),
+        ("world-of-goo-1-6-538-87464/data/noarch/gameinfo", b"World of Goo\n1.6.538\n"),
+    ]);
+    p.test.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
+
+    assert_eq!(p.titles(), [("World of Goo".to_owned(), "PC".to_owned())]);
+}
+
+/// A folder named in a download's way, words joined by dashes and a version at the end, reads
+/// as the game's name.
+#[tokio::test]
+async fn a_dashed_folder_name_loses_its_dashes_and_its_version() {
+    let p = boot(Platform::Linux).await;
+    p.copy_in(&[("world-of-goo-1-6-538-87464/start.sh", b"#!/bin/sh\n"), ("EA-SPORTS-FC-27/start.sh", b"#!/bin/sh\n")]);
+    p.test.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
+
+    let mut titles: Vec<String> = p.titles().into_iter().map(|(title, _)| title).collect();
+    titles.sort();
+    assert_eq!(titles, ["EA SPORTS FC 27", "World Of Goo"], "one number at the end is part of the name");
+}
+
 #[tokio::test]
 async fn a_folder_with_nothing_to_start_or_still_installing_isn_t_a_game() {
     let p = boot(Platform::Linux).await;

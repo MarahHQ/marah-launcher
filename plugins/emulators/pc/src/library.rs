@@ -133,7 +133,13 @@ impl Pc {
         let ranked = probe::rank(&probed);
         let (first, _) = ranked.first()?;
         let script_dir = first.rsplit_once('/').map_or(String::new(), |(dir, _)| format!("{dir}/"));
-        let name = match self.named_in(&game_dir.join(GOG_GAME_INFO).ok()?, 0).await {
+        // GOG's installer puts `gameinfo` in the game's folder; one unpacked by hand keeps it
+        // beside the start script, in `data/noarch/`.
+        let gog = match self.named_in(&game_dir.join(GOG_GAME_INFO).ok()?, 0).await {
+            Some(name) => Some(name),
+            None => self.named_in(&game_dir.join(&format!("{script_dir}{GOG_GAME_INFO}")).ok()?, 0).await,
+        };
+        let name = match gog {
             Some(name) => name,
             None => self
                 .named_in(&game_dir.join(&format!("{script_dir}{WRAPPER_INFO}")).ok()?, WRAPPER_NAME_LINE)
