@@ -422,3 +422,19 @@ fn as_the_whole_screen_settings_is_the_last_icon_in_the_top_bar_and_the_keys_rea
         host.navigate(Key::Escape);
     }
 }
+
+/// As the whole screen, the top bar from its end: the clock, Settings, the machine's icons
+/// (bluetooth, sound, network), then the screen buttons.
+#[test]
+fn as_the_whole_screen_the_top_bar_ends_with_the_clock_settings_then_the_machine() {
+    let system = machine();
+    let mut host = shown(&system, WHOLE_SCREEN);
+    host.platform.set_local_time("9:38 PM");
+    host.on_tick();
+    host.settle();
+    let x = |label: &str| host.first(label).absolute_position().x;
+    let from_the_end = ["clock", "Settings", "status:bluetooth", "status:sound", "status:network", "Themes"];
+    for pair in from_the_end.windows(2) {
+        assert!(x(pair[0]) > x(pair[1]), "{} {} after {} {}", pair[0], x(pair[0]), pair[1], x(pair[1]));
+    }
+}

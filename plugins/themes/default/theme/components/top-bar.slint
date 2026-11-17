@@ -105,7 +105,7 @@ component PillButton inherits Rectangle {
 }
 
 // The top bar: the way back to the systems on the reading side; a running game,
-// the active download, the screen buttons, the clock and Settings, last, on the other.
+// the active download, the screen buttons, Settings and the clock, last, on the other.
 export component TopBar inherits Rectangle {
     // The keys are on the top bar (home only).
     in property <bool> keys;
@@ -250,7 +250,15 @@ export component TopBar inherits Rectangle {
             BluetoothIcon { color: parent.focused ? Look.ink : Tokens.color-text; }
         }
         if Vm.system.battery-shown : BatteryIcon {}
-        // The clock, with the machine's icons.
+        // Settings is always the last icon, after the machine's.
+        RoundButton {
+            icon: "gear";
+            label: "Settings";
+            current: Vm.screen == "settings";
+            focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 4 + Nav.statuses;
+            clicked => { Commands.navigate("settings"); }
+        }
+        // The clock, at the end of the bar.
         if Vm.clock != "" : Text {
             text: Vm.clock;
             font-size: 30 * Look.px;
@@ -260,14 +268,6 @@ export component TopBar inherits Rectangle {
             accessible-role: text;
             accessible-label: "clock";
             accessible-value: self.text;
-        }
-        // Settings is always the last icon, at the end of the bar: after the machine's and the clock.
-        RoundButton {
-            icon: "gear";
-            label: "Settings";
-            current: Vm.screen == "settings";
-            focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 4 + Nav.statuses;
-            clicked => { Commands.navigate("settings"); }
         }
     }
 }
