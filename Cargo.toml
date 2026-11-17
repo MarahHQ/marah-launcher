@@ -31,7 +31,6 @@ publish = false
 # Our code is GPL-3.0-or-later. The PS4 package reader is a port of shadPS4 code, which is
 # GPL-2.0-or-later and so can be part of it; Slint is used under its GPL-3.0 option.
 license = "GPL-3.0-or-later"
-repository = "https://github.com/MarahHQ/marah-launcher"
 
 [workspace.dependencies]
 launcher-api = { path = "crates/api" }

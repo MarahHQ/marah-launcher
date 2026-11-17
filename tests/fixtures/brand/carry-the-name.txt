@@ -12,7 +12,6 @@
 .github/workflows/warm-cache.yml
 .github/workflows/weekly.yml
 CHANGELOG.md  # release-please writes it, with links to the repository
-Cargo.toml
 GLOSSARY.md
 Makefile
 README.md
