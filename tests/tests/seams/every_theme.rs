@@ -73,9 +73,8 @@ fn the_keys_move_through_the_settings_page_and_act_on_a_row_in_every_theme() {
         });
         assert!(asked, "{theme}: Enter on Rescan asks the core to scan");
         host.pump();
-        // One page: R1 twice jumps on to Downloads' first row, where Enter turns "Download only
-        // through a VPN" on.
-        host.navigate(Key::Tab);
+        // One page: R1 jumps on to the next section, Downloads: its first row, where Enter turns
+        // "Download only through a VPN" on.
         host.navigate(Key::Tab);
         host.navigate(Key::Return);
         assert_eq!(host.first("vpn-only").accessible_value().as_deref(), Some("on"), "{theme}: R1 reached Downloads");
@@ -90,6 +89,7 @@ fn the_animations_row_turns_motion_off_and_on_in_every_theme() {
         let mut host = in_theme(theme, two_emulators);
         host.dispatch(Command::Navigate(Route::Settings));
         host.settle();
+        host.settings_tab("Launcher");
         assert_eq!(host.first("animations").accessible_value().as_deref(), Some("on"), "{theme}");
         host.first("animations").invoke_accessible_default_action();
         host.pump();

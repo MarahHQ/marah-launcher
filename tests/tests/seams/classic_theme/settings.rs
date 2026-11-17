@@ -86,12 +86,10 @@ fn the_keys_move_down_the_settings_page_and_change_the_focused_row() {
     assert!(asked, "Enter on Rescan asks the core to scan");
     host.pump();
 
-    // One page: Down from GAMES' last row goes on through UPDATES' two rows into DOWNLOADS:
-    // "Download only through a VPN", then down past the row that says there is no VPN and "Add
-    // a VPN" to "Keep sharing finished downloads". Every section's rows are on the page.
-    for _ in 0..3 {
-        host.navigate(Key::DownArrow);
-    }
+    // One page, in its order: Down from GAMES' last row goes on into DOWNLOADS: "Download only
+    // through a VPN", then down past the row that says there is no VPN and "Add a VPN" to "Keep
+    // sharing finished downloads". Every section's rows are on the page.
+    host.navigate(Key::DownArrow);
     assert_eq!(lit_section(&host), "Downloads", "the rail follows the focus");
     host.navigate(Key::Return);
     assert_eq!(host.first("vpn-only").accessible_value().as_deref(), Some("on"), "Enter turns the VPN switch on");
@@ -101,15 +99,9 @@ fn the_keys_move_down_the_settings_page_and_change_the_focused_row() {
     assert_eq!(host.first("seed-downloads").accessible_value().as_deref(), Some("on"));
     host.navigate(Key::Return);
     assert_eq!(host.first("seed-downloads").accessible_value().as_deref(), Some("off"), "Enter stops sharing");
-    // Down at Downloads' last row goes on past This PC, which has no rows, into BACKUP.
+    // Down at Downloads' last row goes on into LAUNCHER's first row; down to "Interface sounds"
+    // and "Start at login".
     host.navigate(Key::DownArrow);
-    assert_eq!(lit_section(&host), "Backup", "past This PC to Backup's first row");
-
-    // L1 jumps back a section at a time: This PC, Downloads, Updates, Games, then LAUNCHER's
-    // first row; down to "Interface sounds" and "Start at login".
-    for _ in 0..5 {
-        host.navigate(Key::Backtab);
-    }
     assert_eq!(lit_section(&host), "Launcher");
     for _ in 0..3 {
         host.navigate(Key::DownArrow);
@@ -119,6 +111,10 @@ fn the_keys_move_down_the_settings_page_and_change_the_focused_row() {
     assert_eq!(host.first("sounds").accessible_value().as_deref(), Some("off"), "Enter turns the sounds off");
     host.navigate(Key::DownArrow);
     assert_eq!(host.first("start-at-login").accessible_value().as_deref(), Some("off"));
+    // L1 jumps back a section at a time: Downloads, then GAMES, the first.
+    host.navigate(Key::Backtab);
+    host.navigate(Key::Backtab);
+    assert_eq!(lit_section(&host), "Games");
     // L1 from the first section goes round to POWER, the last: "Quit Marah Launcher".
     host.navigate(Key::Backtab);
     assert_eq!(lit_section(&host), "Power");
@@ -517,12 +513,12 @@ fn the_rail_chooses_with_up_and_down_and_this_pc_is_read_and_left_again() {
     let mut host = classic_theme();
     host.dispatch(Command::Navigate(launcher_core::Route::Settings));
     host.settle();
-    host.settings_tab("Launcher");
+    host.settings_tab("Games");
     host.navigate(Key::DownArrow);
-    assert_eq!(lit_section(&host), "Games", "Down chooses the next section");
+    assert_eq!(lit_section(&host), "Downloads", "Down chooses the next section");
     host.navigate(Key::UpArrow);
     host.navigate(Key::UpArrow);
-    assert_eq!(lit_section(&host), "Launcher", "Up stops at the first");
+    assert_eq!(lit_section(&host), "Games", "Up stops at the first");
 
     host.settings_tab("This PC");
     host.navigate(Key::RightArrow);
@@ -541,21 +537,21 @@ fn the_rail_follows_the_page_the_mouse_wheel_scrolls() {
     let mut host = classic_theme();
     host.dispatch(Command::Navigate(launcher_core::Route::Settings));
     host.settle();
-    host.settings_tab("Launcher");
-    assert_eq!(lit_section(&host), "Launcher");
+    host.settings_tab("Games");
+    assert_eq!(lit_section(&host), "Games");
 
     host.wheel("settings-page", 60);
     assert_eq!(lit_section(&host), "Power", "at the end of the page, the last section is lit");
     host.wheel("settings-page", -60);
-    assert_eq!(lit_section(&host), "Launcher", "back at the top, the first section is lit");
+    assert_eq!(lit_section(&host), "Games", "back at the top, the first section is lit");
 
     host.wheel("settings-page", 60);
     host.navigate(Key::DownArrow);
-    assert_eq!(lit_section(&host), "Games", "a key moves on from the focused section, not the one in view");
+    assert_eq!(lit_section(&host), "Downloads", "a key moves on from the focused section, not the one in view");
 
     host.wheel("settings-page", 60);
-    host.click("settings-tab:Games");
-    assert_eq!(lit_section(&host), "Games", "a click on the focused section lights it again");
+    host.click("settings-tab:Downloads");
+    assert_eq!(lit_section(&host), "Downloads", "a click on the focused section lights it again");
 }
 
 /// A held Up stops at a section's first row: the rail is one more press away.
@@ -565,20 +561,26 @@ fn a_held_up_stops_at_the_first_row() {
     let mut host = classic_theme();
     host.dispatch(Command::Navigate(launcher_core::Route::Settings));
     host.settle();
-    host.settings_tab("Launcher");
+    // GAMES is the page's first section: into its first row, then Down into DOWNLOADS.
+    host.settings_tab("Games");
     host.navigate(Key::RightArrow);
     host.navigate(Key::DownArrow);
+    assert_eq!(lit_section(&host), "Downloads");
     let held: slint::SharedString = Key::UpArrow.into();
     for _ in 0..3 {
         host.instance().window().dispatch_event(slint::platform::WindowEvent::KeyPressRepeated { text: held.clone() });
     }
     host.instance().window().dispatch_event(slint::platform::WindowEvent::KeyReleased { text: held });
     host.pump();
-    // Still on Full screen, the first row: Enter turns it off.
-    let before = host.core().view().settings.fullscreen;
-    host.navigate(Key::Return);
-    assert_ne!(host.core().view().settings.fullscreen, before, "Enter acted on the first row");
-    assert_eq!(lit_section(&host), "Launcher");
+    // Still on Rescan game folders, the page's first row: Enter asks for a scan.
+    let text: slint::SharedString = Key::Return.into();
+    host.instance().window().dispatch_event(slint::platform::WindowEvent::KeyPressed { text });
+    let asked =
+        host.requests.borrow().iter().any(|r| {
+            matches!(r, launcher_ui_host::UiRequest::Core(Command::Library(launcher_core::LibraryCmd::Refresh)))
+        });
+    assert!(asked, "Enter acted on the first row");
+    assert_eq!(lit_section(&host), "Games");
 }
 
 /// From right to left the rows are on the rail's left: Left goes in.

@@ -355,10 +355,10 @@ fn l1_and_r1_go_round_every_tab_of_settings() {
     }
     assert_eq!(
         back,
-        ["Launcher", "Power", "Backup", "This PC", "Downloads", "Updates", "Games", "Launcher"],
+        ["Games", "Power", "This PC", "Backup", "Updates", "Launcher", "Downloads", "Games"],
         "L1 reaches every tab and wraps"
     );
     assert_eq!(host.core().view().screen, launcher_ui_api::ScreenId::Settings, "and stays in Settings");
     host.pad(PadButton::RightShoulder);
-    assert_eq!(lit_settings_tab(&host), "Games", "and R1 goes forward");
+    assert_eq!(lit_settings_tab(&host), "Downloads", "and R1 goes forward");
 }
