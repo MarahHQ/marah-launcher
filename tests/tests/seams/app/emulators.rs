@@ -262,3 +262,34 @@ async fn an_update_at_the_start_waits_until_the_emulator_s_game_closes() {
     }
     panic!("the update didn't run after the game closed");
 }
+
+/// Home lists the systems by name, after All games; the Emulators sheet lists the emulators by
+/// name, then the services by name, whatever order the plugins loaded in.
+#[tokio::test]
+async fn systems_and_emulators_are_listed_by_name_and_services_last() {
+    let t = FakeHost::new()
+        .plugin(launcher_testkit::FakeStore::new("store-z").build())
+        .plugin(launcher_testkit::FakeCatalog::new("emu-z").named("Zeta").system("PS5").playable().games([]).build())
+        .plugin(launcher_testkit::FakeCatalog::new("emu-m").named("Mid").games([]).build())
+        .plugin(launcher_testkit::FakeStore::new("store-a").build())
+        .plugin(launcher_testkit::FakeCatalog::new("emu-a").named("Alpha").system("PS4").playable().games([]).build())
+        .boot_core()
+        .await;
+    t.core.dispatch(Command::Navigate(Route::Emulators)).await.unwrap();
+    let view = t.core.view();
+    let systems: Vec<&str> = view.emulators.emulators.iter().map(|e| e.system_name.as_str()).collect();
+    assert_eq!(systems, ["PlayStation 4", "PlayStation 5"], "Home's systems by name");
+    let rows: Vec<(&str, &str)> =
+        view.emulators.emulator_plugins.iter().map(|p| (p.kind.as_str(), p.id.as_str())).collect();
+    assert_eq!(
+        rows,
+        [
+            ("emulator", "emu-a"),
+            ("emulator", "emu-m"),
+            ("emulator", "emu-z"),
+            ("service", "store-a"),
+            ("service", "store-z")
+        ],
+        "the emulators by name, then the services by name"
+    );
+}

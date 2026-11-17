@@ -47,14 +47,16 @@ fn cover_follows(host: &mut Composed) {
     host.settle();
 }
 
-/// Down the list until the system named `name` has the focus. The list follows the core's
-/// order of the emulators.
+/// Down the list, then up, until the system named `name` has the focus. The list follows the
+/// core's order of the systems.
 fn focus_on(host: &mut Composed, name: &str) {
-    for _ in 0..host.count("systems-tile") {
-        if host.focused("systems-tile") == [name] {
-            return;
+    for key in [Key::DownArrow, Key::UpArrow] {
+        for _ in 0..host.count("systems-tile") {
+            if host.focused("systems-tile") == [name] {
+                return;
+            }
+            host.navigate(key);
         }
-        host.navigate(Key::DownArrow);
     }
     assert_eq!(host.focused("systems-tile"), [name]);
 }
