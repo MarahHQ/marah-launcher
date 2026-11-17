@@ -362,8 +362,8 @@ path with `~` for your home folder. **Rescan game folders** looks for games agai
 
 | Setting | What it does |
 | --- | --- |
-| Update automatically | Checks for emulator updates a minute after the start, then every few hours. An update waits until you close your game. |
-| Install emulators automatically | A minute after the start, each emulator you turned on that has no build gets its newest build. It skips an emulator that uses your own build. On by default. A first start downloads a few hundred MB. Turn it off to install each emulator on its first play. |
+| Update automatically | Checks for emulator updates right after the start, then every few hours. An update waits until you close your game. |
+| Install emulators automatically | Right after the start, each emulator you turned on that has no build gets its newest build. It skips an emulator that uses your own build. On by default. A first start downloads a few hundred MB. Turn it off to install each emulator on its first play. |
 | Marah Launcher updates | Checks for a new Marah Launcher. Then **Download** (or **Update**), then **Restart** to start the new version. |
 
 On Marah OS, Marah Launcher comes with the system's update.

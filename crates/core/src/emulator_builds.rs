@@ -21,7 +21,8 @@ use crate::{CoreError, CoreResult};
 /// How often the core looks for emulator updates by itself, and how long after start it
 /// looks first.
 pub const UPDATE_CHECK_EVERY: std::time::Duration = std::time::Duration::from_secs(6 * 3600);
-const FIRST_UPDATE_CHECK: std::time::Duration = std::time::Duration::from_secs(60);
+/// The first round waits this long after the start: the plugins and the library load first.
+const FIRST_UPDATE_CHECK: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// An install in progress, saved under `app.installs.<plugin>` so a crash resumes it.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -176,7 +177,7 @@ pub(crate) async fn resume_installs(core: &Core) {
     }
 }
 
-/// Runs [`Command::CheckUpdates`] every few hours while the app runs. The first round, a minute
+/// Runs [`Command::CheckUpdates`] every few hours while the app runs. The first round, right
 /// after the start, is [`start_pass`].
 pub(crate) fn schedule_update_checks(core: &Core) {
     let weak = Arc::downgrade(&core.inner);
@@ -198,7 +199,7 @@ pub(crate) fn schedule_update_checks(core: &Core) {
     });
 }
 
-/// The first round, a minute after the start: it reads each emulator's builds once, installs
+/// The first round, right after the start: it reads each emulator's builds once, installs
 /// the missing ones, then the updates. Only this round installs, so a build the player removes
 /// stays removed until the next start.
 async fn start_pass(core: &Core) {
