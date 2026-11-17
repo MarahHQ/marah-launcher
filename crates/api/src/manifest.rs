@@ -118,6 +118,9 @@ pub enum Capability {
     Releases,
     /// Names what of the plugin's data a backup holds. See [`crate::Backup`].
     Backup,
+    /// Work the plugin does on its own at the start, which the boot screen waits for. See
+    /// [`crate::StartupWork`].
+    Startup,
     /// A theme manifest declares only this. The theme's files come from [`crate::ThemePlugin`],
     /// not from `init`, so no emulator can provide it.
     Theme,

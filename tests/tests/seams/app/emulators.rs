@@ -7,6 +7,7 @@ async fn playing_a_game_whose_emulator_isn_t_installed_asks_first_then_installs_
     let mut emu = FakeEmulator::new(vec!["A"]);
     emu.build_size = Some(20_000);
     let (t, _) = core_with(emu).await;
+    no_auto_install(&t).await;
     t.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
 
     t.core.dispatch(Command::Session(SessionCmd::Launch(key("emu-a:G0")))).await.unwrap();
@@ -28,6 +29,7 @@ async fn a_plugin_named_by_its_console_names_its_program_where_a_sentence_means_
     emu.build_sha = host.http().serve(&emu.build_url, vec![7u8; 20_000]);
     let names = "name = \"PS5\"\nemulator = \"KytyPS5\"";
     let t = host.plugin(emu.plugin_named("emu-a", names, FAKE_EMULATOR_PERMISSIONS)).boot_core().await;
+    no_auto_install(&t).await;
     t.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
     let steps: Vec<String> = t.core.view().boot.steps.into_iter().map(|s| s.label).collect();
     assert!(steps.contains(&"KytyPS5 emulator".to_owned()), "the first start's step: {steps:?}");
@@ -172,70 +174,75 @@ async fn an_emulator_s_row_shows_its_installed_build_not_the_plugin_s_version() 
 }
 
 #[tokio::test]
-async fn emulator_updates_are_looked_for_right_after_the_start_on_the_clock() {
+async fn emulator_updates_install_at_the_boot_then_every_6_hours() {
     let (t, emu) = core_with(FakeEmulator::new(vec!["A"])).await;
-    let started = t.clock.now();
     install(&t.core).await;
     emu.release("2.0");
+    t.clock.advance(Duration::from_secs(60)).await;
+    assert_eq!(installed(&t.core).await, ["1.0"], "not before the boot");
 
-    t.clock.advance(Duration::from_secs(4).saturating_sub(t.clock.now() - started)).await;
-    assert_eq!(installed(&t.core).await, ["1.0"], "not before the first round");
-    t.clock.advance(Duration::from_secs(2)).await;
-    assert!(installed(&t.core).await.contains(&"2.0".to_owned()), "the check found and installed 2.0");
-}
+    boot(&t).await;
+    assert!(installed(&t.core).await.contains(&"2.0".to_owned()), "the boot found and installed 2.0");
 
-/// Moves the clock past the first look for updates, right after the start: the start's pass
-/// over the emulators' builds runs then.
-async fn past_the_start_pass(t: &TestCore, started: std::time::Instant) {
-    t.clock.advance(Duration::from_secs(6).saturating_sub(t.clock.now() - started)).await;
+    emu.release("3.0");
+    t.clock.advance(Duration::from_secs(5 * 3600)).await;
+    assert!(!installed(&t.core).await.contains(&"3.0".to_owned()), "not before 6 hours");
+    t.clock.advance(Duration::from_secs(3600)).await;
+    let mut found = false;
+    for _ in 0..50 {
+        found = installed(&t.core).await.contains(&"3.0".to_owned());
+        if found {
+            break;
+        }
+        t.clock.advance(Duration::from_millis(100)).await;
+    }
+    assert!(found, "the check 6 hours later installed 3.0");
 }
 
 #[tokio::test]
-async fn an_emulator_with_no_build_gets_its_newest_build_at_the_start() {
+async fn an_emulator_with_no_build_gets_its_newest_build_at_the_boot() {
     let (t, _emu) = core_with(FakeEmulator::new(vec!["A"])).await;
-    let started = t.clock.now();
     assert!(t.core.view().settings.auto_install, "on by default");
-    assert!(installed(&t.core).await.is_empty(), "nothing before the pass");
+    assert!(installed(&t.core).await.is_empty(), "nothing before the boot");
 
-    past_the_start_pass(&t, started).await;
+    boot(&t).await;
     assert_eq!(installed(&t.core).await, ["1.0"]);
 }
 
 #[tokio::test]
-async fn with_install_automatically_off_nothing_installs_at_the_start() {
+async fn with_install_automatically_off_nothing_installs_at_the_boot() {
     let (t, _emu) = core_with(FakeEmulator::new(vec!["A"])).await;
-    let started = t.clock.now();
-    t.core.dispatch(Command::Pref(Pref::AutoInstall, false.into())).await.unwrap();
+    no_auto_install(&t).await;
     assert!(!t.core.view().settings.auto_install);
 
-    past_the_start_pass(&t, started).await;
+    boot(&t).await;
     assert!(installed(&t.core).await.is_empty());
     assert!(t.http.requests().is_empty(), "nothing downloads");
 }
 
 #[tokio::test]
-async fn an_emulator_that_uses_your_own_build_gets_no_build_at_the_start() {
+async fn an_emulator_that_uses_your_own_build_gets_no_build_at_the_boot() {
     let (t, _emu) = core_with(FakeEmulator::new(vec!["A"])).await;
-    let started = t.clock.now();
     // "Use your own build" is on, but no program is picked yet: the plugin lists no build.
     t.core.kernel().config().set(&["plugins", "emu-a", "emulator", "own_build"], true.into()).unwrap();
 
-    past_the_start_pass(&t, started).await;
+    boot(&t).await;
     assert!(installed(&t.core).await.is_empty());
     assert!(t.http.requests().is_empty(), "nothing downloads");
 }
 
 #[tokio::test]
-async fn a_failed_install_at_the_start_is_a_notice_and_doesn_t_run_again() {
+async fn a_failed_install_at_the_boot_is_a_notice_and_doesn_t_run_again() {
     // The build isn't served: its download fails.
     let t = FakeHost::new().plugin(FakeEmulator::new(vec!["A"]).plugin("emu-a")).boot_core().await;
-    let started = t.clock.now();
 
-    past_the_start_pass(&t, started).await;
+    boot(&t).await;
     let tries = t.http.requests().len();
-    assert!(tries > 0, "the pass tried the download");
+    assert!(tries > 0, "the boot tried the download");
     let notices = t.core.view().notices;
     assert_eq!(notices.iter().filter(|n| n.contains("Could not install emu-a")).count(), 1, "{notices:?}");
+    let step = t.core.view().boot.steps.into_iter().find(|s| s.label == "emu-a emulator").unwrap();
+    assert_eq!((step.detail.as_str(), step.state.as_str()), ("Not installed", "failed"));
 
     // Two looks for updates later, six hours apart.
     t.clock.advance(Duration::from_secs(13 * 3600)).await;
@@ -244,14 +251,13 @@ async fn a_failed_install_at_the_start_is_a_notice_and_doesn_t_run_again() {
 }
 
 #[tokio::test]
-async fn an_update_at_the_start_waits_until_the_emulator_s_game_closes() {
+async fn an_update_at_the_boot_waits_until_the_emulator_s_game_closes() {
     let (t, emu) = core_with(FakeEmulator::new(vec!["A"])).await;
-    let started = t.clock.now();
     let (_, process) = play(&t).await;
     emu.release("2.0");
 
-    past_the_start_pass(&t, started).await;
-    assert_eq!(installed(&t.core).await, ["1.0"], "not while the game runs");
+    boot(&t).await;
+    assert_eq!(installed(&t.core).await, ["1.0"], "not while the game runs, and the boot doesn't wait for it");
 
     process.exit(0);
     for _ in 0..100 {
@@ -261,6 +267,69 @@ async fn an_update_at_the_start_waits_until_the_emulator_s_game_closes() {
         t.clock.advance(WATCH_EVERY).await;
     }
     panic!("the update didn't run after the game closed");
+}
+
+/// The boot screen stays while the start's install downloads, with the download's progress in
+/// its checklist on any run, and goes once the build is in.
+#[tokio::test]
+async fn the_boot_screen_shows_the_start_s_install_and_waits_for_it() {
+    let host = FakeHost::new();
+    let mut emu = FakeEmulator::new(vec!["A"]);
+    emu.build_sha = host.http().serve(&emu.build_url, vec![7u8; 20_480]);
+    emu.build_size = Some(20_480);
+    let gate = host.http().hold_after(&emu.build_url, 8_192);
+    let t = host.plugin(emu.plugin("emu-a")).boot_core().await;
+    t.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
+    let shown = t
+        .until_clock(Duration::from_millis(100), 50, || {
+            t.core.view().boot.steps.iter().any(|s| s.label == "emu-a emulator" && s.detail == "Downloading · 40%")
+        })
+        .await;
+    assert!(shown, "{:?}", t.core.view().boot.steps);
+    let boot = t.core.view().boot;
+    assert!(!boot.ready, "it waits for the install");
+    assert!(boot.installing, "the checklist shows on a run that isn't the first");
+    assert!(!boot.welcome);
+    let step = boot.steps.iter().find(|s| s.label == "emu-a emulator").unwrap();
+    assert_eq!((step.detail.as_str(), step.state.as_str()), ("Downloading · 40%", "working"));
+    assert!(boot.progress > 0.6 && boot.progress < 1.0, "past the library, not done: {}", boot.progress);
+
+    gate.release();
+    t.until(Area::Library, |core| core.view().boot.ready).await;
+    let boot = t.core.view().boot;
+    assert!(!boot.installing);
+    let step = boot.steps.iter().find(|s| s.label == "emu-a emulator").unwrap();
+    assert_eq!((step.detail.as_str(), step.state.as_str()), ("Latest build", "done"));
+}
+
+/// A download that stops moving doesn't keep the player out: the boot screen goes after two
+/// minutes without progress, and the install goes on behind Home.
+#[tokio::test]
+async fn a_start_install_that_hangs_lets_home_open_after_two_minutes() {
+    let host = FakeHost::new();
+    let mut emu = FakeEmulator::new(vec!["A"]);
+    emu.build_sha = host.http().serve(&emu.build_url, vec![7u8; 20_000]);
+    let _gate = host.http().hold_after(&emu.build_url, 5_000);
+    let t = host.plugin(emu.plugin("emu-a")).boot_core().await;
+    let started = t.clock.now();
+
+    t.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
+    let ready = t.until_clock(Duration::from_secs(1), 200, || t.core.view().boot.ready).await;
+    assert!(ready, "the boot screen went");
+    let waited = t.clock.now() - started;
+    assert!(waited >= Duration::from_secs(120) && waited < Duration::from_secs(130), "{waited:?}");
+    let step = t.core.view().boot.steps.into_iter().find(|s| s.label == "emu-a emulator").unwrap();
+    assert_eq!(step.state, "working", "still downloading behind Home");
+}
+
+/// With nothing to install, the boot doesn't wait: the boot screen goes with the library.
+#[tokio::test]
+async fn with_nothing_to_install_the_boot_screen_goes_with_the_library() {
+    let (t, _emu) = core_with(FakeEmulator::new(vec!["A"])).await;
+    install(&t.core).await;
+    t.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
+    let boot = t.core.view().boot;
+    assert!(boot.ready && !boot.installing);
 }
 
 /// Home lists the systems by name, after All games; the Emulators sheet lists the emulators by

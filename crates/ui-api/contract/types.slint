@@ -122,7 +122,7 @@ export struct BootStep { label: string, detail: string, state: string }
 
 // The start of a run: `ready` once the library is in; `welcome` on the first run, until the
 // player presses Start (the command Pref ["welcomed", true]).
-export struct Boot { ready: bool, welcome: bool, progress: float, status: string, steps: [BootStep], covers: [image] }
+export struct Boot { ready: bool, installing: bool, welcome: bool, progress: float, status: string, steps: [BootStep], covers: [image] }
 
 // kind: toggle | number | text | choice
 // labels: what to call each of `choices`, "" where the plugin names none.

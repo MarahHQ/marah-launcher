@@ -1406,6 +1406,9 @@ fn library(home: &Path) -> Composed {
         value: serde_json::json!({ "catalog_url": "https://xyz.dev/catalog", "hide_without_images": false }),
     });
     host.catalogs_fetched();
+    // Install emulators automatically off: Emu's first play asks first, and nothing downloads
+    // behind the screens.
+    host.dispatch(Command::Pref(launcher_core::Pref::AutoInstall, false.into()));
     host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
     host.dispatch(Command::Select("emu-a:G1".parse().unwrap()));
     host.dispatch(Command::Navigate(Route::Catalog));
@@ -1641,4 +1644,33 @@ fn the_default_theme_renders_its_library() {
             "default-library-rtl",
         ],
     );
+}
+
+/// The boot screen on a run that isn't the first, while the start's install downloads: its
+/// checklist with the download's percent, as `{classic,default}-boot-installing.png`.
+#[test]
+fn the_boot_screen_renders_the_start_s_installs() {
+    let (window, out) = offscreen();
+    for theme in ["classic", "default"] {
+        let gate = std::cell::RefCell::new(None);
+        let mut host = composed_on_current_platform(|h| {
+            let mut emu = launcher_testkit::FakeEmulator::new(vec!["Astro Drift"]);
+            emu.build_sha = h.http().serve(&emu.build_url, vec![7u8; 20_480]);
+            emu.build_size = Some(20_480);
+            *gate.borrow_mut() = Some(h.http().hold_after(&emu.build_url, 8_192));
+            h.plugin(emu.plugin("emu-a"))
+        });
+        if theme == "default" {
+            host.ui.start_with(Some(id(theme_default::ID))).unwrap();
+        } else {
+            host.ui.start().unwrap();
+        }
+        host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
+        run_until(&host, 2000, |core| core.view().boot.steps.iter().any(|s| s.detail == "Downloading · 40%"));
+        host.load_images();
+        assert_eq!(host.values("boot"), ["Installing emulators and updates…"]);
+        shoot(&window, &out.join(format!("{theme}-boot-installing.png")));
+        drop(host);
+        drop(gate);
+    }
 }

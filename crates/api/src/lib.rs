@@ -34,6 +34,7 @@ mod plans;
 mod plugin;
 mod releases;
 mod slots;
+mod startup;
 mod system;
 mod theme;
 
@@ -63,6 +64,7 @@ pub use plans::*;
 pub use plugin::*;
 pub use releases::*;
 pub use slots::*;
+pub use startup::*;
 pub use system::*;
 pub use theme::*;
 

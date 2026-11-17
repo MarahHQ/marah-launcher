@@ -103,10 +103,12 @@ pub(crate) async fn refresh_library(core: &Core) -> CoreResult<()> {
         });
         return Ok(());
     }
-    // The first load of a run is the boot: the emulators' builds for the Welcome
+    // The first load of a run is the boot: the emulators' builds for the boot
     // checklist, and the store's art and details, so Home opens whole. A slow network
     // doesn't hold it for more than BOOT_DESCRIBE_LIMIT.
     crate::emulator_builds::refresh_emulators(core).await;
+    // The emulators' installs and the plugins' work at the start, which the boot screen shows.
+    crate::startup::start(core).await;
     if core.ports().clock.timeout(BOOT_DESCRIBE_LIMIT, describe_library(core)).await.is_none() {
         tracing::info!("the store's descriptions are slow: Home opens without the rest");
         let core = core.clone();

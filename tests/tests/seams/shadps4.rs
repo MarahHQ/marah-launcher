@@ -559,16 +559,17 @@ async fn packages_the_host_unpacked_from_archives_install_together() {
     assert_eq!(std::fs::read(games.path().join("PS4/CUSA12345-patch/eboot.bin")).unwrap(), b"v2");
 }
 
-/// Moves the clock past the first look for updates, right after the start: the start's pass
-/// over the builds runs then.
+/// Reads the library at the start, as the app does, and waits until the boot screen can go:
+/// the start's pass over the builds runs then.
 async fn past_the_start_pass(test: &TestCore) {
-    test.clock.advance(std::time::Duration::from_secs(6)).await;
+    test.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
+    test.until(launcher_core::Area::Library, |core| core.view().boot.ready).await;
 }
 
 #[tokio::test]
-async fn the_newest_build_installs_a_minute_after_the_start() {
+async fn the_newest_build_installs_at_the_boot() {
     let (test, _games) = boot().await;
-    assert!(!app_run(&test, TAG).is_file(), "nothing before the pass");
+    assert!(!app_run(&test, TAG).is_file(), "nothing before the boot");
 
     past_the_start_pass(&test).await;
     assert!(app_run(&test, TAG).is_file(), "the official build is in place");

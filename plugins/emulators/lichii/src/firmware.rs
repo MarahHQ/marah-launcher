@@ -5,12 +5,14 @@
 //!   and the keys are of the same version. Firmware newer than its keys can't be read: Lichii
 //!   loops on "keys for gen … required".
 //!
-//! - The player turns on Automatic updates, or presses Update now, in the Firmware block on
-//!   Lichii's panel. The block is the only place that shows or sets the firmware settings: the
-//!   release and Automatic updates, in the plugin's storage ([`SETTINGS`]). With Automatic
-//!   updates on, a check starts when the core reads the panel (at the start and at each update
-//!   check), at most once every [`RELEASE_TTL`]. A failed update isn't tried again on
-//!   its own until Marah Launcher starts again.
+//! - Automatic updates are on until the player turns them off in the Firmware block on Lichii's
+//!   panel; Update now runs one at any time. The block is the only place that shows or sets the
+//!   firmware settings: the release and Automatic updates, in the plugin's storage
+//!   ([`SETTINGS`]). With Automatic updates on, a check starts when the core reads the panel
+//!   (at the start and at each update check), at most once every [`RELEASE_TTL`]. The boot
+//!   screen shows the update that starts with Marah Launcher, and waits for it
+//!   ([`StartupWork`]). A failed update isn't tried again on its own until Marah Launcher starts
+//!   again.
 //! - A release is one zip of `.nca` files, stored without compression. The plugin downloads it
 //!   in pieces into Lichii's data folder, checks its SHA-256 against GitHub's, and unpacks the files
 //!   into a folder beside the firmware. Two renames put it in place of the old firmware:
@@ -46,6 +48,23 @@ pub const SETTINGS: &str = "firmware-settings.json";
 /// The release installed until the player types another.
 const DEFAULT_RELEASE: &str = "22.5.0";
 
+/// The update that runs, as the boot screen shows it: from the start of a check to its end.
+/// Nothing before the first check of the run.
+#[async_trait]
+impl StartupWork for Firmware {
+    async fn status(&self) -> Option<StartupStep> {
+        let (detail, progress, state) = match self.phase() {
+            Phase::Idle => return None,
+            // The download's megabytes say more than its name; the boot screen adds the percent.
+            Phase::Updating(step) if step.detail.is_empty() => (step.what, step.progress, StartupState::Working),
+            Phase::Updating(step) => (step.detail, step.progress, StartupState::Working),
+            Phase::Complete(message) => (message, Some(1.0), StartupState::Done),
+            Phase::Failed(error) => (error, None, StartupState::Failed),
+        };
+        Some(StartupStep { label: "Switch firmware".into(), detail, progress, state })
+    }
+}
+
 /// What the player set in the Firmware block.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(crate = "launcher_api::serde")]
@@ -59,7 +78,7 @@ struct FirmwareSettings {
 
 impl Default for FirmwareSettings {
     fn default() -> Self {
-        Self { automatic: false, release: DEFAULT_RELEASE.into() }
+        Self { automatic: true, release: DEFAULT_RELEASE.into() }
     }
 }
 

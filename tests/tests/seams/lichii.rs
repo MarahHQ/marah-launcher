@@ -750,18 +750,49 @@ async fn a_download_that_doesn_t_match_github_s_sha_256_leaves_the_old_firmware(
 }
 
 #[tokio::test]
-async fn marah_checks_for_firmware_on_its_own_only_once_the_player_turns_it_on() {
+async fn marah_checks_for_firmware_on_its_own_by_default() {
     let (test, _games, eden) = with_eden(&[]).await;
     serve_firmware(&test.http, FIRMWARE, stored_zip(&[("1b.nca", b"nca")]), None);
-    test.core.dispatch(Command::Navigate(launcher_core::Route::Emulators)).await.unwrap();
-    assert!(!test.http.sent().iter().any(|u| u.contains("NX_Firmware/releases/tags")), "off by default");
-    assert_eq!(firmware_badge(&test).as_deref(), Some("No firmware"));
-
-    turn_on_firmware_updates(&test).await;
-    test.core.dispatch(Command::Navigate(launcher_core::Route::Emulators)).await.unwrap();
+    firmware_updates_are_on(&test).await;
 
     assert_eq!(firmware_settles(&test).await, "Firmware 22.5.0");
     assert_eq!(files_in(&eden.path().join("nand/system/Contents/registered")), ["1b.nca"]);
+}
+
+#[tokio::test]
+async fn with_automatic_updates_turned_off_marah_doesn_t_check_on_its_own() {
+    let (test, _games, _eden) = with_eden_saved(&[], None, Some(automatic_off())).await;
+    serve_firmware(&test.http, FIRMWARE, stored_zip(&[("1b.nca", b"nca")]), None);
+    test.core.dispatch(Command::Navigate(launcher_core::Route::Emulators)).await.unwrap();
+    assert!(!test.http.sent().iter().any(|u| u.contains("NX_Firmware/releases/tags")), "no check");
+    assert_eq!(firmware_badge(&test).as_deref(), Some("No firmware"));
+}
+
+/// The boot screen shows the firmware update that starts with the launcher, and waits for it.
+#[tokio::test]
+async fn the_boot_screen_shows_the_firmware_update_and_waits_for_it() {
+    let (test, _games, eden) = with_eden(&[]).await;
+    serve_firmware(&test.http, FIRMWARE, stored_zip(&[("1b.nca", b"nca")]), None);
+    let cdn = format!("https://release-assets.githubusercontent.com/nx/{FIRMWARE}/Firmware.{FIRMWARE}.zip");
+    let gate = test.http.hold_next(&cdn);
+    // Only the firmware: Lichii's own build doesn't install at this boot.
+    test.core.dispatch(Command::Pref(launcher_core::Pref::AutoInstall, false.into())).await.unwrap();
+
+    test.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
+    let boot = test.core.view().boot;
+    assert!(!boot.ready && boot.installing, "it waits for the firmware");
+    let step = |boot: &launcher_ui_api::BootVm| boot.steps.iter().find(|s| s.label == "Switch firmware").cloned();
+    assert_eq!(step(&boot).expect("a firmware step").state, "working");
+
+    gate.release();
+    test.until(launcher_core::Area::Library, |core| core.view().boot.ready).await;
+    assert_eq!(step(&test.core.view().boot).expect("a firmware step").state, "done");
+    assert_eq!(files_in(&eden.path().join("nand/system/Contents/registered")), ["1b.nca"]);
+}
+
+/// Firmware settings with Automatic updates turned off, as the player can leave them.
+fn automatic_off() -> serde_json::Value {
+    serde_json::json!({ "automatic": false, "release": FIRMWARE })
 }
 
 #[tokio::test]
@@ -841,16 +872,12 @@ async fn unavailable_matching_keys_name_the_version_and_preserve_existing_files(
     assert!(!test.http.sent().iter().any(|u| u.contains("/nx/")), "no firmware download without matching keys");
 }
 
-/// Turns on automatic firmware updates with the Firmware block's switch, the one place that
-/// shows the setting.
-async fn turn_on_firmware_updates(test: &TestCore) {
+/// Reads the Firmware block, whose Automatic updates are on by default: the read starts a
+/// check.
+async fn firmware_updates_are_on(test: &TestCore) {
     test.core.dispatch(Command::Navigate(launcher_core::Route::Emulators)).await.unwrap();
     let rows = firmware_rows(&test.core).unwrap();
-    let switch = row(&rows, "Automatic updates").unwrap();
-    assert_eq!(switch.switch, "off");
-    let flip =
-        Command::RunAction { plugin: lichii(), action: switch.action.clone(), game: None, args: switch.args.clone() };
-    test.core.dispatch(flip).await.unwrap();
+    assert_eq!(row(&rows, "Automatic updates").unwrap().switch, "on", "on by default");
 }
 
 /// Types `version` into the Firmware block's Firmware release row, the one place that sets it.
@@ -875,8 +902,7 @@ async fn set_firmware_release(test: &TestCore, version: &str) {
 async fn automatic_updates_check_again_after_6_hours_and_not_before() {
     let (test, _games, _eden) = with_eden(&[]).await;
     serve_firmware(&test.http, FIRMWARE, stored_zip(&[("1b.nca", b"nca")]), None);
-    turn_on_firmware_updates(&test).await;
-    test.core.dispatch(Command::Navigate(launcher_core::Route::Emulators)).await.unwrap();
+    firmware_updates_are_on(&test).await;
     firmware_settles(&test).await;
     // The first check installs the firmware; a later one finds it up to date.
     assert!(firmware_status(&test).starts_with("Updated firmware"), "{}", firmware_status(&test));
@@ -1098,8 +1124,7 @@ async fn deleted_firmware_is_restored_by_a_manual_update_despite_the_saved_versi
 async fn deleted_or_empty_firmware_bypasses_the_automatic_check_interval() {
     let (test, _games, eden) = with_eden(&[]).await;
     serve_firmware(&test.http, FIRMWARE, stored_zip(&[("1b.nca", b"nca")]), None);
-    turn_on_firmware_updates(&test).await;
-    test.core.dispatch(Command::Navigate(launcher_core::Route::Emulators)).await.unwrap();
+    firmware_updates_are_on(&test).await;
     firmware_settles(&test).await;
     let folder = eden.path().join("nand/system/Contents/registered");
     for empty in [false, true] {
@@ -1115,12 +1140,12 @@ async fn deleted_or_empty_firmware_bypasses_the_automatic_check_interval() {
 
 #[tokio::test]
 async fn the_firmware_block_s_switch_turns_automatic_updates_on_and_a_check_runs() {
-    let (test, _games, eden) = with_eden(&[]).await;
+    let (test, _games, eden) = with_eden_saved(&[], None, Some(automatic_off())).await;
     serve_firmware(&test.http, FIRMWARE, stored_zip(&[("1b.nca", b"nca")]), None);
     test.core.dispatch(Command::Navigate(launcher_core::Route::Emulators)).await.unwrap();
     let rows = firmware_rows(&test.core).unwrap();
     let switch = row(&rows, "Automatic updates").unwrap();
-    assert_eq!(switch.switch, "off", "off by default");
+    assert_eq!(switch.switch, "off", "as the player left it");
 
     let flip =
         Command::RunAction { plugin: lichii(), action: switch.action.clone(), game: None, args: switch.args.clone() };

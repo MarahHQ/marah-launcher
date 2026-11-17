@@ -237,6 +237,7 @@ impl CodePlugin for LichiiPlugin {
             game_installer: Some(lichii.clone()),
             slots: Some(emu.clone()),
             backup: Some(backup_items()),
+            startup: Some(firmware),
             assets: Some(launcher_api::system_art!()),
             ..Provided::default()
         })
