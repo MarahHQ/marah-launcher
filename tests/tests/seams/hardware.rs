@@ -128,7 +128,7 @@ async fn astro_offer(build: impl FnOnce(FakeHost) -> FakeHost) -> (TestCore, tem
         .dispatch(Command::SetConfig {
             plugin: launcher_api::PluginId::new("release-catalog").unwrap(),
             scope: launcher_api::ConfigScope::Emulator,
-            value: serde_json::json!({ "catalog_url": "https://xyz.dev/c" }),
+            value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
         })
         .await
         .unwrap();
@@ -208,7 +208,7 @@ async fn pc_offer_on_a_mac(topics: serde_json::Value) -> (TestCore, tempfile::Te
         .dispatch(Command::SetConfig {
             plugin: launcher_api::PluginId::new("release-catalog").unwrap(),
             scope: launcher_api::ConfigScope::Emulator,
-            value: serde_json::json!({ "catalog_url": "https://xyz.dev/c" }),
+            value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
         })
         .await
         .unwrap();
@@ -302,7 +302,7 @@ async fn an_offer_says_not_enough_space_from_its_best_release_not_its_newest_upl
         .dispatch(Command::SetConfig {
             plugin: launcher_api::PluginId::new("release-catalog").unwrap(),
             scope: launcher_api::ConfigScope::Emulator,
-            value: serde_json::json!({ "catalog_url": "https://xyz.dev/c" }),
+            value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
         })
         .await
         .unwrap();

@@ -534,7 +534,7 @@ fn shoot_this_pc(window: &MinimalSoftwareWindow, out: &Path) {
         host.dispatch(Command::SetConfig {
             plugin: id("release-catalog"),
             scope: launcher_api::ConfigScope::Emulator,
-            value: serde_json::json!({ "catalog_url": "https://xyz.dev/c" }),
+            value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
         });
         host.catalogs_fetched();
         host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
@@ -583,7 +583,7 @@ fn shoot_releases(window: &MinimalSoftwareWindow, out: &Path) {
         host.dispatch(Command::SetConfig {
             plugin: id("release-catalog"),
             scope: launcher_api::ConfigScope::Emulator,
-            value: serde_json::json!({ "catalog_url": "https://xyz.dev/c" }),
+            value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
         });
         host.catalogs_fetched();
         host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
@@ -1371,7 +1371,7 @@ fn library(home: &Path) -> Composed {
     host.dispatch(Command::SetConfig {
         plugin: "release-catalog".parse().unwrap(),
         scope: launcher_api::ConfigScope::Emulator,
-        value: serde_json::json!({ "catalog_url": "https://xyz.dev/catalog" }),
+        value: serde_json::json!({ "catalog_url": "https://xyz.dev/catalog", "hide_without_images": false }),
     });
     host.catalogs_fetched();
     host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));

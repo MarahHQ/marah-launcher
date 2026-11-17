@@ -485,3 +485,31 @@ async fn a_hidden_game_leaves_the_catalog_and_the_hidden_filter_shows_it() {
     assert_eq!(titles(&t), ["Astro", "Bolt", "Comet"]);
     assert!(hidden_chip(&t).is_none());
 }
+
+/// The Game Catalog's "Hide games without images", on by default: a release with no picture,
+/// no store art and no title id a store could find art by isn't listed. A picture on a host the
+/// topics use (i.ibb.co) counts.
+#[tokio::test]
+async fn games_without_images_are_hidden_unless_the_setting_is_off() {
+    let mut pictured = named(1, "Astro", "PS4", "", 'a');
+    pictured["game_info"]["image_urls"] = serde_json::json!(["https://i.ibb.co/abc/astro.jpg"]);
+    let topics =
+        serde_json::json!([pictured, named(2, "Bolt", "PS4", "", 'b'), named(3, "Comet", "PS4", "CUSA00003", 'c'),]);
+    let t = offering("emu-b", "PS4", topics, false).await;
+    let hide = |on: bool| Command::SetConfigField {
+        plugin: id("release-catalog"),
+        scope: ConfigScope::Emulator,
+        key: "hide_without_images".into(),
+        value: on.to_string(),
+    };
+    // The tests' host turns the setting off; a player's starts on (see the plugin's tests).
+    t.core.dispatch(hide(true)).await.unwrap();
+    t.core.dispatch(Command::Navigate(launcher_core::Route::Catalog)).await.unwrap();
+    catalogs_fetched(&t.core).await;
+    assert_eq!(titles(&t), ["Astro", "Comet"], "Bolt has no image and no title id");
+
+    t.core.dispatch(hide(false)).await.unwrap();
+    t.core.dispatch(Command::Navigate(launcher_core::Route::Catalog)).await.unwrap();
+    catalogs_fetched(&t.core).await;
+    assert_eq!(titles(&t), ["Astro", "Bolt", "Comet"], "off, every game shows");
+}

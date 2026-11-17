@@ -265,6 +265,11 @@ pub struct Settings {
     #[serde(default = "on")]
     #[schemars(title = "Show the Hidden filter")]
     pub show_hidden_filter: bool,
+    /// Leave out the games with no picture: no cover, no screenshot, and no title id a store
+    /// could find one by. New forum topics often come with none.
+    #[serde(default = "on")]
+    #[schemars(title = "Hide games without images")]
+    pub hide_without_images: bool,
     /// Each console's "Show <console> games" toggle, by [`shown_key`]: off, the console gets no
     /// catalog, so none of its games can be downloaded. Its games already installed are the
     /// emulator's: they stay in the library and play. On when not set. [`Catalogs::schema`]
@@ -296,6 +301,7 @@ impl Default for Settings {
             sources_url: String::new(),
             refresh_from_forums: false,
             show_hidden_filter: on(),
+            hide_without_images: on(),
             shown: BTreeMap::new(),
         }
     }
@@ -451,6 +457,14 @@ fn releases(file: &topic::CatalogFile, forums: &sources::Forums) -> Result<Relea
         release.image_urls.retain(|url| https_host(url).is_some_and(|host| permissions.allows_host(&host)));
     }
     Ok(list)
+}
+
+/// Whether `release` has a picture to show: one of its own, a store's cover or screenshots, or
+/// a title id a store plugin finds art by.
+fn has_image(release: &launcher_api::Release) -> bool {
+    !release.image_urls.is_empty()
+        || !release.title_id.is_empty()
+        || release.metadata.as_ref().is_some_and(|m| m.cover.is_some() || m.icon.is_some() || !m.screenshots.is_empty())
 }
 
 /// The Game Catalog's state: what the core asked for, how each fetch and refresh ended, and the
@@ -1185,7 +1199,12 @@ impl Releases for Catalogs {
         if !settings.shows(console) {
             return Ok(None);
         }
-        let list = self.list(&console.file_name(), &settings).await;
+        let mut list = self.list(&console.file_name(), &settings).await;
+        if settings.hide_without_images
+            && let Some(list) = &mut list
+        {
+            list.releases.retain(has_image);
+        }
         // The task fetches the catalog address and refreshes, if either is due.
         self.wake.notify_one();
         Ok(list)
@@ -1305,6 +1324,32 @@ mod tests {
     /// The forums of the bundled catalog sources.
     fn forums() -> sources::Forums {
         sources::read(BUNDLED_SOURCES).unwrap().forums()
+    }
+
+    /// A player's catalog hides the games without images until they turn it off: a new
+    /// setting, and settings saved before it, both read as on.
+    #[test]
+    fn games_without_images_are_hidden_by_default() {
+        assert!(Settings::default().hide_without_images);
+        let saved: Settings = serde_json::from_value(serde_json::json!({ "catalog_url": "" })).unwrap();
+        assert!(saved.hide_without_images);
+    }
+
+    /// A release has an image with a picture, a store's art, or a title id; else none.
+    #[test]
+    fn a_release_has_an_image_by_its_pictures_its_store_art_or_its_title_id() {
+        let bare = launcher_api::Release::default();
+        assert!(!has_image(&bare));
+        assert!(has_image(&launcher_api::Release {
+            image_urls: vec!["https://i.ibb.co/a.jpg".into()],
+            ..bare.clone()
+        }));
+        assert!(has_image(&launcher_api::Release { title_id: "CUSA00001".into(), ..bare.clone() }));
+        let art = launcher_api::GameMetadata {
+            cover: Some(launcher_api::ImageSource::Url("https://a/c.jpg".into())),
+            ..Default::default()
+        };
+        assert!(has_image(&launcher_api::Release { metadata: Some(art), ..bare }));
     }
 
     #[test]

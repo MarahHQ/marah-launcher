@@ -47,7 +47,7 @@ async fn set_address(t: &TestCore, url: &str) -> launcher_core::CoreResult<()> {
         .dispatch(Command::SetConfig {
             plugin: id("release-catalog"),
             scope: ConfigScope::Emulator,
-            value: serde_json::json!({ "catalog_url": url }),
+            value: serde_json::json!({ "catalog_url": url, "hide_without_images": false }),
         })
         .await
 }

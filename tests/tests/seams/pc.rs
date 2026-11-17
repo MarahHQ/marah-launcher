@@ -393,7 +393,7 @@ async fn a_game_a_catalog_download_installed_has_the_offer_s_art_and_the_repack_
             ("Pocket Tanks/game_info/data/pockettanks.exe", &exe()),
         ],
     );
-    let address = serde_json::json!({ "catalog_url": "https://xyz.dev/c" });
+    let address = serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false });
     let set = Command::SetConfig {
         plugin: PluginId::new("release-catalog").unwrap(),
         scope: ConfigScope::Emulator,

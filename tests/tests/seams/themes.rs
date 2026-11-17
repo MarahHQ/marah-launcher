@@ -104,7 +104,7 @@ export component Card inherits Rectangle {
     host.dispatch(Command::SetConfig {
         plugin: id("release-catalog"),
         scope: launcher_api::ConfigScope::Emulator,
-        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c" }),
+        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
     });
     host.catalogs_fetched();
     host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));

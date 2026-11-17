@@ -56,7 +56,7 @@ fn the_catalog_is_the_library_s_view_and_loads_a_page_at_a_time() {
     host.dispatch(Command::SetConfig {
         plugin: id("release-catalog"),
         scope: launcher_api::ConfigScope::Emulator,
-        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c" }),
+        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
     });
     host.catalogs_fetched();
     host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
@@ -104,7 +104,7 @@ fn three_on_the_catalog() -> Composed {
     host.dispatch(Command::SetConfig {
         plugin: id("release-catalog"),
         scope: launcher_api::ConfigScope::Emulator,
-        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c" }),
+        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
     });
     host.catalogs_fetched();
     host.resize(1600.0, 900.0);
@@ -178,7 +178,7 @@ fn the_bar_under_the_catalog_s_header_shows_how_far_down_all_its_games_the_grid_
     host.dispatch(Command::SetConfig {
         plugin: id("release-catalog"),
         scope: launcher_api::ConfigScope::Emulator,
-        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c" }),
+        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
     });
     host.catalogs_fetched();
     host.resize(1600.0, 900.0);
@@ -230,7 +230,7 @@ fn back_from_a_game_s_details_the_catalog_is_where_it_was() {
     host.dispatch(Command::SetConfig {
         plugin: id("release-catalog"),
         scope: launcher_api::ConfigScope::Emulator,
-        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c" }),
+        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
     });
     host.catalogs_fetched();
     host.resize(1600.0, 900.0);
@@ -284,7 +284,7 @@ fn the_catalog_loads_only_the_covers_near_the_screen() {
     host.dispatch(Command::SetConfig {
         plugin: id("release-catalog"),
         scope: launcher_api::ConfigScope::Emulator,
-        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c" }),
+        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
     });
     host.catalogs_fetched();
     host.resize(1600.0, 900.0);
@@ -389,7 +389,7 @@ fn alpha_and_bolt_on_the_catalog() -> Composed {
     host.dispatch(Command::SetConfig {
         plugin: id("release-catalog"),
         scope: launcher_api::ConfigScope::Emulator,
-        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c" }),
+        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
     });
     host.catalogs_fetched();
     host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
@@ -457,7 +457,7 @@ fn catalog_with_refresh(refresh: bool) -> Composed {
     host.dispatch(Command::SetConfig {
         plugin: id("release-catalog"),
         scope: launcher_api::ConfigScope::Emulator,
-        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "refresh_from_forums": refresh }),
+        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "refresh_from_forums": refresh, "hide_without_images": false }),
     });
     host.catalogs_fetched();
     host.resize(1600.0, 900.0);
