@@ -19,12 +19,16 @@ cp "$package/README.md" "$appdir/usr/share/doc/marah-launcher/"
 # awk reads to the end: stopping early would end ldconfig with SIGPIPE, which pipefail fails on.
 libmpv="$(ldconfig -p | awk '/libmpv\.so\.[0-9]/ && !found {print $NF; found = 1}')"
 
+# libxkbcommon comes from the system, never from the AppImage: it reads the system's keyboard
+# files (/usr/share/X11/locale/*/Compose), and an older copy crashed on Fedora 45's at start
+# (SIGSEGV in libxkbcommon.so.0, 0.4.0's AppImage).
 # Runners have no FUSE: run linuxdeploy from its extracted files.
 export APPIMAGE_EXTRACT_AND_RUN=1
 OUTPUT="dist/Marah-Launcher-$arch.AppImage" "$LINUXDEPLOY" \
     --appdir "$appdir" \
     --executable "$appdir/usr/bin/marah-launcher" \
     --library "$libmpv" \
+    --exclude-library 'libxkbcommon*' \
     --desktop-file "$package/marah-launcher.desktop" \
     --icon-file "$package/marah-launcher.png" \
     --output appimage
