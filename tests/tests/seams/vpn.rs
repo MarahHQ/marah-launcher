@@ -76,7 +76,7 @@ async fn setup_on(build: impl FnOnce(FakeHost) -> FakeHost) -> Setup {
         .dispatch(Command::SetConfig {
             plugin: id("release-catalog"),
             scope: ConfigScope::Emulator,
-            value: serde_json::json!({ "catalog_url": "https://xyz.dev/c" }),
+            value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
         })
         .await
         .unwrap();

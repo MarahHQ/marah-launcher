@@ -30,7 +30,7 @@ fn penguins_downloaded(home: &std::path::Path) -> Composed {
     host.dispatch(Command::SetConfig {
         plugin: id("release-catalog"),
         scope: launcher_api::ConfigScope::Emulator,
-        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c" }),
+        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
     });
     host.catalogs_fetched();
     host.resize(1600.0, 900.0);
