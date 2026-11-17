@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.2](https://github.com/MarahHQ/marah-launcher/compare/v0.5.1...v0.5.2) (2026-11-17)
+
+
+### Bug Fixes
+
+* **deny:** accept the chrono unmaintained advisory that comes in through Slint ([#29](https://github.com/MarahHQ/marah-launcher/issues/29)) ([6a2d6ab](https://github.com/MarahHQ/marah-launcher/commit/6a2d6ab73f8f5073727482464f0b7746eee18db9))
+* **packaging:** the AppImage takes libxkbcommon from the system; its own copy crashed at start on Fedora 45 ([#31](https://github.com/MarahHQ/marah-launcher/issues/31)) ([5e01eb8](https://github.com/MarahHQ/marah-launcher/commit/5e01eb87d1c34c35f9cc4a1e5897a556b9f5078f))
+
 ## [0.5.1](https://github.com/MarahHQ/marah-launcher/compare/v0.5.0...v0.5.1) (2026-11-17)
 
 
