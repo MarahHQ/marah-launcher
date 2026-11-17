@@ -1547,7 +1547,7 @@ fn boot_vm(s: &Snapshot) -> BootVm {
         let detail = if emu.own {
             "Your own build"
         } else if emu.installed.is_empty() && s.prefs.auto_install {
-            "Installs in a minute"
+            "Installs now"
         } else if emu.installed.is_empty() {
             "Installs on first play"
         } else if emu.update().is_some() {

@@ -559,10 +559,10 @@ async fn packages_the_host_unpacked_from_archives_install_together() {
     assert_eq!(std::fs::read(games.path().join("PS4/CUSA12345-patch/eboot.bin")).unwrap(), b"v2");
 }
 
-/// Moves the clock past the first look for updates, a minute after the start: the start's pass
+/// Moves the clock past the first look for updates, right after the start: the start's pass
 /// over the builds runs then.
 async fn past_the_start_pass(test: &TestCore) {
-    test.clock.advance(std::time::Duration::from_secs(61)).await;
+    test.clock.advance(std::time::Duration::from_secs(6)).await;
 }
 
 #[tokio::test]

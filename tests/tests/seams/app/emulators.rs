@@ -172,22 +172,22 @@ async fn an_emulator_s_row_shows_its_installed_build_not_the_plugin_s_version() 
 }
 
 #[tokio::test]
-async fn emulator_updates_are_looked_for_a_minute_after_the_start_on_the_clock() {
+async fn emulator_updates_are_looked_for_right_after_the_start_on_the_clock() {
     let (t, emu) = core_with(FakeEmulator::new(vec!["A"])).await;
     let started = t.clock.now();
     install(&t.core).await;
     emu.release("2.0");
 
-    t.clock.advance(Duration::from_secs(59) - (t.clock.now() - started)).await;
-    assert_eq!(installed(&t.core).await, ["1.0"], "not before the minute");
+    t.clock.advance(Duration::from_secs(4).saturating_sub(t.clock.now() - started)).await;
+    assert_eq!(installed(&t.core).await, ["1.0"], "not before the first round");
     t.clock.advance(Duration::from_secs(2)).await;
     assert!(installed(&t.core).await.contains(&"2.0".to_owned()), "the check found and installed 2.0");
 }
 
-/// Moves the clock past the first look for updates, a minute after the start: the start's pass
+/// Moves the clock past the first look for updates, right after the start: the start's pass
 /// over the emulators' builds runs then.
 async fn past_the_start_pass(t: &TestCore, started: std::time::Instant) {
-    t.clock.advance(Duration::from_secs(61).saturating_sub(t.clock.now() - started)).await;
+    t.clock.advance(Duration::from_secs(6).saturating_sub(t.clock.now() - started)).await;
 }
 
 #[tokio::test]
