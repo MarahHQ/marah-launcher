@@ -359,15 +359,16 @@ fn a_game_played_from_its_game_hub_in_a_system_s_games_comes_back_to_them_on_it(
     assert_eq!(selected_title(&host).as_deref(), Some("Beta"), "on the game that was played");
 }
 
-/// Settings is the top bar's last item, at its end: the clock comes before it.
+/// The top bar from its end: the clock, then Settings, then the machine's icons, then the
+/// screen buttons.
 #[test]
-fn settings_is_at_the_end_of_the_top_bar_after_the_clock() {
+fn the_top_bar_ends_with_the_clock_then_settings() {
     let mut host = default_theme();
     host.platform.set_local_time("9:38 PM");
     host.on_tick();
     host.settle();
     assert_eq!(host.count("clock"), 1, "the clock shows");
     let x = |label: &str| host.first(label).absolute_position().x;
-    assert!(x("Settings") > x("clock"), "Settings {} after the clock {}", x("Settings"), x("clock"));
-    assert!(x("clock") > x("Themes"), "the clock {} after the screen buttons {}", x("clock"), x("Themes"));
+    assert!(x("clock") > x("Settings"), "the clock {} after Settings {}", x("clock"), x("Settings"));
+    assert!(x("Settings") > x("Themes"), "Settings {} after the screen buttons {}", x("Settings"), x("Themes"));
 }
