@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/MarahHQ/marah-launcher/compare/v0.7.0...v0.7.1) (2026-11-17)
+
+
+### Bug Fixes
+
+* the boot screen says when no own build is picked, and that a first firmware download could not install ([#38](https://github.com/MarahHQ/marah-launcher/issues/38)) ([fdd856e](https://github.com/MarahHQ/marah-launcher/commit/fdd856e0f46e781a394f80fd4fd9e6793589df45))
+
 ## [0.7.0](https://github.com/MarahHQ/marah-launcher/compare/v0.6.0...v0.7.0) (2026-11-17)
 
 
