@@ -566,7 +566,7 @@ per area. `spans.rs` is its own binary. The seams, from the highest:
    every task waits for a timer. A test waits for work with `TestCore::until(area, done)` or
    `FakeClock::run_until_idle`.
 2. **The capability contracts** (`launcher_testkit::contract`): `contract::emulator` checks
-   `FakeEmulator` and `FakeCatalog` without a build (`contracts.rs`), and each real emulator plugin in its own seam file
+   `FakeEmulator` and a `FakeCatalog` with games and no build (`contracts.rs`), and each real emulator plugin in its own seam file
    (`kyty.rs`, `shadps4.rs`, `lichii.rs`, `pc.rs`, `steam.rs`). `contract::archives` checks
    `FakeArchives`, and the app's `HostArchives` in `crates/app/src/archives.rs`.
    `contract::process_tree` checks `FakeProcessTree`, and the app's `SystemProcesses` on Linux
