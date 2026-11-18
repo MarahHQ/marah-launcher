@@ -117,10 +117,7 @@ impl TorrentStorage for SkipFilesStorage {
 
     fn pread_exact(&self, file_id: usize, offset: u64, buf: &mut [u8]) -> anyhow::Result<()> {
         match self.kept(file_id) {
-            Some(kept) => {
-                kept.read(offset, buf);
-                Ok(())
-            }
+            Some(kept) => kept.read(offset, buf),
             None => self.files.pread_exact(file_id, offset, buf),
         }
     }
@@ -214,51 +211,44 @@ impl Regions {
 /// What a skipped file keeps.
 struct Kept {
     regions: Regions,
-    /// `None` when it keeps nothing, or once the torrent pauses.
+    /// `None` when it keeps nothing, or once the torrent paused and took it ([`TorrentStorage::take`]).
     store: Mutex<Option<File>>,
 }
 
 impl Kept {
-    /// Zeros where nothing is kept, or the store doesn't read: the piece's hash then fails.
-    fn read(&self, offset: u64, buf: &mut [u8]) {
+    /// What is kept, and zeros for the rest: those pieces fail their hash. A kept byte that
+    /// doesn't read, or a store taken away, is an error, so no zero goes out for it.
+    fn read(&self, offset: u64, buf: &mut [u8]) -> anyhow::Result<()> {
         buf.fill(0);
-        let mut store = self.store.lock().unwrap_or_else(|p| p.into_inner());
-        let Some(store) = store.as_mut() else { return };
-        for (start, at, len) in self.regions.parts(offset, buf.len() as u64) {
-            let from = (start - offset) as usize;
-            let part = &mut buf[from..from + len as usize];
-            let read = store.seek(SeekFrom::Start(at)).and_then(|_| read_up_to(store, part));
-            if let Err(e) = read {
-                tracing::debug!(error = %e, "a skipped file's kept bytes didn't read");
-                part.fill(0);
-            }
+        let mut parts = self.regions.parts(offset, buf.len() as u64).peekable();
+        if parts.peek().is_none() {
+            return Ok(());
         }
+        let mut store = self.store.lock().unwrap_or_else(|p| p.into_inner());
+        let store = store.as_mut().ok_or_else(|| anyhow::anyhow!("the torrent's storage was taken"))?;
+        for (start, at, len) in parts {
+            let from = (start - offset) as usize;
+            store.seek(SeekFrom::Start(at))?;
+            store.read_exact(&mut buf[from..from + len as usize])?;
+        }
+        Ok(())
     }
 
     /// Keeps the parts of `buf` that are kept, and drops the rest.
     fn write(&self, offset: u64, buf: &[u8]) -> anyhow::Result<()> {
+        let mut parts = self.regions.parts(offset, buf.len() as u64).peekable();
+        if parts.peek().is_none() {
+            return Ok(());
+        }
         let mut store = self.store.lock().unwrap_or_else(|p| p.into_inner());
-        let Some(store) = store.as_mut() else { return Ok(()) };
-        for (start, at, len) in self.regions.parts(offset, buf.len() as u64) {
+        let store = store.as_mut().ok_or_else(|| anyhow::anyhow!("the torrent's storage was taken"))?;
+        for (start, at, len) in parts {
             let from = (start - offset) as usize;
             store.seek(SeekFrom::Start(at))?;
             store.write_all(&buf[from..from + len as usize])?;
         }
         Ok(())
     }
-}
-
-/// Reads into `buf` until it is full or the file ends; what is past the end stays as it was.
-fn read_up_to(file: &mut File, mut buf: &mut [u8]) -> std::io::Result<()> {
-    while !buf.is_empty() {
-        match file.read(buf) {
-            Ok(0) => break,
-            Ok(n) => buf = &mut buf[n..],
-            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(e) => return Err(e),
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -279,7 +269,7 @@ mod tests {
     }
 
     #[test]
-    fn kept_bytes_read_back_and_the_rest_reads_as_zeros() {
+    fn kept_bytes_read_back_the_rest_reads_as_zeros_and_a_lost_kept_byte_is_an_error() {
         let path = std::env::temp_dir().join(format!("torrent-kept-bytes-test-{}", std::process::id()));
         let store = File::options().create(true).truncate(true).read(true).write(true).open(&path).unwrap();
         let regions = Regions::of(25, 32, 10);
@@ -289,19 +279,27 @@ mod tests {
         kept.write(0, &bytes).unwrap();
 
         let mut back = vec![0xff; 32];
-        kept.read(0, &mut back);
+        kept.read(0, &mut back).unwrap();
         let mut expected = vec![0; 32];
         expected[..5].copy_from_slice(&bytes[..5]);
         expected[25..].copy_from_slice(&bytes[25..]);
         assert_eq!(back, expected, "the head and the tail, zeros between");
         let mut tail = [0xff; 4];
-        kept.read(27, &mut tail);
+        kept.read(27, &mut tail).unwrap();
         assert_eq!(tail, [28, 29, 30, 31]);
         assert_eq!(std::fs::metadata(&path).unwrap().len(), 12, "the store holds only those");
 
+        let mut between = [0xff; 10];
+        kept.read(10, &mut between).unwrap();
+        assert_eq!(between, [0; 10], "nothing kept between");
+
+        std::fs::File::options().write(true).open(&path).unwrap().set_len(11).unwrap();
+        assert!(kept.read(25, &mut back[..7]).is_err(), "a kept byte that doesn't read is no zero");
         *kept.store.lock().unwrap() = None;
-        kept.read(0, &mut back);
-        assert!(back.iter().all(|b| *b == 0), "a paused torrent's store reads as zeros");
+        assert!(kept.read(0, &mut back).is_err(), "a taken store sends nothing");
+        assert!(kept.write(0, &bytes).is_err());
+        kept.read(10, &mut between).unwrap();
+        assert!(kept.write(10, &bytes[..10]).is_ok(), "what isn't kept is dropped");
         let _ = std::fs::remove_file(&path);
     }
 }

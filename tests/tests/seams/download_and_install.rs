@@ -288,10 +288,15 @@ async fn a_download_with_files_left_out_that_an_older_version_finished_does_not_
     t.torrents.stop_all().await.unwrap();
     // An older version kept no bytes of the readme that a piece shares with a checked file, and
     // didn't save that it did.
-    t.core.kernel().config().remove(&["app", "torrents", HASH, "parts_kept"]).unwrap();
+    let flag = ["app", "torrents", HASH, "parts_kept"];
+    assert_eq!(t.core.kernel().config().get(&flag), serde_json::json!(true), "this version saves it");
+    t.core.kernel().config().remove(&flag).unwrap();
+    assert!(t.core.kernel().config().get(&flag).is_null());
     let started = t.torrents.started().len();
 
     let again = launcher_core::Core::start(t.kernel.clone()).await;
+    // The restore starts its seeds on their own tasks: they get time to run.
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     let restored = again.view().downloads.torrents.into_iter().next().unwrap();
     assert_eq!((restored.state.as_str(), restored.seeding), ("complete", false));
     assert_eq!(restored.error, "", "its files didn't change");
@@ -495,6 +500,10 @@ async fn a_skipped_archive_s_stub_doesn_t_unpack_and_the_game_s_archive_installs
     assert_eq!(row(t).picks.iter().map(|p| p.kind.as_str()).collect::<Vec<_>>(), ["game", "update"]);
     pick(t, Some(1), false).await;
     begin(t, true, None).await.unwrap();
+    // An older version made a stub for the skipped archive.
+    let stub = s.folder().join("Astro/update.zip");
+    std::fs::create_dir_all(stub.parent().unwrap()).unwrap();
+    std::fs::write(&stub, [0; 17]).unwrap();
     t.torrents.complete(HASH);
 
     let installed = until_install(t, "done").await;
