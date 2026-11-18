@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.1](https://github.com/MarahHQ/marah-launcher/compare/v0.11.0...v0.11.1) (2026-11-18)
+
+
+### Bug Fixes
+
+* **catalog:** counts match the cards, hide one version or every one, and versions read the installed game's community result ([#60](https://github.com/MarahHQ/marah-launcher/issues/60)) ([614d559](https://github.com/MarahHQ/marah-launcher/commit/614d559abaa67506aa9c8cce8d9b4de6014f8791))
+* Send ratings on Windows, and download and install on one drive and after a restart ([#58](https://github.com/MarahHQ/marah-launcher/issues/58)) ([4649009](https://github.com/MarahHQ/marah-launcher/commit/4649009be360658bb761ce5a157c8e2f1c91bec0))
+
 ## [0.11.0](https://github.com/MarahHQ/marah-launcher/compare/v0.10.1...v0.11.0) (2026-11-18)
 
 
