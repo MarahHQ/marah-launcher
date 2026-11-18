@@ -253,7 +253,9 @@ impl FakeCatalog {
     }
 
     /// A game installer that installs each download at once, where it is, as the game `title`.
-    /// [`FakeCatalog::installed_from`] says where each install began.
+    /// Its work folder is `<console>/<title>.part` in the games folder, with the games'
+    /// platform for a catalog with no console. [`FakeCatalog::installed_from`] says where each
+    /// install began.
     pub fn installs(mut self, title: &'static str) -> Self {
         self.game_installer = GameInstall::AtOnce(title);
         self
@@ -379,7 +381,8 @@ impl FakeCatalog {
                 GameInstall::None => {}
                 GameInstall::Waiting => provided.game_installer = Some(Arc::new(WaitingInstaller)),
                 GameInstall::AtOnce(title) => {
-                    provided.game_installer = Some(Arc::new(AtOnce { title, sources: self.sources.clone() }))
+                    let console = self.console.clone().unwrap_or_else(|| self.platform.clone());
+                    provided.game_installer = Some(Arc::new(AtOnce { title, console, sources: self.sources.clone() }));
                 }
             }
             let art: Vec<(&str, Vec<u8>)> = [("system/icon.png", &self.icon), ("system/cover.png", &self.cover)]
@@ -647,6 +650,8 @@ impl GameInstaller for WaitingInstaller {
 /// A game installer that installs each download at once, where it is.
 struct AtOnce {
     title: &'static str,
+    /// The folder its work goes in, in the games folder.
+    console: String,
     sources: Arc<Mutex<Vec<HostPath>>>,
 }
 
@@ -658,7 +663,7 @@ impl GameInstaller for AtOnce {
     async fn begin(&self, source: &HostPath, job: Arc<dyn InstallJob>) -> PluginResult<HostPath> {
         self.sources.lock().unwrap().push(source.clone());
         job.finished(Ok(InstalledGame { dest: source.clone(), title: self.title.into() }));
-        let work = format!("PS5/{}.part", self.title.to_lowercase());
+        let work = format!("{}/{}.part", self.console, self.title.to_lowercase());
         Ok(HostPath::new("games", 0, RelPath::new(work).expect("a plain title")))
     }
 }
