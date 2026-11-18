@@ -659,3 +659,32 @@ async fn a_touchpad_the_player_mapped_stays() {
 
     assert_eq!(key_map(data.path(), "default"), theirs);
 }
+
+/// shadPS4 v0.21.0 asks, in a box with four buttons, what to do with saves in its old place
+/// (`savedata/1`) the first time it makes the folder of its first user (`home/1000`), even when
+/// there are none. A player with only a controller can't answer it. With no old saves, the
+/// launch makes that folder first, so the box never comes up.
+#[tokio::test]
+async fn with_no_old_saves_the_launch_makes_shadps4_s_first_user_so_it_asks_nothing() {
+    let (test, _games) = boot().await;
+    let data = tempfile::tempdir().unwrap();
+
+    launch_with_data(&test, data.path()).await;
+
+    for folder in ["savedata", "trophy", "inputs"] {
+        assert!(data.path().join("home/1000").join(folder).is_dir(), "home/1000/{folder}");
+    }
+}
+
+/// With saves in shadPS4's old place, the player chooses: the launch leaves shadPS4's first
+/// user to shadPS4.
+#[tokio::test]
+async fn with_old_saves_shadps4_asks_the_player() {
+    let (test, _games) = boot().await;
+    let data = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(data.path().join("savedata/1/CUSA04118")).unwrap();
+
+    launch_with_data(&test, data.path()).await;
+
+    assert!(!data.path().join("home/1000").exists());
+}

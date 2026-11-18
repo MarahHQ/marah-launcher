@@ -283,6 +283,11 @@ Some emulator notes:
   shadPS4's key map (`input_config` in **shadPS4 data**) so that **Back** and **Space** click the
   right half (START) and **Backspace** the left half (SELECT). It changes only shadPS4's own
   touchpad lines: a touchpad you mapped to other keys stays as it is.
+- **shadPS4's Save Migration box**: at its first start, shadPS4 asks what to do with saves in
+  its old place (`savedata/1`), in a box a controller can't answer. When there are no such saves,
+  Marah Launcher makes shadPS4's first user (`home/1000`) before the first PS4 game, so the box
+  doesn't come up. When there are, shadPS4 asks: **Copy** keeps the old saves as well, **Do
+  nothing** leaves them where they are.
 - **Lichii**: Lichii keeps its data in `~/.local/share/lichii` from build-150 on. If you
   played with an older build, open Lichii from its page once and import your Eden data
   (`~/.local/share/eden`): until then, Lichii starts no game. An older build, or your own
