@@ -126,6 +126,7 @@ checks the listing. The second pass writes only what the plan holds.
 | A link goes through more than 40 links, as a link loop does. | `Escapes` with `LinksOut` |
 | An entry sits under a link's path, or at a link's path when it is not that link. | `Escapes` with `ThroughLink` |
 | A hard link names a target that is not a plain path inside the folder. | `Escapes` with `LinksOut` |
+| A hard link names one of the archive's links, or a path through one. | `Escapes` with `LinksOut` |
 | The files' bytes plus the spare do not fit in the free space. | `NoRoom` |
 
 The spare is `UNPACK_SPARE`, 64 MiB. A disk that does not report its free space counts as
@@ -139,6 +140,12 @@ write the entries in another order. For example, link `d/l` points to `..` and l
 points to `d/l/..`. Each link alone stays inside. But `d/l` ends at the folder's top, so `x`
 ends one folder above it, and the plan refuses `x`. A link may go through other links that
 stay inside, as `Qt.framework/Qt` to `Versions/Current/Qt` does in a macOS framework.
+
+A hard link to a link makes a second link at the hard link's path. For example, link `d/e/s`
+points to `../..`, which is the folder's top. Hard link `h` names `d/e/s`, so `h` is a link
+to `../..` at the top, and it ends one folder above it. A hard link through a link, such as
+`a/s` where `a` is a link, may reach a link on the disk the same way. The plan refuses both,
+even when the link stays inside.
 
 The adapter checks the disk again during the second pass, as a second guard. `Work::place` in
 `crates/app/src/archives.rs` refuses to write where a link is already on the disk

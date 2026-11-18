@@ -645,7 +645,8 @@ pub enum Escape {
     /// Its path is absolute or climbs out with `..`.
     Leaves,
     /// It is a link whose target is absolute or climbs out with `..`, on its own or through
-    /// the archive's other links. A link loop counts too.
+    /// the archive's other links. A link loop counts too, and so does a hard link to one of the
+    /// archive's links or through one.
     LinksOut,
     /// A link sits where it would go or on its way: one of the archive's links, or one already
     /// on the disk.
