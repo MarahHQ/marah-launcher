@@ -418,6 +418,11 @@ pub trait Hardware: Send + Sync {
     fn disk_bytes(&self, _path: &std::path::Path) -> Option<u64> {
         None
     }
+    /// Which disk holds `path`, which must exist: two paths with the same id share their free
+    /// space. `None` when the system doesn't say. Quick: one system call.
+    fn disk_id(&self, _path: &std::path::Path) -> Option<u64> {
+        None
+    }
 }
 
 /// A computer the launcher can't look at. The default until the app plugs in a real one.

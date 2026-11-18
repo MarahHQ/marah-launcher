@@ -237,7 +237,7 @@ mod send_ratings {
     }
 
     #[tokio::test]
-    async fn on_windows_nothing_is_listed_yet() {
+    async fn on_windows_the_ratings_are_listed_and_the_whole_form_link_opens() {
         let mut emu = FakeEmulator::new(vec!["A"]);
         emu.list = true;
         let t = FakeHost::new().platform(Some(Platform::Windows)).plugin(emu.plugin("emu-a")).boot_core().await;
@@ -245,7 +245,18 @@ mod send_ratings {
         t.core.dispatch(Command::ReportResult(Some(launcher_api::CompatLevel::Ingame))).await.unwrap();
 
         ratings(&t, RatingsCmd::Open).await;
-        assert!(t.core.view().ratings.items.is_empty(), "the opener there would cut the link at its first &");
+        let games: Vec<String> = t.core.view().ratings.items.into_iter().map(|i| i.game).collect();
+        assert_eq!(games, ["emu-a:G0"]);
+        ratings(&t, RatingsCmd::Next).await;
+        assert!(t.core.view().ratings.preview.body.contains("OS: Windows"), "{:?}", t.core.view().ratings.preview);
+        ratings(&t, RatingsCmd::Send).await;
+
+        let links = t.host.opener.links();
+        assert_eq!(links.len(), 1);
+        let url = url::Url::parse(&links[0]).unwrap();
+        let query: std::collections::HashMap<String, String> = url.query_pairs().into_owned().collect();
+        assert_eq!(query["title"], "G0 - A", "every field after the first `&` is there: {}", links[0]);
+        assert_eq!(query["template"], "report.yml");
     }
 
     #[tokio::test]

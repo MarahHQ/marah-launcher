@@ -389,6 +389,7 @@ impl Core {
         core.installs().clean_up(|plugin| core.kernel().host_folders(plugin));
         crate::system::adopt_vpn(&core).await;
         core.torrents().restore();
+        crate::release_downloads::resume_installs_after(&core);
         crate::emulator_builds::resume_installs(&core).await;
         crate::plugin_downloads::resume_downloads(&core);
         crate::emulator_builds::schedule_update_checks(&core);

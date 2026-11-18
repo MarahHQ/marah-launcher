@@ -32,6 +32,13 @@ pub(crate) fn free_at(hardware: &dyn crate::Hardware, folder: &Path) -> Option<u
     hardware.free_bytes(there)
 }
 
+/// Which disk holds `folder`, which may not be there yet: the disk of the nearest folder above
+/// it. `None` when the system doesn't say.
+pub(crate) fn disk_at(hardware: &dyn crate::Hardware, folder: &Path) -> Option<u64> {
+    let there = folder.ancestors().find(|p| p.is_dir())?;
+    hardware.disk_id(there)
+}
+
 /// The console an emulator plays, which names its folders: the plugin's id when its manifest
 /// doesn't say.
 pub(crate) fn console_of(kernel: &Kernel, emulator: &PluginId) -> String {
@@ -109,19 +116,50 @@ async fn begin(core: &Core, id: &str, install: bool, folder: Option<std::path::P
         let console = console_of(kernel, &job.emulator);
         let (_, path) = folders.place(Purpose::Install, &console, folder.as_deref())?;
         let checked = crate::torrents::picks::checked_bytes(&job.files, job.total, &job.skip);
-        if let Some(free) = free_at(core.ports().hardware.as_ref(), &path)
-            && let Some(error) = no_room(checked, free, "game folder")
-        {
-            return Err(CoreError::Invalid(error));
+        let hardware = core.ports().hardware.as_ref();
+        // On the download's drive, the download and the install need room together.
+        let one_drive = disk_at(hardware, &path).is_some_and(|d| disk_at(hardware, &job.folder) == Some(d));
+        if let Some(free) = free_at(hardware, &path) {
+            let short = if one_drive {
+                crate::torrents::no_room_both(checked.saturating_mul(2), free)
+            } else {
+                no_room(checked, free, "game folder")
+            };
+            if let Some(error) = short {
+                return Err(CoreError::Invalid(error));
+            }
         }
         if folder.is_some() {
             folders.remember(Purpose::Install, &console, &path);
         }
-        Some(InstallAfter { folder })
+        Some(InstallAfter { folder, started: false })
     } else {
         None
     };
     core.torrents().begin(id, then).await
+}
+
+/// The start of a run: a download that finished, with "Download and install", before the last
+/// run started its install, installs now. Once: [`crate::torrents::TorrentsSubsystem::claim_install_after`]
+/// marks it before this returns.
+pub(crate) fn resume_installs_after(core: &Core) {
+    let jobs = core.torrents().snapshot().jobs.clone();
+    for job in jobs.values().filter(|j| j.state == TorrentState::Complete && j.install_after.is_some()) {
+        if let Some(after) = core.torrents().claim_install_after(&job.id) {
+            start_install_after(core, job.id.clone(), job.title.clone(), after);
+        }
+    }
+}
+
+/// Says the install starts, and starts it in the background.
+fn start_install_after(core: &Core, id: String, title: String, after: InstallAfter) {
+    core.notices().opening(
+        launcher_ui_api::NoticeKind::Success,
+        crate::Route::Downloads,
+        format!("Download complete: {title}. Installing it now."),
+    );
+    let core = core.clone();
+    tokio::spawn(async move { install_after(&core, &id, &title, after).await });
 }
 
 /// "Download and install": the download finished, and installs as Install on its card does.
@@ -144,14 +182,8 @@ pub(crate) fn torrent_event(core: &Core, event: TorrentEvent) {
         TorrentEvent::Finished { id, title } => {
             let job = core.torrents().job(&id);
             crate::disks::refresh(core);
-            if let Some(after) = job.as_ref().and_then(|j| j.install_after.clone()) {
-                core.notices().opening(
-                    launcher_ui_api::NoticeKind::Success,
-                    crate::Route::Downloads,
-                    format!("Download complete: {title}. Installing it now."),
-                );
-                let core = core.clone();
-                tokio::spawn(async move { install_after(&core, &id, &title, after).await });
+            if let Some(after) = core.torrents().claim_install_after(&id) {
+                start_install_after(core, id, title, after);
                 return;
             }
             let waiting = job.is_some_and(|j| j.hand_off.unpack.phase == crate::archives::UnpackPhase::Waiting);

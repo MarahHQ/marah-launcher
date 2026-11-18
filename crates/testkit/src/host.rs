@@ -130,7 +130,8 @@ impl FakeHost {
         self
     }
 
-    /// `folder` and every folder in it are on a disk of their own, with `bytes` free.
+    /// `folder` and every folder in it are on a disk of their own, with `bytes` free. The
+    /// first disk that holds a folder is its disk.
     pub fn disk(mut self, folder: impl Into<PathBuf>, bytes: u64) -> Self {
         self.disks.push((folder.into(), bytes));
         self
@@ -447,6 +448,11 @@ impl launcher_core::Hardware for FixedHardware {
 
     fn free_bytes(&self, path: &std::path::Path) -> Option<u64> {
         self.disks.iter().find(|(disk, _)| path.starts_with(disk)).map(|(_, free)| *free).or(self.free_space)
+    }
+
+    /// A disk of its own is its place in the list; every other disk doesn't say.
+    fn disk_id(&self, path: &std::path::Path) -> Option<u64> {
+        self.disks.iter().position(|(disk, _)| path.starts_with(disk)).map(|at| at as u64)
     }
 
     fn controllers(&self) -> Vec<launcher_api::Controller> {

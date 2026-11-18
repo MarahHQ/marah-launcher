@@ -291,6 +291,8 @@ files**, **Cancel install** and **Open folder**. A Steam game shows **Open in St
 - The line above the files says how many are checked and their size.
 - The sheet shows the free space where the files download and where the game installs. When
   the checked files don't fit, it says so in yellow, and the button that needs the room is off.
+  When the download folder and the game folder are on the same drive, **Download and install**
+  needs room there for the download and the install together.
 - **Game folder** is where the game goes. Press ✕ on it to type another folder inside a game
   folder.
 
@@ -298,13 +300,14 @@ Then press one of these:
 
 - **Download and install**: the checked files download. When the download finishes, the game
   installs by itself into the game folder, as **Install** does. Marah Launcher checks the game
-  folder before anything downloads.
+  folder before anything downloads. If you close Marah Launcher after the download finishes
+  and before the install starts, the install starts the next time you open it, once.
 - **Download**: the checked files download, and you install the game later with **Install**.
 - **Not now**: nothing downloads.
 
 Files you leave out never download. When the download finishes, Marah Launcher deletes the empty
 placeholders the torrent engine made for them. A download with files left out doesn't share
-once it finishes.
+once it finishes: to share it, the torrent engine would make those placeholders again.
 
 A problem shows where it happens. A download that fails says why on its card. An install that
 fails says why on the card too, and the downloaded files stay: press **Install** to try again.
@@ -340,8 +343,7 @@ Your answer stays on this PC until you send it. See [Send your ratings](#send-yo
 
 Settings → Games → **Send ratings** sends your answers to the community compatibility lists,
 so other players know how a game runs. Two lists take reports this way: shadPS4's (PS4 games)
-and KytyPS5's (PS5 games). Answers for other emulators, and for PC games, stay on this PC. On Windows,
-**Send ratings** lists nothing yet.
+and KytyPS5's (PS5 games). Answers for other emulators, and for PC games, stay on this PC.
 
 1. Marah Launcher lists the answers you haven't sent. All are picked. Press ✕ on one to leave
    it out, then choose **Next: see the reports**.

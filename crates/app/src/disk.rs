@@ -70,9 +70,64 @@ pub fn disk_bytes(path: &Path) -> Option<u64> {
     }
 }
 
+/// Which disk holds `path`: two paths with the same id share their free space. `None` when
+/// the system doesn't say. The device id on Unix; on Windows, the serial number of the volume
+/// the path is on.
+#[allow(unsafe_code)] // Two system calls that fill buffers this function owns.
+pub fn disk_id(path: &Path) -> Option<u64> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::metadata(path).ok().map(|m| m.dev())
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Storage::FileSystem::{GetVolumeInformationW, GetVolumePathNameW};
+        let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        let mut root = [0u16; 1024];
+        // SAFETY: `wide` ends with a nul, and `root` is writable for the length given.
+        if unsafe { GetVolumePathNameW(wide.as_ptr(), root.as_mut_ptr(), root.len() as u32) } == 0 {
+            return None;
+        }
+        let mut serial = 0u32;
+        // SAFETY: `root` holds the nul-ended path the call above wrote, and `serial` is a
+        // writable u32; the other buffers are null with a size of 0.
+        let ok = unsafe {
+            GetVolumeInformationW(
+                root.as_ptr(),
+                std::ptr::null_mut(),
+                0,
+                &mut serial,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        (ok != 0).then_some(u64::from(serial))
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = path;
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_folder_and_a_folder_in_it_are_on_the_same_disk() {
+        let dir = std::env::temp_dir().join(format!("disk-id-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (outer, inner) = (disk_id(&std::env::temp_dir()), disk_id(&dir));
+        std::fs::remove_dir(&dir).unwrap();
+        assert!(outer.is_some());
+        assert_eq!(inner, outer);
+        assert_eq!(disk_id(&dir), None, "a folder that isn't there");
+    }
 
     #[test]
     fn the_free_space_of_a_folder_s_disk_is_known() {
