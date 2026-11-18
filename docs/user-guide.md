@@ -333,9 +333,14 @@ Then press one of these:
 - **Download**: the checked files download, and you install the game later with **Install**.
 - **Not now**: nothing downloads.
 
-Files you leave out never download. When the download finishes, Marah Launcher deletes the empty
-placeholders the torrent engine made for them. A download with files left out doesn't share
-once it finishes: to share it, the torrent engine would make those placeholders again.
+Files you leave out never download, and the download folder gets no file for them. A download
+with files left out shares the files it has, as any finished download does, with **Keep sharing
+finished downloads** and at most 128 KB/s. Where a piece of the torrent holds the end of one
+file and the start of the next, Marah Launcher keeps the bytes of the file you left out in its
+own data folder, at most two pieces for each file. They go when you remove the download.
+
+A download with files left out that an older version of Marah Launcher finished doesn't share:
+that version didn't keep those bytes.
 
 A problem shows where it happens. A download that fails says why on its card. An install that
 fails says why on the card too, and the downloaded files stay: press **Install** to try again.

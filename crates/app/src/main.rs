@@ -21,6 +21,7 @@ mod platform;
 mod processes;
 #[cfg(test)]
 mod real_releases;
+mod torrent_storage;
 mod torrents;
 mod trailer;
 mod update;

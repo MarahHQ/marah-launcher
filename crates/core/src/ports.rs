@@ -495,7 +495,8 @@ pub trait Torrents: Send + Sync {
     /// started `paused` stays paused after its check: it downloads nothing until
     /// [`Torrents::unpause`]. One the engine already has, paused, goes on unless `paused`.
     /// `only`: the files to download, by their place in the torrent's file list; `None` for
-    /// every file. The rest get skip priority: the engine may still make them, as stubs.
+    /// every file. The engine makes no file in `folder` for the rest. To seed, it keeps their
+    /// bytes that a piece shares with a chosen file elsewhere, until [`Torrents::forget`].
     async fn start(
         &self,
         id: &str,
@@ -508,6 +509,9 @@ pub trait Torrents: Send + Sync {
     async fn unpause(&self, id: &str) -> PluginResult<()>;
     /// Stops the torrent. Its files stay. No error when it isn't running.
     async fn stop(&self, id: &str) -> PluginResult<()>;
+    /// The download is gone for good: the engine drops what it kept for it outside its folder.
+    /// The core stops the torrent first. No error when it kept nothing.
+    async fn forget(&self, id: &str) -> PluginResult<()>;
     /// What the engine reports for the torrent now; `None` when it isn't running. Reading it
     /// changes nothing.
     fn stats(&self, id: &str) -> Option<TorrentStats>;
@@ -540,6 +544,9 @@ impl Torrents for NoTorrents {
         Ok(())
     }
     async fn stop(&self, _id: &str) -> PluginResult<()> {
+        Ok(())
+    }
+    async fn forget(&self, _id: &str) -> PluginResult<()> {
         Ok(())
     }
     fn stats(&self, _id: &str) -> Option<TorrentStats> {

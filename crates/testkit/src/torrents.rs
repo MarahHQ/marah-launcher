@@ -38,6 +38,8 @@ struct State {
     routes: Vec<Option<String>>,
     /// How many times every torrent was stopped at once.
     stopped_all: usize,
+    /// Every torrent the core forgot for good, in order.
+    forgotten: Vec<String>,
     /// Lookups wait for this gate.
     held: Option<watch::Receiver<bool>>,
 }
@@ -142,6 +144,11 @@ impl FakeTorrents {
         self.lock().routes.clone()
     }
 
+    /// Every torrent the core forgot for good ([`Torrents::forget`]), in order.
+    pub fn forgotten(&self) -> Vec<String> {
+        self.lock().forgotten.clone()
+    }
+
     /// How many times the core stopped every torrent at once.
     pub fn stopped_all(&self) -> usize {
         self.lock().stopped_all
@@ -168,8 +175,7 @@ impl Torrents for FakeTorrents {
     /// A start checks the files it downloads in the folder at once. Whole, the torrent is
     /// finished: live, or paused when it started paused. Else a live one checks until the test
     /// sends pieces ([`FakeTorrents::progress`]), and a paused one stays paused with pieces
-    /// missing. As librqbit does, it makes the files it skips as stubs: their full length, with
-    /// none of their bytes.
+    /// missing. It makes no file for the files it skips.
     async fn start(
         &self,
         id: &str,
@@ -183,13 +189,6 @@ impl Torrents for FakeTorrents {
         let mut state = self.lock();
         let files =
             state.swarm.get(&hash).map(|(_, f)| f.clone()).ok_or_else(|| PluginError::Network("no peers".into()))?;
-        for (_, (path, bytes)) in files.iter().enumerate().filter(|(i, _)| !chosen(&only, *i)) {
-            let stub = folder.join(path);
-            if !stub.exists() {
-                std::fs::create_dir_all(stub.parent().unwrap()).unwrap();
-                std::fs::File::create(&stub).unwrap().set_len(bytes.len() as u64).unwrap();
-            }
-        }
         let wanted: Vec<&(String, Vec<u8>)> =
             files.iter().enumerate().filter(|(i, _)| chosen(&only, *i)).map(|(_, f)| f).collect();
         let total = wanted.iter().map(|(_, b)| b.len() as u64).sum();
@@ -236,6 +235,11 @@ impl Torrents for FakeTorrents {
 
     async fn stop(&self, id: &str) -> PluginResult<()> {
         self.lock().running.remove(id);
+        Ok(())
+    }
+
+    async fn forget(&self, id: &str) -> PluginResult<()> {
+        self.lock().forgotten.push(id.to_owned());
         Ok(())
     }
 

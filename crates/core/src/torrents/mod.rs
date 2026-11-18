@@ -120,10 +120,15 @@ pub(crate) struct TorrentJob {
     pub files: Vec<TorrentFile>,
     pub file_count: usize,
     /// The files the player unchecked on the download sheet, by their place in `files`: they
-    /// get skip priority, and their stubs go once it finishes. While it is Ready, `total` is
+    /// get skip priority, and the engine makes no file for them. While it is Ready, `total` is
     /// the whole torrent's; from its start, what the checked files hold.
     #[serde(default)]
     pub skip: Vec<usize>,
+    /// A download with files left out finished in a version whose engine keeps the bytes of
+    /// the skipped files that a piece shares with a checked one: it can seed. One that an older
+    /// version finished can't: its check would find those pieces missing.
+    #[serde(default)]
+    pub parts_kept: bool,
     /// "Download and install": once it finishes, it installs into this game folder.
     #[serde(default)]
     pub install_after: Option<InstallAfter>,
@@ -176,15 +181,19 @@ impl TorrentJob {
         self.state.active() || self.seeding || self.verifying
     }
 
-    /// The player left files out. Such a download doesn't share: the stubs of the files it
-    /// skipped go once it finishes, and with them pieces it shares with the checked ones.
+    /// The player left files out. Such a download shares the pieces it has.
     pub fn partial(&self) -> bool {
         !self.skip.is_empty()
     }
 
+    /// A finished download can check its files and seed after a restart.
+    fn can_seed(&self) -> bool {
+        self.state == TorrentState::Complete && self.error.is_empty() && (!self.partial() || self.parts_kept)
+    }
+
     /// How a download (not a seed-only check) starts, with sharing on or off.
     fn download_start(&self, sharing: bool) -> TorrentStart {
-        TorrentStart::Download { seed: sharing && !self.partial() }
+        TorrentStart::Download { seed: sharing }
     }
 }
 
@@ -493,6 +502,7 @@ impl TorrentsSubsystem {
             files: Vec::new(),
             file_count: 0,
             skip: Vec::new(),
+            parts_kept: false,
             install_after: None,
             error: String::new(),
             download_rate: 0,
@@ -538,7 +548,7 @@ impl TorrentsSubsystem {
         }
         for job in jobs {
             self.inner.records.save(&job);
-            if seed && job.state == TorrentState::Complete && job.error.is_empty() && !job.partial() {
+            if seed && job.can_seed() {
                 let this = self.clone();
                 tokio::spawn(async move { this.start(&job.id, TorrentStart::SeedOnly).await });
             }
@@ -688,8 +698,8 @@ impl TorrentsSubsystem {
                     job.start.unwrap_or(job.download_start(sharing))
                 };
                 let (phase, actions) = phase::next(&job.phase(), &stats, start, sharing);
-                // A download with files left out shows as complete once their stubs are gone
-                // (`drop_stubs`), and looks for its archives then.
+                // A download with files left out shows as complete once the stubs an older
+                // version made are gone (`drop_stubs`), and looks for its archives then.
                 if actions.contains(&Action::Finished) && job.partial() {
                     return (actions, job.title.clone(), Some(phase));
                 }
@@ -770,11 +780,13 @@ impl TorrentsSubsystem {
             }
             TorrentAction::Remove if !job.state.active() && !job.seeding => {
                 self.port().stop(id).await.map_err(|e| CoreError::Io(e.to_string()))?;
+                self.drop_kept(id).await;
                 self.forget(id);
             }
             // The core refuses it first while the download's install runs.
             TorrentAction::DeleteFiles if !job.state.active() && !job.seeding && !unpacking => {
                 self.port().stop(id).await.map_err(|e| CoreError::Io(e.to_string()))?;
+                self.drop_kept(id).await;
                 Arc::make_mut(&mut self.state().jobs).remove(id);
                 self.inner.records.forget(id);
                 // Only the folder Marah Launcher made for this download (`torrent-<id>`).
@@ -843,14 +855,12 @@ impl TorrentsSubsystem {
         .flatten()
     }
 
-    /// A download with files left out just finished: it stops, the stubs of the files it
-    /// skipped go, so no installer takes them for the game's, and then it shows as `phase`
-    /// (complete) and looks for its archives.
+    /// A download with files left out just finished. The engine makes no file for a skipped
+    /// one, but an older version did, for a download it started: those stubs go, so no
+    /// installer takes them for the game's. Then it shows as `phase` (complete, and seeding
+    /// when sharing is on) and looks for its archives.
     async fn drop_stubs(&self, id: &str, phase: Phase) {
         let Some(job) = self.job(id) else { return };
-        if let Err(e) = self.port().stop(id).await {
-            tracing::warn!(error = %e, "a download with files left out didn't stop");
-        }
         for file in job.skip.iter().filter_map(|i| job.files.get(*i)) {
             let path = std::path::Path::new(&file.path);
             if !path.components().all(|c| matches!(c, std::path::Component::Normal(_))) {
@@ -871,9 +881,16 @@ impl TorrentsSubsystem {
         let unpack = crate::archives::Unpack::of(&job.folder);
         self.update(id, |job| {
             job.set_phase(phase);
-            job.seeding = false;
+            job.parts_kept = true;
             job.hand_off.unpack = unpack;
         });
+    }
+
+    /// The engine drops what it kept for download `id` outside its folder.
+    async fn drop_kept(&self, id: &str) {
+        if let Err(e) = self.port().forget(id).await {
+            tracing::warn!(error = %e, torrent = %id, "the engine didn't drop what it kept for a download");
+        }
     }
 
     /// Forgets a download: it leaves the list and the config.

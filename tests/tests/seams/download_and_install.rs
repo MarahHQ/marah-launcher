@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use launcher_api::*;
-use launcher_core::{Area, Command, GameInstallCmd, TorrentAction, TorrentCmd};
+use launcher_core::{Area, Command, GameInstallCmd, TorrentAction, TorrentCmd, Torrents};
 use launcher_testkit::{FakeHost, StubPlugin, TestCore, until as until_in};
 
 use crate::common::{catalogs_fetched, id};
@@ -238,7 +238,7 @@ async fn the_sheet_lists_each_file_with_its_kind_and_size_and_the_game_stays_on(
 }
 
 #[tokio::test]
-async fn unchecked_files_get_skip_priority_and_their_stubs_go_when_it_finishes() {
+async fn unchecked_files_get_skip_priority_make_no_file_and_the_download_shares_what_it_has() {
     let s = setup().await;
     let t = &s.t;
     pick(t, Some(2), false).await;
@@ -247,17 +247,96 @@ async fn unchecked_files_get_skip_priority_and_their_stubs_go_when_it_finishes()
 
     assert_eq!(t.torrents.only(HASH), Some(vec![0, 1]), "the DLC and the readme get skip priority");
     assert_eq!(row(t).total, bytes(&[GAME, UPDATE]), "only what is checked counts");
-    assert!(s.folder().join("Astro/DLC/Costume.pkg").exists(), "the engine makes a stub");
+    assert!(!s.folder().join("Astro/DLC").exists(), "the engine makes no file for a skipped one");
 
     t.torrents.complete(HASH);
     let done = until(t, |r| r.state == "complete").await;
-    assert_eq!(listing(&s.folder()), ["Astro/Astro.pkg", "Astro/Update/Astro-v1.05.pkg"], "the stubs went");
-    assert!(!s.folder().join("Astro/DLC").exists(), "and the folder they left empty");
-    assert!(!done.seeding, "a download with files left out doesn't share");
-    assert!(t.torrents.running().is_empty());
-    assert_eq!(done.actions, ["install", "remove"], "it installs as a separate step");
+    assert_eq!(listing(&s.folder()), ["Astro/Astro.pkg", "Astro/Update/Astro-v1.05.pkg"]);
+    assert!(done.seeding, "a download with files left out shares the files it has");
+    assert_eq!(t.torrents.running(), [HASH]);
+    assert_eq!(done.actions, ["install", "stop-seeding"], "it installs as a separate step");
     assert!(s.seen.sources.lock().unwrap().is_empty(), "Download alone installs nothing");
     assert!(t.core.view().notices.iter().any(|n| n.contains("Install it from Downloads")));
+}
+
+#[tokio::test]
+async fn a_download_with_files_left_out_seeds_again_after_a_restart_with_the_same_files() {
+    let s = setup().await;
+    let t = &s.t;
+    pick(t, Some(2), false).await;
+    pick(t, Some(3), false).await;
+    begin(t, false, None).await.unwrap();
+    t.torrents.complete(HASH);
+    until(t, |r| r.seeding).await;
+    t.torrents.stop_all().await.unwrap();
+
+    let again = launcher_core::Core::start(t.kernel.clone()).await;
+    until_in(&again, Area::Torrents, |core| core.view().downloads.torrents.first().is_some_and(|r| r.seeding)).await;
+    assert_eq!(t.torrents.started().last(), Some(&(HASH.to_owned(), true)), "it checks its files first");
+    assert_eq!(t.torrents.only(HASH), Some(vec![0, 1]), "the skipped files stay out");
+    assert_eq!(listing(&s.folder()), ["Astro/Astro.pkg", "Astro/Update/Astro-v1.05.pkg"], "no file came back");
+}
+
+#[tokio::test]
+async fn a_download_with_files_left_out_that_an_older_version_finished_does_not_seed_or_fail() {
+    let s = setup().await;
+    let t = &s.t;
+    pick(t, Some(3), false).await;
+    begin(t, false, None).await.unwrap();
+    t.torrents.complete(HASH);
+    until(t, |r| r.seeding).await;
+    t.torrents.stop_all().await.unwrap();
+    // An older version kept no bytes of the readme that a piece shares with a checked file, and
+    // didn't save that it did.
+    let flag = ["app", "torrents", HASH, "parts_kept"];
+    assert_eq!(t.core.kernel().config().get(&flag), serde_json::json!(true), "this version saves it");
+    t.core.kernel().config().remove(&flag).unwrap();
+    assert!(t.core.kernel().config().get(&flag).is_null());
+    let started = t.torrents.started().len();
+
+    let again = launcher_core::Core::start(t.kernel.clone()).await;
+    // The restore starts its seeds on their own tasks: they get time to run.
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let restored = again.view().downloads.torrents.into_iter().next().unwrap();
+    assert_eq!((restored.state.as_str(), restored.seeding), ("complete", false));
+    assert_eq!(restored.error, "", "its files didn't change");
+    assert_eq!(t.torrents.started().len(), started, "it doesn't start a check that would fail");
+}
+
+#[tokio::test]
+async fn a_stub_an_older_version_made_for_a_skipped_file_goes_when_the_download_finishes() {
+    let s = setup().await;
+    let t = &s.t;
+    pick(t, Some(2), false).await;
+    begin(t, false, None).await.unwrap();
+    let stub = s.folder().join("Astro/DLC/Costume.pkg");
+    std::fs::create_dir_all(stub.parent().unwrap()).unwrap();
+    std::fs::File::create(&stub).unwrap().set_len(DLC.len() as u64).unwrap();
+
+    t.torrents.complete(HASH);
+    let done = until(t, |r| r.state == "complete").await;
+    assert!(!s.folder().join("Astro/DLC").exists(), "the stub went, and the folder it left empty");
+    assert!(done.seeding, "and it shares");
+}
+
+#[tokio::test]
+async fn removing_a_download_drops_what_the_engine_kept_for_it() {
+    for action in [TorrentAction::Remove, TorrentAction::DeleteFiles] {
+        let s = setup().await;
+        let t = &s.t;
+        pick(t, Some(3), false).await;
+        begin(t, false, None).await.unwrap();
+        t.torrents.complete(HASH);
+        until(t, |r| r.seeding).await;
+        t.core
+            .dispatch(Command::Torrent(TorrentCmd::Act { id: HASH.into(), action: TorrentAction::StopSeeding }))
+            .await
+            .unwrap();
+        assert!(t.torrents.forgotten().is_empty(), "stopping keeps it");
+
+        t.core.dispatch(Command::Torrent(TorrentCmd::Act { id: HASH.into(), action })).await.unwrap();
+        assert_eq!(t.torrents.forgotten(), [HASH], "{action:?}");
+    }
 }
 
 #[tokio::test]
@@ -421,6 +500,10 @@ async fn a_skipped_archive_s_stub_doesn_t_unpack_and_the_game_s_archive_installs
     assert_eq!(row(t).picks.iter().map(|p| p.kind.as_str()).collect::<Vec<_>>(), ["game", "update"]);
     pick(t, Some(1), false).await;
     begin(t, true, None).await.unwrap();
+    // An older version made a stub for the skipped archive.
+    let stub = s.folder().join("Astro/update.zip");
+    std::fs::create_dir_all(stub.parent().unwrap()).unwrap();
+    std::fs::write(&stub, [0; 17]).unwrap();
     t.torrents.complete(HASH);
 
     let installed = until_install(t, "done").await;

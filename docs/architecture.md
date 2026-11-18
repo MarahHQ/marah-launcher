@@ -510,7 +510,7 @@ Everything Marah Launcher keeps lives in one data folder: `$XDG_DATA_HOME/marah-
 | `logs/<plugin>/<game>.log` | A running game's output. The run before stays as `<game>.previous.log`. |
 | `cache/net/` | Images fetched by URL, named by the SHA-256 of the URL. |
 | `cache/thumbs/` | Smaller copies of art. |
-| `torrents/` | The torrents' data, with fastresume data in `torrents/resume/`. |
+| `torrents/` | The torrents' data, with fastresume data in `torrents/resume/`, and in `torrents/kept/<info hash>/` the bytes of skipped files that a piece shares with a chosen one. |
 | `updates/` | A downloaded launcher update and its `ready.json`. |
 | `extensions/` | Third-party themes, unless `--extensions` names another folder. |
 | `restored-settings.json` | The settings of the last restore, until the next start puts them back. |
