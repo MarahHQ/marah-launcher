@@ -235,6 +235,73 @@ fn circle_closes_the_keyboard_and_keeps_the_text() {
     assert_eq!(host.values("osk-text"), ["ga"]);
 }
 
+/// The highlighted pick over the keys, if one is.
+fn lit_pick(host: &Composed) -> Option<String> {
+    i_slint_backend_testing::ElementHandle::find_by_accessible_label(host.instance(), "osk-pick")
+        .find(|e| e.accessible_item_selected() == Some(true))
+        .and_then(|e| e.accessible_value())
+        .map(|v| v.to_string())
+}
+
+#[test]
+fn the_search_keyboard_shows_the_best_matches_then_the_last_searches_over_its_keys() {
+    use launcher_ui_host::PadButton;
+    let mut host = library_by_pad();
+    host.pad(PadButton::North);
+    assert_eq!(host.values("osk-picks"), ["Your last searches show here"], "none yet");
+    assert!(host.values("osk-pick").is_empty());
+
+    // The best matches come as the search runs.
+    osk_type(&mut host, "gma");
+    rest(&mut host);
+    assert_eq!(host.values("osk-picks"), ["No games match"]);
+    osk_action(&mut host, "Delete");
+    osk_action(&mut host, "Delete");
+    osk_type(&mut host, "am");
+    rest(&mut host);
+    assert_eq!(host.values("osk-pick"), ["Gamma"]);
+
+    // Up from the numbers row is the picks; Cross on a match opens its Game Hub.
+    osk_go(&mut host, 0, 3);
+    host.pad(PadButton::Up);
+    assert_eq!(lit_pick(&host).as_deref(), Some("Gamma"));
+    host.pad(PadButton::Down);
+    assert_eq!(osk_at(&host), (0, 1), "down again, under the pick");
+    host.pad(PadButton::Up);
+    host.pad(PadButton::South);
+    assert_eq!(host.count("osk"), 0);
+    assert_eq!(host.core().view().screen, launcher_ui_api::ScreenId::GameDetail);
+    assert_eq!(host.core().view().home.library.recent, ["gam"], "the search is kept");
+
+    // With no search, the last searches, and Clear.
+    host.pad(PadButton::East);
+    host.dispatch(Command::LibrarySearch(String::new()));
+    host.settle();
+    host.pad(PadButton::North);
+    assert_eq!(host.values("osk-pick"), ["gam", "Clear"]);
+    host.pad(PadButton::Up);
+    host.pad(PadButton::Up);
+    assert_eq!(lit_pick(&host).as_deref(), Some("gam"));
+    host.pad(PadButton::South);
+    assert_eq!(host.count("osk"), 0, "a last search runs again");
+    assert_eq!(host.core().view().home.library.query, "gam");
+    assert_eq!(host.values("default-game"), ["Gamma"]);
+
+    host.dispatch(Command::LibrarySearch(String::new()));
+    host.settle();
+    host.pad(PadButton::North);
+    host.pad(PadButton::Up);
+    host.pad(PadButton::Up);
+    host.pad(PadButton::Right);
+    assert_eq!(lit_pick(&host).as_deref(), Some("Clear"));
+    host.pad(PadButton::South);
+    host.pump();
+    host.settle();
+    assert!(host.core().view().home.library.recent.is_empty(), "Clear forgets them");
+    assert_eq!(host.values("osk-picks"), ["Your last searches show here"]);
+    assert_eq!(osk_at(&host), (0, 0), "the highlight goes back to the keys");
+}
+
 /// A theme for tests: the default one with a password field on the Emulators screen. Its
 /// `focus-password` button focuses the field.
 fn with_a_password_field() -> (tempfile::TempDir, Composed) {

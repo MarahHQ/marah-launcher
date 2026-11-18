@@ -692,26 +692,35 @@ fn shoot_trailer(window: &MinimalSoftwareWindow, out: &Path) {
     }
 }
 
-/// The on-screen keyboard over the Library's search, opened with the controller: letters with
-/// Shift on as `classic-keyboard.png`, the symbols as `classic-keyboard-symbols.png`, then at
-/// the smallest and largest size, at a 1.5 scale factor and right to left, as
-/// `classic-keyboard-<percent>.png`, `classic-keyboard-scale-150.png` and
+/// The on-screen keyboard over the Library's search, opened with the controller: with the last
+/// searches over the keys as `classic-keyboard-recent.png`, then with "q" typed, its best match
+/// over the keys and the letters with Shift on as `classic-keyboard.png`, the symbols as
+/// `classic-keyboard-symbols.png`, then at the smallest and largest size, at a 1.5 scale factor
+/// and right to left, as `classic-keyboard-<percent>.png`, `classic-keyboard-scale-150.png` and
 /// `classic-rtl-keyboard.png`. The keys are drawn on whole pixels at every one of them.
 fn shoot_keyboard(window: &MinimalSoftwareWindow, out: &Path) {
     use launcher_ui_host::PadButton;
     let mut host = composed_on_current_platform(|h| {
-        h.plugin(FakeCatalog::new("emu-a").system("PS5").games(["Astro Drift"]).build())
+        h.plugin(FakeCatalog::new("emu-a").system("PS5").games(["Astro Drift", "Quest Runner"]).build())
     });
     host.ui.start().unwrap();
     host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
+    for text in ["astro drift", "quest"] {
+        host.dispatch(Command::RememberSearch(text.into()));
+    }
     let pad = |host: &mut Composed, button: PadButton| {
         host.ui.pad(button).unwrap();
         follow(host);
         follow(host);
     };
-    for button in [PadButton::Up, PadButton::Right, PadButton::South, PadButton::North, PadButton::South] {
+    for button in [PadButton::Up, PadButton::Right, PadButton::South, PadButton::North] {
         pad(&mut host, button);
     }
+    shoot(window, &out.join("classic-keyboard-recent.png"));
+    pad(&mut host, PadButton::South);
+    // The search the field runs once typing stops for a moment.
+    host.dispatch(Command::LibrarySearch("q".into()));
+    follow(&mut host);
     pad(&mut host, PadButton::LeftShoulder);
     shoot(window, &out.join("classic-keyboard.png"));
     pad(&mut host, PadButton::RightShoulder);

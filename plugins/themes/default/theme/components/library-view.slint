@@ -362,6 +362,26 @@ export component LibraryView inherits Rectangle {
                     height: parent.height;
                     name: "library-search";
                     title: Nav.catalog ? "Search the catalog" : "Search games";
+                    // Over the keys: the best matches of the search, else the last searches.
+                    picking: true;
+                    picks: Nav.lib.query == "" ? Nav.lib.recent : Nav.lib.matches;
+                    pick-action: Nav.lib.query == "" && Nav.lib.recent.length > 0 ? "Clear" : "";
+                    picks-note: Nav.lib.query == "" ? "Your last searches show here" : "No games match";
+                    picked(i) => {
+                        if (Nav.lib.query == "" && i < Nav.lib.recent.length) {
+                            // A last search: it runs again.
+                            Osk.put(Nav.lib.recent[i]);
+                            Osk.finish();
+                        } else if (Nav.lib.query == "") {
+                            Commands.forget-searches();
+                        } else {
+                            // A match: its Game Hub opens, and the search is kept.
+                            let key = Nav.lib.games[i].key;
+                            Osk.finish();
+                            Nav.select-now(key);
+                            Commands.open-game(key);
+                        }
+                    }
                     horizontal-alignment: Look.rtl ? right : left;
                     font-size: 22 * Look.px;
                     text-color: Tokens.color-text;
@@ -378,6 +398,7 @@ export component LibraryView inherits Rectangle {
                     accepted => {
                         debounce.stop();
                         if (input.text != Nav.lib.query) { Nav.search(input.text); }
+                        if (input.text != "") { Commands.remember-search(input.text); }
                         Nav.typing = false;
                         Nav.zone = "grid";
                     }
