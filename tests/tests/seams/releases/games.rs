@@ -344,10 +344,10 @@ async fn a_list_without_the_title_look_up_leaves_the_offers_as_before() {
     assert_eq!(detail.compat, None);
 }
 
-#[tokio::test]
-async fn the_player_s_own_result_for_the_installed_game_wins_over_the_list() {
-    // The player has Astro Bot on PS4 (CUSA00000): its list says Playable for it, and the PS4
-    // version would be the best. The player played it: it doesn't start.
+/// The player has Astro Bot on PS4 (CUSA00000), and its list says Playable for it. The Catalog
+/// has its PS4 version and a PS5 version. It returns once the library knows the PS4 version is
+/// the installed game.
+async fn astro_installed_on_ps4() -> TestCore {
     let t = FakeHost::new()
         .hardware(strong_pc(true))
         .built_in(launcher_api::PluginBox::code(release_catalog::ReleaseCatalog::default()))
@@ -369,6 +369,13 @@ async fn the_player_s_own_result_for_the_installed_game_wins_over_the_list() {
     // installed game.
     t.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
     t.until(Area::Catalogs, |core| core.view().catalog.games.systems.iter().any(|c| c.id == "ingame")).await;
+    t
+}
+
+#[tokio::test]
+async fn the_player_s_own_result_for_the_installed_game_wins_over_the_list() {
+    // The PS4 version would be the best. The player played it: it doesn't start.
+    let t = astro_installed_on_ps4().await;
     t.core.dispatch(Command::AskResult("emu-ps4:G0".parse().unwrap())).await.unwrap();
     t.core.dispatch(Command::ReportResult(Some(CompatLevel::Nothing))).await.unwrap();
     assert!(!chips(&t).iter().any(|(id, _)| id == "ingame"), "the In-game filter reads the player's: {:?}", chips(&t));
@@ -381,4 +388,40 @@ async fn the_player_s_own_result_for_the_installed_game_wins_over_the_list() {
             version("PS4", "Doesn't start", ""),
         ]
     );
+}
+
+const ASTRO_INSTALLED: &str = "release-catalog:emu-ps4/CUSA00000";
+
+/// Rates `game` as reaching `level`, as after playing it.
+async fn rate(t: &TestCore, game: &str, level: CompatLevel) {
+    t.core.dispatch(Command::AskResult(game.parse().unwrap())).await.unwrap();
+    t.core.dispatch(Command::ReportResult(Some(level))).await.unwrap();
+}
+
+/// The open Game Hub's "your result" for `offer`.
+async fn your_result_on(t: &TestCore, offer: &str) -> String {
+    t.core.dispatch(Command::OpenGame(offer.parse().unwrap())).await.unwrap();
+    t.core.view().detail.unwrap().your_result
+}
+
+#[tokio::test]
+async fn the_hub_of_a_version_shows_the_player_s_result_for_the_installed_game_it_is() {
+    let t = astro_installed_on_ps4().await;
+    rate(&t, "emu-ps4:G0", CompatLevel::Menus).await;
+    assert_eq!(your_result_on(&t, ASTRO_INSTALLED).await, "menus");
+}
+
+#[tokio::test]
+async fn the_hub_shows_the_player_s_result_for_the_version_over_the_installed_game_s() {
+    let t = astro_installed_on_ps4().await;
+    rate(&t, "emu-ps4:G0", CompatLevel::Menus).await;
+    rate(&t, ASTRO_INSTALLED, CompatLevel::Ingame).await;
+    assert_eq!(your_result_on(&t, ASTRO_INSTALLED).await, "ingame");
+}
+
+#[tokio::test]
+async fn the_hub_of_a_version_nobody_rated_shows_no_result_of_the_player_s() {
+    let t = astro_installed_on_ps4().await;
+    assert_eq!(your_result_on(&t, ASTRO_INSTALLED).await, "");
+    assert_eq!(your_result_on(&t, ASTRO_PS5).await, "", "nor a version that isn't installed");
 }
