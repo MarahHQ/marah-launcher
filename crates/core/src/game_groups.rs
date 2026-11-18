@@ -9,7 +9,7 @@
 use std::cmp::Reverse;
 use std::collections::HashMap;
 
-use launcher_api::{CompatLevel, FactKind, GameKey, Platform, PluginId, Requirements};
+use launcher_api::{CompatInfo, CompatLevel, FactKind, GameKey, Platform, PluginId, Requirements};
 
 use crate::hardware::Verdict;
 use crate::library::LibrarySnapshot;
@@ -312,20 +312,30 @@ fn layer_level(rating: &str) -> CompatLevel {
     }
 }
 
-/// The community list's result for `offer`'s game, as the core has it: an offer's details carry
-/// none, so it is the result of the installed game the offer is (the emulator's list, looked up
-/// by its title id). The list itself stays in the emulator's plugin, so an offer the player
-/// doesn't have has none.
-pub(crate) fn community(library: &LibrarySnapshot, owned: &Ownership, offer: &Offer) -> Option<CompatLevel> {
-    let level = |key: &GameKey| library.detail(key).and_then(|d| d.compat.as_ref()).map(|c| c.level);
-    level(&offer.entry.key).or_else(|| owned.installed_game(offer).and_then(|game| level(&game.key)))
+/// The community list's result for `offer`'s game: the installed game's own (its emulator's
+/// `status`) when the player has it, else the result the emulator's list gave for one of the
+/// offer's title ids ([`LibrarySnapshot::community`]). A result that is no level (`Unknown`, as
+/// `status` says for a game the list doesn't know) gives way to one with a level; with none,
+/// the first stays, for its list's page.
+pub(crate) fn community<'a>(library: &'a LibrarySnapshot, owned: &Ownership, offer: &Offer) -> Option<&'a CompatInfo> {
+    let compat = |key: &GameKey| library.detail(key).and_then(|d| d.compat.as_ref());
+    let installed = owned.installed_game(offer).and_then(|game| compat(&game.key));
+    let found = [compat(&offer.entry.key), installed, library.community.get(&offer.entry.key)];
+    let mut found = found.into_iter().flatten();
+    let first = found.clone().next();
+    found.find(|c| c.level != CompatLevel::Unknown).or(first)
+}
+
+/// The player's own result for `offer`'s game: the one for the offer, else the one for the
+/// installed game it is, which is where a result from playing it is kept.
+pub(crate) fn player_result(library: &LibrarySnapshot, owned: &Ownership, offer: &Offer) -> Option<CompatLevel> {
+    library.result(&offer.entry.key).or_else(|| owned.installed_game(offer).and_then(|game| library.result(&game.key)))
 }
 
 /// How `offer`'s game runs here: from the player's result, the community's list, a release for
 /// this system, or the layer's rating, in that order; then the emulator's fit.
 pub(crate) fn version<'a>(library: &LibrarySnapshot, owned: &Ownership, pc: &ThisPc, offer: &'a Offer) -> Version<'a> {
-    let key = &offer.entry.key;
-    let community = community(library, owned, offer);
+    let community = community(library, owned, offer).map(|c| c.level);
     let native = pc.system.and_then(|here| {
         let label = match here {
             Platform::Linux => "linux",
@@ -336,7 +346,7 @@ pub(crate) fn version<'a>(library: &LibrarySnapshot, owned: &Ownership, pc: &Thi
     });
     let layer = Some(layer_level(&crate::releases::compatibility(offer).rating));
     let found = [
-        (library.result(key), Said::Player),
+        (player_result(library, owned, offer), Said::Player),
         (community, Said::Community),
         (native, Said::Native),
         (layer, Said::Layer),

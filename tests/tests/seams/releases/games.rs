@@ -3,6 +3,7 @@
 //! cards as before; the Game Hub lists the versions, the best first, and says why.
 
 use super::*;
+use launcher_api::CompatLevel;
 use launcher_core::{Gpu, Specs};
 
 /// KytyPS5's needs, as its manifest has them.
@@ -35,13 +36,28 @@ async fn astro_on_two_consoles(pc: Specs) -> TestCore {
     astro_added(pc, "2026-10-01").await
 }
 
+/// The PS5 emulator, with KytyPS5's needs and no games.
+fn emu_ps5() -> FakeCatalog {
+    FakeCatalog::new("emu-ps5").system("PS5").console("PS5").requires(PS5_NEEDS).games([])
+}
+
+/// The PS4 emulator, with shadPS4's needs and no games.
+fn emu_ps4() -> FakeCatalog {
+    FakeCatalog::new("emu-ps4").system("PS4").console("PS4").requires(PS4_NEEDS).games([])
+}
+
 /// [`astro_on_two_consoles`], with Astro Bot's PS5 version added to the catalog on `ps5_day`.
 async fn astro_added(pc: Specs, ps5_day: &str) -> TestCore {
+    astro_with(pc, ps5_day, emu_ps5(), emu_ps4()).await
+}
+
+/// [`astro_added`], with these emulators.
+async fn astro_with(pc: Specs, ps5_day: &str, ps5: FakeCatalog, ps4: FakeCatalog) -> TestCore {
     let t = FakeHost::new()
         .hardware(pc)
         .built_in(launcher_api::PluginBox::code(release_catalog::ReleaseCatalog::default()))
-        .plugin(FakeCatalog::new("emu-ps5").system("PS5").console("PS5").requires(PS5_NEEDS).games([]).build())
-        .plugin(FakeCatalog::new("emu-ps4").system("PS4").console("PS4").requires(PS4_NEEDS).games([]).build())
+        .plugin(ps5.build())
+        .plugin(ps4.build())
         .boot_core()
         .await;
     let ps5 = serde_json::json!([added_on("PS5", 1, "PPSA01234", "Astro Bot", 'a', ps5_day)]);
@@ -250,6 +266,119 @@ async fn a_version_takes_the_community_result_of_the_installed_game_it_is() {
                 "Gets the furthest: Playable, as players report".into()
             ),
             ("PS5".into(), "Not tested · Should run well".into(), String::new()),
+        ]
+    );
+}
+
+/// Each version on the open Game Hub as (console, how it runs, why it is the best).
+fn versions_of(detail: &launcher_ui_api::GameDetailVm) -> Vec<(String, String, String)> {
+    detail.versions.iter().map(|v| (v.platform.clone(), v.how.clone(), v.why.clone())).collect()
+}
+
+fn version(platform: &str, how: &str, why: &str) -> (String, String, String) {
+    (platform.into(), how.into(), why.into())
+}
+
+/// [`astro_on_two_consoles`] with these emulators, once the emulators' lists answered for the
+/// offers: the PS5 version is the first card.
+async fn astro_listed(ps5: FakeCatalog, ps4: FakeCatalog) -> TestCore {
+    let t = astro_with(strong_pc(true), "2026-10-01", ps5, ps4).await;
+    t.until(Area::Catalogs, |core| core.view().catalog.games.games.first().is_some_and(|c| c.key == ASTRO_PS5)).await;
+    t
+}
+
+#[tokio::test]
+async fn an_offer_the_player_doesn_t_have_takes_its_list_s_result_and_wins_the_best_pick() {
+    // Nobody has Astro Bot. KytyPS5's list says its PS5 version gets in game; the PS4
+    // emulator has no list. Without the list, the PS4 version is the best (it asks less).
+    let t = astro_listed(emu_ps5().lists(&[("PPSA01234", CompatLevel::Ingame)]), emu_ps4()).await;
+    let quest = "release-catalog:emu-ps4/CUSA00002".to_owned();
+    assert_eq!(cards(&t), [(ASTRO_PS5.to_owned(), vec!["PS5".to_owned(), "PS4".to_owned()]), (quest, Vec::new())]);
+    assert!(chips(&t).contains(&("ingame".to_owned(), 1)), "the In-game filter reads it: {:?}", chips(&t));
+    // The Compat sort puts it first, before Quest.
+    t.core.dispatch(Command::CatalogSort(launcher_core::Sort::Compat)).await.unwrap();
+    assert_eq!(cards(&t)[0].0, ASTRO_PS5);
+    let detail = open_first(&t).await;
+    assert_eq!(
+        versions_of(&detail),
+        [
+            version("PS5", "In-game · Should run well", "Gets the furthest: In-game, as players report"),
+            version("PS4", "Not tested · Should run well", ""),
+        ]
+    );
+    assert_eq!(detail.compat.map(|c| c.label), Some("In-game".into()), "the Hub's Compatibility fact");
+    assert_eq!(detail.compat_page, "https://list.example/compatibility", "with the list's page");
+}
+
+#[tokio::test]
+async fn an_offer_its_list_says_doesn_t_start_loses_the_best_pick() {
+    // shadPS4's list says the PS4 version doesn't start: the PS5 version is the best.
+    let t = astro_listed(emu_ps5(), emu_ps4().lists(&[("cusa01234", CompatLevel::Nothing)])).await;
+    assert_eq!(cards(&t)[0], (ASTRO_PS5.to_owned(), vec!["PS5".to_owned(), "PS4".to_owned()]));
+    let detail = open_first(&t).await;
+    assert_eq!(
+        versions_of(&detail),
+        [
+            version("PS5", "Not tested · Should run well", "The other versions can't start on this PC"),
+            version("PS4", "Doesn't start", ""),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_list_without_the_title_look_up_leaves_the_offers_as_before() {
+    // Both emulators have a list, but neither looks up a title id: a game nobody has is not
+    // tested, and the PS4 version is the best, as with no list.
+    let t = astro_with(strong_pc(true), "2026-10-01", emu_ps5().tested(), emu_ps4().tested()).await;
+    let quest = "release-catalog:emu-ps4/CUSA00002".to_owned();
+    assert_eq!(cards(&t), [(ASTRO_PS4.to_owned(), vec!["PS4".to_owned(), "PS5".to_owned()]), (quest, Vec::new())]);
+    assert!(!chips(&t).iter().any(|(id, _)| id == "ingame"), "no In-game chip: {:?}", chips(&t));
+    let detail = open_first(&t).await;
+    assert_eq!(
+        versions_of(&detail),
+        [
+            version("PS4", "Not tested · Should run well", "Its plugin recommends the least of this PC"),
+            version("PS5", "Not tested · Should run well", ""),
+        ]
+    );
+    assert_eq!(detail.compat, None);
+}
+
+#[tokio::test]
+async fn the_player_s_own_result_for_the_installed_game_wins_over_the_list() {
+    // The player has Astro Bot on PS4 (CUSA00000): its list says Playable for it, and the PS4
+    // version would be the best. The player played it: it doesn't start.
+    let t = FakeHost::new()
+        .hardware(strong_pc(true))
+        .built_in(launcher_api::PluginBox::code(release_catalog::ReleaseCatalog::default()))
+        .plugin(emu_ps5().build())
+        .plugin(emu_ps4().games(["Astro Bot"]).lists(&[("CUSA00000", CompatLevel::Playable)]).build())
+        .boot_core()
+        .await;
+    t.http.serve(
+        URL,
+        catalog_of("2026-10-18T00:00:00Z", serde_json::json!([on("PS5", 1, "PPSA01234", "Astro Bot", 'a')])),
+    );
+    let ps4 = serde_json::json!([on("PS4", 2, "CUSA00000", "Astro Bot", 'b')]);
+    t.http.serve("https://xyz.dev/catalog/ps4.json", catalog_of("2026-10-18T00:00:00Z", ps4));
+    set_address(&t, "https://xyz.dev/catalog").await.unwrap();
+    t.core.dispatch(Command::Navigate(launcher_core::Route::Catalog)).await.unwrap();
+    catalogs_fetched(&t.core).await;
+    t.until(Area::Hardware, |core| core.view().settings.hardware.known).await;
+    // The library reads its games again with the catalogs in, so it knows the offer is the
+    // installed game.
+    t.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
+    t.until(Area::Catalogs, |core| core.view().catalog.games.systems.iter().any(|c| c.id == "ingame")).await;
+    t.core.dispatch(Command::AskResult("emu-ps4:G0".parse().unwrap())).await.unwrap();
+    t.core.dispatch(Command::ReportResult(Some(CompatLevel::Nothing))).await.unwrap();
+    assert!(!chips(&t).iter().any(|(id, _)| id == "ingame"), "the In-game filter reads the player's: {:?}", chips(&t));
+    t.core.dispatch(Command::OpenGame("release-catalog:emu-ps4/CUSA00000".parse().unwrap())).await.unwrap();
+    let detail = t.core.view().detail.unwrap();
+    assert_eq!(
+        versions_of(&detail),
+        [
+            version("PS5", "Not tested · Should run well", "The other versions can't start on this PC"),
+            version("PS4", "Doesn't start", ""),
         ]
     );
 }

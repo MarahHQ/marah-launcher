@@ -44,6 +44,8 @@ pub struct FakeCatalog {
     slots: bool,
     launcher: bool,
     compatibility: bool,
+    /// The community list's results by title id, for any game, installed or not.
+    listed: Vec<(String, CompatLevel)>,
     build: Build,
     packages: bool,
     waiting_installer: bool,
@@ -71,6 +73,7 @@ impl FakeCatalog {
             slots: true,
             launcher: false,
             compatibility: false,
+            listed: Vec::new(),
             build: Build::None,
             packages: false,
             waiting_installer: false,
@@ -171,6 +174,14 @@ impl FakeCatalog {
     /// The community's result for each game: Playable, last tested on 2026-09-01.
     pub fn tested(mut self) -> Self {
         self.compatibility = true;
+        self
+    }
+
+    /// [`FakeCatalog::tested`], and its list looks up any title id (`result_for_title`):
+    /// `listed` has the results it knows, as (title id, level).
+    pub fn lists(mut self, listed: &[(&str, CompatLevel)]) -> Self {
+        self.compatibility = true;
+        self.listed = listed.iter().map(|(id, level)| ((*id).to_owned(), *level)).collect();
         self
     }
 
@@ -296,7 +307,10 @@ impl FakeCatalog {
                 provided.launcher = Some(Arc::new(Play));
             }
             if self.compatibility {
-                provided.compatibility = Some(Arc::new(Tested));
+                provided.compatibility = match self.listed.is_empty() {
+                    true => Some(Arc::new(Tested)),
+                    false => Some(Arc::new(Listed(self.listed.clone()))),
+                };
             }
             match self.build {
                 Build::None => {}
@@ -459,6 +473,29 @@ impl Compatibility for Tested {
             page: None,
             tested: Some("2026-09-01".into()),
         })
+    }
+}
+
+/// [`Tested`], with a list that looks up title ids.
+struct Listed(Vec<(String, CompatLevel)>);
+
+#[async_trait]
+impl Compatibility for Listed {
+    async fn status(&self, game: &str) -> PluginResult<CompatInfo> {
+        Tested.status(game).await
+    }
+
+    async fn result_for_title(&self, title_id: &str) -> PluginResult<Option<CompatInfo>> {
+        let Some((_, level)) = self.0.iter().find(|(id, _)| id.eq_ignore_ascii_case(title_id)) else {
+            return Ok(None);
+        };
+        Ok(Some(CompatInfo {
+            level: *level,
+            notes: Some("Tested on Linux".into()),
+            source: Some("Linux".into()),
+            page: Some("https://list.example/compatibility".into()),
+            tested: Some("2026-09-01".into()),
+        }))
     }
 }
 

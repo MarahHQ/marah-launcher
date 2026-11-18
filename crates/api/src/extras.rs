@@ -107,4 +107,12 @@ pub trait Compatibility: Send + Sync {
     async fn report(&self, _game: &str, _report: &ResultReport) -> PluginResult<Option<ReportForm>> {
         Ok(None)
     }
+
+    /// The list's result for the game of `title_id`, such as `CUSA03173`, whether the player has
+    /// the game or not; `None` when the list has no result for it (API 0.3.4). The host asks it
+    /// for each Catalog offer, so it must be cheap: a look-up in the list held in memory, not a
+    /// network call each time.
+    async fn result_for_title(&self, _title_id: &str) -> PluginResult<Option<CompatInfo>> {
+        Ok(None)
+    }
 }
