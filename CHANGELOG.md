@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/MarahHQ/marah-launcher/compare/v0.10.0...v0.10.1) (2026-11-18)
+
+
+### Bug Fixes
+
+* **shadps4:** in a PS1 game on PS4, the controller's Start is START ([#49](https://github.com/MarahHQ/marah-launcher/issues/49)) ([254935d](https://github.com/MarahHQ/marah-launcher/commit/254935df9b2d5a1acdf4eaf42015bcb6a5b201d7))
+
 ## [0.10.0](https://github.com/MarahHQ/marah-launcher/compare/v0.9.0...v0.10.0) (2026-11-18)
 
 
