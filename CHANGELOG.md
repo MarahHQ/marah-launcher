@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/MarahHQ/marah-launcher/compare/v0.11.1...v0.12.0) (2026-11-18)
+
+
+### Features
+
+* **catalog:** offers you don't have get their emulator's community result by title id ([#61](https://github.com/MarahHQ/marah-launcher/issues/61)) ([a744e40](https://github.com/MarahHQ/marah-launcher/commit/a744e40d8674bf87a4c84e6240c3a299208f2228))
+
 ## [0.11.1](https://github.com/MarahHQ/marah-launcher/compare/v0.11.0...v0.11.1) (2026-11-18)
 
 
