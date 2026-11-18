@@ -216,7 +216,7 @@ impl Composed {
     /// It renders after the settings change and after the read, as the app does.
     pub fn serve_catalog(&mut self, files: &[(&str, serde_json::Value)]) {
         serve_catalog_files(&self.test, files);
-        self.dispatch(catalog_address());
+        self.dispatch(catalog_settings());
         self.catalogs_fetched();
     }
 
@@ -315,7 +315,7 @@ pub fn catalog_file(topics: serde_json::Value) -> String {
 /// copy fetched from there. A console not in `files` has no file there.
 pub async fn serve_catalog(t: &TestCore, files: &[(&str, serde_json::Value)]) {
     serve_catalog_files(t, files);
-    t.core.dispatch(catalog_address()).await.unwrap();
+    t.core.dispatch(catalog_settings()).await.unwrap();
     catalogs_fetched(&t.core).await;
 }
 
@@ -327,7 +327,7 @@ fn serve_catalog_files(t: &TestCore, files: &[(&str, serde_json::Value)]) {
 
 /// The Game Catalog's settings: its address is [`CATALOG_URL`], and it shows the releases
 /// without images too.
-fn catalog_address() -> Command {
+fn catalog_settings() -> Command {
     Command::SetConfig {
         plugin: id("release-catalog"),
         scope: ConfigScope::Emulator,

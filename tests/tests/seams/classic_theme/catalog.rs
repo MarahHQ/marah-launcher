@@ -405,11 +405,11 @@ fn catalog_with_refresh(refresh: bool) -> Composed {
         "magnet": format!("magnet:?xt=urn:btih:{ASTRO_HASH}"),
         "game_info": { "name": "Astro", "title_id": "PPSA01234", "version": "v01.05" } }]);
     // Its own settings: the refresh is what the test is about.
-    host.test.http.serve("https://xyz.dev/c/ps5.json", catalog_file(topics));
+    host.test.http.serve(&format!("{CATALOG_URL}/ps5.json"), catalog_file(topics));
     host.dispatch(Command::SetConfig {
         plugin: id("release-catalog"),
         scope: launcher_api::ConfigScope::Emulator,
-        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "refresh_from_forums": refresh, "hide_without_images": false }),
+        value: serde_json::json!({ "catalog_url": CATALOG_URL, "refresh_from_forums": refresh, "hide_without_images": false }),
     });
     host.catalogs_fetched();
     host.resize(1600.0, 900.0);

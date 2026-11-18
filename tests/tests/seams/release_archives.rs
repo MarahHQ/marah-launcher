@@ -22,7 +22,8 @@ async fn setup(files: &[(&str, &[u8])]) -> Setup {
 }
 
 /// [`setup`] with the PS5 emulator `add` puts in; `emulator` is the one whose installs the
-/// test reads.
+/// test reads. A test that adds a real plugin reads no installs, and its `emulator` goes
+/// unused.
 async fn setup_with(add: impl FnOnce(FakeHost) -> FakeHost, files: &[(&str, &[u8])], emulator: FakeCatalog) -> Setup {
     let home = tempfile::tempdir().unwrap();
     let t = add(FakeHost::new().home(home.path()))
