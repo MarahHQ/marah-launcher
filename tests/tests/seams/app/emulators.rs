@@ -169,6 +169,57 @@ async fn an_emulator_build_doesn_t_install_twice_at_once() {
     assert_eq!(installed(&t.core).await, ["1.0"]);
 }
 
+/// The boot step of `emu-a`: its detail and its state.
+fn step(t: &TestCore) -> (String, String) {
+    let step = t.core.view().boot.steps.into_iter().find(|s| s.label == "emu-a").expect("emu-a's boot step");
+    (step.detail, step.state)
+}
+
+#[tokio::test]
+async fn a_look_for_updates_skips_an_emulator_that_is_updating() {
+    let (t, emu) = core_with(FakeEmulator::new(vec!["A"])).await;
+    install(&t.core).await;
+    emu.release("2.0");
+    let gate = t.http.hold_after(&emu.build_url, 10);
+    let core = t.core.clone();
+    let update = tokio::spawn(async move { core.dispatch(Command::UpdateEmulator { plugin: id("emu-a") }).await });
+    let busy = |core: &Core| core.view().emulators.emulators.iter().any(|e| e.plugin == id("emu-a") && e.busy);
+    t.until(Area::Downloads, busy).await;
+
+    t.core.dispatch(Command::CheckUpdates).await.unwrap();
+    gate.release();
+    update.await.unwrap().unwrap();
+    assert!(t.core.view().notices.is_empty(), "{:?}", t.core.view().notices);
+    assert_ne!(step(&t).1, "failed", "{:?}", step(&t));
+    assert!(installed(&t.core).await.contains(&"2.0".to_owned()));
+}
+
+#[tokio::test]
+async fn an_update_that_waited_for_a_game_skips_an_emulator_that_is_updating() {
+    let (t, emu) = core_with(FakeEmulator::new(vec!["A"])).await;
+    let (_, process) = play(&t).await;
+    emu.release("2.0");
+    t.core.dispatch(Command::CheckUpdates).await.unwrap();
+    assert_eq!(installed(&t.core).await, ["1.0"], "the update waits for the game");
+    // The player updates by hand while the game runs.
+    let gate = t.http.hold_after(&emu.build_url, 10);
+    let core = t.core.clone();
+    let update = tokio::spawn(async move { core.dispatch(Command::UpdateEmulator { plugin: id("emu-a") }).await });
+    let busy = |core: &Core| core.view().emulators.emulators.iter().any(|e| e.plugin == id("emu-a") && e.busy);
+    t.until(Area::Downloads, busy).await;
+
+    process.exit(0);
+    until(&t, "the game closed", || t.core.view().running.is_none()).await;
+    gate.release();
+    update.await.unwrap().unwrap();
+    // A late update from the closed game would say the emulator is up to date.
+    for _ in 0..10 {
+        t.clock.advance(WATCH_EVERY).await;
+    }
+    assert!(t.core.view().notices.is_empty(), "{:?}", t.core.view().notices);
+    assert!(installed(&t.core).await.contains(&"2.0".to_owned()));
+}
+
 #[tokio::test]
 async fn opening_another_plugin_replaces_the_open_one_so_back_goes_to_the_list() {
     let t = FakeHost::new()
