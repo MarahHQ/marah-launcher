@@ -688,3 +688,72 @@ async fn with_old_saves_shadps4_asks_the_player() {
 
     assert!(!data.path().join("home/1000").exists());
 }
+
+/// A PS1 game that Sony sells for PS4: a PS4 game folder with the PS1 emulator's
+/// `config-title.txt` and the PS1 disc as a `.cue` in `data/`.
+fn ps1_game(root: &Path) {
+    ps4_game(root, "CUSA55454", "gd", "CUSA55454", "TEKKEN 3");
+    std::fs::write(root.join("CUSA55454/config-title.txt"), b"--ps4-trophies=1\n").unwrap();
+    std::fs::create_dir_all(root.join("CUSA55454/data")).unwrap();
+    std::fs::write(root.join("CUSA55454/data/Tekken3_SLUS00402_SCEA.cue"), b"FILE \"t.bin\" BINARY\n").unwrap();
+}
+
+/// Starts `key` with shadPS4's data folder at `data`, as the `n`th process, and returns it.
+async fn launch_game(test: &TestCore, data: &Path, key: &str, n: usize) -> launcher_testkit::SpawnedProcess {
+    test.core.dispatch(Command::SetFolders { name: "shadps4-data".into(), paths: vec![data.into()] }).await.unwrap();
+    test.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
+    test.core.dispatch(Command::Session(SessionCmd::Launch(key.parse().unwrap()))).await.unwrap();
+    test.spawner.wait_for(n).await
+}
+
+/// The controller lines of shadPS4's key map for all games.
+fn pad_lines(data: &Path) -> Vec<String> {
+    let map = key_map(data, "default");
+    let keep = |l: &&str| ["options", "back"].iter().any(|b| l.ends_with(&format!("= {b}")));
+    map.lines().filter(keep).map(str::to_owned).collect()
+}
+
+/// In a PS1 game on PS4, START is a touchpad click on the right half, and the game has no use
+/// for the PS4's Options button. A player presses the controller's Start for START: before a PS1
+/// game, Start clicks the right half and Back the left half (SELECT).
+#[tokio::test]
+async fn in_a_ps1_game_start_is_start_and_back_is_select() {
+    let (test, games) = boot().await;
+    ps1_game(games.path());
+    let data = tempfile::tempdir().unwrap();
+    test.core.dispatch(Command::InstallEmulator { plugin: shad(), version: None }).await.unwrap();
+
+    launch_game(&test, data.path(), "emu-shadps4:CUSA55454", 2).await;
+
+    assert_eq!(pad_lines(data.path()), ["touchpad_right = options", "touchpad_left = back"]);
+}
+
+/// Before a PS4 game, Start is Options again and Back the touchpad.
+#[tokio::test]
+async fn after_a_ps1_game_a_ps4_game_has_start_as_options_again() {
+    let (test, games) = boot().await;
+    ps1_game(games.path());
+    let data = tempfile::tempdir().unwrap();
+    test.core.dispatch(Command::InstallEmulator { plugin: shad(), version: None }).await.unwrap();
+    let ps1 = launch_game(&test, data.path(), "emu-shadps4:CUSA55454", 2).await;
+    ps1.exit(0);
+    test.until(Area::Sessions, |core| !core.game_running()).await;
+
+    launch_game(&test, data.path(), "emu-shadps4:CUSA04118", 3).await;
+
+    assert_eq!(pad_lines(data.path()), ["options = options", "touchpad_right = back"]);
+}
+
+/// A PS4 game folder with only one of the two marks is a PS4 game.
+#[tokio::test]
+async fn a_game_with_config_title_but_no_ps1_disc_is_a_ps4_game() {
+    let (test, games) = boot().await;
+    ps1_game(games.path());
+    std::fs::remove_dir_all(games.path().join("CUSA55454/data")).unwrap();
+    let data = tempfile::tempdir().unwrap();
+    test.core.dispatch(Command::InstallEmulator { plugin: shad(), version: None }).await.unwrap();
+
+    launch_game(&test, data.path(), "emu-shadps4:CUSA55454", 2).await;
+
+    assert_eq!(pad_lines(data.path()), ["options = options", "touchpad_right = back"]);
+}
