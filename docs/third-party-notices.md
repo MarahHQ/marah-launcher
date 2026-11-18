@@ -17,6 +17,7 @@ repository holds no licence information, this page says so.
 | --- | --- | --- |
 | `plugins/emulators/shadps4/src/pkg4.rs` | The PS4 fake package reader. Ported from shadPS4 v0.7.0 (`src/core/file_format/pkg.cpp`, `src/core/crypto/crypto.cpp`), with the file system walk of LibOrbisPkg in place of shadPS4's guesses. | shadPS4: GPL-2.0-or-later (the file's SPDX line). LibOrbisPkg: MIT (the file's header). |
 | `plugins/emulators/shadps4/src/pkg4_data.rs` | Key data for that reader, generated from shadPS4 v0.7.0 (`src/core/crypto/keys.h`, `src/core/file_format/pkg_type.cpp`). Do not edit by hand. | GPL-2.0-or-later (the file's SPDX line). Copyright 2024 shadPS4 Emulator Project. |
+| `plugins/emulators/shadps4/src/default-input.ini` | shadPS4's default key map, from shadPS4 v0.21.0 (`GetDefaultInputConfig` in `src/input/input_handler.cpp`), with the touchpad button on the right half of the touchpad. | GPL-2.0-or-later. Copyright shadPS4 Emulator Project. |
 | `third_party/oozextract` | Vendored copy of the `oozextract` crate 0.5.5, a Kraken decompressor that the PS5 package reader uses. | MIT, as the crate declares in `third_party/oozextract/Cargo.toml`. |
 
 Everything else in the repository is this project's own code. That includes the PS5 package

@@ -276,6 +276,13 @@ Some emulator notes:
   on the list are never touched. If a download fails, or a file doesn't match its SHA-256, the
   block says why, the boot goes on, and no half-written file is left in shadPS4's folders. These
   are Sony's files: check that you may use them where you live.
+- **shadPS4's touchpad button**: a PS1 game on PS4, such as Tekken 3, reads a click on the right
+  half of the touchpad as START and on the left half as SELECT. A controller with no touchpad
+  clicks with its **Back** (or **View**) button, and shadPS4's own key map clicks the centre,
+  which is neither: the game waits at "Press START". Before each PS4 game, Marah Launcher sets
+  shadPS4's key map (`input_config` in **shadPS4 data**) so that **Back** and **Space** click the
+  right half (START) and **Backspace** the left half (SELECT). It changes only shadPS4's own
+  touchpad lines: a touchpad you mapped to other keys stays as it is.
 - **Lichii**: Lichii keeps its data in `~/.local/share/lichii` from build-150 on. If you
   played with an older build, open Lichii from its page once and import your Eden data
   (`~/.local/share/eden`): until then, Lichii starts no game. An older build, or your own
