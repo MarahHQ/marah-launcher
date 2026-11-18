@@ -153,6 +153,9 @@ pub(crate) struct LibrarySnapshot {
     pub offers: Arc<Vec<Offer>>,
     /// The offers that are versions of one game on several consoles.
     pub groups: Arc<GameGroups>,
+    /// The emulators' community lists' results for the offers, by the offer's key: looked up
+    /// by title id, whether the player has the game or not.
+    pub community: Arc<HashMap<GameKey, CompatInfo>>,
     /// The catalog plugins' Catalog buttons and badges (`catalog.action`), by plugin.
     pub catalog_buttons: Arc<Vec<(PluginId, Vec<SlotItem>)>>,
     /// The catalog plugins answered once: until then the Catalog says it is loading.
@@ -300,6 +303,7 @@ struct State {
     catalogs: Arc<Vec<CatalogCopy>>,
     offers: Arc<Vec<Offer>>,
     groups: Arc<GameGroups>,
+    community: Arc<HashMap<GameKey, CompatInfo>>,
     catalog_buttons: Arc<Vec<(PluginId, Vec<SlotItem>)>>,
     catalogs_read: bool,
     loading: bool,
@@ -388,6 +392,7 @@ impl LibrarySubsystem {
             offers: state.offers.clone(),
             groups: state.groups.clone(),
             catalog_buttons: state.catalog_buttons.clone(),
+            community: state.community.clone(),
             catalogs_read: state.catalogs_read,
             loading: state.loading,
             booted: state.booted,
@@ -617,7 +622,17 @@ impl LibrarySubsystem {
             s.catalogs = Arc::default();
             s.offers = Arc::default();
             s.groups = Arc::default();
+            s.community = Arc::default();
         });
+    }
+
+    /// The emulators' community lists' results for the offers, by the offer's key. The same
+    /// results again change nothing, so the screen doesn't redraw for them.
+    pub fn set_community(&self, community: HashMap<GameKey, CompatInfo>) {
+        if *self.state().community == community {
+            return;
+        }
+        self.change(Area::Catalogs, |s| s.community = Arc::new(community));
     }
 
     /// Saves the player's answer to "How far did it get?" for `game` on `build`: a result, or

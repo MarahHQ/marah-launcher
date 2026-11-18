@@ -667,9 +667,12 @@ fn detail_vm(s: &Snapshot, owned: &Ownership, key: &GameKey) -> Option<GameDetai
     };
     let line = crate::game_words::home_line(details, &metas, meta.map(|(_, m)| m.tagline.as_str()), origin);
     let compatibility = offer.map(crate::releases::compatibility).unwrap_or_default();
-    // An offer's details carry no community result: the installed game it is has the emulator's
-    // (see [`crate::game_groups::community`]).
-    let community = d.compat.as_ref().or_else(|| installed_as.and_then(|g| library.detail(&g.key)?.compat.as_ref()));
+    // An offer's details carry no community result: it is the installed game's, else the
+    // emulator's list's for the offer's title id (see [`crate::game_groups::community`]).
+    let community = match offer {
+        Some(offer) => crate::game_groups::community(library, owned, offer),
+        None => d.compat.as_ref(),
+    };
     // Where the offer's downloads go, and the free space there.
     let download_folder = offer.and_then(|o| s.state.disks.download_folder(&o.emulator, &o.releases[0].platform));
     let free = download_folder.and_then(|f| f.free);

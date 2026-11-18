@@ -111,6 +111,56 @@ pub(crate) async fn refresh_releases(core: &Core) {
     if core.torrents().plugin_waits_for_vpn() {
         core.torrents().watch();
     }
+    read_community(core).await;
+}
+
+/// Asks each offer's emulator for its community list's result, by the offer's title ids in
+/// the offer's order: the first one the list knows. An emulator without the look-up
+/// (`Compatibility::result_for_title`, API 0.3.4) answers none. A failed look-up ends that
+/// emulator's: its list is out of reach, and asking again for each offer would fail as well.
+async fn read_community(core: &Core) {
+    // Each offer's emulator, key and title ids: read before the awaits, as owned data.
+    let offers: Vec<(PluginId, GameKey, Vec<String>)> = core
+        .library()
+        .snapshot()
+        .offers
+        .iter()
+        .map(|offer| {
+            let mut ids: Vec<String> = Vec::new();
+            for id in offer.releases.iter().flat_map(|r| std::iter::once(&r.title_id).chain(&r.title_ids)) {
+                if !id.is_empty() && !ids.contains(id) {
+                    ids.push(id.clone());
+                }
+            }
+            (offer.emulator.clone(), offer.entry.key.clone(), ids)
+        })
+        .collect();
+    let kernel = core.kernel();
+    // Each emulator's list, or `None` for none to ask: no look-up, or a failed one.
+    let mut lists = std::collections::HashMap::new();
+    let mut found = std::collections::HashMap::new();
+    for (emulator, key, ids) in offers {
+        if !lists.contains_key(&emulator) {
+            let compat = kernel.provided(&emulator).await.ok().and_then(|p| p.compatibility);
+            lists.insert(emulator.clone(), compat);
+        }
+        let Some(compat) = lists[&emulator].clone() else { continue };
+        for id in &ids {
+            match kernel.guard(&emulator, "compatibility.result_for_title", compat.result_for_title(id)).await {
+                Ok(Some(info)) => {
+                    found.insert(key, info);
+                    break;
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    tracing::info!(plugin_id = %emulator, error = %e, "could not read the community list");
+                    lists.insert(emulator.clone(), None);
+                    break;
+                }
+            }
+        }
+    }
+    core.library().set_community(found);
 }
 
 /// Reads the stores' installs (Steam's) in the background: often while one runs or right

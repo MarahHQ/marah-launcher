@@ -256,10 +256,11 @@ the versions in this order, and the first difference decides:
 
 When no version can start on this PC, none is marked best.
 
-The community's list is read only for a version you have installed: the emulator's list stays in
-its plugin, and the Catalog sees the result of each installed game. The Game Hub's Compatibility
-fact shows the same result. A console version you don't have shows "Not tested", unless you
-rated it yourself.
+The community's list counts for every version, installed or not: the emulator's list gives the
+result for the version's title id. For a version you have installed, your own result for the game
+comes first, then the list's result for that game. The Game Hub's Compatibility fact, the
+**In-game** filter and the Compat sort show the same result. A version the list doesn't know shows
+"Not tested". The Catalog reads the lists each time it reads the catalogs.
 
 On the card, a version you have installed stands for the game, so Play starts the game you
 have. The card is **New** when any of its versions came to the catalog in the last two weeks.

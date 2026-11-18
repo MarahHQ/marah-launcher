@@ -1,4 +1,4 @@
-//! Community compatibility lists, by title id.
+//! Community compatibility lists, by title id ([`title_key`]).
 //!
 //! - KytyPS5 (PS5): `https://kytyps5.github.io/data/compatibility.json`,
 //!   `{ "PPSA…": { "status": "InGame", "platforms": { "linux": { "status": … } } } }`.
@@ -166,6 +166,20 @@ fn day(stamp: &str) -> Option<String> {
     digits.then(|| day.to_owned())
 }
 
+/// A title id as the lists' maps key it: upper case, letters and digits only, and the four
+/// letters and five digits of a PlayStation title id when they are in it, so `cusa-04118`,
+/// `CUSA04118_00` and a content id such as `UP9000-CUSA04118_00-BLOODBORNE0000EU` are all
+/// `CUSA04118`. `None` for an id with no letter or digit.
+pub fn title_key(id: &str) -> Option<String> {
+    let plain: Vec<u8> = id.bytes().filter(u8::is_ascii_alphanumeric).map(|b| b.to_ascii_uppercase()).collect();
+    if plain.is_empty() {
+        return None;
+    }
+    let playstation =
+        plain.windows(9).find(|w| w[..4].iter().all(u8::is_ascii_alphabetic) && w[4..].iter().all(u8::is_ascii_digit));
+    Some(String::from_utf8_lossy(playstation.unwrap_or(&plain)).into_owned())
+}
+
 /// KytyPS5's list for `platform`.
 pub fn kyty(json: &Value, platform: Option<Platform>) -> HashMap<String, CompatInfo> {
     let key = match platform {
@@ -199,7 +213,8 @@ pub fn kyty(json: &Value, platform: Option<Platform>) -> HashMap<String, CompatI
                 best_on.into_iter().next()
             })
         };
-        out.insert(tid.to_uppercase(), info(here.unwrap_or(best), from, platform, &tested_on, version, None));
+        let Some(tid) = title_key(tid) else { continue };
+        out.insert(tid, info(here.unwrap_or(best), from, platform, &tested_on, version, None));
     }
     out
 }
@@ -251,7 +266,8 @@ pub fn shad(json: &Value, platform: Option<Platform>) -> HashMap<String, CompatI
             best_on.sort();
             best_on.into_iter().next()
         };
-        out.insert(tid.to_uppercase(), info(here.unwrap_or(best), from, platform, &tested_on, "", tested));
+        let Some(tid) = title_key(tid) else { continue };
+        out.insert(tid, info(here.unwrap_or(best), from, platform, &tested_on, "", tested));
     }
     out
 }
@@ -284,6 +300,21 @@ mod tests {
         let stamped =
             json!({ "CUSA00001": { "os-linux": { "status": "status-boots", "last_tested": "2026-10-01T22:30:38Z" } } });
         assert_eq!(shad(&stamped, Some(Platform::Linux))["CUSA00001"].tested.as_deref(), Some("2026-10-01"));
+    }
+
+    #[test]
+    fn a_title_id_is_the_same_in_any_case_and_with_any_separators() {
+        for id in ["CUSA04118", "cusa04118", " CUSA-04118 ", "CUSA04118_00", "UP9000-CUSA04118_00-BLOODBORNE0000EU"] {
+            assert_eq!(title_key(id).as_deref(), Some("CUSA04118"), "{id:?}");
+        }
+        assert_eq!(title_key("ppsa01325").as_deref(), Some("PPSA01325"));
+        assert_eq!(title_key(""), None);
+        assert_eq!(title_key(" - "), None);
+        // A list's own keys read the same way.
+        let shad_list = json!({ "cusa-04118": { "os-linux": { "status": "status-menus" } } });
+        assert_eq!(shad(&shad_list, Some(Platform::Linux))["CUSA04118"].level, CompatLevel::Menus);
+        let kyty_list = json!({ "ppsa01325": { "status": "InGame" } });
+        assert_eq!(kyty(&kyty_list, Some(Platform::Linux))["PPSA01325"].level, CompatLevel::Ingame);
     }
 
     fn report() -> ResultReport {

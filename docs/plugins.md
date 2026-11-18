@@ -212,7 +212,7 @@ cover = "cover.jpg"
 | `name` | yes | What the player sees: in the plugin list, on the plugin page, and where a sentence means the console. An emulator names its console: `PS5`. |
 | `emulator` | no | For an emulator, the name of the program it installs and runs, such as `KytyPS5`. Sentences about the program use it. Empty when the program has no name of its own; then `name` is used. |
 | `version` | yes | The plugin's semver version. |
-| `host_api` | yes | A semver range of the API versions the plugin works with, such as `^0.3`. The host refuses the plugin when the range doesn't include `launcher_api::API_VERSION` (now `0.3.3`). |
+| `host_api` | yes | A semver range of the API versions the plugin works with, such as `^0.3`. The host refuses the plugin when the range doesn't include `launcher_api::API_VERSION` (now `0.3.4`). |
 | `platforms` | no | `linux`, `macos`, `windows`. Empty means every system. |
 | `console` | no | For an emulator, the console it plays: ASCII letters, digits and `-`, kept in uppercase (`ps5` and `PS5` are one console). A `releases` plugin gives the emulator that console's catalog. Not the systems the plugin runs on. |
 | `capabilities` | no | The capabilities `init` provides. See [Capabilities](#capabilities). |
@@ -592,6 +592,18 @@ its own query (`https://github.com/<owner>/<repo>/issues/new?template=<file>`), 
 fields in the form's order (`id`, `label`, `value`), and a `note` for what the player still
 does on the form, such as its checklist. Return `None` for a list that takes no reports through
 a form. `permissions.links` must allow the form's link.
+
+`Compatibility::result_for_title(title_id)` (API 0.3.4, with a default body that returns
+`None`) returns the list's `CompatInfo` for a title id, such as `CUSA03173`, whether the player
+has the game or not, and `None` when the list has no result for it. After each catalog read, the
+host asks the emulator for each Catalog offer's title ids, in the offer's order, and keeps the
+first result: the Catalog's best version, its In-game filter, its Compat sort and the Game Hub's
+Compatibility fact read it. The installed game's `status` and the player's own result come first.
+The host asks about thousands of offers, so the method must be cheap: look the id up in the list
+held in memory, and never call the network once per id. A failed call ends the host's
+look-ups in that plugin until the next catalog read. The `emulator-kit` holds shadPS4's and
+KytyPS5's lists in memory, and reads an id the way the lists do (`compat::title_key`: upper
+case, and `CUSA-04118`, `cusa04118_00` or a content id all read as `CUSA04118`).
 
 The host takes personal data out of the title and every field again, shows the player the whole
 report, and only on their yes opens the form in the browser, with the title and the fields as

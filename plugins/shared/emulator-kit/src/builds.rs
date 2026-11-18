@@ -464,7 +464,7 @@ impl<F: Flavor> Installer for BuildManager<F> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::sync::{Arc, Mutex};
 
     use launcher_api::serde_json::json;
@@ -478,7 +478,7 @@ mod tests {
 
     /// An emulator whose builds hold `emu`, which prints "TestEmu 1.0" when it runs.
     #[derive(Default)]
-    struct TestFlavor {
+    pub(crate) struct TestFlavor {
         switches: Arc<Mutex<Vec<Switch>>>,
         left_own: Arc<Mutex<Vec<Option<String>>>>,
     }

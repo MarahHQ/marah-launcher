@@ -26,7 +26,7 @@ pub struct CompatList {
     pub url: &'static str,
     /// The list's page, for the player.
     pub page: &'static str,
-    /// Reads the list for a system, by upper-case title id.
+    /// Reads the list for a system, by [`crate::compat::title_key`].
     pub parse: fn(&Value, Option<Platform>) -> HashMap<String, CompatInfo>,
     /// Its report form, filled in with the player's result; `None` for a list that takes no
     /// reports through a form.
@@ -68,12 +68,25 @@ pub trait Panel: Send + Sync {
     async fn run_action(&self, action: &str, args: &Value) -> Option<PluginResult<()>>;
 }
 
+/// A failed read of the community list is tried again after this long, not on each look-up.
+const LIST_RETRY: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+
+/// The community list, read: by [`crate::compat::title_key`], with when it was read and
+/// whether the read worked.
+struct ReadList {
+    at: u64,
+    worked: bool,
+    games: Arc<HashMap<String, CompatInfo>>,
+}
+
 pub struct ConsoleEmulator<F: Flavor> {
     spec: ConsoleSpec,
     host: Host,
     games: GameIndex,
     builds: Arc<BuildManager<F>>,
     panel: Option<Arc<dyn Panel>>,
+    /// The community list, held in memory: the host looks up every Catalog offer in it.
+    compat: tokio::sync::Mutex<Option<ReadList>>,
 }
 
 impl<F: Flavor> ConsoleEmulator<F> {
@@ -81,7 +94,7 @@ impl<F: Flavor> ConsoleEmulator<F> {
     pub async fn start(flavor: F, spec: ConsoleSpec, host: Host) -> PluginResult<Self> {
         let builds = Arc::new(BuildManager::new(flavor, host.clone()));
         let games = GameIndex::new(GAMES_FOLDER, spec.console);
-        Ok(Self { spec, host, games, builds, panel: None })
+        Ok(Self { spec, host, games, builds, panel: None, compat: Default::default() })
     }
 
     /// The emulator with `panel`, the plugin's own block, on its panel.
@@ -135,11 +148,21 @@ impl<F: Flavor> ConsoleEmulator<F> {
         Ok(out)
     }
 
-    async fn compat_list(&self) -> HashMap<String, CompatInfo> {
-        let Ok(cache) = RelPath::new("cache/compatibility.json") else { return Default::default() };
-        let host = &self.host;
+    /// The community list, from memory while it is younger than [`LISTS_TTL`] (a failed read,
+    /// [`LIST_RETRY`]). One read at a time: the look-ups that wait for it then find it in memory.
+    async fn compat_list(&self) -> Arc<HashMap<String, CompatInfo>> {
         let Some(list) = &self.spec.compat else { return Default::default() };
-        match cache::cached_json(
+        let host = &self.host;
+        let now = host.calendar.unix_secs();
+        let mut held = self.compat.lock().await;
+        if let Some(read) = held.as_ref() {
+            let ttl = if read.worked { LISTS_TTL } else { LIST_RETRY };
+            if now.saturating_sub(read.at) < ttl.as_secs() {
+                return read.games.clone();
+            }
+        }
+        let Ok(cache) = RelPath::new("cache/compatibility.json") else { return Default::default() };
+        let read = cache::cached_json(
             host.storage.as_ref(),
             host.http.as_ref(),
             &host.log,
@@ -148,14 +171,24 @@ impl<F: Flavor> ConsoleEmulator<F> {
             &cache,
             LISTS_TTL,
         )
-        .await
-        {
-            Ok(json) => (list.parse)(&json, host.platform),
+        .await;
+        let (worked, games) = match read {
+            Ok(json) => (true, (list.parse)(&json, host.platform)),
             Err(e) => {
                 host.log.warn(&format!("compatibility list: {e}"));
-                Default::default()
+                (false, HashMap::new())
             }
-        }
+        };
+        let games = Arc::new(games);
+        *held = Some(ReadList { at: now, worked, games: games.clone() });
+        games
+    }
+
+    /// The list's result for `title_id`, with the list's page.
+    async fn listed(&self, title_id: &str) -> Option<CompatInfo> {
+        let key = crate::compat::title_key(title_id)?;
+        let info = self.compat_list().await.get(&key).cloned()?;
+        Some(CompatInfo { page: self.spec.compat.as_ref().map(|c| c.page.to_owned()), ..info })
     }
 }
 
@@ -193,10 +226,17 @@ impl<F: Flavor> Compatibility for ConsoleEmulator<F> {
     async fn status(&self, game: &str) -> PluginResult<CompatInfo> {
         let found = self.games.find(self.host.folders.as_ref(), game).await?;
         let page = self.spec.compat.as_ref().map(|c| c.page.to_owned());
-        Ok(match self.compat_list().await.remove(&found.title_id.to_uppercase()) {
-            Some(info) => CompatInfo { page, ..info },
-            None => CompatInfo { level: CompatLevel::Unknown, notes: None, source: None, page, tested: None },
-        })
+        Ok(self.listed(&found.title_id).await.unwrap_or(CompatInfo {
+            level: CompatLevel::Unknown,
+            notes: None,
+            source: None,
+            page,
+            tested: None,
+        }))
+    }
+
+    async fn result_for_title(&self, title_id: &str) -> PluginResult<Option<CompatInfo>> {
+        Ok(self.listed(title_id).await)
     }
 
     async fn report(&self, game: &str, report: &ResultReport) -> PluginResult<Option<ReportForm>> {
@@ -296,5 +336,71 @@ impl<F: Flavor> Slots for ConsoleEmulator<F> {
             return done;
         }
         self.builds.run_action(action).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use launcher_api::{CompatLevel, Compatibility};
+
+    use super::*;
+    use crate::builds::tests::TestFlavor;
+    use crate::testing::TestHost;
+
+    const LIST: &str = "https://lists.test/compatibility.json";
+    const PAGE: &str = "https://lists.test/compatibility";
+
+    /// A PS4 emulator with shadPS4's list at [`LIST`], and no games.
+    async fn emulator(host: &TestHost) -> ConsoleEmulator<TestFlavor> {
+        let spec = ConsoleSpec {
+            console: Console::Ps4,
+            packages: Packages::Formats(&[]),
+            compat: Some(CompatList { url: LIST, page: PAGE, parse: crate::compat::shad, report: None }),
+            keys: &[],
+            section: "test",
+            version_row: false,
+            own_row: false,
+        };
+        ConsoleEmulator::start(TestFlavor::default(), spec, host.host()).await.unwrap()
+    }
+
+    fn list_requests(host: &TestHost) -> usize {
+        host.http.requests().iter().filter(|r| r.url == LIST).count()
+    }
+
+    #[tokio::test]
+    async fn a_title_id_finds_its_result_with_no_game_installed_from_one_read_of_the_list() {
+        let host = TestHost::default();
+        host.http.page(
+            LIST,
+            r#"{ "CUSA04118": { "os-linux": { "status": "status-menus", "last_tested": "2026-08-01" } },
+                 "CUSA03173": { "os-windows": { "status": "status-playable" } } }"#,
+        );
+        let emu = emulator(&host).await;
+        let found = emu.result_for_title("cusa04118").await.unwrap().expect("in the list");
+        assert_eq!(found.level, CompatLevel::Menus);
+        assert_eq!(found.page.as_deref(), Some(PAGE), "the list's page, as status gives it");
+        assert_eq!(found.tested.as_deref(), Some("2026-08-01"));
+        let other = emu.result_for_title("CUSA03173").await.unwrap().expect("in the list");
+        assert_eq!(other.level, CompatLevel::Playable);
+        assert_eq!(emu.result_for_title("CUSA99999").await.unwrap(), None, "not in the list");
+        // The stored copy goes and the list empties: the look-ups read the list in memory.
+        crate::cache::forget(host.storage.as_ref(), &RelPath::new("cache/compatibility.json").unwrap()).await.unwrap();
+        host.http.page(LIST, "{}");
+        for _ in 0..100 {
+            let found = emu.result_for_title("CUSA04118").await.unwrap();
+            assert_eq!(found.map(|f| f.level), Some(CompatLevel::Menus));
+        }
+        assert_eq!(list_requests(&host), 1, "the list is read once, then held in memory");
+    }
+
+    #[tokio::test]
+    async fn a_list_that_can_t_be_read_is_not_asked_for_again_for_each_title() {
+        let host = TestHost::default();
+        let emu = emulator(&host).await;
+        for _ in 0..100 {
+            assert_eq!(emu.result_for_title("CUSA04118").await.unwrap(), None);
+        }
+        assert_eq!(list_requests(&host), 1, "one try, not one a title");
     }
 }
