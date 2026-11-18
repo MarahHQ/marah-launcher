@@ -348,3 +348,105 @@ async fn the_machine_is_read_again_every_five_seconds_on_the_clock_and_not_betwe
     t.clock.advance(std::time::Duration::from_secs(1)).await;
     assert_eq!(t.core.view().system.volume, 70);
 }
+
+const AT_20: &str = "Battery at 20%. Plug in soon.";
+const AT_10: &str = "Battery at 10%. Save your game and plug in.";
+
+/// A machine with a battery, or without one, for the low battery notices.
+struct Unplugged {
+    system: FakeSystem,
+    t: launcher_testkit::TestCore,
+}
+
+impl Unplugged {
+    async fn new(battery: Option<Battery>) -> Self {
+        let system = machine();
+        system.with(|m| m.battery = battery);
+        let t = FakeHost::new().plugin(system.plugin()).boot_core().await;
+        Unplugged { system, t }
+    }
+
+    /// The notices after the battery reads `battery`.
+    async fn read(&self, battery: Option<Battery>) -> Vec<String> {
+        self.system.with(|m| m.battery = battery);
+        ask(SystemCommand::Refresh, &self.t).await;
+        self.t.core.view().notices
+    }
+}
+
+fn on_battery(percent: u8) -> Option<Battery> {
+    Some(Battery { percent, charging: false })
+}
+
+fn charging(percent: u8) -> Option<Battery> {
+    Some(Battery { percent, charging: true })
+}
+
+#[tokio::test]
+async fn on_battery_a_notice_shows_when_the_level_falls_to_20_and_again_at_10() {
+    let pc = Unplugged::new(on_battery(50)).await;
+    assert!(pc.read(on_battery(21)).await.is_empty(), "above 20%");
+    assert_eq!(pc.read(on_battery(20)).await, [AT_20]);
+    assert_eq!(pc.read(on_battery(11)).await, [AT_20], "no new notice between 20% and 10%");
+    assert_eq!(pc.read(on_battery(10)).await, [AT_20, AT_10]);
+    assert_eq!(pc.read(on_battery(3)).await, [AT_20, AT_10], "no new notice under 10%");
+}
+
+#[tokio::test]
+async fn a_low_battery_notice_does_not_repeat_while_the_level_stays_low() {
+    let pc = Unplugged::new(on_battery(18)).await;
+    assert_eq!(pc.read(on_battery(18)).await, [AT_20], "the first read under 20% warns");
+    dismiss_all(&pc.t).await;
+    assert!(pc.read(on_battery(17)).await.is_empty());
+    assert!(pc.read(on_battery(21)).await.is_empty(), "a level that rises without charging");
+    assert!(pc.read(on_battery(20)).await.is_empty(), "does not warn again");
+    pc.system.with(|m| m.panics = vec!["battery"]);
+    assert!(pc.read(on_battery(20)).await.is_empty(), "a failed read");
+    pc.system.with(|m| m.panics.clear());
+    assert!(pc.read(on_battery(19)).await.is_empty(), "does not warn again");
+}
+
+#[tokio::test]
+async fn a_fall_past_both_levels_at_once_shows_only_the_10_notice() {
+    let pc = Unplugged::new(on_battery(25)).await;
+    assert_eq!(pc.read(on_battery(8)).await, [AT_10]);
+    assert_eq!(pc.read(on_battery(7)).await, [AT_10]);
+}
+
+#[tokio::test]
+async fn charging_resets_the_low_battery_notices() {
+    let pc = Unplugged::new(on_battery(30)).await;
+    assert_eq!(pc.read(on_battery(9)).await, [AT_10]);
+    dismiss_all(&pc.t).await;
+    assert!(pc.read(charging(9)).await.is_empty(), "no notice while it charges");
+    assert!(pc.read(charging(30)).await.is_empty());
+    assert_eq!(pc.read(on_battery(20)).await, [AT_20], "unplugged again, it warns again");
+    assert_eq!(pc.read(on_battery(10)).await, [AT_20, AT_10]);
+}
+
+#[tokio::test]
+async fn no_low_battery_notice_while_charging_or_without_a_battery() {
+    let pc = Unplugged::new(charging(15)).await;
+    assert!(pc.read(charging(5)).await.is_empty(), "charging");
+    let desktop = Unplugged::new(None).await;
+    assert!(desktop.read(None).await.is_empty(), "a desktop PC");
+}
+
+#[tokio::test]
+async fn a_low_battery_notice_comes_while_a_game_runs() {
+    let system = machine();
+    system.with(|m| m.battery = on_battery(50));
+    let catalog = launcher_testkit::FakeCatalog::new("emu-a").playable().games(["Alpha"]).build();
+    let t = FakeHost::new().plugin(system.plugin()).plugin(catalog).boot_core().await;
+    t.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
+    let game = "emu-a:G0".parse().unwrap();
+    t.core.dispatch(Command::Session(launcher_core::SessionCmd::Launch(game))).await.unwrap();
+    t.spawner.wait_for(1).await;
+    assert!(t.core.game_running());
+    let pc = Unplugged { system, t };
+    assert_eq!(pc.read(on_battery(20)).await, [AT_20]);
+}
+
+async fn dismiss_all(t: &launcher_testkit::TestCore) {
+    t.core.dispatch(Command::Notice(launcher_core::NoticeCmd::DismissAll)).await.unwrap();
+}

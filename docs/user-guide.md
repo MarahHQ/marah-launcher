@@ -91,6 +91,12 @@ download runs, it shows its progress. When Marah Launcher is the whole screen (t
 OS), the top bar also has network, sound and Bluetooth icons. Each one opens a panel for its
 settings.
 
+On a PC with a battery, the top bar shows its level. When the PC runs on battery and the level
+falls to 20%, a notice says "Battery at 20%. Plug in soon." At 10%, a second notice says
+"Battery at 10%. Save your game and plug in." Each notice shows once. When you plug in the PC,
+the notices show again the next time the level falls. Marah Launcher can't show a notice over a
+running game: the notice waits in Marah Launcher until you go back to it.
+
 ## Library
 
 ![Library](screenshots/library.jpg)
