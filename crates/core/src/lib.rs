@@ -51,6 +51,7 @@ mod redact;
 mod release_downloads;
 mod releases;
 mod resolve;
+mod room;
 mod running;
 pub mod sandbox;
 mod search;

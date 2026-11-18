@@ -22,22 +22,9 @@ use crate::app::Core;
 use crate::changes::Area;
 use crate::folders::{HostFolders, Purpose};
 use crate::game_installs::{GameInstallCmd, InstallEvent, NewInstall};
-use crate::torrents::{InstallAfter, NewDownload, TorrentAction, TorrentCmd, TorrentEvent, TorrentState, no_room};
+use crate::room::{Need, Room};
+use crate::torrents::{InstallAfter, NewDownload, TorrentAction, TorrentCmd, TorrentEvent, TorrentState};
 use crate::{CoreError, CoreResult, Kernel};
-
-/// The free bytes on the disk that holds `folder`, which may not be there yet: the disk of the
-/// nearest folder above it.
-pub(crate) fn free_at(hardware: &dyn crate::Hardware, folder: &Path) -> Option<u64> {
-    let there = folder.ancestors().find(|p| p.is_dir())?;
-    hardware.free_bytes(there)
-}
-
-/// Which disk holds `folder`, which may not be there yet: the disk of the nearest folder above
-/// it. `None` when the system doesn't say.
-pub(crate) fn disk_at(hardware: &dyn crate::Hardware, folder: &Path) -> Option<u64> {
-    let there = folder.ancestors().find(|p| p.is_dir())?;
-    hardware.disk_id(there)
-}
 
 /// The console an emulator plays, which names its folders: the plugin's id when its manifest
 /// doesn't say.
@@ -116,18 +103,9 @@ async fn begin(core: &Core, id: &str, install: bool, folder: Option<std::path::P
         let console = console_of(kernel, &job.emulator);
         let (_, path) = folders.place(Purpose::Install, &console, folder.as_deref())?;
         let checked = crate::torrents::picks::checked_bytes(&job.files, job.total, &job.skip);
-        let hardware = core.ports().hardware.as_ref();
-        // On the download's drive, the download and the install need room together.
-        let one_drive = disk_at(hardware, &path).is_some_and(|d| disk_at(hardware, &job.folder) == Some(d));
-        if let Some(free) = free_at(hardware, &path) {
-            let short = if one_drive {
-                crate::torrents::no_room_both(checked.saturating_mul(2), free)
-            } else {
-                no_room(checked, free, "game folder")
-            };
-            if let Some(error) = short {
-                return Err(CoreError::Invalid(error));
-            }
+        let room = Room::read(core.ports().hardware.as_ref(), &job.folder, Some(&path));
+        if let Some(error) = room.short(Need::DownloadAndInstall, checked) {
+            return Err(CoreError::Invalid(error));
         }
         if folder.is_some() {
             folders.remember(Purpose::Install, &console, &path);
@@ -292,8 +270,8 @@ async fn download_release(core: &Core, offer: &GameKey, release: &str, folder: O
     let folder = console_folder.join(name);
     // A picked folder may be on another disk than the one the Game Hub checked.
     if chosen
-        && let (Some(size), Some(free)) = (release.size_bytes, free_at(core.ports().hardware.as_ref(), &folder))
-        && let Some(error) = no_room(size, free, "download folder")
+        && let Some(size) = release.size_bytes
+        && let Some(error) = Room::read(core.ports().hardware.as_ref(), &folder, None).short(Need::Download, size)
     {
         return Err(CoreError::Invalid(error));
     }
@@ -396,9 +374,9 @@ async fn start_install(core: &Core, id: &str, folder: Option<&Path>) -> CoreResu
     let folders = folders_of(kernel, &job.emulator)?;
     let console = console_of(kernel, &job.emulator);
     let (into, path) = folders.place(Purpose::Install, &console, folder)?;
-    if let Some(free) = free_at(core.ports().hardware.as_ref(), &path)
-        && let Some(error) = no_room(job.total, free, "game folder")
-    {
+    // The finished download already takes its room, so the install needs room of its own only.
+    let room = Room::read(core.ports().hardware.as_ref(), &job.folder, Some(&path));
+    if let Some(error) = room.short(Need::Install, job.total) {
         return Err(CoreError::Invalid(error));
     }
     if folder.is_some() {
