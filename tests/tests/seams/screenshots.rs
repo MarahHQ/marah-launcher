@@ -1347,7 +1347,8 @@ shots! {
 }
 
 /// Settings → Send ratings in each built-in theme: the ratings to pick from, then a report in
-/// full, with the personal data out of its log, as `<theme>-send-ratings[-report].png`.
+/// full, with the personal data out of its log, as `<theme>-send-ratings[-report].png`, and the
+/// report scrolled to its end, as `<theme>-send-ratings-report-end.png`.
 fn shoot_send_ratings(window: &MinimalSoftwareWindow, out: &Path) {
     use slint::platform::Key;
     window.set_size(slint::PhysicalSize::new(WIDTH, HEIGHT));
@@ -1363,10 +1364,12 @@ fn shoot_send_ratings(window: &MinimalSoftwareWindow, out: &Path) {
         run_until(&host, 5000, |core| core.view().boot.ready);
         let logs = host.test.host.data_dir().join("logs").join("emu-a");
         std::fs::create_dir_all(&logs).unwrap();
-        let log = "[Loader] open /home/alice/Games/PS4/CUSA1/eboot.bin\n\
-                   [Net] alice@alice-desktop at 192.168.1.20\n[Render] vkCreateDevice failed\n";
+        // A long log: the report scrolls.
+        let log = (1..=60).map(|i| format!("[Render] frame {i}: a line of the emulator's log\n")).collect::<String>()
+            + "[Loader] open /home/alice/Games/PS4/CUSA1/eboot.bin\n\
+               [Net] alice@alice-desktop at 192.168.1.20\n[Render] vkCreateDevice failed\n";
         for (game, level) in [("G0", launcher_api::CompatLevel::Menus), ("G1", launcher_api::CompatLevel::Ingame)] {
-            std::fs::write(logs.join(format!("{game}.log")), log).unwrap();
+            std::fs::write(logs.join(format!("{game}.log")), &log).unwrap();
             host.dispatch(Command::AskResult(format!("emu-a:{game}").parse().unwrap()));
             host.dispatch(Command::ReportResult(Some(level)));
         }
@@ -1379,6 +1382,11 @@ fn shoot_send_ratings(window: &MinimalSoftwareWindow, out: &Path) {
         key(&mut host, Key::Return);
         follow(&mut host);
         shoot(window, &out.join(format!("{theme}-send-ratings-report.png")));
+        for _ in 0..20 {
+            key(&mut host, Key::DownArrow);
+        }
+        follow(&mut host);
+        shoot(window, &out.join(format!("{theme}-send-ratings-report-end.png")));
     }
     not_blank(out, &["classic-send-ratings", "default-send-ratings-report"]);
 }

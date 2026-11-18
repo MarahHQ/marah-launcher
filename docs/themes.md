@@ -193,7 +193,7 @@ doesn't know.
 
 | Key | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `ui_api` | version range | required | The `launcher-ui-api` contract versions the theme works with. The host's is `UI_API_VERSION`, `0.4.0` (`crates/ui-api/src/lib.rs`). A theme that doesn't match fails with `ThemeError::UiApi`. |
+| `ui_api` | version range | required | The `launcher-ui-api` contract versions the theme works with. The host's is `UI_API_VERSION`, `0.4.1` (`crates/ui-api/src/lib.rs`). A theme that doesn't match fails with `ThemeError::UiApi`. |
 | `fallback` | bool | `false` | This theme is the one the app starts with, falls back to, and shows in safe mode. Exactly one installed theme sets it. Default does. See [Switching](#switching-the-fallback-theme-and-safe-mode). |
 | `input` | list | `["pointer"]` | The input devices the theme supports, the main one first: `pointer`, `gamepad`, `touch`. The first one is `Vm.input-mode` at start. |
 | `navigation` | `pointer` or `focus` | `pointer` | How the player moves around. No host code reads it yet. |
@@ -248,7 +248,7 @@ and struct holds. Read that file as the reference.
 | Settings | `vpn`, `backup`, `settings`, `theme-options`, `themes`, `folders`, `sounds`, `fullscreen`, `return-on-exit`, `auto-update`, `scale`, `can-start-at-login`, `start-at-login`, `start-at-login-error`, `hardware`, `launcher-update`, `system`, `monitors`, `monitor` |
 | Plugins | `emulators`, `plugins`, `emulator-plugins`, `theme-plugins`, `has-plugin-page`, `plugin-page` |
 | Trailers | `can-play-trailers`, `has-trailer`, `trailer`, `trailer-frame` |
-| Prompts | `has-install-prompt`, `install-prompt`, `has-result-prompt`, `result-prompt`, `has-question`, `question` |
+| Prompts | `has-install-prompt`, `install-prompt`, `has-result-prompt`, `result-prompt`, `has-question`, `question`, `ratings` |
 | Start | `boot`, `art-ready` |
 | Status | `task`, `clock`, `has-running`, `running`, `closing`, `has-closing-game`, `closing-game`, `notices`, `notice-cards` |
 | Window and input | `viewport`, `input-mode`, `pad-key`, `power-menu`, `pad-name` |
@@ -305,6 +305,7 @@ A variant with a sub-enum takes that enum, written as JSON the same way.
 | `GridColumns` | `{"grid": "Library" or "Catalog", "columns": n}`. |
 | `Session` | `{"Launch": key}`, `{"Stop": session}`, `{"ShowGame": session}`, `"ToggleFocus"`. |
 | `ReportResult` | `"ingame"`, `"menus"`, `"boots"`, `"nothing"`, or `null` for Not now. |
+| `Ratings` | Send ratings: `"Open"`, `{"Pick": key}` (picks a rating or leaves it out), `"Next"` (shows the first picked report), `"Send"` (opens the report on screen in the browser), `"Skip"` (sends nothing), `"Close"`. |
 | `ConfirmInstall`, `CancelInstall` | None. |
 | `Torrent` | `{"Download": {"offer": key, "release": id, "folder": path}}` (`folder` optional), `{"Act": {"id": id, "action": action}}`, `{"SeedDownloads": bool}`. See [Torrent actions](#torrent-actions). |
 | `GameInstall` | `{"Download": {"id": id, "folder": path}}` (`folder` optional), `{"Package": {"plugin": id, "source": {"folder": name, "root": n, "path": path}}}` (a `HostPath`), `{"RemoveUnpacked": {"id": id}}`, `{"Cancel": {"id": id}}`. |
@@ -435,6 +436,7 @@ Three rules hold for every kit file. Tests in `contract.rs` check them:
 | `power-menu.slint` | `PowerMenu`, `PowerMenuSheet` | Log out, Restart Marah Launcher, Restart, Shut down, or Quit Marah Launcher. |
 | `progress-bar.slint` | `ProgressBar` | A thin progress bar. |
 | `result-prompt.slint` | `Ask`, `ResultPrompt` | "How far did it get?" after a game closes. |
+| `send-ratings.slint` | `Sending`, `SendRatings` | Send ratings, from Settings: the ratings that wait, to pick from, then each picked report in full with where it goes, and Open in browser or Skip. |
 | `reveal.slint` | `Reveal` | How far something has come in, as `move` and `fade` from 0 to 1, for a site to bind to its position and opacity. It comes in after its first frame and goes back out when `open` turns false. Its times and easings default to `Look`'s `enter` and `fade` kinds. |
 | `settings-frame.slint` | `Sections`, `PageScroll`, `SectionHead`, `PageSection`, `SettingsFrame` | The frame that Settings, a plugin's page and a game's own settings share: the header bar (Back, the title in the middle, a line, a note), the rail of the sections' icons when there are two or more, and the page of `PageSection`s, each under its icon and name. A jump to a section scrolls its header into view; the rail follows the page the mouse wheel scrolls. |
 | `settings-layout.slint` | `LauncherRows`, `DownloadsRows`, `SystemRows`, `BackupRows`, `PowerRows` | Where each row of a Settings section is, so the keys know where to stop. |

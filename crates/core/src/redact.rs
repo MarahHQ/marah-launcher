@@ -72,28 +72,45 @@ fn replace_path(text: &str, home: &str) -> String {
 
 /// `text` with `name` as `mark` wherever it is a whole word, in any case.
 fn replace_word(text: &str, name: &str, mark: &str) -> String {
-    let lower = text.to_lowercase();
-    let wanted = name.to_lowercase();
-    // Lowercase can change a text's length; then the places in it don't match the text's.
-    if wanted.is_empty() || lower.len() != text.len() {
+    let wanted: Vec<char> = name.chars().flat_map(char::to_lowercase).collect();
+    if wanted.is_empty() {
         return text.to_owned();
     }
     let word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
     let mut out = String::with_capacity(text.len());
-    let mut from = 0;
-    let mut search = 0;
-    while let Some(found) = lower[search..].find(&wanted) {
-        let at = search + found;
-        let end = at + wanted.len();
-        if !word(text[..at].chars().next_back()) && !word(text[end..].chars().next()) {
+    let (mut from, mut at) = (0, 0);
+    while let Some(c) = text[at..].chars().next() {
+        if let Some(end) = matches_at(text, at, &wanted)
+            && !word(text[..at].chars().next_back())
+            && !word(text[end..].chars().next())
+        {
             out.push_str(&text[from..at]);
             out.push_str(mark);
-            from = end;
+            (from, at) = (end, end);
+            continue;
         }
-        search = end;
+        at += c.len_utf8();
     }
     out.push_str(&text[from..]);
     out
+}
+
+/// Where `wanted`, in lower case, ends in `text` if `text` has it at `at`, in any case. Each
+/// character is lowered on its own, so a character whose lower case is longer, such as İ,
+/// doesn't move the places of the others.
+fn matches_at(text: &str, at: usize, wanted: &[char]) -> Option<usize> {
+    let mut want = wanted.iter();
+    let mut end = at;
+    for c in text[at..].chars() {
+        for lower in c.to_lowercase() {
+            (want.next() == Some(&lower)).then_some(())?;
+        }
+        end += c.len_utf8();
+        if want.len() == 0 {
+            return Some(end);
+        }
+    }
+    None
 }
 
 /// Runs `mark` over each word of `text`: each run of characters that aren't spaces, quotes
@@ -137,10 +154,12 @@ fn ip_addresses(word: &str) -> Option<String> {
     let mut found = false;
     let mut rest = word;
     while !rest.is_empty() {
-        let len = ipv4_at(rest).or_else(|| ipv6_at(rest));
+        // Not the middle of a longer number, nor of a longer IPv6 address.
         let before = out.chars().next_back();
-        match len {
-            Some(len) if before.is_none_or(|c| !c.is_ascii_hexdigit() && c != '.' && c != ':') => {
+        let v4 = ipv4_at(rest).filter(|_| before.is_none_or(|c| !c.is_ascii_digit() && c != '.'));
+        let v6 = || ipv6_at(rest).filter(|_| before.is_none_or(|c| !c.is_ascii_hexdigit() && c != ':'));
+        match v4.or_else(v6) {
+            Some(len) => {
                 out.push_str("<ip>");
                 rest = &rest[len..];
                 found = true;
@@ -179,6 +198,16 @@ fn ipv4_at(text: &str) -> Option<usize> {
 /// eight groups. A time such as 12:30:05 has neither.
 fn ipv6_at(text: &str) -> Option<usize> {
     let len = text.bytes().take_while(|b| b.is_ascii_hexdigit() || *b == b':').count();
+    // An IPv4 address as the last part, as in ::ffff:192.168.1.20.
+    if text[len..].starts_with('.') {
+        let v4_from = text[..len].rfind(':')? + 1;
+        let v4 = ipv4_at(&text[v4_from..])?;
+        let groups: Vec<&str> = text[..v4_from - 1].split(':').collect();
+        let fits = groups.iter().all(|g| g.len() <= 4) && groups.len() <= 7;
+        let short = text[..v4_from].contains("::");
+        let full = groups.len() == 6 && groups.iter().all(|g| !g.is_empty());
+        return (fits && (short || full)).then_some(v4_from + v4);
+    }
     let candidate = text[..len].trim_end_matches(':');
     let groups: Vec<&str> = candidate.split(':').collect();
     let short = candidate.contains("::") && groups.iter().any(|g| !g.is_empty());
@@ -221,6 +250,15 @@ mod tests {
         assert_eq!(redact("peer 192.168.1.20:8080 up", &who), "peer <ip>:8080 up");
         assert_eq!(redact("[fe80::1ff:fe23:4567:890a] and 2001:db8::1", &who), "[<ip>] and <ip>");
         assert_eq!(redact("2001:0db8:85a3:0000:0000:8a2e:0370:7334", &who), "<ip>");
+        assert_eq!(redact("ip:192.168.1.20 addr:10.0.0.5:9020", &who), "ip:<ip> addr:<ip>:9020", "after a colon");
+        assert_eq!(redact("from ::ffff:192.168.1.20.", &who), "from <ip>.", "IPv4 in IPv6");
+        assert_eq!(redact("at 12:30:05.123", &who), "at 12:30:05.123", "a time with its milliseconds stays");
+    }
+
+    #[test]
+    fn a_letter_whose_lower_case_is_longer_stops_no_name() {
+        let who = alice();
+        assert_eq!(redact("İndirilenler: Alice on alice-desktop", &who), "İndirilenler: <user> on <computer>");
     }
 
     #[test]

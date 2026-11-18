@@ -266,7 +266,8 @@ Your answer stays on this PC until you send it. See [Send your ratings](#send-yo
 
 Settings → Games → **Send ratings** sends your answers to the community compatibility lists,
 so other players know how a game runs. Two lists take reports this way: shadPS4's (PS4 games)
-and KytyPS5's (PS5 games). Answers for other emulators, and for PC games, stay on this PC.
+and KytyPS5's (PS5 games). Answers for other emulators, and for PC games, stay on this PC. On Windows,
+**Send ratings** lists nothing yet.
 
 1. Marah Launcher lists the answers you haven't sent. All are picked. Press ✕ on one to leave
    it out, then choose **Next: see the reports**.

@@ -123,7 +123,27 @@ fn excerpt(log: &str) -> String {
         lines.push(line);
     }
     lines.reverse();
+    if lines.is_empty() {
+        // The last line alone is too long: its end.
+        let last = log.lines().rev().map(str::trim_end).find(|l| !l.trim().is_empty()).unwrap_or_default();
+        return cut_to_fit(last);
+    }
     lines.join("\n")
+}
+
+/// The end of `line` that fits in [`LOG_BUDGET`] once in a link.
+fn cut_to_fit(line: &str) -> String {
+    let mut used = 0;
+    let mut start = line.len();
+    for (at, c) in line.char_indices().rev() {
+        used +=
+            url::form_urlencoded::byte_serialize(c.encode_utf8(&mut [0; 4]).as_bytes()).map(str::len).sum::<usize>();
+        if used > LOG_BUDGET {
+            break;
+        }
+        start = at;
+    }
+    line[start..].to_owned()
 }
 
 /// The words of a result, as "How far did it get?" says them.
@@ -157,7 +177,12 @@ async fn open(core: &Core) -> CoreResult<()> {
         _ => "Linux",
     };
     let mut reports = Vec::new();
-    for rated in core.library().rated().into_iter().filter(|r| !r.sent) {
+    // TODO: on Windows the app's opener runs `cmd /C start "" <link>`, and cmd splits a link at
+    // each `&`, as a report's query has. Until the opener passes the link whole, nothing is
+    // listed there.
+    let rated =
+        if host.platform == Some(launcher_api::Platform::Windows) { Vec::new() } else { core.library().rated() };
+    for rated in rated.into_iter().filter(|r| !r.sent) {
         let plugin = &rated.game.plugin;
         let Ok(provided) = core.kernel().provided(plugin).await else { continue };
         let Some(compat) = provided.compatibility.clone() else { continue };
@@ -316,6 +341,10 @@ mod tests {
         let encoded: usize = url::form_urlencoded::byte_serialize(e.as_bytes()).map(str::len).sum();
         assert!(encoded <= LOG_BUDGET, "{encoded} bytes in a link");
         assert_eq!(excerpt(""), "");
+        let long = format!("start{}", "é".repeat(5_000));
+        let cut = excerpt(&long);
+        assert!(!cut.is_empty() && long.ends_with(&cut), "the end of a line too long for the link");
+        assert!(url::form_urlencoded::byte_serialize(cut.as_bytes()).map(str::len).sum::<usize>() <= LOG_BUDGET);
     }
 
     #[test]

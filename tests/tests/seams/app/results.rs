@@ -237,6 +237,18 @@ mod send_ratings {
     }
 
     #[tokio::test]
+    async fn on_windows_nothing_is_listed_yet() {
+        let mut emu = FakeEmulator::new(vec!["A"]);
+        emu.list = true;
+        let t = FakeHost::new().platform(Some(Platform::Windows)).plugin(emu.plugin("emu-a")).boot_core().await;
+        t.core.dispatch(Command::AskResult(key("emu-a:G0"))).await.unwrap();
+        t.core.dispatch(Command::ReportResult(Some(launcher_api::CompatLevel::Ingame))).await.unwrap();
+
+        ratings(&t, RatingsCmd::Open).await;
+        assert!(t.core.view().ratings.items.is_empty(), "the opener there would cut the link at its first &");
+    }
+
+    #[tokio::test]
     async fn a_list_that_takes_no_reports_is_left_out() {
         let (t, _) = core_with(FakeEmulator::new(vec!["A"])).await;
         t.core.dispatch(Command::AskResult(key("emu-a:G0"))).await.unwrap();

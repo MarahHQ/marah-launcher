@@ -24,8 +24,9 @@ export global Sending {
             return true;
         }
         if (Vm.ratings.previewing) {
+            // Open in browser is on the left in both directions: Left goes to it.
             if (text == Key.LeftArrow || text == Key.RightArrow) {
-                root.button = (text == Key.RightArrow) == Look.rtl ? 0 : 1;
+                root.button = text == Key.RightArrow ? 1 : 0;
                 Host.play-sound("move");
             } else if (text == Key.UpArrow || text == Key.DownArrow) {
                 root.scroll = Math.max(0, root.scroll + (text == Key.DownArrow ? 1 : -1));
@@ -166,6 +167,9 @@ export component SendRatings inherits Pop {
                 background: Tokens.color-tint.with-alpha(0.06);
                 border-width: 1px;
                 border-color: Look.line;
+                // Each report starts at its top, however far the last one was scrolled.
+                property <string> shown: Vm.ratings.preview.game;
+                changed shown => { flick.viewport-y = 0; }
                 property <int> step: Sending.scroll;
                 changed step => {
                     flick.viewport-y = Math.max(flick.height - flick.viewport-height, Math.min(0px, -self.step * 120 * Look.px));
@@ -198,7 +202,7 @@ export component SendRatings inherits Pop {
             HorizontalLayout {
                 padding-top: 8 * Look.px;
                 spacing: 16 * Look.px;
-                alignment: Look.rtl ? end : start;
+                alignment: start;
                 Pill {
                     text: "Open in browser";
                     icon: "web";
