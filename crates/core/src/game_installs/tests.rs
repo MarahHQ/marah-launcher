@@ -214,6 +214,7 @@ impl Setup {
             files: Vec::new(),
             file_count: 1,
             skip: Vec::new(),
+            parts_kept: false,
             install_after: None,
             error: String::new(),
             download_rate: 0,

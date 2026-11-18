@@ -1,4 +1,4 @@
-//! The host's BitTorrent: [`launcher_core::Torrents`] on librqbit 9.0.1.
+//! The host's BitTorrent: [`launcher_core::Torrents`] on librqbit 9.1.0.
 //!
 //! One session, made at the first use, with no local peer discovery, at most 50 peers, and
 //! uploads capped at [`SEED_UPLOAD_LIMIT`]. A torrent's metadata is kept as `<info hash>.torrent`
@@ -13,6 +13,10 @@
 //! SO_BINDTODEVICE, on macOS IP_BOUND_IF. A new route, and [`Torrents::stop_all`], stop the
 //! session; the next start makes a new one.
 //!
+//! A download with files left out stores through [`SkipFiles`]: no file for a skipped one in
+//! the download folder, and its bytes that a piece shares with a chosen file in
+//! `torrents/kept/<info hash>/`, so the download can seed. [`Torrents::forget`] deletes them.
+//!
 //! A paused start adds the torrent paused, which checks the pieces on disk without
 //! downloading. The adapter only reports what librqbit says ([`Torrents::stats`]): the core
 //! decides what a finished or a paused torrent means, and unpauses or stops it.
@@ -26,9 +30,12 @@ use std::time::Duration;
 use async_trait::async_trait;
 use launcher_api::{PluginError, PluginResult};
 use launcher_core::{SEED_UPLOAD_LIMIT, TorrentFile, TorrentInfo, TorrentStats, Torrents, TransferState};
+use librqbit::storage::StorageFactoryExt;
 use librqbit::{
     AddTorrent, AddTorrentOptions, AddTorrentResponse, ManagedTorrent, Session, SessionOptions, TorrentStatsState,
 };
+
+use crate::torrent_storage::SkipFiles;
 
 type ManagedTorrentHandle = Arc<ManagedTorrent>;
 
@@ -131,6 +138,12 @@ impl RqbitTorrents {
         self.dir.join(format!("{id}.torrent"))
     }
 
+    /// Where a download with files left out keeps their bytes that a piece shares with a
+    /// chosen file.
+    fn kept_path(&self, id: &str) -> PathBuf {
+        self.dir.join("kept").join(id)
+    }
+
     fn peers(&self) -> Option<Vec<std::net::SocketAddr>> {
         self.local.as_ref().map(|l| l.peers.clone())
     }
@@ -187,9 +200,9 @@ impl Torrents for RqbitTorrents {
             paused,
             overwrite: true,
             output_folder: Some(folder.to_string_lossy().into_owned()),
-            // librqbit makes every file, and writes into a skipped one the bytes of a piece it
-            // shares with a chosen one: the core removes those stubs when the download ends.
             only_files: only.map(<[usize]>::to_vec),
+            // librqbit's own storage would make every file.
+            storage_factory: only.map(|o| SkipFiles::new(o.iter().copied(), self.kept_path(id)).boxed()),
             trackers: Some(trackers),
             initial_peers: self.peers(),
             ..Default::default()
@@ -232,6 +245,13 @@ impl Torrents for RqbitTorrents {
         }
         // The files stay: only the session forgets it.
         session.delete(running.handle.id().into(), false).await.map_err(error)
+    }
+
+    async fn forget(&self, id: &str) -> PluginResult<()> {
+        match tokio::fs::remove_dir_all(self.kept_path(id)).await {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(error(e)),
+            _ => Ok(()),
+        }
     }
 
     fn stats(&self, id: &str) -> Option<TorrentStats> {
@@ -403,11 +423,14 @@ mod tests {
             let _ = std::fs::remove_dir_all(&root);
         });
     }
-    /// Opt-in, `MARAH_TORRENT_TESTS=1`: a torrent of two files, one of them skipped. librqbit
-    /// downloads only the chosen one, says it is finished once that one is whole, and leaves
-    /// the skipped one as a stub with the bytes of the piece the two share.
+    /// Opt-in, `MARAH_TORRENT_TESTS=1`: a torrent of three files, the middle one skipped. No
+    /// piece starts or ends on a file's edge, so the skipped file shares a piece with each of
+    /// the others. librqbit downloads the chosen two and makes no file for the skipped one,
+    /// after a check and a restart too. A third session that has only this one to download
+    /// from gets the chosen files whole: every piece it was sent, the shared ones too, passed
+    /// its hash.
     #[test]
-    fn a_skipped_file_downloads_nothing_and_stays_a_stub() {
+    fn a_download_with_a_file_left_out_makes_no_file_for_it_and_seeds_the_others() {
         if std::env::var_os("MARAH_TORRENT_TESTS").is_none() {
             return;
         }
@@ -417,29 +440,27 @@ mod tests {
             let _ = std::fs::remove_dir_all(&root);
             let source = root.join("seed/Game");
             std::fs::create_dir_all(&source).unwrap();
-            let game: Vec<u8> = (0..300_000u32).map(|i| (i * 7 % 251) as u8).collect();
-            let update: Vec<u8> = (0..200_000u32).map(|i| (i * 13 % 241) as u8).collect();
-            std::fs::write(source.join("game.bin"), &game).unwrap();
-            std::fs::write(source.join("update.bin"), &update).unwrap();
-            let seeder = Session::new_with_opts(
-                root.join("seed"),
-                SessionOptions {
-                    dht: None,
-                    disable_trackers: true,
-                    disable_local_service_discovery: true,
-                    persistence: None,
-                    fastresume: false,
-                    listen: Some(librqbit::ListenerOptions {
-                        mode: librqbit::ListenerMode::TcpOnly,
-                        listen_addr: "127.0.0.1:0".parse().unwrap(),
-                        enable_upnp_port_forwarding: false,
-                        ..Default::default()
-                    }),
+            let bytes = |len: u32, step: u32| (0..len).map(|i| (i * step % 251) as u8).collect::<Vec<u8>>();
+            let named =
+                [("game.bin", bytes(300_000, 7)), ("update.bin", bytes(200_000, 13)), ("dlc.bin", bytes(150_000, 17))];
+            for (name, data) in &named {
+                std::fs::write(source.join(name), data).unwrap();
+            }
+            let local = || SessionOptions {
+                dht: None,
+                disable_trackers: true,
+                disable_local_service_discovery: true,
+                persistence: None,
+                fastresume: false,
+                listen: Some(librqbit::ListenerOptions {
+                    mode: librqbit::ListenerMode::TcpOnly,
+                    listen_addr: "127.0.0.1:0".parse().unwrap(),
+                    enable_upnp_port_forwarding: false,
                     ..Default::default()
-                },
-            )
-            .await
-            .unwrap();
+                }),
+                ..Default::default()
+            };
+            let seeder = Session::new_with_opts(root.join("seed"), local()).await.unwrap();
             let (made, _served) = seeder
                 .create_and_serve_torrent(
                     &source,
@@ -449,28 +470,78 @@ mod tests {
                 .unwrap();
             let magnet = made.as_magnet().to_string();
             let id = made.info_hash().as_string();
-            let torrents = RqbitTorrents::local(root.join("leech/torrents"), vec![seeder.listen_addr().unwrap()]);
+            let dir = root.join("leech/torrents");
+            let torrents = RqbitTorrents::local(dir.clone(), vec![seeder.listen_addr().unwrap()]);
             let info = torrents.resolve(&magnet).await.unwrap();
-            let at = |name: &str| info.files.iter().position(|f| f.path.ends_with(name)).unwrap();
-            let (g, u) = (at("game.bin"), at("update.bin"));
+            let data = |i: usize| &named.iter().find(|(n, _)| info.files[i].path.ends_with(n)).unwrap().1;
             let out = root.join("leech/out");
-            torrents.start(&id, &magnet, &out, false, Some(&[g])).await.unwrap();
-            let mut last = None;
+            let path = |i: usize| out.join(&info.files[i].path);
+
+            async fn until(torrents: &RqbitTorrents, id: &str, what: &str, done: fn(&TorrentStats) -> bool) {
+                for _ in 0..600 {
+                    if torrents.stats(id).as_ref().is_some_and(done) {
+                        return;
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                panic!("never {what}: {:?}", torrents.stats(id));
+            }
+            let checked_whole = |s: &TorrentStats| s.state == TransferState::Paused && s.finished;
+
+            torrents.start(&id, &magnet, &out, false, Some(&[0, 2])).await.unwrap();
+            until(&torrents, &id, "finished", |s| s.finished && s.state == TransferState::Live).await;
+            assert_eq!(&std::fs::read(path(0)).unwrap(), data(0));
+            assert_eq!(&std::fs::read(path(2)).unwrap(), data(2));
+            assert!(!path(1).exists(), "no file for the skipped one");
+            let kept = std::fs::metadata(dir.join("kept").join(&id).join("1")).unwrap().len();
+            assert!(kept > 0 && kept <= 2 * 65536, "it keeps its share of two pieces: {kept}");
+
+            // The first seeder goes: the third session can download only from this one.
+            seeder.stop().await;
+            drop(seeder);
+            let third = Session::new_with_opts(root.join("third"), local()).await.unwrap();
+            let metadata = std::fs::read(dir.join(format!("{id}.torrent"))).unwrap();
+            let options = AddTorrentOptions {
+                only_files: Some(vec![0, 2]),
+                output_folder: Some(root.join("third").to_string_lossy().into_owned()),
+                initial_peers: Some(vec![torrents.current().unwrap().listen_addr().unwrap()]),
+                ..Default::default()
+            };
+            let handle = third
+                .add_torrent(AddTorrent::from_bytes(metadata), Some(options))
+                .await
+                .unwrap()
+                .into_handle()
+                .unwrap();
             for _ in 0..600 {
-                last = torrents.stats(&id);
-                if last.as_ref().is_some_and(|s| s.finished) {
+                if handle.stats().finished {
                     break;
                 }
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
-            let stats = last.unwrap();
-            assert!(stats.finished, "{stats:?}");
-            assert!(stats.total < (game.len() + update.len()) as u64, "only the chosen bytes count: {stats:?}");
-            let path = |i: usize| out.join(&info.files[i].path);
-            assert_eq!(std::fs::read(path(g)).unwrap(), game);
-            let stub = std::fs::read(path(u)).unwrap_or_default();
-            assert_ne!(stub, update, "the skipped file never downloads whole");
+            assert!(handle.stats().finished, "{:?}", handle.stats());
+            let third_path = |i: usize| root.join("third").join(&info.files[i].path);
+            assert_eq!(&std::fs::read(third_path(0)).unwrap(), data(0), "seeded whole, with the shared pieces");
+            assert_eq!(&std::fs::read(third_path(2)).unwrap(), data(2));
+            third.stop().await;
+
+            // Started again, it checks every piece: the chosen files are whole, and the skipped
+            // one stays away.
+            torrents.stop(&id).await.unwrap();
+            torrents.start(&id, &magnet, &out, true, Some(&[0, 2])).await.unwrap();
+            until(&torrents, &id, "checked whole", checked_whole).await;
+            assert!(!path(1).exists(), "no file after a check");
+
+            // After a restart, it trusts the pieces it checked before.
             torrents.stop_all().await.unwrap();
+            let relaunched = RqbitTorrents::local(dir.clone(), vec![]);
+            relaunched.start(&id, &magnet, &out, true, Some(&[0, 2])).await.unwrap();
+            until(&relaunched, &id, "checked whole", checked_whole).await;
+            assert!(!path(1).exists(), "no file after a restart");
+            relaunched.stop(&id).await.unwrap();
+            relaunched.forget(&id).await.unwrap();
+            assert!(!dir.join("kept").join(&id).exists(), "forgotten, its kept bytes go");
+            relaunched.stop_all().await.unwrap();
             let _ = std::fs::remove_dir_all(&root);
         });
     }

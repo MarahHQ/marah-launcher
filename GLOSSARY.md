@@ -355,9 +355,10 @@ time.
 shows and as the type of the text the player types (`settings_schema.rs`).
 
 **Skipped file** (`TorrentJob::skip`): a file of a download the player unchecked on the download
-sheet. The engine gives it skip priority but may still make it, as a stub with the bytes of a
-piece it shares with a checked file; the core deletes those stubs once the download finishes. A
-download with skipped files doesn't share. File kinds (game, update, DLC, extra) come from the
+sheet. The engine gives it skip priority and makes no file for it in the download folder. It
+keeps the skipped file's bytes that a piece shares with a checked file in `torrents/kept/`, so
+the download shares the pieces it has (`TorrentJob::parts_kept`); the core deletes stubs an older
+version made once the download finishes. File kinds (game, update, DLC, extra) come from the
 file's name (`torrents/picks.rs`); the game itself can't be skipped.
 
 **Snapshot**: a subsystem's state read whole, in one lock. Reading it changes nothing. The

@@ -667,7 +667,7 @@ component FilesSheet inherits Rectangle {
                 text: (root.torrent.install-folder != ""
                         ? "Download and install installs the game by itself once the download finishes; if the install fails, the downloaded files stay. "
                         : "This emulator has no game folder: add one in Settings to install. ")
-                    + "Files you leave out never download, and a download with files left out doesn't share once it finishes.";
+                    + "Files you leave out never download, and the download folder gets no file for them.";
                 font-size: 16 * Look.px;
                 color: Tokens.color-accent-soft;
                 wrap: word-wrap;
