@@ -200,10 +200,10 @@ impl BuildsSubsystem {
         self.inner.reading.lock().await
     }
 
-    /// What the flow read of `plugin`'s builds and blocks. The flow that read it names the
-    /// change, as the read comes with the screen it opens.
+    /// What the flow read of `plugin`'s builds and blocks.
     pub fn read(&self, plugin: &PluginId, emulator: EmulatorState) {
         self.state().emulators.insert(plugin.clone(), emulator);
+        self.inner.notifier.changed(Area::Downloads);
     }
 
     /// One install of an emulator at a time: `None` while another install of `plugin` holds
@@ -304,5 +304,15 @@ mod tests {
         claim.end("1.0", InstallPhase::Installed);
         assert_eq!(downloads(&mut heard), 1);
         assert!(!builds.busy(&plugin));
+    }
+
+    #[test]
+    fn a_read_of_an_emulator_s_builds_names_its_change() {
+        let (builds, mut heard) = builds();
+        let plugin = PluginId::new("emu-a".to_owned()).unwrap();
+
+        builds.read(&plugin, EmulatorState { installed: vec!["1.0".into()], ..EmulatorState::default() });
+        assert_eq!(downloads(&mut heard), 1);
+        assert_eq!(builds.build_of(&plugin).as_deref(), Some("1.0"));
     }
 }
