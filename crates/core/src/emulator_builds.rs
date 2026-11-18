@@ -76,15 +76,41 @@ fn set_install(core: &Core, plugin: &PluginId, record: Option<InstallRecord>, ph
     if let Err(e) = saved {
         tracing::warn!(error = %e, "could not save install state");
     }
-    if let Some(emu) = core.state().emulators.get_mut(plugin) {
-        emu.busy = matches!(phase, InstallPhase::Downloading | InstallPhase::Installing);
-    }
     core.kernel().events().publish(Event::InstallChanged {
         plugin: plugin.clone(),
         version: version.into(),
         state: phase,
     });
     core.changed(Area::Downloads);
+}
+
+/// An install, update or uninstall of one emulator's build in progress. While it lives, the
+/// emulator is busy: no other install of it starts, and none of its games. It lets go when
+/// dropped.
+struct Claim {
+    core: Core,
+    plugin: PluginId,
+}
+
+impl Drop for Claim {
+    fn drop(&mut self) {
+        if let Some(emu) = self.core.state().emulators.get_mut(&self.plugin) {
+            emu.busy = false;
+        }
+        self.core.changed(Area::Downloads);
+    }
+}
+
+/// One install of an emulator at a time. The check and the claim happen under one lock, so two
+/// installs can't both start.
+fn claim(core: &Core, plugin: &PluginId) -> CoreResult<Claim> {
+    let mut state = core.state();
+    let emu = state.emulators.entry(plugin.clone()).or_default();
+    if emu.busy {
+        return Err(CoreError::Invalid(format!("{plugin} is already installing: wait for it")));
+    }
+    emu.busy = true;
+    Ok(Claim { core: core.clone(), plugin: plugin.clone() })
 }
 
 /// The install workflow: plan, download, check, install. Each phase is saved, so a crash
@@ -95,6 +121,7 @@ pub(crate) async fn install(
     version: Option<String>,
     from: Option<String>,
 ) -> CoreResult<()> {
+    let claim = claim(core, plugin)?;
     let kernel = core.kernel();
     let provided = kernel.provided(plugin).await?;
     let installer = require(plugin, Capability::Installer, provided.installer.clone())?;
@@ -109,7 +136,6 @@ pub(crate) async fn install(
             .map(|v| v.version)
             .ok_or_else(|| CoreError::Invalid(format!("{plugin} has no version to install")))?,
     };
-    core.state().emulators.entry(plugin.clone()).or_default();
     let record = |phase| InstallRecord { version: version.clone(), from: from.clone(), phase };
     set_install(core, plugin, Some(record(InstallPhase::Downloading)), InstallPhase::Downloading, &version);
 
@@ -137,6 +163,7 @@ pub(crate) async fn install(
             );
         }
     }
+    drop(claim);
     refresh_emulator(core, plugin).await;
     core.changed(Area::Downloads);
     result
@@ -154,8 +181,10 @@ pub(crate) async fn uninstall(core: &Core, plugin: &PluginId, version: &str) -> 
     let kernel = core.kernel();
     let provided = kernel.provided(plugin).await?;
     let installer = require(plugin, Capability::Installer, provided.installer)?;
+    let claim = claim(core, plugin)?;
     kernel.guard(plugin, "installer.uninstall", installer.uninstall(version)).await?;
     set_install(core, plugin, None, InstallPhase::Uninstalled, version);
+    drop(claim);
     refresh_emulator(core, plugin).await;
     Ok(())
 }
@@ -283,8 +312,11 @@ pub(crate) fn start_pass_installs(core: &Core) -> std::collections::BTreeSet<Plu
 }
 
 /// The emulator gets an update: automatic updates are on, and the last read found one for its
-/// official build.
+/// official build. Its install isn't under way, nor waiting to resume.
 fn wants_update(core: &Core, plugin: &PluginId) -> bool {
+    if busy(core, plugin) || resuming(core, plugin) {
+        return false;
+    }
     let emu = core.state().emulators.get(plugin).cloned().unwrap_or_default();
     has_builds(core, plugin)
         && !emu.installed.is_empty()
@@ -324,9 +356,10 @@ fn plays(core: &Core, plugin: &PluginId) -> bool {
     core.sessions().plays(plugin)
 }
 
-/// A game closed: an update that waited for it installs now.
+/// A game closed: an update that waited for it installs now. One that finds an install under
+/// way waits for the next look.
 pub(crate) fn game_closed(core: &Core, plugin: &PluginId) {
-    if plays(core, plugin) || !core.state().pending_updates.remove(plugin) {
+    if plays(core, plugin) || busy(core, plugin) || !core.state().pending_updates.remove(plugin) {
         return;
     }
     let (core, plugin) = (core.clone(), plugin.clone());

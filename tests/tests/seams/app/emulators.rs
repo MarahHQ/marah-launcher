@@ -138,6 +138,38 @@ async fn a_game_doesn_t_start_while_its_emulator_updates() {
 }
 
 #[tokio::test]
+async fn an_emulator_build_doesn_t_install_twice_at_once() {
+    let (t, emu) = core_with(FakeEmulator::new(vec!["A"])).await;
+    let gate = t.http.hold_after(&emu.build_url, 10);
+    let core = t.core.clone();
+    let first = tokio::spawn(async move { install(&core).await });
+    let busy = |core: &Core| core.view().emulators.emulators.iter().any(|e| e.plugin == id("emu-a") && e.busy);
+    t.until(Area::Downloads, busy).await;
+    let saved = |t: &TestCore| t.core.kernel().config().get(&["app", "installs", "emu-a"]);
+    assert!(!saved(&t).is_null(), "the install is saved while it runs");
+
+    // A second install would wait at the same gate: it must be refused at once.
+    for second in [
+        Command::InstallEmulator { plugin: id("emu-a"), version: None },
+        Command::InstallEmulator { plugin: id("emu-a"), version: Some("1.0".into()) },
+    ] {
+        let refused = tokio::time::timeout(Duration::from_secs(5), t.core.dispatch(second))
+            .await
+            .expect("the second install is refused, not run");
+        let err = refused.unwrap_err();
+        assert!(err.to_string().contains("already installing"), "{err}");
+    }
+    assert!(busy(&t.core), "the first install still runs");
+    assert!(!saved(&t).is_null(), "its record stays saved");
+
+    gate.release();
+    first.await.unwrap();
+    assert!(!busy(&t.core));
+    assert!(saved(&t).is_null(), "the record goes once the install is done");
+    assert_eq!(installed(&t.core).await, ["1.0"]);
+}
+
+#[tokio::test]
 async fn opening_another_plugin_replaces_the_open_one_so_back_goes_to_the_list() {
     let t = FakeHost::new()
         .plugin(FakeEmulator::new(vec!["A"]).plugin("emu-a"))
