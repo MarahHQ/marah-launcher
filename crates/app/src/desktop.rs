@@ -664,8 +664,14 @@ impl SystemOpener {
     /// runs the handler itself, and `steam` may become Steam's client and keep running. Reaped
     /// in the background.
     fn spawn(what: &str, program: &str, args: &[&std::ffi::OsStr]) -> Result<(), String> {
-        let mut opener = Command::new(program)
-            .args(args)
+        let mut command = Command::new(program);
+        command.args(args);
+        Self::run(what, program, command)
+    }
+
+    /// Starts `command`, which runs `program`, as [`Self::spawn`] does.
+    fn run(what: &str, program: &str, mut command: Command) -> Result<(), String> {
+        let mut opener = command
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -676,16 +682,42 @@ impl SystemOpener {
     }
 }
 
+/// The program and its whole command line that open `link` in the default browser on
+/// Windows: `rundll32 url.dll,FileProtocolHandler <link>`, which hands the rest of its command
+/// line to the system's handler for the link. No shell reads it: `cmd /C start` cut a link at
+/// each `&` and expanded `%NAME%`. rundll32 doesn't unquote, so the link goes unquoted, with
+/// each space, quote and control character percent-encoded, which a link means the same way.
+#[cfg(any(windows, test))]
+fn windows_link_command(link: &str) -> (&'static str, String) {
+    let mut line = String::from("url.dll,FileProtocolHandler ");
+    for c in link.chars() {
+        if c == ' ' || c == '"' || c.is_control() {
+            let mut bytes = [0; 4];
+            for byte in c.encode_utf8(&mut bytes).bytes() {
+                line.push_str(&format!("%{byte:02X}"));
+            }
+        } else {
+            line.push(c);
+        }
+    }
+    ("rundll32", line)
+}
+
 impl Opener for SystemOpener {
     fn open_link(&self, link: &str) -> Result<(), String> {
-        let link = std::ffi::OsStr::new(link);
-        if cfg!(target_os = "macos") {
-            Self::spawn("the link", "open", &[link])
-        } else if cfg!(windows) {
-            let (start, empty) = (std::ffi::OsStr::new("start"), std::ffi::OsStr::new(""));
-            Self::spawn("the link", "cmd", &[std::ffi::OsStr::new("/C"), start, empty, link])
-        } else {
-            Self::spawn("the link", "xdg-open", &[link])
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            let (program, line) = windows_link_command(link);
+            let mut command = Command::new(program);
+            // As it is: `arg` would quote it, and rundll32 would pass the quotes on.
+            command.raw_arg(line);
+            Self::run("the link", program, command)
+        }
+        #[cfg(not(windows))]
+        {
+            let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+            Self::spawn("the link", opener, &[std::ffi::OsStr::new(link)])
         }
     }
 
@@ -936,6 +968,22 @@ mod tests {
             "{agent}"
         );
         assert!(agent.contains("<key>RunAtLoad</key><true/>"));
+    }
+
+    /// No shell reads the link on Windows: `&` and `%` stay as they are, and a space or a
+    /// quote, which would end the link on rundll32's command line, is percent-encoded.
+    #[test]
+    fn on_windows_a_link_opens_whole_through_rundll32() {
+        let link = "https://lists.example/new?title=A & B&body=100%25 \"done\"&log=50% of it";
+        let (program, line) = super::windows_link_command(link);
+        assert_eq!(program, "rundll32");
+        assert_eq!(
+            line,
+            "url.dll,FileProtocolHandler \
+             https://lists.example/new?title=A%20&%20B&body=100%25%20%22done%22&log=50%%20of%20it"
+        );
+        let (_, tab) = super::windows_link_command("https://a.example/?q=a\tb\nc");
+        assert_eq!(tab, "url.dll,FileProtocolHandler https://a.example/?q=a%09b%0Ac");
     }
 
     #[test]

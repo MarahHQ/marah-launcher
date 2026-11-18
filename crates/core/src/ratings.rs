@@ -177,12 +177,7 @@ async fn open(core: &Core) -> CoreResult<()> {
         _ => "Linux",
     };
     let mut reports = Vec::new();
-    // TODO: on Windows the app's opener runs `cmd /C start "" <link>`, and cmd splits a link at
-    // each `&`, as a report's query has. Until the opener passes the link whole, nothing is
-    // listed there.
-    let rated =
-        if host.platform == Some(launcher_api::Platform::Windows) { Vec::new() } else { core.library().rated() };
-    for rated in rated.into_iter().filter(|r| !r.sent) {
+    for rated in core.library().rated().into_iter().filter(|r| !r.sent) {
         let plugin = &rated.game.plugin;
         let Ok(provided) = core.kernel().provided(plugin).await else { continue };
         let Some(compat) = provided.compatibility.clone() else { continue };
