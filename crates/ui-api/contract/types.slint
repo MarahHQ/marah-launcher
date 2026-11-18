@@ -185,7 +185,8 @@ export struct Verdict { plugin: string, emulator: string, level: string, headlin
 // extra; `locked`: the game itself, always on); `picked`, what the checked ones come to;
 // `download-free` and `install-free`, the free space on the drives of the download folder and
 // of the game folder ("" when the system doesn't say); `download-room` and `install-room`, why
-// the checked files don't fit there ("" when they do). `install-after`: it installs by itself
+// the checked files don't fit there ("" when they do); when both folders are on one drive,
+// `install-room` says the download and the install don't fit there together. `install-after`: it installs by itself
 // into the game folder once it finishes.
 export struct TorrentPick { path: string, size: string, kind: string, on: bool, locked: bool }
 

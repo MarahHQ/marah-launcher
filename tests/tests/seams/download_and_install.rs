@@ -510,7 +510,52 @@ async fn a_download_that_finished_before_a_restart_installs_at_the_next_start_on
 
     // The start after that doesn't install it again.
     let third = launcher_core::Core::start(t.kernel.clone()).await;
-    third.dispatch(Command::Navigate(launcher_core::Route::Downloads)).await.unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(!third.view().notices.iter().any(|n| n.contains("Installing it now")), "{:?}", third.view().notices);
     assert_eq!(s.seen.sources.lock().unwrap().len(), 1, "once");
+}
+
+#[tokio::test]
+async fn an_install_after_a_restart_that_can_t_start_is_tried_once() {
+    let s = setup().await;
+    let t = &s.t;
+    t.core.dispatch(Command::Torrent(TorrentCmd::SeedDownloads(false))).await.unwrap();
+    begin(t, false, None).await.unwrap();
+    t.torrents.complete(HASH);
+    until(t, |r| r.state == "complete").await;
+    // Its game folder isn't inside a game folder any more.
+    let config = t.kernel.config();
+    let mut record = config.get(&["app", "torrents", HASH]);
+    record["install_after"] = serde_json::json!({ "folder": "/elsewhere" });
+    config.set(&["app", "torrents", HASH], record).unwrap();
+
+    let again = launcher_core::Core::start(t.kernel.clone()).await;
+    assert!(again.view().notices.iter().any(|n| n.contains("Installing it now")));
+    until_in(&again, Area::Torrents, |core| {
+        core.view().notices.iter().any(|n| n.contains("downloaded, but the install didn't start"))
+    })
+    .await;
+    assert_eq!(config.get(&["app", "torrents", HASH, "install_after", "started"]), serde_json::json!(true));
+
+    let third = launcher_core::Core::start(t.kernel.clone()).await;
+    assert!(!third.view().notices.iter().any(|n| n.contains("Installing it now")), "{:?}", third.view().notices);
+    assert!(s.seen.sources.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_download_and_install_from_an_older_version_that_installed_doesn_t_install_again() {
+    let s = setup().await;
+    let t = &s.t;
+    t.core.dispatch(Command::Torrent(TorrentCmd::SeedDownloads(false))).await.unwrap();
+    begin(t, true, None).await.unwrap();
+    t.torrents.complete(HASH);
+    until_install(t, "done").await;
+    // 0.11.0 saved no started mark.
+    let config = t.kernel.config();
+    let mut record = config.get(&["app", "torrents", HASH]);
+    record["install_after"].as_object_mut().unwrap().remove("started");
+    config.set(&["app", "torrents", HASH], record).unwrap();
+
+    let again = launcher_core::Core::start(t.kernel.clone()).await;
+    assert!(!again.view().notices.iter().any(|n| n.contains("Installing it now")), "{:?}", again.view().notices);
+    assert_eq!(s.seen.sources.lock().unwrap().len(), 1);
 }
