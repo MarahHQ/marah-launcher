@@ -173,7 +173,10 @@ game has:
 - **Rate how it runs**.
 - **Compatibility list**, and the compatibility layer's page (such as "ProtonDB page").
 - **Settings**.
-- **Hide from the Catalog**, or **Show in the Catalog**, for a game a catalog offers.
+- **Hide from the Catalog**, or **Show in the Catalog**, for a game a catalog offers. For a game
+  on more than one console, the menu has **Hide the PS4 version** (with the version's console)
+  and **Hide every version** (see
+  [One card per game](#one-card-per-game)).
 - **Uninstall**, for an installed game.
 
 When Marah Launcher is the whole screen, the items that open another program (a folder, a log, a web
@@ -207,6 +210,10 @@ The Catalog has three filters among its systems. Each one shows only when it has
 - **In-game**: only games that reach gameplay.
 - **Installed**: the games you have.
 - **Hidden**: only the games you hid. Other views leave them out.
+
+Each filter's number is the number of cards it shows. It counts the games of the system shown,
+and under **All** a game on more than one console counts once. A console chip, such as **PS5**,
+counts that console's games.
 
 ### One card per game
 
@@ -249,8 +256,27 @@ the versions in this order, and the first difference decides:
 
 When no version can start on this PC, none is marked best.
 
+The community's list is read only for a version you have installed: the emulator's list stays in
+its plugin, and the Catalog sees the result of each installed game. The Game Hub's Compatibility
+fact shows the same result. A console version you don't have shows "Not tested", unless you
+rated it yourself.
+
 On the card, a version you have installed stands for the game, so Play starts the game you
-have. **Hide** on the card, or in a version's Game Hub, hides each version of the game.
+have. The card is **New** when any of its versions came to the catalog in the last two weeks.
+
+To hide a game on more than one console, open a version's Game Hub and choose **Hide**, or
+open the game's menu (Options) on its card or in its Game Hub. Then pick one of these:
+
+- **Hide the PS4 version** (with that version's console): only this version leaves the Catalog.
+  Under **All**, the card stands for the other versions, without a chip for the hidden one. The
+  hidden version's console chip no longer shows it.
+- **Hide every version**: the game leaves the Catalog on each console.
+
+With a mouse, the eye on a card under **All** hides every version of the game. Under a console
+chip, such as **PS5**, the eye hides only that console's version.
+
+The **Hidden** filter shows what you hid. **Show in the Catalog** on a hidden version shows
+every version of the game again.
 
 The Game Catalog plugin gives the catalogs. Its page is under Emulators. With the Game Catalog
 turned off, there is no Catalog and no Search button. Its settings include **Catalog address**,

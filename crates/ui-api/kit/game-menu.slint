@@ -27,6 +27,8 @@ export global GameMenu {
     out property <int> actions: Vm.detail.actions.length;
     // Nothing outside Marah Launcher is on screen when it's the whole screen: no file manager or browser.
     out property <bool> outside: !Vm.system.whole-screen;
+    // The game is on several consoles: its Game Hub lists the versions.
+    out property <bool> versions: Vm.detail.versions.length > 0;
     // The fixed items after the emulator's actions.
     out property <[{ id: string, label: string, icon: string, on: bool }]> items: [
         { id: "settings-game", label: "Game settings", icon: "gear", on: Vm.detail.settings.length > 0 },
@@ -37,7 +39,10 @@ export global GameMenu {
         { id: "compat", label: "Compatibility list", icon: "web", on: Vm.detail.compat-page != "" && root.outside },
         { id: "layer", label: Vm.detail.layer-source + " page", icon: "web", on: Vm.detail.layer-url != "" && root.outside },
         { id: "settings", label: "Settings", icon: "gear", on: true },
-        { id: "hide", label: Vm.detail.hidden ? "Show in the Catalog" : "Hide from the Catalog",
+        // A game on several consoles hides one version, or every one; Show shows every one.
+        { id: "hide-version", label: "Hide the " + Vm.detail.platform + " version", icon: "eye-off",
+            on: Vm.detail.releases.length > 0 && !Vm.detail.hidden && root.versions },
+        { id: "hide", label: Vm.detail.hidden ? "Show in the Catalog" : root.versions ? "Hide every version" : "Hide from the Catalog",
             icon: Vm.detail.hidden ? "eye" : "eye-off", on: Vm.detail.releases.length > 0 },
         { id: "uninstall", label: "Uninstall", icon: "close", on: Vm.detail.can.uninstall != "" },
     ];
@@ -53,6 +58,12 @@ export global GameMenu {
         root.focus = root.hub ? 0 : 1;
         if (!root.shown(root.focus)) { root.step(1); }
         Host.play-sound("select");
+    }
+    // The menu, with the keys on "Hide the PS4 version": the Game Hub's Hide, on a game of
+    // several versions, asks which to hide. 8 is its place in `items`.
+    public function show-hide() {
+        root.show();
+        if (root.items[8].on) { root.focus = 1 + root.actions + 8; }
     }
     public function close() { root.open = false; root.confirming = false; root.uninstall-key = ""; root.uninstall-title = ""; }
     // A card's Uninstall: the question alone, for `key`, with the keys on Not now.
@@ -124,6 +135,7 @@ export global GameMenu {
             if (id == "layer") { Host.open-url(Vm.detail.layer-url); }
             if (id == "settings") { Commands.navigate("settings"); }
             if (id == "hide") { Commands.hide-game(root.game, !Vm.detail.hidden); }
+            if (id == "hide-version") { Commands.hide-version(root.game, true); }
         }
     }
 }

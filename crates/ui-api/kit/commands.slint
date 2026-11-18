@@ -35,6 +35,10 @@ export global Commands {
     public function hide-game(key: string, hidden: bool) {
         Host.command("Library", "{\"Hide\":{\"game\":" + Json.text(key) + ",\"hidden\":" + Json.flag(hidden) + "}}");
     }
+    // One version of a game on several consoles: its other versions stay as they are.
+    public function hide-version(key: string, hidden: bool) {
+        Host.command("Library", "{\"HideVersion\":{\"game\":" + Json.text(key) + ",\"hidden\":" + Json.flag(hidden) + "}}");
+    }
     public function refresh-library() { Host.command("Library", "\"Refresh\""); }
     // A grid's name, "library" or "catalog", and how many columns it shows.
     public function grid-columns(grid: string, columns: int) {

@@ -28,6 +28,15 @@ export component Card inherits Rectangle {
     accessible-item-selected: root.focused;
     accessible-action-default => { root.activated(); }
 
+    // The eye's press (see the eye below).
+    function hide() {
+        if (root.game.hidden || root.game.consoles.length > 0) {
+            Commands.hide-game(root.game.key, !root.game.hidden);
+        } else {
+            Commands.hide-version(root.game.key, true);
+        }
+    }
+
     touch := TouchArea { mouse-cursor: pointer; clicked => { root.activated(); } }
 
     Rectangle {
@@ -95,7 +104,9 @@ export component Card inherits Rectangle {
                 }
             }
             // A Catalog game's eye: hides the game, or shows a hidden one again. On the focused
-            // or pointed card, and always on a hidden one. The pad's way is the game's menu.
+            // or pointed card, and always on a hidden one. The pad's way is the game's menu. The
+            // card of a game on several consoles (under "All") hides every version; a console's
+            // card hides only that console's version. Show shows every version.
             if root.offered : Rectangle {
                 x: Look.rtl ? parent.width - self.width - 8 * Look.px : 8 * Look.px;
                 y: 8 * Look.px;
@@ -107,8 +118,9 @@ export component Card inherits Rectangle {
                 animate opacity { duration: Tokens.motion-fast; }
                 accessible-role: button;
                 accessible-label: "card-hide";
-                accessible-value: (root.game.hidden ? "Show " : "Hide ") + root.game.title;
-                accessible-action-default => { Commands.hide-game(root.game.key, !root.game.hidden); }
+                accessible-value: root.game.hidden ? "Show " + root.game.title
+                    : root.game.consoles.length > 0 ? "Hide every version of " + root.game.title : "Hide " + root.game.title;
+                accessible-action-default => { root.hide(); }
                 Icon {
                     width: parent.width * 0.6;
                     height: self.width;
@@ -116,7 +128,7 @@ export component Card inherits Rectangle {
                 }
                 eye := TouchArea {
                     mouse-cursor: pointer;
-                    clicked => { Commands.hide-game(root.game.key, !root.game.hidden); }
+                    clicked => { root.hide(); }
                 }
             }
             // The game's main action, the same for every game (`GameCard.can`): Play when it

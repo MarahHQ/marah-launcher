@@ -17,16 +17,26 @@ fn strong_pc(avx2: bool) -> Specs {
     Specs { cpu: "Test CPU".into(), cores: 16, threads: 32, memory_gb: 64.0, avx2: Some(avx2), gpus: Some(vec![gpu]) }
 }
 
-/// A topic of `title` for `console`, released in 2024 by Sony.
+/// A topic of `title` for `console`, released in 2024 by Sony, added to the catalog long ago.
 fn on(console: &str, id: u32, title_id: &str, title: &str, hash: char) -> serde_json::Value {
+    added_on(console, id, title_id, title, hash, "2026-10-01")
+}
+
+/// [`on`], added to the catalog on `day`.
+fn added_on(console: &str, id: u32, title_id: &str, title: &str, hash: char, day: &str) -> serde_json::Value {
     serde_json::json!({ "id": id.to_string(), "title": format!("[{console}] {title} [EUR / v1.00]"),
-        "magnet": format!("magnet:?xt=urn:btih:{}", hash.to_string().repeat(40)), "published_at": "2026-10-01",
+        "magnet": format!("magnet:?xt=urn:btih:{}", hash.to_string().repeat(40)), "published_at": day,
         "game_info": { "name": title, "title_id": title_id, "region": "EUR", "version": "1.00", "genre": "Action",
             "release_year": "2024", "publisher": "Sony", "release_summary": format!("{title} on {console}.") } })
 }
 
 /// Astro Bot on PS5 and PS4, and Quest on PS4 only, on the Catalog, on `pc`.
 async fn astro_on_two_consoles(pc: Specs) -> TestCore {
+    astro_added(pc, "2026-10-01").await
+}
+
+/// [`astro_on_two_consoles`], with Astro Bot's PS5 version added to the catalog on `ps5_day`.
+async fn astro_added(pc: Specs, ps5_day: &str) -> TestCore {
     let t = FakeHost::new()
         .hardware(pc)
         .built_in(launcher_api::PluginBox::code(release_catalog::ReleaseCatalog::default()))
@@ -34,7 +44,7 @@ async fn astro_on_two_consoles(pc: Specs) -> TestCore {
         .plugin(FakeCatalog::new("emu-ps4").system("PS4").console("PS4").requires(PS4_NEEDS).games([]).build())
         .boot_core()
         .await;
-    let ps5 = serde_json::json!([on("PS5", 1, "PPSA01234", "Astro Bot", 'a')]);
+    let ps5 = serde_json::json!([added_on("PS5", 1, "PPSA01234", "Astro Bot", 'a', ps5_day)]);
     let ps4 = serde_json::json!([on("PS4", 2, "CUSA01234", "Astro Bot", 'b'), on("PS4", 3, "CUSA00002", "Quest", 'c')]);
     t.http.serve(URL, catalog_of("2026-10-18T00:00:00Z", ps5));
     t.http.serve("https://xyz.dev/catalog/ps4.json", catalog_of("2026-10-18T00:00:00Z", ps4));
@@ -126,6 +136,7 @@ async fn hiding_a_game_s_card_hides_each_of_its_versions() {
     t.core.dispatch(hide(true)).await.unwrap();
     let keys: Vec<String> = cards(&t).into_iter().map(|(key, _)| key).collect();
     assert_eq!(keys, ["release-catalog:emu-ps4/CUSA00002"], "the PS5 version doesn't take the card's place");
+    assert!(chips(&t).contains(&("hidden".to_owned(), 1)), "one card hidden, not two offers: {:?}", chips(&t));
     let filter = Command::CatalogSystem(Some(launcher_core::SystemChoice::Filter(launcher_core::GridFilter::Hidden)));
     t.core.dispatch(filter).await.unwrap();
     assert_eq!(cards(&t).len(), 1, "under Hidden: the one card of both");
@@ -142,4 +153,103 @@ async fn the_card_is_selected_when_any_of_its_versions_is() {
     let grid = t.core.view().catalog.games;
     assert_eq!(grid.selected, Some(0));
     assert_eq!(grid.games[0].key, ASTRO_PS4);
+}
+
+#[tokio::test]
+async fn hiding_one_version_leaves_the_game_s_other_versions() {
+    let t = astro_on_two_consoles(strong_pc(true)).await;
+    // The card is the PS4 version: the player hides it alone.
+    let hide =
+        Command::Library(launcher_core::LibraryCmd::HideVersion { game: ASTRO_PS4.parse().unwrap(), hidden: true });
+    t.core.dispatch(hide).await.unwrap();
+    let quest = "release-catalog:emu-ps4/CUSA00002".to_owned();
+    assert_eq!(
+        cards(&t),
+        [(ASTRO_PS5.to_owned(), Vec::new()), (quest.clone(), Vec::new())],
+        "the PS5's, with no chips"
+    );
+    let chip = |id: &str, count| (id.to_owned(), count);
+    assert!(chips(&t).contains(&chip("hidden", 1)), "{:?}", chips(&t));
+    let system = |id: &str| Command::CatalogSystem(Some(launcher_core::SystemChoice::System(id.into())));
+    t.core.dispatch(system("PS5")).await.unwrap();
+    assert_eq!(cards(&t), [(ASTRO_PS5.to_owned(), Vec::new())], "the PS5 version is not hidden");
+    t.core.dispatch(system("PS4")).await.unwrap();
+    assert_eq!(cards(&t), [(quest, Vec::new())], "the PS4 version is");
+    // The Game Hub of the PS5 version is not hidden; Show on the PS4 version's shows it again.
+    t.core.dispatch(Command::OpenGame(ASTRO_PS5.parse().unwrap())).await.unwrap();
+    assert!(!t.core.view().detail.unwrap().hidden);
+    let show = Command::Library(launcher_core::LibraryCmd::Hide { game: ASTRO_PS4.parse().unwrap(), hidden: false });
+    t.core.dispatch(show).await.unwrap();
+    t.core.dispatch(Command::Navigate(launcher_core::Route::Catalog)).await.unwrap();
+    t.core.dispatch(Command::CatalogSystem(None)).await.unwrap();
+    assert_eq!(cards(&t)[0], (ASTRO_PS4.to_owned(), vec!["PS4".to_owned(), "PS5".to_owned()]), "both versions again");
+}
+
+#[tokio::test]
+async fn a_card_is_new_when_another_of_its_versions_is() {
+    // The card is the PS4 version, added long ago; the PS5 version came this week.
+    let t = astro_added(strong_pc(true), &days_ago(2)).await;
+    let new = |t: &TestCore| -> Vec<(String, bool)> {
+        let games = t.core.view().catalog.games.games;
+        games.into_iter().map(|c| (c.key, c.badges.iter().any(|b| b.id == "new"))).collect()
+    };
+    let quest = "release-catalog:emu-ps4/CUSA00002".to_owned();
+    assert_eq!(new(&t), [(ASTRO_PS4.to_owned(), true), (quest.clone(), false)], "All: New from the PS5 version");
+    let system = |id: &str| Command::CatalogSystem(Some(launcher_core::SystemChoice::System(id.into())));
+    t.core.dispatch(system("PS4")).await.unwrap();
+    assert_eq!(new(&t), [(ASTRO_PS4.to_owned(), false), (quest, false)], "PS4: its own release is old");
+    t.core.dispatch(system("PS5")).await.unwrap();
+    assert_eq!(new(&t), [(ASTRO_PS5.to_owned(), true)]);
+}
+
+#[tokio::test]
+async fn a_version_takes_the_community_result_of_the_installed_game_it_is() {
+    // The player has Astro Bot on PS4 (title id CUSA00000): its list says Playable.
+    let t = FakeHost::new()
+        .hardware(strong_pc(true))
+        .built_in(launcher_api::PluginBox::code(release_catalog::ReleaseCatalog::default()))
+        .plugin(FakeCatalog::new("emu-ps5").system("PS5").console("PS5").requires(PS5_NEEDS).games([]).build())
+        .plugin(
+            FakeCatalog::new("emu-ps4")
+                .system("PS4")
+                .console("PS4")
+                .requires(PS4_NEEDS)
+                .games(["Astro Bot"])
+                .tested()
+                .build(),
+        )
+        .boot_core()
+        .await;
+    t.http.serve(
+        URL,
+        catalog_of("2026-10-18T00:00:00Z", serde_json::json!([on("PS5", 1, "PPSA01234", "Astro Bot", 'a')])),
+    );
+    let ps4 = serde_json::json!([on("PS4", 2, "CUSA00000", "Astro Bot", 'b')]);
+    t.http.serve("https://xyz.dev/catalog/ps4.json", catalog_of("2026-10-18T00:00:00Z", ps4));
+    set_address(&t, "https://xyz.dev/catalog").await.unwrap();
+    t.core.dispatch(Command::Navigate(launcher_core::Route::Catalog)).await.unwrap();
+    catalogs_fetched(&t.core).await;
+    t.until(Area::Hardware, |core| core.view().settings.hardware.known).await;
+    // The library reads its games again with the catalogs in; the installed game's details, with
+    // its result, come in the background.
+    t.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
+    t.until(Area::Library, |core| core.view().catalog.games.systems.iter().any(|c| c.id == "ingame")).await;
+    let ingame = chips(&t).into_iter().find(|(id, _)| id == "ingame");
+    assert_eq!(ingame, Some(("ingame".to_owned(), 1)), "the In-game filter reads it too");
+    t.core.dispatch(Command::OpenGame("release-catalog:emu-ps4/CUSA00000".parse().unwrap())).await.unwrap();
+    let detail = t.core.view().detail.unwrap();
+    assert_eq!(detail.compat.map(|c| c.label), Some("Playable".into()), "the Compatibility fact says the same");
+    let versions: Vec<(String, String, String)> =
+        detail.versions.iter().map(|v| (v.platform.clone(), v.how.clone(), v.why.clone())).collect();
+    assert_eq!(
+        versions,
+        [
+            (
+                "PS4".into(),
+                "Playable · Should run well".into(),
+                "Gets the furthest: Playable, as players report".into()
+            ),
+            ("PS5".into(), "Not tested · Should run well".into(), String::new()),
+        ]
+    );
 }

@@ -774,6 +774,14 @@ export component GameDetailPage inherits Rectangle {
     property <length> read-y;
     property <int> reading: Hub.reading;
     changed reading => { root.read(); }
+    // The Hide pill: a game on several consoles asks, in the game's menu, which versions to hide.
+    function hide() {
+        if (Vm.detail.versions.length > 0 && !Vm.detail.hidden) {
+            GameMenu.show-hide();
+        } else {
+            Commands.hide-game(Vm.detail.key, !Vm.detail.hidden);
+        }
+    }
     // A step of reading: about 360 px further down the page from where the reading starts.
     function read() {
         if (Hub.reading < 0) { return; }
@@ -957,7 +965,8 @@ export component GameDetailPage inherits Rectangle {
                     clicked => { Hub.focus = Hub.trailer-button; Trailers.watch(); }
                 }
                 // A Catalog game hides from the Catalog, or shows again. The pad's way is the
-                // game's menu (Options), so the eye is the pointer's, outside the key order.
+                // game's menu (Options), so the eye is the pointer's, outside the key order. A
+                // game on several consoles opens the menu, to hide this version or every one.
                 if Vm.detail.releases.length > 0 : Pill {
                     text: Vm.detail.hidden ? "Show" : "Hide";
                     icon: Vm.detail.hidden ? "eye-off" : "eye";
@@ -965,8 +974,8 @@ export component GameDetailPage inherits Rectangle {
                     accessible-role: button;
                     accessible-label: "hub-hide";
                     accessible-value: self.text;
-                    accessible-action-default => { Commands.hide-game(Vm.detail.key, !Vm.detail.hidden); }
-                    clicked => { Commands.hide-game(Vm.detail.key, !Vm.detail.hidden); }
+                    accessible-action-default => { root.hide(); }
+                    clicked => { root.hide(); }
                 }
                 Pill {
                     text: "Options";
