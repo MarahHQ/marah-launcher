@@ -451,7 +451,7 @@ Three rules hold for every kit file. Tests in `contract.rs` check them:
 | `settings-rows.slint` | `Prefs`, `RailTab`, `Tab`, `Header`, `Row`, `Value`, `Editor`, `FieldRow`, `FolderRow` | The rows of a settings sheet, and where the keys are in it. The kit's sheets use the rail (`RailTab`); `Tab` stays for themes that draw tabs. |
 | `settings-sections.slint` | `GamesSection`, `UpdatesSection`, `LauncherSection`, `DownloadsSection`, `PcSection`, `SystemSection`, `BackupSection`, `PowerSection` | The rows of each Settings tab. |
 | `sheet-frame.slint` | `SheetFrame` | A side sheet: the wash behind and the panel that slides in. A click on the wash goes back. |
-| `shell.slint` | `Screens`, `ShellKeys`, `Overlays`, `ShellHints`, `Hint` | The shell's keys in the order every theme answers them (`ShellKeys`, a `FocusScope` around the screens), the key hints for what is up (`ShellHints.pick`, a list of `Hint`; the theme gives its own Home hints), what opens over the screens (`Overlays`: the prompts, the game menu, a trailer, the screenshot viewer, the backup browser, Install OS, the power menu and the closing screen), which kind of screen is up (`Screens.home`, `.list`, `.sheet`), and the side a screen moves on (`Screens.side(leaving)`, from `Vm.nav-direction`). |
+| `shell.slint` | `Screens`, `ShellKeys`, `Overlays`, `ShellHints`, `Hint` | The shell's keys in the order every theme answers them (`ShellKeys`, a `FocusScope` around the screens, which also starts the kit's pages afresh on a new screen), the key hints for what is up (`ShellHints.pick`, a list of `Hint`; the theme gives its own Home hints), what opens over the screens (`Overlays`: the prompts, the game menu, a trailer, the screenshot viewer, the backup browser, Install OS, the power menu and the closing screen), which kind of screen is up (`Screens.home`, `.list`, `.sheet`), and the side a screen moves on (`Screens.side(leaving)`, from `Vm.nav-direction`). |
 | `shot-viewer.slint` | `Viewer`, `ShotViewer` | A game's screenshots, full screen. |
 | `slot-actions.slint` | `SlotActions` | Plugin actions as round buttons. |
 | `slot-badges.slint` | `SlotBadges` | Plugin badges as small tags with a dot in their tone. |
@@ -473,6 +473,12 @@ order:
   `Viewer.key`, `Prompt.key` while each is open;
 - `Prefs.key` on a settings sheet, `PluginList.key` on Emulators and Themes, `Hub.key` on the
   Game Hub, `Dl.key` on Downloads.
+
+When `Vm.screen` changes, `ShellKeys` starts the kit's pages afresh: the Game Hub on its first
+button (`Hub.reset`), Downloads on its first row (`Dl.reset`), a settings sheet on its first row
+(`Prefs.reset`), the game menu and the screenshot viewer closed. It then calls `screen-changed`,
+where your theme sets its own focus for the new screen, and takes the keys back. To open the
+Game Hub on its releases, set `Hub.to-releases` before you open it.
 
 Your theme answers the keys only it knows in three callbacks: `sort-key` while `sort-open`,
 `theme-key` before the sheets' tabs (a search key, a trailer key, your own top bar) and

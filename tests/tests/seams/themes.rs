@@ -512,3 +512,36 @@ fn a_saved_value_for_an_option_the_theme_no_longer_has_is_left_out() {
     let options = &host.ui.resolved().unwrap().merged.option_values;
     assert!(!options.contains_key("motion"), "{options:?}");
 }
+
+/// The kit's pages keep their state in globals, and a theme that only puts its screens inside
+/// the kit's `ShellKeys` gets that state reset when the screen changes: a game's menu closes
+/// with its screen, and the next Game Hub starts on its first button.
+#[test]
+fn a_theme_on_the_kit_s_shell_starts_each_screen_afresh() {
+    for theme in ["fixture-grid", "classic", "default"] {
+        let mut host = composed(|h| {
+            h.discover(&fixture_themes())
+                .plugin(FakeCatalog::new("emu-a").system("PS4").games(["Alpha", "Beta"]).build())
+        });
+        host.ui.start().unwrap();
+        host.ui.switch(&id(theme)).unwrap();
+        host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
+        host.resize(1600.0, 900.0);
+        host.settle();
+        host.dispatch(Command::OpenGame("emu-a:G0".parse().unwrap()));
+        host.settle();
+        let first = host.focused("game-options");
+        assert!(first.is_empty(), "{theme}: a button comes before Options");
+
+        host.press("game-options", "Options");
+        assert!(!host.values("game-menu").is_empty(), "{theme}: the game's menu is open");
+        assert_eq!(host.focused("game-options"), ["Options"], "{theme}: the keys are on Options");
+        host.dispatch(Command::Navigate(launcher_core::Route::Downloads));
+        host.settle();
+        assert!(host.values("game-menu").is_empty(), "{theme}: the game's menu closes with its screen");
+
+        host.dispatch(Command::OpenGame("emu-a:G1".parse().unwrap()));
+        host.settle();
+        assert_eq!(host.focused("game-options"), first, "{theme}: the next Game Hub starts on its first button");
+    }
+}

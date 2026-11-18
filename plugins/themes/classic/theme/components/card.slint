@@ -5,6 +5,7 @@ import { Tokens } from "../tokens.slint";
 import { Look } from "../kit/look.slint";
 import { FocusRing, Cover } from "../kit/widgets.slint";
 import { Nav } from "nav.slint";
+import { Hub } from "../kit/game-detail.slint";
 import { SlotBadges } from "../kit/slot-badges.slint";
 
 // A Library card: its 2:3 cover with the console on top, how it runs and its
@@ -157,7 +158,7 @@ export component Card inherits Rectangle {
                     } else if (root.game.can.get-store != "") {
                         Commands.download-release(root.game.key, root.game.can.get-release, "");
                     } else {
-                        Nav.to-releases = true;
+                        Hub.to-releases = true;
                         root.activated();
                     }
                 }
