@@ -402,7 +402,7 @@ async fn a_download_with_files_left_out_resumes_with_the_same_files_after_a_rest
 
 #[tokio::test]
 async fn with_no_game_file_every_file_is_optional_and_one_must_stay_checked() {
-    let s = setup_with(&[("Astro Update/a.pkg", UPDATE), ("Astro Update/b.pkg", DLC)], |h, _| h).await;
+    let s = setup_with(&[("Astro/Update/a.pkg", UPDATE), ("Astro/Update/b.pkg", DLC)], |h, _| h).await;
     let t = &s.t;
     assert!(row(t).picks.iter().all(|p| p.on && !p.locked));
     pick(t, None, false).await;
@@ -427,4 +427,25 @@ async fn a_skipped_archive_s_stub_doesn_t_unpack_and_the_game_s_archive_installs
     assert_eq!(installed.unpack, "unpacked");
     assert_eq!(installed.error, "");
     assert_eq!(s.seen.files.lock().unwrap()[0], ["Astro/game.zip", "unpacked/Astro/game/Astro.pkg"]);
+}
+
+#[tokio::test]
+async fn an_install_that_can_t_start_after_the_download_says_why_and_keeps_the_files() {
+    let s = setup().await;
+    let t = &s.t;
+    std::fs::create_dir_all(s.home.path().join("Other")).unwrap();
+    begin(t, true, Some("~/Games/Mine")).await.unwrap();
+    // The game folder goes while it downloads.
+    let paths = vec![s.home.path().join("Other")];
+    t.core.dispatch(Command::SetFolders { name: "games".into(), paths }).await.unwrap();
+    t.torrents.complete(HASH);
+
+    let refused = until(t, |r| !r.install_error.is_empty()).await;
+    assert!(refused.install_error.contains("Pick a folder inside a game folder"), "{refused:?}");
+    assert_eq!(refused.error, refused.install_error, "the card says why");
+    assert_eq!(refused.install, "", "nothing installs");
+    let notice = t.core.view().notices.into_iter().find(|n| n.contains("downloaded, but the install didn't start"));
+    assert!(notice.is_some(), "{:?}", t.core.view().notices);
+    assert_eq!(std::fs::read(s.folder().join("Astro/Astro.pkg")).unwrap(), GAME, "the downloaded files stay");
+    assert!(refused.actions.contains(&"install".to_owned()));
 }

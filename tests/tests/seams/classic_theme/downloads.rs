@@ -509,3 +509,66 @@ fn the_download_sheet_disables_download_and_install_when_the_game_folder_is_shor
     assert_eq!(host.first("start-download").accessible_enabled(), Some(true), "it can still only download");
     assert!(host.lit("start-download"), "the keys start on Download");
 }
+
+#[test]
+fn a_game_folder_typed_on_the_download_sheet_lets_download_and_install_go_on_another_drive() {
+    use slint::platform::Key;
+    let home = tempfile::tempdir().unwrap();
+    for folder in ["Games", "Big"] {
+        std::fs::create_dir_all(home.path().join(folder)).unwrap();
+    }
+    let games = home.path().join("Games");
+    let mut host = penguins_on_the_sheet(home.path(), |h| h.disk(games, 3));
+    host.press_first("start-not-now");
+    let paths = vec![home.path().join("Games"), home.path().join("Big")];
+    host.dispatch(Command::SetFolders { name: "games".into(), paths });
+    host.press("torrent-action:start", ASTRO_HASH);
+    assert_eq!(host.first("start-install").accessible_enabled(), Some(false), "no room in the game folder");
+
+    // Up to the game folder; Enter opens it for typing, Enter again keeps the text.
+    host.navigate(Key::UpArrow);
+    host.navigate(Key::Return);
+    let big = home.path().join("Big/PC");
+    host.send_text(big.to_str().unwrap());
+    host.navigate(Key::Return);
+    assert_eq!(host.values("start-folder"), [big.to_str().unwrap()]);
+    assert!(host.values("start-room").is_empty(), "the offered folder's warning goes");
+    assert_eq!(host.first("start-install").accessible_enabled(), Some(true));
+    assert!(host.lit("start-install"), "the keys are on Download and install");
+    host.navigate(Key::Return);
+    assert_eq!(host.test.torrents.started().len(), 1);
+    host.test.torrents.complete(ASTRO_HASH);
+    until_install(&mut host, "done");
+    assert!(big.join("Penguins").is_dir(), "it installed where the player typed");
+}
+
+#[test]
+fn a_download_s_card_says_when_its_install_didn_t_start_or_failed() {
+    let home = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(home.path().join("Other")).unwrap();
+    let mut host = penguins_on_the_sheet(home.path(), |h| h);
+    // Download and install into a folder the player typed.
+    use slint::platform::Key;
+    host.navigate(Key::UpArrow);
+    host.navigate(Key::Return);
+    host.send_text(home.path().join("Games/Mine").to_str().unwrap());
+    host.navigate(Key::Return);
+    host.navigate(Key::Return);
+    assert_eq!(host.test.torrents.started().len(), 1);
+    // The game folder goes before the download finishes: the install can't start.
+    host.dispatch(Command::SetFolders { name: "games".into(), paths: vec![home.path().join("Other")] });
+    host.test.torrents.complete(ASTRO_HASH);
+    host.until(Area::Torrents, |core| !core.view().downloads.torrents[0].install_error.is_empty());
+    host.settle();
+    assert_eq!(host.values("torrent-state"), ["Install didn't start"]);
+    let card = host.core().view().downloads.torrents[0].clone();
+    assert_eq!(card.error, card.install_error, "the card says why");
+    assert!(card.actions.contains(&"install".to_owned()), "{:?}", card.actions);
+    assert!(home.path().join(format!("Downloads/PC/torrent-{ASTRO_HASH}/Penguins/penguins.x86_64")).is_file());
+
+    // Install on the card tries again, into the game folder there is now.
+    host.press("torrent-action:install", ASTRO_HASH);
+    host.press_first("install-agree");
+    until_install(&mut host, "done");
+    assert_eq!(host.values("torrent-state"), ["Installed"]);
+}

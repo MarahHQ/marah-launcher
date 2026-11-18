@@ -1,7 +1,8 @@
 //! Which files of a download the player picks on the download sheet. Pure: it reads paths and
 //! returns values.
 //!
-//! The rule for what a file is, by its path in lower case:
+//! The rule for what a file is, by its path in lower case, below the folder every file of the
+//! torrent shares (a name such as `Astro (v1.05 + DLC)/` says nothing of one file):
 //!
 //! - **Update**: a word in it is `update`, `patch` or `upd`.
 //! - **DLC**: a word in it is `dlc`, `addon`, `add-on` or `addons`.
@@ -75,9 +76,27 @@ pub(crate) struct Pick {
     pub locked: bool,
 }
 
+/// Each path below the folder every one of them is in, if they share one.
+fn below_root(files: &[TorrentFile]) -> Vec<&str> {
+    let root = files.first().and_then(|f| f.path.split_once('/')).map(|(root, _)| root);
+    let shared = root.filter(|root| files.iter().all(|f| f.path.split_once('/').is_some_and(|(r, _)| r == *root)));
+    files
+        .iter()
+        .map(
+            |f| {
+                if shared.is_some() {
+                    f.path.split_once('/').map_or(f.path.as_str(), |(_, rest)| rest)
+                } else {
+                    &f.path
+                }
+            },
+        )
+        .collect()
+}
+
 /// The files the sheet shows (`files`, the first of the torrent's), with `skip` unchecked.
 pub(crate) fn picks(files: &[TorrentFile], skip: &[usize]) -> Vec<Pick> {
-    let kinds: Vec<FileKind> = files.iter().map(|f| kind_of(&f.path)).collect();
+    let kinds: Vec<FileKind> = below_root(files).into_iter().map(kind_of).collect();
     let any_game = kinds.contains(&FileKind::Game);
     kinds
         .into_iter()
@@ -184,8 +203,20 @@ mod tests {
     }
 
     #[test]
+    fn the_folder_every_file_shares_says_nothing_of_one_file() {
+        let files = [file("Astro (v1.05 + DLC)/Astro.pkg", 10), file("Astro (v1.05 + DLC)/DLC/Costume.pkg", 2)];
+        let shown = picks(&files, &[]);
+        assert_eq!(
+            shown.iter().map(|p| (p.kind, p.locked)).collect::<Vec<_>>(),
+            [(FileKind::Game, true), (FileKind::Dlc, false)]
+        );
+        let one = [file("Astro Update/a.pkg", 5)];
+        assert_eq!(picks(&one, &[])[0].kind, FileKind::Game, "below its folder, a file is the game");
+    }
+
+    #[test]
     fn with_no_game_file_every_file_is_optional() {
-        let files = [file("Update/u1.pkg", 5), file("Update/u2.pkg", 5)];
+        let files = [file("Astro/Update/u1.pkg", 5), file("Astro/Update/u2.pkg", 5)];
         assert!(picks(&files, &[]).iter().all(|p| !p.locked));
         assert_eq!(pick(&files, &[], Some(0), false), [0]);
     }

@@ -74,9 +74,11 @@ export global Dl {
     out property <int> files: root.starting ? Vm.torrents[root.start].picks.length : 0;
     out property <string> shown-start-folder: root.start-folder != "" ? root.start-folder
         : root.starting ? Vm.torrents[root.start].install-folder : "";
-    // Download and install: a game folder, and room on both drives.
+    // Download and install: a game folder, and room on both drives. The room is known for the
+    // game folder the sheet offers; the core checks a typed one, and the sheet says why.
     out property <bool> can-install: root.starting && root.shown-start-folder != ""
-        && Vm.torrents[root.start].download-room == "" && Vm.torrents[root.start].install-room == "";
+        && Vm.torrents[root.start].download-room == ""
+        && (root.start-folder != "" || Vm.torrents[root.start].install-room == "");
     out property <bool> can-download: root.starting && Vm.torrents[root.start].download-room == "";
 
     // The remove sheet is open, asking whether the files go too: the torrent's index and id, or
@@ -621,10 +623,11 @@ component FilesSheet inherits Rectangle {
                     }
                 }
             }
-            // The two drives: where the files go, and where the game goes.
+            // The two drives: where the files go, and where the game goes. A typed game folder's
+            // drive is the core's to check.
             Text {
                 text: "Download folder: " + (root.torrent.download-free != "" ? root.torrent.download-free : "free space unknown")
-                    + (root.torrent.install-folder != "" ? "   ·   Game folder: " + (root.torrent.install-free != "" ? root.torrent.install-free : "free space unknown") : "");
+                    + (root.torrent.install-folder != "" && Dl.start-folder == "" ? "   ·   Game folder: " + (root.torrent.install-free != "" ? root.torrent.install-free : "free space unknown") : "");
                 font-size: 17 * Look.px;
                 color: Tokens.color-text-muted;
                 wrap: word-wrap;
@@ -633,7 +636,7 @@ component FilesSheet inherits Rectangle {
                 accessible-label: "start-space";
                 accessible-value: self.text;
             }
-            if root.torrent.download-room != "" || root.torrent.install-room != "" : Text {
+            if root.torrent.download-room != "" || (root.torrent.install-room != "" && Dl.start-folder == "") : Text {
                 text: root.torrent.download-room != "" ? root.torrent.download-room + ": uncheck files or free some space."
                     : root.torrent.install-room + ": uncheck files, pick another game folder, or press Download.";
                 font-size: 17 * Look.px;
@@ -894,7 +897,9 @@ export component DownloadsPage inherits Rectangle {
             }
             Rectangle { height: 8 * Look.px; }
             for t[n] in Vm.torrents : card := Rectangle {
-                property <bool> failed: t.state == "failed" || t.install == "failed" || t.unpack == "failed";
+                // An install that didn't start: "Download and install", or the install sheet.
+                property <bool> not-started: t.state == "complete" && t.install == "" && t.install-error != "";
+                property <bool> failed: t.state == "failed" || t.install == "failed" || t.unpack == "failed" || self.not-started;
                 property <bool> done: t.state == "complete";
                 property <bool> waiting: t.state == "resolving" || t.install == "installing";
                 property <bool> focused: Dl.row == n;
@@ -924,6 +929,8 @@ export component DownloadsPage inherits Rectangle {
                             // A store's install says the store does it: "Downloading in Steam".
                             text: (t.install == "installing" ? "Installing"
                                 : t.install == "done" ? "Installed"
+                                : t.install == "failed" ? "Install failed"
+                                : card.not-started ? "Install didn't start"
                                 : t.state == "queued" ? "Queued"
                                 : t.unpack == "unpacking" ? "Unpacking"
                                 : t.unpack == "failed" ? "Unpacking failed"
