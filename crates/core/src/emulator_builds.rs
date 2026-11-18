@@ -69,11 +69,13 @@ pub(crate) async fn install(
     install_claimed(core, claim, plugin, version, from).await
 }
 
-/// The player's own install, update or uninstall claims the emulator, or is refused.
+/// The player's own install, update or uninstall claims the emulator, or is refused. The
+/// refusal names the emulator and the state as the launch refusal does ([`crate::launch`]).
 fn claim(core: &Core, plugin: &PluginId) -> CoreResult<InstallClaim> {
-    core.builds()
-        .claim(plugin)
-        .ok_or_else(|| CoreError::Invalid(format!("{plugin} is already installing: wait for it")))
+    core.builds().claim(plugin).ok_or_else(|| {
+        let name = core.kernel().manifest(plugin).map(|m| m.name.clone()).unwrap_or_else(|_| plugin.to_string());
+        CoreError::Invalid(format!("{name} is updating: wait for it"))
+    })
 }
 
 /// An automatic install or update claims the emulator. While another install holds it, the

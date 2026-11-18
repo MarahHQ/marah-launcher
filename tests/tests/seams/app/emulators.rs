@@ -157,7 +157,7 @@ async fn an_emulator_build_doesn_t_install_twice_at_once() {
             .await
             .expect("the second install is refused, not run");
         let err = refused.unwrap_err();
-        assert!(err.to_string().contains("already installing"), "{err}");
+        assert!(err.to_string().contains("emu-a is updating: wait for it"), "{err}");
     }
     assert!(busy(&t.core), "the first install still runs");
     assert!(!saved(&t).is_null(), "its record stays saved");
@@ -237,7 +237,10 @@ async fn an_install_record_that_no_install_holds_doesn_t_stop_updates() {
 
 #[tokio::test]
 async fn an_emulator_build_isn_t_removed_while_it_updates() {
-    let (t, emu) = core_with(FakeEmulator::new(vec!["A"])).await;
+    let host = FakeHost::new();
+    let mut emu = FakeEmulator::new(vec!["A"]);
+    emu.build_sha = host.http().serve(&emu.build_url, vec![7u8; 20_000]);
+    let t = host.plugin(emu.plugin_named("emu-a", "name = \"PS5\"", FAKE_EMULATOR_PERMISSIONS)).boot_core().await;
     install(&t.core).await;
     emu.release("2.0");
     let gate = t.http.hold_after(&emu.build_url, 10);
@@ -248,7 +251,8 @@ async fn an_emulator_build_isn_t_removed_while_it_updates() {
 
     let uninstall = Command::UninstallEmulator { plugin: id("emu-a"), version: "1.0".into() };
     let err = t.core.dispatch(uninstall).await.unwrap_err();
-    assert!(err.to_string().contains("already installing"), "{err}");
+    // The refusal names the plugin as the launch refusal does, with the same word.
+    assert!(err.to_string().contains("PS5 is updating: wait for it"), "{err}");
     gate.release();
     update.await.unwrap().unwrap();
     assert_eq!(installed(&t.core).await, ["2.0"], "the update ends as if no uninstall came");
