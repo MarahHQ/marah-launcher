@@ -54,6 +54,8 @@ pub struct FakeCatalog {
     slots: bool,
     launcher: bool,
     compatibility: bool,
+    /// [`FakeCatalog::tested_for_any_id`].
+    any_id: bool,
     /// The community list's results by title id, for any game, installed or not.
     listed: Vec<(String, CompatLevel)>,
     build: Build,
@@ -86,6 +88,7 @@ impl FakeCatalog {
             slots: true,
             launcher: false,
             compatibility: false,
+            any_id: false,
             listed: Vec::new(),
             build: Build::None,
             packages: false,
@@ -190,6 +193,15 @@ impl FakeCatalog {
     /// in its catalog is NotFound.
     pub fn tested(mut self) -> Self {
         self.compatibility = true;
+        self
+    }
+
+    /// The community's result for any game id, in its catalog or not: Playable, last tested
+    /// on 2026-09-01. This breaks `contract::emulator`. A test uses it to prove that the core
+    /// never asks `status` for a game that is not the emulator's.
+    pub fn tested_for_any_id(mut self) -> Self {
+        self.compatibility = true;
+        self.any_id = true;
         self
     }
 
@@ -345,7 +357,8 @@ impl FakeCatalog {
                 provided.launcher = Some(Arc::new(Play));
             }
             if self.compatibility {
-                let tested = Tested((0..self.titles.len()).map(|i| format!("G{i}")).collect());
+                let games = (!self.any_id).then(|| (0..self.titles.len()).map(|i| format!("G{i}")).collect());
+                let tested = Tested(games);
                 provided.compatibility = match self.listed.is_empty() {
                     true => Some(Arc::new(tested)),
                     false => Some(Arc::new(Listed(tested, self.listed.clone()))),
@@ -510,13 +523,13 @@ impl Launcher for Play {
     }
 }
 
-/// The community's result for each of these games.
-struct Tested(Vec<String>);
+/// The community's result for each of these games, or for any id with `None`.
+struct Tested(Option<Vec<String>>);
 
 #[async_trait]
 impl Compatibility for Tested {
     async fn status(&self, game: &str) -> PluginResult<CompatInfo> {
-        if !self.0.iter().any(|id| id == game) {
+        if self.0.as_ref().is_some_and(|games| !games.iter().any(|id| id == game)) {
             return Err(PluginError::NotFound(game.into()));
         }
         Ok(CompatInfo {
