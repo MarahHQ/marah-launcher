@@ -114,6 +114,8 @@ pub struct SystemState {
     pub capabilities: BTreeMap<Capability, Option<String>>,
     pub jobs: Vec<JobState>,
     pub(crate) next_job: u64,
+    /// The lowest level a low battery notice warned of since the PC last charged.
+    pub(crate) battery_warned: Option<u8>,
 }
 
 impl SystemState {
@@ -123,6 +125,24 @@ impl SystemState {
             Some(reason) => reason.clone(),
             None => Some(format!("{} can't change this on this system", launcher_api::brand::PRODUCT_NAME)),
         }
+    }
+}
+
+/// The battery levels, highest first, at which a PC on battery tells the player, and what it says.
+const LOW_BATTERY: [(u8, &str); 2] =
+    [(20, "Battery at 20%. Plug in soon."), (10, "Battery at 10%. Save your game and plug in.")];
+
+/// The low battery rule: after a read of `battery`, the lowest level warned of since the PC
+/// last charged, and the notice to show now. Only charging warns again; a PC without a battery,
+/// or a read that failed, changes nothing. A fall past both levels at once shows one notice.
+fn low_battery(warned: Option<u8>, battery: Option<Battery>) -> (Option<u8>, Option<&'static str>) {
+    let Some(battery) = battery else { return (warned, None) };
+    if battery.charging {
+        return (None, None);
+    }
+    match LOW_BATTERY.iter().rev().find(|(level, _)| battery.percent <= *level) {
+        Some(&(level, text)) if warned.is_none_or(|w| level < w) => (Some(level), Some(text)),
+        _ => (warned, None),
     }
 }
 
@@ -297,7 +317,7 @@ pub(crate) async fn refresh(core: &Core) {
         found.disks = call(core, &plugin, "disks", install.disks()).await.unwrap_or_default();
         found.capabilities.insert(Capability::OsInstall, None);
     }
-    {
+    let battery_notice = {
         let mut state = core.state();
         let system = &mut state.system;
         // A scan found more networks than the plain read: keep them until the next scan.
@@ -306,7 +326,14 @@ pub(crate) async fn refresh(core: &Core) {
         }
         found.jobs = std::mem::take(&mut system.jobs);
         found.next_job = system.next_job;
+        let notice;
+        (found.battery_warned, notice) = low_battery(system.battery_warned, found.battery);
         *system = found;
+        notice
+    };
+    // Before the change: a notice tells only the core's readers, and the change tells the app.
+    if let Some(text) = battery_notice {
+        core.notices().info(text.to_owned());
     }
     core.changed(Area::System);
 }

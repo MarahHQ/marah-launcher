@@ -798,6 +798,8 @@ fn shoot_system(window: &MinimalSoftwareWindow, out: &Path) {
     host.ui.start().unwrap();
     host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
     host.dispatch(Command::System(SystemCommand::Refresh));
+    // The battery at 18% raises the low battery notice. The screenshots here show none.
+    host.dispatch(Command::Notice(launcher_core::NoticeCmd::DismissAll));
     let open = |host: &mut Composed, label: &str| {
         let found = i_slint_backend_testing::ElementHandle::find_by_accessible_label(host.instance(), label);
         found.into_iter().next().expect("the icon").invoke_accessible_default_action();
@@ -830,6 +832,7 @@ fn shoot_system(window: &MinimalSoftwareWindow, out: &Path) {
     host.ui.start().unwrap();
     host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
     host.dispatch(Command::System(SystemCommand::Refresh));
+    host.dispatch(Command::Notice(launcher_core::NoticeCmd::DismissAll));
     follow(&mut host);
     for key in [slint::platform::Key::DownArrow, slint::platform::Key::Return, slint::platform::Key::Return] {
         let text: slint::SharedString = key.into();
@@ -847,6 +850,7 @@ fn shoot_system(window: &MinimalSoftwareWindow, out: &Path) {
     host.ui.start().unwrap();
     host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
     host.dispatch(Command::System(SystemCommand::Refresh));
+    host.dispatch(Command::Notice(launcher_core::NoticeCmd::DismissAll));
     host.dispatch(Command::Navigate(Route::Settings));
     follow(&mut host);
     key(&mut host, slint::platform::Key::UpArrow);
