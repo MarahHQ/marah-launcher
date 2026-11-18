@@ -2,9 +2,10 @@
 //! a build, and look for updates every few hours. The plugin calls run here; what they read and
 //! the installs under way belong to the builds subsystem ([`crate::builds`]). Each install claims
 //! its emulator first, and its record is saved while it runs, so a crash resumes it. An update
-//! for an emulator whose game is running waits until the game closes. A minute after the start, each turned-on
-//! emulator with no build gets its newest build ("Install emulators automatically"). With that
-//! off, a first play of a game whose emulator isn't installed asks the player first.
+//! for an emulator whose game is running waits until the game closes. A minute after the start,
+//! each turned-on emulator with no build gets its newest build ("Install emulators
+//! automatically"). With that off, a first play of a game whose emulator isn't installed asks
+//! the player first.
 
 use std::sync::Arc;
 
