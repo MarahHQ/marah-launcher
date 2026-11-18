@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.10.0](https://github.com/MarahHQ/marah-launcher/compare/v0.9.0...v0.10.0) (2026-11-18)
+
+
+### Features
+
+* **shadps4:** an Ask at start switch for the PS4 system files; backups leave them out ([#45](https://github.com/MarahHQ/marah-launcher/issues/45)) ([86993a4](https://github.com/MarahHQ/marah-launcher/commit/86993a4be78998f5703b278d148218fb15b73907))
+
+
+### Bug Fixes
+
+* **shadps4:** no Save Migration box at shadPS4's first start when there are no old saves ([#48](https://github.com/MarahHQ/marah-launcher/issues/48)) ([ad384e1](https://github.com/MarahHQ/marah-launcher/commit/ad384e13dd9f2bd6a38a5b876862a0cdda5eef8a))
+* **shadps4:** the touchpad button clicks the right half, so PS1 games on PS4 start ([#47](https://github.com/MarahHQ/marah-launcher/issues/47)) ([60359ce](https://github.com/MarahHQ/marah-launcher/commit/60359ce9d75a0c3b2d60d5e96d5cb2ec0164d95e))
+
 ## [0.9.0](https://github.com/MarahHQ/marah-launcher/compare/v0.8.0...v0.9.0) (2026-11-17)
 
 
