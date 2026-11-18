@@ -1,112 +1,252 @@
 //! The search of the Library and the Catalog: how well a game answers what the player typed.
 //!
-//! With a controller each letter takes a few presses, so the search forgives how a title was
+//! On a controller each letter takes a few presses, so the search forgives the way a title is
 //! typed:
-//! - accents, case and punctuation don't count: "pokemon" finds Pokémon, "spider man" and
-//!   "spiderman" find Spider-Man;
+//! - case, accents and punctuation don't count: "pokemon" finds Pokémon, and "spider man",
+//!   "spider-man" and "spiderman" find Spider-Man;
 //! - words typed together: "godofwar" finds God of War;
-//! - initials, with a number at the end: "tlou", "gow", "re4", "ff7";
-//! - numbers either way, up to 20: "7" finds VII and "vii" finds 7;
-//! - a genre: "racing" finds racing games, after the games with the word in their name;
-//! - small typos, when nothing else matches: "witchr" finds The Witcher. The longer the word,
-//!   the more typos it may have.
+//! - a title's initials, a number whole among them: "tlou", "gow", "re4", "ff7";
+//! - a number as digits or as a roman numeral, up to 20: "7" finds VII, "vii" finds 7;
+//! - a genre: "racing" finds racing games, after the titles that have the word;
+//! - small typos, when nothing matches as typed: "witchr" finds The Witcher.
 //!
-//! A [`score`] ranks the games: a title that is what was typed, or starts with it, comes
-//! first, then the titles that have each word, then the near spellings.
+//! A [`Rank`] orders the games that match: first by how the title leads ([`Lead`]), then by the
+//! weakest match among the typed words ([`Hit`]).
 
-/// The words a title may leave out of its initials: "tlou2" is The Last of Us Part II.
-const SKIPPED: [&str; 6] = ["the", "a", "an", "of", "and", "part"];
+/// Words a title's initials may leave out: "tlou" is The Last of Us, "gow" God of War.
+const SMALL_WORDS: [&str; 6] = ["the", "a", "an", "of", "and", "part"];
 
-const ROMAN: [&str; 20] = [
-    "i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x", "xi", "xii", "xiii", "xiv", "xv", "xvi", "xvii",
-    "xviii", "xix", "xx",
-];
-const ARABIC: [&str; 20] =
-    ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20"];
+/// The largest number a roman numeral stands for here: games count their sequels that far.
+const LARGEST_NUMERAL: u32 = 20;
 
-/// How well one typed word matches a game, best last.
-const TYPO: u32 = 1;
-const GENRE: u32 = 2;
-/// The whole search inside the title: "borne" in Bloodborne.
-const INSIDE: u32 = 3;
-/// The start of a word of the title ids, the publisher, the region or the version.
-const OTHER: u32 = 4;
-/// Two-letter initials: "er" for Elden Ring.
-const SHORT_INITIALS: u32 = 5;
-/// The start of a word of the title, or of its words typed together.
-const START: u32 = 6;
-/// A whole word of the title, or initials of three letters or more.
-const WHOLE: u32 = 7;
+/// The longest typed word whose typos are looked for: longer ones are kept as typed.
+const LONGEST_NEAR: usize = 32;
 
-/// How far the title leads, times this, comes before how well the words match.
-const LEAD_STEP: u32 = 8;
+/// How a game's title leads with what was typed, worst first.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Lead {
+    /// Somewhere else, or not at all.
+    #[default]
+    Elsewhere,
+    /// The title starts with it, typed together or as initials ("God of War" for "god o", "gow").
+    Starts,
+    /// The title is what was typed.
+    Is,
+}
 
-/// `text` in lower case, without accents, with an apostrophe joining its word ("Assassin's" is
-/// "assassins"), "&" as "and", and every other character that isn't a letter or a digit as a
-/// space.
+/// How well one typed word matches a game, worst first.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Hit {
+    /// A near spelling of a word of the title.
+    Typo,
+    /// One of the game's genres.
+    Genre,
+    /// Only the whole search, inside the title: "borne" in Bloodborne.
+    Inside,
+    /// The start of a word of the title ids, the publisher, the region or the version.
+    Field,
+    /// Two letters that are initials: "er" for Elden Ring.
+    ShortInitials,
+    /// The start of a word of the title, or of its words typed together.
+    Start,
+    /// A word of the title, the same number, or initials of three letters or more.
+    #[default]
+    Whole,
+}
+
+/// How well a game answers a search: by its [`Lead`], then by its weakest [`Hit`]. A greater
+/// rank comes first.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct Rank {
+    pub lead: Lead,
+    pub weakest: Hit,
+}
+
+/// `text` as the search reads it: in lower case, without accents, an apostrophe joining its
+/// word ("Assassin's" is "assassins"), "&" as "and", and a space for any other character that
+/// is no letter or digit.
 pub(crate) fn fold(text: &str) -> String {
-    let mut folded = String::with_capacity(text.len());
+    let mut out = String::with_capacity(text.len());
     for c in text.chars().flat_map(char::to_lowercase) {
-        match c {
-            '\'' | '\u{2019}' | '\u{0300}'..='\u{036f}' => {}
-            '&' => folded.push_str(" and "),
-            c if c.is_ascii_alphanumeric() => folded.push(c),
-            c => match plain(c) {
-                Some(letters) => folded.push_str(letters),
-                None if c.is_alphanumeric() => folded.push(c),
-                None => folded.push(' '),
-            },
+        if c.is_ascii_alphanumeric() {
+            out.push(c);
+        } else if c == '\'' || c == '\u{2019}' || ('\u{0300}'..='\u{036f}').contains(&c) {
+            // An apostrophe, or an accent written as its own mark.
+        } else if c == '&' {
+            out.push_str(" and ");
+        } else if let Some(letters) = unaccented(c) {
+            out.push_str(letters);
+        } else {
+            out.push(if c.is_alphanumeric() { c } else { ' ' });
         }
     }
-    folded
+    out
 }
 
-/// The plain letters of a lower-case letter with an accent, or of a joined one.
-fn plain(c: char) -> Option<&'static str> {
-    Some(match c {
-        'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' | 'ā' | 'ă' | 'ą' => "a",
-        'æ' => "ae",
-        'ç' | 'ć' | 'ĉ' | 'ċ' | 'č' => "c",
-        'ď' | 'đ' | 'ð' => "d",
-        'è' | 'é' | 'ê' | 'ë' | 'ē' | 'ĕ' | 'ė' | 'ę' | 'ě' => "e",
-        'ĝ' | 'ğ' | 'ġ' | 'ģ' => "g",
-        'ĥ' | 'ħ' => "h",
-        'ì' | 'í' | 'î' | 'ï' | 'ĩ' | 'ī' | 'ĭ' | 'į' | 'ı' => "i",
-        'ĵ' => "j",
-        'ķ' => "k",
-        'ĺ' | 'ļ' | 'ľ' | 'ŀ' | 'ł' => "l",
-        'ñ' | 'ń' | 'ņ' | 'ň' => "n",
-        'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' | 'ō' | 'ŏ' | 'ő' => "o",
-        'œ' => "oe",
-        'ŕ' | 'ŗ' | 'ř' => "r",
-        'ś' | 'ŝ' | 'ş' | 'š' => "s",
-        'ß' => "ss",
-        'ţ' | 'ť' | 'ŧ' => "t",
-        'þ' => "th",
-        'ù' | 'ú' | 'û' | 'ü' | 'ũ' | 'ū' | 'ŭ' | 'ů' | 'ű' | 'ų' => "u",
-        'ŵ' => "w",
-        'ý' | 'ÿ' | 'ŷ' => "y",
-        'ź' | 'ż' | 'ž' => "z",
-        _ => return None,
-    })
+/// The plain letters of a lower-case Latin letter with an accent, or of a joined one.
+fn unaccented(c: char) -> Option<&'static str> {
+    const TABLE: [(&str, &str); 25] = [
+        ("àáâãäåāăą", "a"),
+        ("æ", "ae"),
+        ("çćĉċč", "c"),
+        ("ďđð", "d"),
+        ("èéêëēĕėęě", "e"),
+        ("ĝğġģ", "g"),
+        ("ĥħ", "h"),
+        ("ìíîïĩīĭįı", "i"),
+        ("ĵ", "j"),
+        ("ķ", "k"),
+        ("ĺļľŀł", "l"),
+        ("ñńņň", "n"),
+        ("òóôõöøōŏő", "o"),
+        ("œ", "oe"),
+        ("ŕŗř", "r"),
+        ("śŝşš", "s"),
+        ("ß", "ss"),
+        ("ţťŧ", "t"),
+        ("þ", "th"),
+        ("ùúûüũūŭůűų", "u"),
+        ("ŵ", "w"),
+        ("ýÿŷ", "y"),
+        ("źżž", "z"),
+        ("ĳ", "ij"),
+        ("ŉ", "n"),
+    ];
+    TABLE.iter().find(|(accented, _)| accented.contains(c)).map(|(_, plain)| *plain)
 }
 
-/// The words of a folded text.
-fn words_of(text: &str) -> Vec<String> {
-    fold(text).split_whitespace().map(str::to_owned).collect()
+/// The value of a roman numeral from 1 to [`LARGEST_NUMERAL`], written the usual way.
+fn roman_value(word: &str) -> Option<u32> {
+    if word.is_empty() || !word.chars().all(|c| matches!(c, 'i' | 'v' | 'x')) {
+        return None;
+    }
+    let digit = |c: char| match c {
+        'i' => 1,
+        'v' => 5,
+        _ => 10,
+    };
+    let values: Vec<i64> = word.chars().map(digit).collect();
+    let mut total = 0;
+    for (at, value) in values.iter().enumerate() {
+        match values.get(at + 1) {
+            Some(next) if next > value => total -= value,
+            _ => total += value,
+        }
+    }
+    let total = u32::try_from(total).ok().filter(|n| (1..=LARGEST_NUMERAL).contains(n))?;
+    // "iiii" or "vv" add up too, but no title writes them.
+    (roman(total) == word).then_some(total)
 }
 
-/// The same number the other way: "7" for "vii", "vii" for "7". Up to 20.
-fn other_number(word: &str) -> Option<&'static str> {
-    match ROMAN.iter().position(|r| *r == word) {
-        Some(i) => Some(ARABIC[i]),
-        None => ARABIC.iter().position(|a| *a == word).map(|i| ROMAN[i]),
+/// `n` as a roman numeral.
+fn roman(mut n: u32) -> String {
+    let mut out = String::new();
+    for (value, letters) in [(10, "x"), (9, "ix"), (5, "v"), (4, "iv"), (1, "i")] {
+        while n >= value {
+            out.push_str(letters);
+            n -= value;
+        }
+    }
+    out
+}
+
+/// The number a word stands for, written in digits or as a roman numeral.
+fn number_of(word: &str) -> Option<u32> {
+    if !word.is_empty() && word.bytes().all(|b| b.is_ascii_digit()) {
+        return word.parse().ok();
+    }
+    roman_value(word)
+}
+
+/// A word's other way of writing its number, up to [`LARGEST_NUMERAL`]: "7" for "vii", "vii"
+/// for "7".
+fn other_way(word: &str) -> Option<String> {
+    let n = number_of(word).filter(|n| (1..=LARGEST_NUMERAL).contains(n))?;
+    Some(if roman_value(word).is_some() { n.to_string() } else { roman(n) })
+}
+
+/// One word of a title: as written, and its number in digits when it is a roman numeral.
+#[derive(Clone, Debug)]
+struct Word {
+    text: String,
+    /// The roman numeral's number, in digits; else the word.
+    digits: String,
+}
+
+impl Word {
+    fn new(text: String) -> Self {
+        let digits = roman_value(&text).map_or_else(|| text.clone(), |n| n.to_string());
+        Self { text, digits }
+    }
+
+    /// The same word, or the same number.
+    fn is(&self, typed: &str) -> bool {
+        self.text == typed || self.digits == typed || other_way(typed).is_some_and(|o| o == self.text)
+    }
+
+    /// The forms the word may take in a title's initials: its first letter, a number whole in
+    /// either way, and nothing for a small word.
+    fn initials(&self) -> Vec<&str> {
+        let first = self.text.chars().next().map_or("", |c| &self.text[..c.len_utf8()]);
+        let mut forms = Vec::with_capacity(4);
+        if number_of(&self.text).is_some() {
+            forms.push(self.text.as_str());
+            forms.push(self.digits.as_str());
+        }
+        forms.push(first);
+        if SMALL_WORDS.contains(&self.text.as_str()) {
+            forms.push("");
+        }
+        forms
     }
 }
 
-/// The two words are the same, or the same number.
-fn same(a: &str, b: &str) -> bool {
-    a == b || other_number(a) == Some(b)
+/// Whether `typed` is the initials of some first words of `words`. Each word takes one of its
+/// [`Word::initials`]; the places in `typed` the words so far reach are kept as a set.
+fn are_initials(typed: &str, words: &[Word]) -> bool {
+    let mut reached = vec![0usize];
+    for word in words {
+        let mut next: Vec<usize> = Vec::new();
+        for at in &reached {
+            for form in word.initials() {
+                let end = at + form.len();
+                if typed[*at..].starts_with(form) && !next.contains(&end) {
+                    next.push(end);
+                }
+            }
+        }
+        if next.contains(&typed.len()) {
+            return true;
+        }
+        if next.is_empty() {
+            return false;
+        }
+        reached = next;
+    }
+    false
+}
+
+/// Whether `typed` is within `budget` edits of a start of `word`: a letter changed, added,
+/// left out, or two letters swapped. Where the letters differ each edit is tried, so the cost
+/// stays small for the budgets used (two at most).
+fn near_start(typed: &[char], word: &[char], budget: usize) -> bool {
+    match (typed, word) {
+        ([], _) => true,
+        (rest, []) => rest.len() <= budget,
+        ([a, typed_rest @ ..], [b, word_rest @ ..]) => {
+            if a == b && near_start(typed_rest, word_rest, budget) {
+                return true;
+            }
+            if budget == 0 {
+                return false;
+            }
+            let swapped = matches!((typed_rest.first(), word_rest.first()), (Some(x), Some(y)) if x == b && y == a);
+            near_start(typed_rest, word_rest, budget - 1)
+                || near_start(typed_rest, word, budget - 1)
+                || near_start(typed, word_rest, budget - 1)
+                || (swapped && near_start(&typed_rest[1..], &word_rest[1..], budget - 1))
+        }
+    }
 }
 
 /// What the player typed, ready to match.
@@ -115,13 +255,13 @@ pub(crate) struct Query {
     words: Vec<String>,
     /// The words typed together.
     joined: String,
-    /// The words, with one space between them.
+    /// The words, one space between them.
     phrase: String,
 }
 
 impl Query {
     pub fn new(text: &str) -> Self {
-        let words = words_of(text);
+        let words: Vec<String> = fold(text).split_whitespace().map(str::to_owned).collect();
         Self { joined: words.concat(), phrase: words.join(" "), words }
     }
 
@@ -133,37 +273,30 @@ impl Query {
 /// A title, ready to match.
 #[derive(Clone, Debug)]
 pub(crate) struct Name {
-    words: Vec<String>,
-    /// The words typed together, and where each word starts in it.
-    joined: String,
-    starts: Vec<usize>,
-    /// The words typed together, each number from 1 to 20 in digits: "finalfantasy7".
-    joined_digits: String,
-    digit_starts: Vec<usize>,
+    words: Vec<Word>,
     phrase: String,
+    /// The words typed together from each word on, as written and with numbers in digits.
+    tails: Vec<(String, String)>,
     /// Where the title may be said to start: its first word, and the one after "The".
-    leads: Vec<usize>,
+    starts: Vec<usize>,
 }
 
 impl Name {
     pub fn new(title: &str) -> Self {
-        let words = words_of(title);
-        let joined_at = |words: &mut dyn Iterator<Item = String>| {
-            let (mut joined, mut starts) = (String::new(), Vec::new());
-            for word in words {
-                starts.push(joined.len());
-                joined.push_str(&word);
-            }
-            (joined, starts)
+        let words: Vec<Word> = fold(title).split_whitespace().map(|w| Word::new(w.to_owned())).collect();
+        let tails = (0..words.len())
+            .map(|from| {
+                let rest = &words[from..];
+                (rest.iter().map(|w| w.text.as_str()).collect(), rest.iter().map(|w| w.digits.as_str()).collect())
+            })
+            .collect();
+        let starts = match words.first() {
+            None => Vec::new(),
+            Some(first) if first.text == "the" && words.len() > 1 => vec![0, 1],
+            Some(_) => vec![0],
         };
-        let (joined, starts) = joined_at(&mut words.iter().cloned());
-        let digits = words.iter().map(|w| match other_number(w) {
-            Some(n) if ROMAN.contains(&w.as_str()) => n.to_owned(),
-            _ => w.clone(),
-        });
-        let (joined_digits, digit_starts) = joined_at(&mut digits.into_iter());
-        let leads = [Some(0), (words.len() > 1 && words[0] == "the").then_some(1)].into_iter().flatten().collect();
-        Self { phrase: words.join(" "), joined, starts, joined_digits, digit_starts, leads, words }
+        let phrase = words.iter().map(|w| w.text.as_str()).collect::<Vec<_>>().join(" ");
+        Self { words, phrase, tails, starts }
     }
 
     /// [`Name::new`] of `title`, kept: each key of a search reads every title again. The names
@@ -172,7 +305,8 @@ impl Name {
         /// More titles than any catalog has; past it the names start over.
         const MOST: usize = 65_536;
         thread_local! {
-            static NAMES: std::cell::RefCell<std::collections::HashMap<String, std::rc::Rc<Name>>> = Default::default();
+            static NAMES: std::cell::RefCell<std::collections::HashMap<String, std::rc::Rc<Name>>> =
+                Default::default();
         }
         NAMES.with_borrow_mut(|names| {
             if let Some(name) = names.get(title) {
@@ -187,119 +321,64 @@ impl Name {
         })
     }
 
-    /// 2: the title is what was typed; 1: it starts with it, or with its initials; 0: neither.
-    fn lead(&self, q: &Query) -> u32 {
-        let mut best = 0;
-        for &at in &self.leads {
-            let words = &self.words[at..];
-            let joined = &self.joined[self.starts[at]..];
-            let joined_digits = &self.joined_digits[self.digit_starts[at]..];
-            let all_same = words.len() == q.words.len() && words.iter().zip(&q.words).all(|(a, b)| same(a, b));
-            if all_same || joined == q.joined || joined_digits == q.joined {
-                return 2;
+    /// How the title leads with `q`, a search with words.
+    fn lead(&self, q: &Query) -> Lead {
+        let Some((last, whole)) = q.words.split_last() else { return Lead::Elsewhere };
+        let mut lead = Lead::Elsewhere;
+        for &from in &self.starts {
+            let words = &self.words[from..];
+            let (joined, joined_digits) = &self.tails[from];
+            let same_words = words.len() == q.words.len() && words.iter().zip(&q.words).all(|(w, t)| w.is(t));
+            if same_words || *joined == q.joined || *joined_digits == q.joined {
+                return Lead::Is;
             }
-            let Some((last, before)) = q.words.split_last() else { continue };
-            let along = q.words.len() <= words.len()
-                && words.iter().zip(before).all(|(a, b)| same(a, b))
-                && (same(&words[before.len()], last) || words[before.len()].starts_with(last.as_str()));
-            let initials = q.joined.len() >= 3 && initials(&q.joined, words);
-            if along || joined.starts_with(&q.joined) || joined_digits.starts_with(&q.joined) || initials {
-                best = 1;
+            // Every typed word in order, the last one maybe unfinished.
+            let in_order = whole.len() < words.len()
+                && words.iter().zip(whole).all(|(w, t)| w.is(t))
+                && (words[whole.len()].is(last) || words[whole.len()].text.starts_with(last.as_str()));
+            let together = joined.starts_with(&q.joined) || joined_digits.starts_with(&q.joined);
+            let initials = q.joined.chars().count() >= 3 && are_initials(&q.joined, words);
+            if in_order || together || initials {
+                lead = Lead::Starts;
             }
         }
-        best
+        lead
     }
 
-    /// How well the typed word `w` matches the title; 0 for not at all.
-    fn quality(&self, w: &str) -> u32 {
-        if self.words.iter().any(|x| same(x, w)) {
-            return WHOLE;
+    /// How well the typed word `typed` matches the title, if at all.
+    fn hit(&self, typed: &str) -> Option<Hit> {
+        if self.words.iter().any(|w| w.is(typed)) {
+            return Some(Hit::Whole);
         }
-        let long = w.len() >= 3;
-        let initials = w.len() >= 2 && (0..self.words.len()).any(|i| initials(w, &self.words[i..]));
-        if initials && long {
-            return WHOLE;
+        let letters = typed.chars().count();
+        let initials = letters >= 2 && (0..self.words.len()).any(|from| are_initials(typed, &self.words[from..]));
+        if initials && letters >= 3 {
+            return Some(Hit::Whole);
         }
-        let starts = |joined: &str, starts: &[usize]| starts.iter().any(|&s| joined[s..].starts_with(w));
-        if starts(&self.joined, &self.starts) || starts(&self.joined_digits, &self.digit_starts) {
-            return START;
+        if self.tails.iter().any(|(joined, digits)| joined.starts_with(typed) || digits.starts_with(typed)) {
+            return Some(Hit::Start);
         }
-        if initials { SHORT_INITIALS } else { 0 }
+        initials.then_some(Hit::ShortInitials)
     }
 
-    /// The word of the title `w` is a near spelling of the start of: one typo in a word of 4
-    /// to 7 letters, two in a longer one. The first letter must be right, and a word with a
-    /// digit has none.
-    fn near(&self, w: &str) -> bool {
-        let typed: Vec<char> = w.chars().collect();
-        let most = match typed.len() {
-            0..=3 => return false,
+    /// Whether `typed` is a near spelling of the start of a word of the title: one edit in a
+    /// word of four to seven letters, two in a longer one. The first letter must be right, and
+    /// a word with a digit has none.
+    fn near(&self, typed: &str) -> bool {
+        let typed: Vec<char> = typed.chars().collect();
+        let budget = match typed.len() {
             4..=7 => 1,
-            8..=LONGEST_TYPO => 2,
+            8..=LONGEST_NEAR => 2,
             _ => return false,
         };
         if typed.iter().any(char::is_ascii_digit) {
             return false;
         }
-        self.words.iter().any(|word| word.starts_with(typed[0]) && prefix_distance(&typed, word, most) <= most)
+        self.words.iter().any(|w| {
+            let word: Vec<char> = w.text.chars().collect();
+            word.first() == typed.first() && near_start(&typed[1..], &word[1..], budget)
+        })
     }
-}
-
-/// `q` is the initials of `words` from the first: a letter a word, a number whole (either way),
-/// and "the", "of" and the like may be left out.
-fn initials(q: &str, words: &[String]) -> bool {
-    if q.is_empty() {
-        return true;
-    }
-    let Some((first, rest)) = words.split_first() else { return false };
-    let skip = || SKIPPED.contains(&first.as_str()) && initials(q, rest);
-    let number = first.chars().all(|c| c.is_ascii_digit()) || ROMAN.contains(&first.as_str());
-    if number {
-        let keys = std::iter::once(first.as_str()).chain(other_number(first));
-        // A roman numeral of one letter is a word's initial too: the "v" of "V Rising".
-        let letter = first.chars().next().map(|c| &first[..c.len_utf8()]).filter(|_| first.len() == 1);
-        return keys.chain(letter).any(|k| q.strip_prefix(k).is_some_and(|r| initials(r, rest))) || skip();
-    }
-    let initial = first.chars().next().map_or("", |c| &first[..c.len_utf8()]);
-    q.strip_prefix(initial).is_some_and(|r| initials(r, rest)) || skip()
-}
-
-/// The longest typed word that may have typos: the distance takes no memory but the stack.
-const LONGEST_TYPO: usize = 32;
-
-/// The edit distance from `typed` to the nearest start of `word`, a swap of two letters as one
-/// edit. Past `most` (at most 2) the count stops: anything over it is `most + 1`. `typed` has
-/// at most [`LONGEST_TYPO`] letters.
-fn prefix_distance(typed: &[char], word: &str, most: usize) -> usize {
-    const ROW: usize = LONGEST_TYPO + 3;
-    let mut letters = ['\0'; ROW];
-    let mut m = 0;
-    for c in word.chars().take(typed.len() + most) {
-        letters[m] = c;
-        m += 1;
-    }
-    let word = &letters[..m];
-    let mut before = [0usize; ROW];
-    let mut last = [0usize; ROW];
-    for (j, cell) in last.iter_mut().enumerate().take(m + 1) {
-        *cell = j;
-    }
-    for i in 1..=typed.len() {
-        let mut row = [i; ROW];
-        for j in 1..=m {
-            let cost = usize::from(typed[i - 1] != word[j - 1]);
-            row[j] = (last[j] + 1).min(row[j - 1] + 1).min(last[j - 1] + cost);
-            if i > 1 && j > 1 && typed[i - 1] == word[j - 2] && typed[i - 2] == word[j - 1] {
-                row[j] = row[j].min(before[j - 2] + 1);
-            }
-        }
-        if row[..=m].iter().all(|d| *d > most) {
-            return most + 1;
-        }
-        before = last;
-        last = row;
-    }
-    last[..=m].iter().copied().min().unwrap_or(typed.len())
 }
 
 /// A game's other fields: its title ids, publisher, region and version. Their words are read
@@ -315,236 +394,271 @@ impl<'a> Other<'a> {
         Self { fields: fields.into_iter().collect(), words: std::cell::OnceCell::new() }
     }
 
-    fn starts(&self, w: &str) -> bool {
-        let words = self.words.get_or_init(|| self.fields.iter().flat_map(|f| words_of(f)).collect());
-        words.iter().any(|x| x.starts_with(w))
+    /// A word of the fields starts with `typed`.
+    fn has(&self, typed: &str) -> bool {
+        let words = self.words.get_or_init(|| {
+            self.fields.iter().flat_map(|f| fold(f).split_whitespace().map(str::to_owned).collect::<Vec<_>>()).collect()
+        });
+        words.iter().any(|w| w.starts_with(typed))
     }
 }
 
-/// "bf1" as "bf" and "1": the letters and the digits typed together.
-fn split_digits(w: &str) -> Vec<&str> {
-    let mut parts = Vec::new();
-    let mut start = 0;
-    let mut digit: Option<bool> = None;
-    for (i, c) in w.char_indices() {
-        let now = c.is_ascii_digit();
-        if digit.is_some_and(|d| d != now) {
-            parts.push(&w[start..i]);
-            start = i;
-        }
-        digit = Some(now);
+/// `typed` cut where letters turn to digits and back: "bf1" is "bf" and "1".
+fn letter_and_digit_runs(typed: &str) -> Vec<&str> {
+    let mut runs = Vec::new();
+    let mut rest = typed;
+    while let Some(first) = rest.chars().next() {
+        let digit = first.is_ascii_digit();
+        let end = rest.find(|c: char| c.is_ascii_digit() != digit).unwrap_or(rest.len());
+        runs.push(&rest[..end]);
+        rest = &rest[end..];
     }
-    parts.push(&w[start..]);
-    parts
+    runs
 }
 
-/// How well a game matches `q`, higher is better; `None` when it doesn't. `names` are its
-/// titles, `other` its other fields, and `genres` its genres, read only when a word matches
-/// nothing else. With `typos`, a word that matches nothing may be a near spelling of a word of
-/// a title. Every word must match; the whole search inside a title matches too.
+/// How well a game answers `q`, or `None` when it doesn't. `names` are its titles, `other` its
+/// other fields, and `genres` its genres, read only when a word matches nothing else. With
+/// `near`, a word that matches nothing may be a near spelling of a word of a title. Every word
+/// must match, unless the whole search is inside a title.
 pub(crate) fn score(
     q: &Query,
     names: &[&Name],
     other: &Other<'_>,
     genres: &dyn Fn() -> Vec<String>,
-    typos: bool,
-) -> Option<u32> {
+    near: bool,
+) -> Option<Rank> {
     if q.is_empty() {
-        return Some(0);
+        return Some(Rank::default());
     }
-    let lead = names.iter().map(|n| n.lead(q)).max().unwrap_or(0);
+    let lead = names.iter().map(|n| n.lead(q)).max().unwrap_or_default();
     let inside = names.iter().any(|n| n.phrase.contains(&q.phrase));
-    let mut least = WHOLE;
-    for w in &q.words {
-        let quality = word_quality(w, names, other, genres, typos);
-        if quality == 0 && lead == 0 && !inside {
-            return None;
-        }
-        least = least.min(if quality == 0 { INSIDE } else { quality });
+    let mut weakest = Hit::Whole;
+    for typed in &q.words {
+        let hit = match word_hit(typed, names, other, genres, near) {
+            Some(hit) => hit,
+            None if lead > Lead::Elsewhere || inside => Hit::Inside,
+            None => return None,
+        };
+        weakest = weakest.min(hit);
     }
-    Some(lead * LEAD_STEP + least)
+    Some(Rank { lead, weakest })
 }
 
-fn word_quality(w: &str, names: &[&Name], other: &Other<'_>, genres: &dyn Fn() -> Vec<String>, typos: bool) -> u32 {
-    let best = names.iter().map(|n| n.quality(w)).max().unwrap_or(0);
-    if best > 0 {
-        return best;
+fn word_hit(
+    typed: &str,
+    names: &[&Name],
+    other: &Other<'_>,
+    genres: &dyn Fn() -> Vec<String>,
+    near: bool,
+) -> Option<Hit> {
+    if let Some(hit) = names.iter().filter_map(|n| n.hit(typed)).max() {
+        return Some(hit);
     }
-    // Letters and a number typed together, each the start of a word: "tekken8", "bf1".
-    let parts = split_digits(w);
-    if parts.len() > 1 && parts.iter().all(|p| names.iter().any(|n| n.quality(p) >= START)) {
-        return START;
+    // Letters and a number typed together, each the start of a word: "tekken8".
+    let runs = letter_and_digit_runs(typed);
+    let starts = |run: &&str| names.iter().any(|n| n.hit(run).is_some_and(|h| h >= Hit::Start));
+    if runs.len() > 1 && runs.iter().all(starts) {
+        return Some(Hit::Start);
     }
-    if other.starts(w) {
-        return OTHER;
+    if other.has(typed) {
+        return Some(Hit::Field);
     }
-    let genre = |g: &String| words_of(g).iter().any(|x| x == w || (w.len() >= 4 && x.starts_with(w)));
-    if w.len() >= 3 && genres().iter().any(genre) {
-        return GENRE;
+    // A genre's whole word, or the start of one from four letters on.
+    let letters = typed.chars().count();
+    let names_genre =
+        |genre: &String| fold(genre).split_whitespace().any(|w| w == typed || (letters >= 4 && w.starts_with(typed)));
+    if letters >= 3 && genres().iter().any(names_genre) {
+        return Some(Hit::Genre);
     }
-    if typos && names.iter().any(|n| n.near(w)) {
-        return TYPO;
-    }
-    0
+    (near && names.iter().any(|n| n.near(typed))).then_some(Hit::Typo)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Titles to search, with their genres: look-alikes on purpose.
-    const GAMES: [(&str, &str); 24] = [
-        ("God of War Ragnarök", "Action"),
-        ("God of War III Remastered", "Action"),
-        ("Godfall", "Action"),
-        ("The Last of Us Part I", "Action, Adventure"),
-        ("The Last of Us Part II Remastered", "Action, Adventure"),
+    /// Titles to search, and their genres. Several look alike on purpose.
+    const SHELF: [(&str, &str); 26] = [
+        ("God of War", "Action"),
+        ("God of War III", "Action"),
+        ("Godzilla Unleashed", "Fighting"),
+        ("The Last of Us Part I", "Adventure"),
+        ("The Last of Us Part II", "Adventure"),
         ("Resident Evil 4", "Horror"),
         ("Resident Evil Village", "Horror"),
-        ("Final Fantasy VII Rebirth", "RPG"),
-        ("Crisis Core: Final Fantasy VII Reunion", "RPG"),
-        ("Final Fantasy XVI", "RPG"),
-        ("Grand Theft Auto V", "Action"),
-        ("Gran Turismo 7", "Racing"),
-        ("Need for Speed Unbound", "Racing"),
-        ("Marvel's Spider-Man 2", "Action"),
-        ("The Witcher 3: Wild Hunt", "RPG"),
-        ("Assassin's Creed Mirage", "Action"),
-        ("Pokémon Legends: Arceus", "RPG"),
+        ("Final Fantasy VII", "RPG"),
+        ("Dissidia Final Fantasy VII", "Fighting"),
+        ("Final Fantasy X", "RPG"),
+        ("Metal Gear Solid V", "Action"),
+        ("Kingdom Hearts III", "RPG"),
+        ("Red Dead Redemption 2", "Action, Adventure"),
+        ("Devil May Cry 5", "Action"),
+        ("Street Fighter 6", "Fighting"),
+        ("Need for Speed Heat", "Racing"),
+        ("Gran Turismo 7", "Racing, Simulation"),
+        ("Pokémon Scarlet", "RPG"),
         ("Ōkami HD", "Adventure"),
-        ("Call of Duty: Black Ops 6", "Shooter"),
-        ("Code Vein", "RPG"),
-        ("Elden Ring", "RPG"),
-        ("TEKKEN 8", "Fighting"),
+        ("Horizon Zero Dawn", "Action, RPG"),
+        ("Sekiro: Shadows Die Twice", "Action"),
+        ("Monster Hunter: World", "Action"),
+        ("Ratchet & Clank", "Platformer"),
+        ("Marvel's Spider-Man", "Action"),
         ("Bloodborne", "Action"),
-        ("Ratchet & Clank: Rift Apart", "Action"),
+        ("Elden Ring", "RPG"),
     ];
 
-    /// The titles that match `text`, best first; equal ones in the table's order.
-    fn find(text: &str) -> Vec<&'static str> {
-        let q = Query::new(text);
-        let names: Vec<Name> = GAMES.iter().map(|(title, _)| Name::new(title)).collect();
-        let other = Other::default();
-        let run = |typos: bool| -> Vec<(usize, u32)> {
-            GAMES
+    /// The titles that answer `typed`, best first; equal ones in the shelf's order. Near
+    /// spellings only when nothing matches as typed, as the grids search.
+    fn search(typed: &str) -> Vec<&'static str> {
+        let q = Query::new(typed);
+        let names: Vec<Name> = SHELF.iter().map(|(title, _)| Name::new(title)).collect();
+        let ranked = |near: bool| -> Vec<(usize, Rank)> {
+            SHELF
                 .iter()
                 .enumerate()
-                .filter_map(|(i, (_, genres))| {
+                .filter_map(|(at, (_, genres))| {
                     let genres = || genres.split(", ").map(str::to_owned).collect();
-                    score(&q, &[&names[i]], &other, &genres, typos).map(|s| (i, s))
+                    score(&q, &[&names[at]], &Other::default(), &genres, near).map(|rank| (at, rank))
                 })
                 .collect()
         };
-        let mut found = run(false);
+        let mut found = ranked(false);
         if found.is_empty() {
-            found = run(true);
+            found = ranked(true);
         }
-        found.sort_by_key(|(_, s)| std::cmp::Reverse(*s));
-        found.into_iter().map(|(i, _)| GAMES[i].0).collect()
-    }
-
-    fn first(text: &str) -> &'static str {
-        find(text).first().copied().unwrap_or("(nothing)")
+        found.sort_by_key(|(_, rank)| std::cmp::Reverse(*rank));
+        found.into_iter().map(|(at, _)| SHELF[at].0).collect()
     }
 
     #[test]
-    fn the_best_match_comes_first_for_each_way_of_typing() {
+    fn each_way_of_typing_puts_the_title_meant_first() {
         let table = [
-            // Typos.
-            ("witchr", "The Witcher 3: Wild Hunt"),
-            ("assasins creed", "Assassin's Creed Mirage"),
-            ("resident evli", "Resident Evil 4"),
-            ("rachet", "Ratchet & Clank: Rift Apart"),
+            // Small typos.
             ("bloodbrone", "Bloodborne"),
+            ("sekrio", "Sekiro: Shadows Die Twice"),
+            ("resident evli", "Resident Evil 4"),
+            ("monstr huntr", "Monster Hunter: World"),
+            ("horizn", "Horizon Zero Dawn"),
             // Words typed together.
-            ("godofwar", "God of War Ragnarök"),
-            ("spiderman", "Marvel's Spider-Man 2"),
-            ("witcher3", "The Witcher 3: Wild Hunt"),
-            ("tekken8", "TEKKEN 8"),
+            ("godofwar", "God of War"),
+            ("spiderman", "Marvel's Spider-Man"),
+            ("reddead", "Red Dead Redemption 2"),
+            ("streetfighter6", "Street Fighter 6"),
             ("lastofus", "The Last of Us Part I"),
+            ("finalfantasy7", "Final Fantasy VII"),
             // Initials, and initials with a number.
             ("tlou", "The Last of Us Part I"),
-            ("tlou2", "The Last of Us Part II Remastered"),
-            ("gow", "God of War Ragnarök"),
+            ("tlou2", "The Last of Us Part II"),
+            ("gow", "God of War"),
+            ("gow3", "God of War III"),
             ("re4", "Resident Evil 4"),
-            ("ff7", "Final Fantasy VII Rebirth"),
-            ("gta5", "Grand Theft Auto V"),
-            ("gt7", "Gran Turismo 7"),
-            ("nfs", "Need for Speed Unbound"),
-            ("cod", "Call of Duty: Black Ops 6"),
+            ("ff7", "Final Fantasy VII"),
+            ("ffx", "Final Fantasy X"),
+            ("mgs5", "Metal Gear Solid V"),
+            ("kh3", "Kingdom Hearts III"),
+            ("rdr2", "Red Dead Redemption 2"),
+            ("dmc5", "Devil May Cry 5"),
+            ("nfs", "Need for Speed Heat"),
             ("er", "Elden Ring"),
             // Numbers and roman numerals.
-            ("final fantasy 7", "Final Fantasy VII Rebirth"),
-            ("final fantasy 16", "Final Fantasy XVI"),
-            ("god of war 3", "God of War III Remastered"),
+            ("final fantasy 7", "Final Fantasy VII"),
+            ("final fantasy 10", "Final Fantasy X"),
+            ("kingdom hearts 3", "Kingdom Hearts III"),
+            ("devil may cry v", "Devil May Cry 5"),
             ("gran turismo vii", "Gran Turismo 7"),
-            ("gta v", "Grand Theft Auto V"),
             // Accents and punctuation.
-            ("pokemon", "Pokémon Legends: Arceus"),
+            ("pokemon", "Pokémon Scarlet"),
             ("okami", "Ōkami HD"),
-            ("assassins", "Assassin's Creed Mirage"),
-            ("ratchet and clank", "Ratchet & Clank: Rift Apart"),
-            ("spider-man", "Marvel's Spider-Man 2"),
+            ("marvels", "Marvel's Spider-Man"),
+            ("ratchet and clank", "Ratchet & Clank"),
+            ("spider-man", "Marvel's Spider-Man"),
+            ("sekiro shadows", "Sekiro: Shadows Die Twice"),
             // A title that is what was typed, or starts with it, before the others.
-            ("god", "God of War Ragnarök"),
-            ("god of w", "God of War Ragnarök"),
-            ("code", "Code Vein"),
+            ("god", "God of War"),
+            ("god of w", "God of War"),
             ("resident evil 4", "Resident Evil 4"),
         ];
         let wrong: Vec<String> = table
             .iter()
-            .filter(|(typed, top)| first(typed) != *top)
-            .map(|(typed, top)| format!("{typed:?}: {top:?} expected, got {:?}", find(typed)))
+            .filter(|(typed, meant)| search(typed).first() != Some(meant))
+            .map(|(typed, meant)| format!("{typed:?}: {meant:?} first, got {:?}", search(typed)))
             .collect();
         assert!(wrong.is_empty(), "{wrong:#?}");
     }
 
     #[test]
-    fn a_title_that_starts_with_the_search_comes_before_one_that_has_it_later() {
-        assert_eq!(find("final fantasy 7"), ["Final Fantasy VII Rebirth", "Crisis Core: Final Fantasy VII Reunion"]);
-        assert_eq!(find("god of war"), ["God of War Ragnarök", "God of War III Remastered"]);
-        assert_eq!(find("cod")[..2], ["Call of Duty: Black Ops 6", "Code Vein"], "initials, then a start");
+    fn a_title_that_leads_with_the_search_comes_before_one_that_has_it_later() {
+        assert_eq!(search("final fantasy 7"), ["Final Fantasy VII", "Dissidia Final Fantasy VII"]);
+        assert_eq!(search("god of war"), ["God of War", "God of War III"]);
+        assert_eq!(search("god"), ["God of War", "God of War III", "Godzilla Unleashed"], "a whole word first");
     }
 
     #[test]
     fn a_genre_finds_its_games_after_the_titles_with_the_word() {
-        assert_eq!(find("racing"), ["Gran Turismo 7", "Need for Speed Unbound"]);
-        assert!(find("rpg").contains(&"Elden Ring"));
-        assert!(!find("ac").contains(&"Bloodborne"), "two letters are too few for a genre");
-        assert!(!find("act").contains(&"Bloodborne"), "three letters name a genre whole only");
+        assert_eq!(search("racing"), ["Need for Speed Heat", "Gran Turismo 7"]);
+        assert!(search("rpg").contains(&"Elden Ring"));
+        assert!(!search("ac").contains(&"Bloodborne"), "two letters name no genre");
+        assert!(!search("act").contains(&"Bloodborne"), "three letters name a genre's whole word only");
     }
 
     #[test]
-    fn typos_count_only_when_nothing_matches_and_never_in_the_first_letter() {
-        assert_eq!(find("evil"), ["Resident Evil 4", "Resident Evil Village"], "no near spellings");
-        assert!(find("stro").is_empty(), "a missing first letter is not a typo");
-        assert!(find("gdo").is_empty(), "three letters have no typos");
-        assert!(find("zzzz qqqq").is_empty());
+    fn near_spellings_count_only_when_nothing_matches_and_never_in_the_first_letter() {
+        assert_eq!(search("heat"), ["Need for Speed Heat"], "not Kingdom Hearts, one edit away");
+        assert_eq!(search("hert"), ["Kingdom Hearts III", "Need for Speed Heat"], "nothing as typed: near ones");
+        assert!(search("jorizon").is_empty(), "a wrong first letter is no typo");
+        assert!(search("gdw").is_empty(), "three letters have no typos: not God of War");
+        assert!(search("qqqq zzzz").is_empty());
     }
 
     #[test]
-    fn every_word_must_match_or_the_whole_search_be_inside_a_title() {
-        assert!(find("creed ring").is_empty());
-        assert_eq!(find("borne"), ["Bloodborne"]);
-        assert_eq!(find("of war ragn"), ["God of War Ragnarök"]);
+    fn every_word_must_match_unless_the_whole_search_is_inside_a_title() {
+        assert!(search("bloodborne ring").is_empty());
+        assert_eq!(search("borne"), ["Bloodborne"]);
+        assert_eq!(search("dows die tw"), ["Sekiro: Shadows Die Twice"]);
     }
 
     #[test]
-    fn folding_drops_accents_and_case_and_keeps_letters_of_other_scripts() {
-        assert_eq!(fold("Pokémon: Ōkami & Œuvre"), "pokemon  okami  and  oeuvre");
-        assert_eq!(fold("Assassin’s"), "assassins");
-        assert_eq!(fold("Straße"), "strasse");
-        assert_eq!(fold("ゼルダ"), "ゼルダ");
+    fn a_title_with_no_words_matches_no_search_and_does_not_fail() {
+        let q = Query::new("a");
+        let none = Vec::new;
+        for title in ["", "?!", "   "] {
+            assert_eq!(score(&q, &[&Name::new(title)], &Other::default(), &none, true), None, "{title:?}");
+        }
+        let empty = Query::new("!!");
+        assert!(empty.is_empty(), "punctuation alone is no search");
+        assert_eq!(score(&empty, &[&Name::new("")], &Other::default(), &none, false), Some(Rank::default()));
     }
 
     #[test]
-    fn the_helpers() {
-        assert_eq!(split_digits("nba2k25"), ["nba", "2", "k", "25"]);
-        assert_eq!((other_number("vii"), other_number("16")), (Some("7"), Some("xvi")));
-        assert_eq!(other_number("21"), None);
-        let typed = |t: &str| t.chars().collect::<Vec<_>>();
-        assert_eq!(prefix_distance(&typed("assasin"), "assassins", 2), 1);
-        assert_eq!(prefix_distance(&typed("evli"), "evil", 1), 1, "a swap is one edit");
-        assert_eq!(prefix_distance(&typed("zzzzzz"), "evil", 1), 2, "it stops past the most");
+    fn folding_drops_case_and_accents_and_keeps_other_scripts() {
+        assert_eq!(fold("Ōkami & Œuvre: Straße"), "okami  and  oeuvre  strasse");
+        assert_eq!(fold("Marvel’s"), "marvels");
+        assert_eq!(fold("ドラゴンクエスト"), "ドラゴンクエスト");
+    }
+
+    #[test]
+    fn numbers_read_both_ways_up_to_twenty() {
+        let pairs = [("iv", "4"), ("ix", "9"), ("xiv", "14"), ("xix", "19"), ("xx", "20")];
+        for (numeral, digits) in pairs {
+            assert_eq!(other_way(numeral).as_deref(), Some(digits));
+            assert_eq!(other_way(digits).as_deref(), Some(numeral));
+        }
+        assert_eq!(other_way("21"), None);
+        assert_eq!(roman_value("iiii"), None, "not the usual way");
+        assert_eq!(roman_value("mix"), None);
+    }
+
+    #[test]
+    fn near_start_allows_each_kind_of_edit() {
+        let chars = |t: &str| t.chars().collect::<Vec<_>>();
+        let near = |typed: &str, word: &str, budget| near_start(&chars(typed), &chars(word), budget);
+        assert!(near("hoizon", "horizon", 1), "a letter left out");
+        assert!(near("horrizon", "horizon", 1), "a letter added");
+        assert!(near("horixon", "horizon", 1), "a letter changed");
+        assert!(near("hroizon", "horizon", 1), "two letters swapped");
+        assert!(near("hor", "horizon", 0), "the start of the word");
+        assert!(!near("hxxizon", "horizon", 1));
+        assert!(near("hxxizon", "horizon", 2));
+        assert_eq!(letter_and_digit_runs("rdr2x10"), ["rdr", "2", "x", "10"]);
     }
 }

@@ -302,6 +302,31 @@ fn the_search_keyboard_shows_the_best_matches_then_the_last_searches_over_its_ke
     assert_eq!(osk_at(&host), (0, 0), "the highlight goes back to the keys");
 }
 
+#[test]
+fn the_row_of_picks_scrolls_to_the_last_of_eight_searches_and_clear() {
+    use launcher_ui_host::PadButton;
+    let mut host = library_by_pad();
+    for i in 1..=10 {
+        host.dispatch(Command::RememberSearch(format!("search {i}")));
+    }
+    host.settle();
+    host.pad(PadButton::North);
+    assert_eq!(host.values("osk-pick"), ["search 10", "search 9", "search 8", "search 7"], "four show at once");
+    host.pad(PadButton::Up);
+    host.pad(PadButton::Up);
+    for _ in 0..10 {
+        host.pad(PadButton::Right);
+    }
+    assert_eq!(lit_pick(&host).as_deref(), Some("Clear"), "Right reaches the last pick and stops there");
+    assert_eq!(
+        host.values("osk-pick"),
+        ["search 5", "search 4", "search 3", "Clear"],
+        "the row scrolled: the eight newest kept"
+    );
+    host.pad(PadButton::Down);
+    assert_eq!(osk_at(&host).0, 0, "down to the numbers row");
+}
+
 /// A theme for tests: the default one with a password field on the Emulators screen. Its
 /// `focus-password` button focuses the field.
 fn with_a_password_field() -> (tempfile::TempDir, Composed) {

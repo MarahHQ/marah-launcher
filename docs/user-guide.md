@@ -62,7 +62,7 @@ keyboard types into the field and the on-screen keyboard stays shut.
 
 | Controller | What it does |
 | --- | --- |
-| D-pad | Move between keys |
+| D-pad | Move between keys. In a search, Up from the numbers row reaches the row of matches or last searches. |
 | ✕ | Type the key |
 | □ | Delete |
 | △ | Space |

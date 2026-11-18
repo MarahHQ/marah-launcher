@@ -13,7 +13,7 @@ use crate::app::Grid;
 use crate::library::{Entry, LibrarySnapshot};
 use crate::ownership::Ownership;
 use crate::releases::Offer;
-use crate::search::{Name, Other, Query};
+use crate::search::{Name, Other, Query, Rank};
 use crate::sessions::PlayTimes;
 
 /// How many more games a Library or Catalog page shows each time.
@@ -311,9 +311,9 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
     let search = Query::new(&query.query);
     // How well a game matches the search (see [`crate::search::score`]): in the Catalog, its
     // best release, with every word in that one release.
-    let score = |e: &'a Entry, typos: bool| -> Option<u32> {
+    let score = |e: &'a Entry, typos: bool| -> Option<Rank> {
         if search.is_empty() {
-            return Some(0);
+            return Some(Rank::default());
         }
         let title = Name::of(&e.summary.title);
         let publisher = library.meta(&e.key).map(|(_, m)| m.publisher.as_str()).unwrap_or_default();
@@ -338,7 +338,7 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
             }
         }
     };
-    let scored = |typos: bool| -> Vec<(&'a Entry, u32)> {
+    let scored = |typos: bool| -> Vec<(&'a Entry, Rank)> {
         entries.iter().filter_map(|e| score(e, typos).map(|s| (*e, s))).collect()
     };
     // Near spellings only when nothing matches as typed.
@@ -346,7 +346,7 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
     if found.is_empty() && !search.is_empty() {
         found = scored(true);
     }
-    let scores: HashMap<&GameKey, u32> = found.iter().map(|(e, s)| (&e.key, *s)).collect();
+    let scores: HashMap<&GameKey, Rank> = found.iter().map(|(e, s)| (&e.key, *s)).collect();
     let searched: Vec<&Entry> = found.into_iter().map(|(e, _)| e).collect();
     // Systems count what the search leaves; genres count what the system leaves too.
     let mut systems =
@@ -593,6 +593,23 @@ mod tests {
     }
 
     #[test]
+    fn a_genre_word_finds_the_catalog_s_games_of_that_genre_after_a_title_with_the_word() {
+        let mut kart = offer("cat:a", "Kart Party", "2026-10-02", 5);
+        kart.releases[0].facts.push(launcher_api::Fact {
+            kind: launcher_api::FactKind::Genre,
+            value: "Kart, Arcade".into(),
+            ..launcher_api::Fact::default()
+        });
+        let library = library(
+            Vec::new(),
+            vec![kart, offer("cat:b", "Racing Legends", "2026-10-01", 5), offer("cat:c", "Astro", "2026-10-03", 5)],
+            &[],
+        );
+        let found = |text: &str| keys(&library, &GridQuery { query: text.into(), ..GridQuery::catalog() });
+        assert_eq!(found("racing"), ["b", "a"], "the title first, then the game of the Racing genre");
+    }
+
+    #[test]
     fn a_search_is_fast_enough_for_each_key_in_a_catalog_of_five_thousand_games() {
         const WORDS: [&str; 12] =
             ["final", "fantasy", "god", "war", "dark", "souls", "racing", "legend", "star", "night", "ring", "city"];
@@ -607,6 +624,12 @@ mod tests {
         let typed = "final fantasy 7";
         let mut texts: Vec<String> = (0..=typed.len()).map(|n| typed[..n].to_owned()).collect();
         texts.push("finl fantsy".into());
+        let cold = {
+            let query = GridQuery { query: "f".into(), ..GridQuery::catalog() };
+            let started = std::time::Instant::now();
+            over(&library, &PlayTimes::default(), |data| std::hint::black_box(query.games(data).shown.len()));
+            started.elapsed()
+        };
         let slowest = texts
             .iter()
             .map(|text| {
@@ -625,7 +648,7 @@ mod tests {
             })
             .max()
             .unwrap();
-        eprintln!("5,000 games: the slowest key took {slowest:?}");
+        eprintln!("5,000 games: the first key took {cold:?}, reading every title; the slowest after it {slowest:?}");
         // A frame is 16 ms. The tests build with few optimizations and run side by side, so
         // the bound leaves room; a release build is faster.
         assert!(slowest < std::time::Duration::from_millis(30), "{slowest:?} for one key");
