@@ -260,6 +260,31 @@ When the game closes, Marah Launcher comes back to the front (Settings → Launc
 launcher**). Marah Launcher may then ask "How far did <game> get?". It asks once for each emulator build.
 **Rate how it runs**, in the game's menu, asks again.
 
+Your answer stays on this PC until you send it. See [Send your ratings](#send-your-ratings).
+
+### Send your ratings
+
+Settings → Games → **Send ratings** sends your answers to the community compatibility lists,
+so other players know how a game runs. Two lists take reports this way: shadPS4's (PS4 games)
+and KytyPS5's (PS5 games). Answers for other emulators, and for PC games, stay on this PC.
+
+1. Marah Launcher lists the answers you haven't sent. All are picked. Press ✕ on one to leave
+   it out, then choose **Next: see the reports**.
+2. Marah Launcher shows each report in full: its title, every field, the end of the emulator's
+   log, and the page it goes to. Move up and down to read all of it.
+3. Choose **Open in browser** to open the list's report form, filled in with that text, or
+   **Skip** to send nothing. ○ (Escape) closes it; nothing more is sent.
+4. Submit the report on the page that opened. You need a free GitHub account for it. Marah
+   Launcher holds no account and sends nothing itself.
+
+Before the report shows, Marah Launcher takes personal data out of the log: your home folder
+becomes `~`, your user name `<user>`, your computer's name `<computer>`, IP addresses `<ip>`
+and email addresses `<email>`. Check the text before you submit it.
+
+An answer you opened in the browser counts as sent and isn't listed again. A new answer for the
+same game is listed again. shadPS4's form has a checklist that you tick yourself: shadPS4 takes
+reports only for a game dumped from a copy you own, unmodified, on a major release of shadPS4.
+
 To close a running game, hold the PS button, or choose **Stop** in the top bar or the Game Hub.
 
 ## Emulators
@@ -423,6 +448,8 @@ the icons light the section in view.
 
 Your **Game folders** and **Packages to install**. Separate several folders with `;`. Start a
 path with `~` for your home folder. **Rescan game folders** looks for games again.
+**Send ratings** sends your "how it runs" answers to the community compatibility lists: see
+[Send your ratings](#send-your-ratings).
 
 ### Updates
 

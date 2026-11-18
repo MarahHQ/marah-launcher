@@ -72,6 +72,7 @@ pub const KIT: &[(&str, &str)] = &[
     ("question-prompt.slint", include_str!("../kit/question-prompt.slint")),
     ("result-prompt.slint", include_str!("../kit/result-prompt.slint")),
     ("reveal.slint", include_str!("../kit/reveal.slint")),
+    ("send-ratings.slint", include_str!("../kit/send-ratings.slint")),
     ("settings-frame.slint", include_str!("../kit/settings-frame.slint")),
     ("settings-layout.slint", include_str!("../kit/settings-layout.slint")),
     ("settings-page.slint", include_str!("../kit/settings-page.slint")),

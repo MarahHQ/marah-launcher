@@ -1158,6 +1158,9 @@ pub struct AppView {
     /// "How far did it get?", for a game that just closed: its title.
     #[serde(serialize_with = "mark::has")]
     pub result_prompt: Option<String>,
+    /// "Send ratings", from Settings: the player's results that wait to go to the community
+    /// lists, then each report as it will be sent.
+    pub ratings: RatingsVm,
     /// Log out, Restart or Shut down is closing what runs first: the step it is at, for example
     /// "Closing <game>", "Closing Steam", then "Logging out". The theme covers the screen
     /// with it.
@@ -1169,6 +1172,49 @@ pub struct AppView {
     pub closing_game: Option<ClosingGameVm>,
     /// The machine's settings: network, sound, Bluetooth, battery, power, Marah OS.
     pub system: SystemVm,
+}
+
+/// "Send ratings": the results the player can send, to pick from, then the picked reports one
+/// at a time.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct RatingsVm {
+    /// It is open.
+    pub open: bool,
+    /// The results not sent yet whose list takes reports, in the order of their game's key.
+    pub items: Vec<RatingItemVm>,
+    /// A report is on screen, `preview`: the player says whether it goes.
+    pub previewing: bool,
+    pub preview: ReportPreviewVm,
+}
+
+/// A result the player can send.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct RatingItemVm {
+    /// The game's key, which the command `Ratings` `Pick` takes.
+    pub game: String,
+    pub title: String,
+    /// "In game", "Main menu", "Intro logos" or "Doesn't start".
+    pub result: String,
+    /// The list it goes to, such as "shadPS4 compatibility list".
+    pub list: String,
+    pub picked: bool,
+}
+
+/// One report, all of it, as it will open in the browser.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ReportPreviewVm {
+    pub game: String,
+    pub game_title: String,
+    pub list: String,
+    /// Where it opens, such as `github.com/owner/repo/issues/new`.
+    pub destination: String,
+    /// The report's title and its fields, each as "Label: value".
+    pub title: String,
+    pub body: String,
+    /// What the player still does on the form, or empty.
+    pub note: String,
+    /// "1 of 3".
+    pub step: String,
 }
 
 /// The machine's settings, from the system plugins. A part whose `*_available` is false shows

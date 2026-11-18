@@ -364,6 +364,17 @@ export struct Running { session: int, key: string, title: string, cover: image, 
 
 // A first play waits for the player to agree to install the emulator. `size` is in bytes,
 // 0 when the download's size isn't known.
+// "Send ratings": a result the player can send. game: what the command Ratings Pick takes;
+// result: "In game", "Main menu", "Intro logos" or "Doesn't start"; list: where it goes, such as
+// "shadPS4 compatibility list".
+export struct RatingItem { game: string, title: string, result: string, list: string, picked: bool }
+// One report, all of it, as it will open in the browser. destination: where, such as
+// "github.com/owner/repo/issues/new"; body: its fields, each "Label: value"; note: what the
+// player still does on the form, or empty; step: "1 of 3".
+export struct ReportPreview { game: string, game-title: string, list: string, destination: string, title: string, body: string, note: string, step: string }
+// "Send ratings". items: the results not sent yet whose list takes reports. previewing: a report
+// is on screen, `preview`; Send opens it in the browser, Skip sends nothing.
+export struct Ratings { open: bool, items: [RatingItem], previewing: bool, preview: ReportPreview }
 export struct InstallPrompt { plugin: string, emulator: string, version: string, game: string, size: float }
 // A plugin's question at the start: "Install Switch firmware 22.5.0?", with its two buttons.
 export struct Question { title: string, text: string, yes: string, no: string }
@@ -559,6 +570,8 @@ export global Vm {
     // ReportResult: ingame, menus, boots, nothing, or null for Not now.
     in-out property <bool> has-result-prompt;
     in-out property <string> result-prompt;
+    // "Send ratings", from Settings: the commands Ratings Open, Pick, Next, Send, Skip and Close.
+    in-out property <Ratings> ratings;
     // Log out, Restart or Shut down is closing what runs first: the step it is at, for example
     // "Closing <game>", "Closing Steam", then "Logging out". Empty when nothing closes. Cover
     // the screen with it: the launcher is going.

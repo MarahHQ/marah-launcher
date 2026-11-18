@@ -18,6 +18,7 @@ import { Setup, InstallOs } from "install-os.slint";
 import { Prompt, InstallPrompt } from "install-prompt.slint";
 import { Question } from "question-prompt.slint";
 import { Ask, ResultPrompt } from "result-prompt.slint";
+import { Sending, SendRatings } from "send-ratings.slint";
 
 // A key the hints at the bottom show: the pad's button, the keyboard's key and what it does.
 export struct Hint { pad: string, key: string, label: string }
@@ -163,6 +164,12 @@ export component ShellKeys inherits FocusScope {
         if (Browser.open && !PowerMenu.open && !(event.modifiers.control && (event.text == "p" || event.text == "P"))) {
             return Browser.key(event.text, event.repeat, event.modifiers.control) ? accept : reject;
         }
+        // "Send ratings", from Settings: the same, with keys of its own over the sheet behind.
+        if (Vm.ratings.open && !PowerMenu.open && !(event.modifiers.control && (event.text == "p" || event.text == "P"))) {
+            // A held Enter doesn't repeat: it would open a report the player hasn't seen.
+            if (event.repeat && event.text == Key.Return) { return accept; }
+            return Sending.key(event.text) ? accept : reject;
+        }
         if (Osk.open) {
             return Osk.key(event.text, event.repeat, event.modifiers.control) ? accept : reject;
         }
@@ -257,8 +264,8 @@ export component ShellKeys inherits FocusScope {
 }
 
 // What opens over the screens, each while it is open, the later over the earlier: the install
-// prompt, the screenshot viewer, a trailer, the game menu, the result prompt, the backup
-// browser, Install OS, the power menu, and the closing screen over everything. Put it over
+// prompt, the screenshot viewer, a trailer, the game menu, the result prompt, Send ratings, the
+// backup browser, Install OS, the power menu, and the closing screen over everything. Put it over
 // your screens, the size of the window. `ShellKeys` sends each one its keys.
 export component Overlays inherits Rectangle {
     // The theme's emblem, for the closing screen's steps about no game.
@@ -268,6 +275,7 @@ export component Overlays inherits Rectangle {
     if Vm.has-trailer : TrailerPlayer { width: parent.width; height: parent.height; }
     if GameMenu.open : GameMenuSheet { width: parent.width; height: parent.height; }
     if Vm.has-result-prompt : ResultPrompt { width: parent.width; height: parent.height; }
+    if Vm.ratings.open : SendRatings { width: parent.width; height: parent.height; }
     if Browser.open : BackupBrowser { width: parent.width; height: parent.height; }
     if Setup.shown : InstallOs { width: parent.width; height: parent.height; }
     if PowerMenu.open : PowerMenuSheet { width: parent.width; height: parent.height; }

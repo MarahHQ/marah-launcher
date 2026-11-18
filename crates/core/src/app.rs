@@ -159,6 +159,9 @@ pub enum Command {
     /// `nothing`), or `None` for "Not now". It is the player's own result for the game, saved,
     /// and shown with its compatibility.
     ReportResult(Option<launcher_api::CompatLevel>),
+    /// "Send ratings": the player's results go to the community lists that take reports, each
+    /// after the player saw it and said yes.
+    Ratings(crate::RatingsCmd),
     /// The Library's search text.
     LibrarySearch(String),
     /// The Library's system (a platform label, such as `PS5`), or a filter to turn on or off;
@@ -608,6 +611,7 @@ impl Core {
             Command::Session(command) => crate::launch::session(self, command).await,
             Command::AskResult(game) => crate::launch::ask_result(self, game),
             Command::ReportResult(level) => crate::launch::report_result(self, level),
+            Command::Ratings(command) => crate::ratings::handle(self, command).await,
             Command::SetConfig { plugin, scope, value } => {
                 plugin_settings::set_config(self, &plugin, scope, value).await
             }

@@ -3537,6 +3537,7 @@ dependencies = [
  "theme-default",
  "tokio",
  "toml",
+ "url",
  "zip",
  "zstd",
 ]

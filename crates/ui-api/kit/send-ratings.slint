@@ -1,0 +1,218 @@
+import { Vm, Host } from "../types.slint";
+import { Commands } from "commands.slint";
+import { Tokens } from "../tokens.slint";
+import { Look } from "look.slint";
+import { Pop } from "pop.slint";
+import { Icon } from "icon.slint";
+import { Pill } from "widgets.slint";
+
+// "Send ratings", from Settings: first the ratings that wait, to pick from, then each picked
+// report, all of it, with where it goes. Open in browser opens it there, filled in, for the
+// player to submit; Skip sends nothing. Escape closes it, and what wasn't sent waits.
+export global Sending {
+    // While picking: the row the keys are on, the ratings and then Next.
+    in-out property <int> focus;
+    // On a report: 0 is Open in browser, 1 is Skip.
+    in-out property <int> button;
+    // On a report: how far down its text is, in steps.
+    in-out property <int> scroll;
+
+    public function key(text: string) -> bool {
+        if (text == Key.Escape || text == Key.Backspace) {
+            Host.play-sound("back");
+            root.close();
+            return true;
+        }
+        if (Vm.ratings.previewing) {
+            if (text == Key.LeftArrow || text == Key.RightArrow) {
+                root.button = (text == Key.RightArrow) == Look.rtl ? 0 : 1;
+                Host.play-sound("move");
+            } else if (text == Key.UpArrow || text == Key.DownArrow) {
+                root.scroll = Math.max(0, root.scroll + (text == Key.DownArrow ? 1 : -1));
+            } else if (text == Key.Return || text == " ") {
+                root.answer(root.button == 0);
+            }
+            return true;
+        }
+        if (text == Key.UpArrow || text == Key.DownArrow) {
+            root.focus = Math.clamp(root.focus + (text == Key.DownArrow ? 1 : -1), 0, Vm.ratings.items.length);
+            Host.play-sound("move");
+        } else if (text == Key.Return || text == " ") {
+            root.choose(root.focus);
+        }
+        true
+    }
+    // A row while picking: a rating is picked or left out; the last row goes on.
+    public function choose(row: int) {
+        root.focus = row;
+        if (row < Vm.ratings.items.length) {
+            Commands.pick-rating(Vm.ratings.items[row].game);
+        } else if (Vm.ratings.items.length == 0) {
+            root.close();
+        } else {
+            root.button = 0;
+            root.scroll = 0;
+            Commands.next-rating();
+        }
+    }
+    // Yes or no to the report on screen.
+    public function answer(send: bool) {
+        if (send) { Commands.send-rating(); } else { Commands.skip-rating(); }
+        root.button = 0;
+        root.scroll = 0;
+    }
+    public function close() {
+        Commands.close-ratings();
+        root.focus = 0;
+        root.button = 0;
+        root.scroll = 0;
+    }
+}
+
+export component SendRatings inherits Pop {
+    card-width: 820 * Look.px;
+    dismissed => { Sending.close(); }
+    VerticalLayout {
+        padding: 28 * Look.px;
+        spacing: 10 * Look.px;
+        if !Vm.ratings.previewing : VerticalLayout {
+            spacing: 10 * Look.px;
+            Text {
+                text: "Send ratings";
+                font-size: 28 * Look.px;
+                font-weight: 600;
+                color: Tokens.color-text;
+                horizontal-alignment: Look.rtl ? right : left;
+                accessible-role: text;
+                accessible-label: "ratings";
+                accessible-value: self.text;
+            }
+            Text {
+                text: Vm.ratings.items.length == 0
+                    ? "No ratings wait to be sent. After you play a game, rate how it runs from its menu. Only the lists that take reports from a form are here."
+                    : "Pick the ratings to send to the community lists. You see each report in full first. It then opens in your browser, filled in, and you submit it there.";
+                font-size: 18 * Look.px;
+                color: Tokens.color-text-muted;
+                wrap: word-wrap;
+                horizontal-alignment: Look.rtl ? right : left;
+            }
+            Rectangle { height: 4 * Look.px; }
+            for item[i] in Vm.ratings.items : row := Rectangle {
+                property <bool> f: Sending.focus == i;
+                height: 62 * Look.px;
+                border-radius: 12 * Look.px;
+                background: self.f ? Tokens.color-tint : transparent;
+                animate background { duration: Tokens.motion-fast; }
+                accessible-role: checkbox;
+                accessible-label: "rating:" + item.game;
+                accessible-checked: item.picked;
+                accessible-action-default => { Sending.choose(i); }
+                HorizontalLayout {
+                    padding-left: 18 * Look.px;
+                    padding-right: 18 * Look.px;
+                    spacing: 16 * Look.px;
+                    Rectangle {
+                        width: 24 * Look.px;
+                        if item.picked : Icon { name: "check"; color: row.f ? Tokens.color-on-focus : Tokens.color-text; width: 24 * Look.px; height: 24 * Look.px; }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        horizontal-stretch: 1;
+                        Text { text: item.title; font-size: 20 * Look.px; color: row.f ? Tokens.color-on-focus : Tokens.color-text; overflow: elide; }
+                        Text { text: item.result + " · to the " + item.list; font-size: 15 * Look.px; color: row.f ? Tokens.color-on-focus : Tokens.color-text-muted; overflow: elide; }
+                    }
+                }
+                TouchArea { mouse-cursor: pointer; clicked => { Sending.choose(i); } }
+            }
+            HorizontalLayout {
+                padding-top: 8 * Look.px;
+                alignment: Look.rtl ? end : start;
+                Pill {
+                    text: Vm.ratings.items.length == 0 ? "Close" : "Next: see the reports";
+                    icon: Vm.ratings.items.length == 0 ? "" : "chevr";
+                    primary: true;
+                    focused: Sending.focus == Vm.ratings.items.length;
+                    clicked => { Sending.choose(Vm.ratings.items.length); }
+                }
+            }
+        }
+        if Vm.ratings.previewing : VerticalLayout {
+            spacing: 10 * Look.px;
+            Text {
+                text: Vm.ratings.preview.step + " · " + Vm.ratings.preview.game-title;
+                font-size: 26 * Look.px;
+                font-weight: 600;
+                color: Tokens.color-text;
+                overflow: elide;
+                horizontal-alignment: Look.rtl ? right : left;
+                accessible-role: text;
+                accessible-label: "report";
+                accessible-value: self.text;
+            }
+            Text {
+                text: "Opens in your browser, filled in, on " + Vm.ratings.preview.destination + " (the "
+                    + Vm.ratings.preview.list + "). Nothing is sent until you submit it there.";
+                font-size: 17 * Look.px;
+                color: Tokens.color-text-muted;
+                wrap: word-wrap;
+                horizontal-alignment: Look.rtl ? right : left;
+                accessible-role: text;
+                accessible-label: "report-destination";
+                accessible-value: self.text;
+            }
+            Rectangle {
+                height: 360 * Look.px;
+                border-radius: 12 * Look.px;
+                background: Tokens.color-tint.with-alpha(0.06);
+                border-width: 1px;
+                border-color: Look.line;
+                property <int> step: Sending.scroll;
+                changed step => {
+                    flick.viewport-y = Math.max(flick.height - flick.viewport-height, Math.min(0px, -self.step * 120 * Look.px));
+                }
+                flick := Flickable {
+                    x: 16 * Look.px;
+                    y: 12 * Look.px;
+                    width: parent.width - 32 * Look.px;
+                    height: parent.height - 24 * Look.px;
+                    viewport-height: report.preferred-height;
+                    report := Text {
+                        width: flick.width;
+                        text: "Title: " + Vm.ratings.preview.title + "\n\n" + Vm.ratings.preview.body;
+                        font-size: 15 * Look.px;
+                        color: Tokens.color-text;
+                        wrap: word-wrap;
+                        accessible-role: text;
+                        accessible-label: "report-text";
+                        accessible-value: self.text;
+                    }
+                }
+            }
+            if Vm.ratings.preview.note != "" : Text {
+                text: Vm.ratings.preview.note;
+                font-size: 16 * Look.px;
+                color: Tokens.color-text-muted;
+                wrap: word-wrap;
+                horizontal-alignment: Look.rtl ? right : left;
+            }
+            HorizontalLayout {
+                padding-top: 8 * Look.px;
+                spacing: 16 * Look.px;
+                alignment: Look.rtl ? end : start;
+                Pill {
+                    text: "Open in browser";
+                    icon: "web";
+                    primary: true;
+                    focused: Sending.button == 0;
+                    dim: Sending.button != 0;
+                    clicked => { Sending.answer(true); }
+                }
+                Pill {
+                    text: "Skip";
+                    focused: Sending.button == 1;
+                    clicked => { Sending.answer(false); }
+                }
+            }
+        }
+    }
+}

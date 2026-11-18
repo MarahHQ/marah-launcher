@@ -86,6 +86,20 @@ fn the_keys_move_down_the_settings_page_and_change_the_focused_row() {
     assert!(asked, "Enter on Rescan asks the core to scan");
     host.pump();
 
+    // Down to GAMES' last row, Send ratings: Enter opens it.
+    host.navigate(Key::DownArrow);
+    let text: slint::SharedString = Key::Return.into();
+    host.instance().window().dispatch_event(slint::platform::WindowEvent::KeyPressed { text });
+    let opened = host
+        .requests
+        .borrow()
+        .iter()
+        .any(|r| matches!(r, launcher_ui_host::UiRequest::Core(Command::Ratings(launcher_core::RatingsCmd::Open))));
+    assert!(opened, "Enter on Send ratings opens it");
+    host.pump();
+    host.dispatch(Command::Ratings(launcher_core::RatingsCmd::Close));
+    host.settle();
+
     // One page, in its order: Down from GAMES' last row goes on into DOWNLOADS: "Download only
     // through a VPN", then down past the row that says there is no VPN and "Add a VPN" to "Keep
     // sharing finished downloads". Every section's rows are on the page.
@@ -616,9 +630,11 @@ fn a_held_up_stops_at_the_first_row() {
     let mut host = classic_theme();
     host.dispatch(Command::Navigate(launcher_core::Route::Settings));
     host.settle();
-    // GAMES is the page's first section: into its first row, then Down into DOWNLOADS.
+    // GAMES is the page's first section: into its first row, then down past Send ratings into
+    // DOWNLOADS.
     host.settings_tab("Games");
     host.navigate(Key::RightArrow);
+    host.navigate(Key::DownArrow);
     host.navigate(Key::DownArrow);
     assert_eq!(lit_section(&host), "Downloads");
     let held: slint::SharedString = Key::UpArrow.into();
@@ -680,4 +696,51 @@ fn l1_from_reading_this_pc_goes_to_another_section_s_rows() {
     let before = host.core().view().settings.auto_update;
     host.navigate(Key::Return);
     assert_ne!(host.core().view().settings.auto_update, before, "Enter acts on the row, not on reading");
+}
+
+/// Settings → Send ratings: the ratings that wait, to pick from, then each picked report in
+/// full. Escape closes it and sends nothing; Open in browser opens the report on screen.
+#[test]
+fn send_ratings_shows_each_report_in_full_before_it_opens() {
+    use slint::platform::Key;
+    let mut host = classic_theme_with(|h| {
+        let mut emu = launcher_testkit::FakeEmulator::new(vec!["Delta", "Echo"]);
+        emu.list = true;
+        h.plugin(emu.plugin("emu-c"))
+    });
+    for game in ["emu-c:G0", "emu-c:G1"] {
+        host.dispatch(Command::AskResult(game.parse().unwrap()));
+        host.dispatch(Command::ReportResult(Some(launcher_api::CompatLevel::Ingame)));
+    }
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+
+    host.press_first("send-ratings");
+    assert_eq!(host.count("rating:emu-c:G0") + host.count("rating:emu-c:G1"), 2, "both wait");
+    // Enter leaves the first out; Down past the second to Next shows the second's report.
+    host.navigate(Key::Return);
+    host.navigate(Key::DownArrow);
+    host.navigate(Key::DownArrow);
+    host.navigate(Key::Return);
+    assert_eq!(host.value("report"), "1 of 1 · Echo");
+    assert!(host.value("report-destination").contains("lists.example/new"), "{}", host.value("report-destination"));
+    let text = host.value("report-text");
+    assert!(text.starts_with("Title: G1 - Echo") && text.contains("Status: ingame"), "{text}");
+
+    host.navigate(Key::Escape);
+    assert_eq!(host.count("report"), 0, "Escape closes it");
+    assert!(host.test.host.opener.links().is_empty(), "and sends nothing");
+
+    host.press_first("send-ratings");
+    host.navigate(Key::DownArrow);
+    host.navigate(Key::DownArrow);
+    host.navigate(Key::Return);
+    assert_eq!(host.value("report"), "1 of 2 · Delta");
+    host.navigate(Key::Return);
+    assert_eq!(host.value("report"), "2 of 2 · Echo", "the next report shows");
+    assert_eq!(host.test.host.opener.links().len(), 1, "Open in browser opened the first");
+    host.navigate(Key::RightArrow);
+    host.navigate(Key::Return);
+    assert_eq!(host.count("report"), 0, "Skip on the last closes it");
+    assert_eq!(host.test.host.opener.links().len(), 1, "Skip sends nothing");
 }

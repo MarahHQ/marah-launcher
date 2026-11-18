@@ -14,6 +14,9 @@ use crate::StubPlugin;
 /// build's folder.
 pub const FAKE_EMULATOR_PERMISSIONS: &str = "network = [\"builds.example\"]\nprocess = [\"builds/*/emu\"]";
 
+/// The report form of [`FakeEmulator::list`]'s community list.
+pub const FAKE_REPORT_FORM: &str = "https://lists.example/new?template=report.yml";
+
 /// An emulator for driving the core: a catalog of titles, one build to download, an installer
 /// that writes into the plugin's storage, and a launcher that runs `builds/<version>/emu`.
 ///
@@ -36,6 +39,9 @@ pub struct FakeEmulator {
     pub game_process: Option<String>,
     /// A game its launcher won't start, and why.
     pub refuses: Option<(&'static str, &'static str)>,
+    /// It has a community list that takes reports through the form [`FAKE_REPORT_FORM`],
+    /// which its manifest's links allow.
+    pub list: bool,
     storage: Arc<Mutex<Option<Arc<dyn Storage>>>>,
     exits: Arc<Mutex<Vec<(String, ExitInfo)>>>,
     /// How many times the host asked it to close what its launches left running.
@@ -56,6 +62,7 @@ impl FakeEmulator {
             broken_catalog: false,
             game_process: None,
             refuses: None,
+            list: false,
             storage: Arc::default(),
             exits: Arc::default(),
             closes: Arc::default(),
@@ -99,9 +106,14 @@ impl FakeEmulator {
     /// `emulator` line if it has one.
     pub fn plugin_named(&self, plugin_id: &str, names: &str, permissions: &str) -> StubPlugin {
         let emu = self.clone();
+        let (compat, links) = match self.list {
+            true => (", \"compatibility\"", format!("links = [\"{FAKE_REPORT_FORM}\"]\n")),
+            false => ("", String::new()),
+        };
         StubPlugin::from_toml(&format!(
             "id = \"{plugin_id}\"\nkind = \"emulator\"\n{names}\nversion = \"1.0.0\"\nhost_api = \"^0.3\"\n\
-             capabilities = [\"catalog\", \"downloader\", \"installer\", \"launcher\", \"slots\"]\n[permissions]\n{permissions}\n"
+             capabilities = [\"catalog\", \"downloader\", \"installer\", \"launcher\", \"slots\"{compat}]\n\
+             [permissions]\n{links}{permissions}\n"
         ))
         .provides(move |ctx| {
             *emu.storage.lock().unwrap() = Some(ctx.storage().clone());
@@ -111,6 +123,7 @@ impl FakeEmulator {
                 downloader: Some(e.clone()),
                 installer: Some(e.clone()),
                 launcher: Some(e.clone()),
+                compatibility: if emu.list { Some(e.clone()) } else { None },
                 slots: Some(e),
                 ..Provided::default()
             })
@@ -218,6 +231,39 @@ impl Installer for FakeEmulator {
     }
     async fn uninstall(&self, version: &str) -> PluginResult<()> {
         self.storage().remove(&RelPath::new(format!("builds/{version}")).unwrap()).await
+    }
+}
+
+/// Its community list, when it has one: no results, and a report form whose fields are the
+/// game, the result, the build, the system and the log.
+#[async_trait]
+impl Compatibility for FakeEmulator {
+    async fn status(&self, _: &str) -> PluginResult<CompatInfo> {
+        Ok(CompatInfo { level: CompatLevel::Unknown, notes: None, source: None, page: None, tested: None })
+    }
+
+    async fn report(&self, game: &str, report: &ResultReport) -> PluginResult<Option<ReportForm>> {
+        let i: usize = game.trim_start_matches('G').parse().map_err(|_| PluginError::NotFound(game.into()))?;
+        let title = self.titles.get(i).ok_or_else(|| PluginError::NotFound(game.into()))?;
+        let level = report.level.map(CompatLevel::as_str).unwrap_or_default();
+        let field = |id: &str, label: &str, value: &str| ReportField {
+            id: id.into(),
+            label: label.into(),
+            value: value.into(),
+        };
+        Ok(Some(ReportForm {
+            list: "Fake list".into(),
+            form: FAKE_REPORT_FORM.into(),
+            title: format!("{game} - {title}"),
+            fields: vec![
+                field("game", "Game", title),
+                field("status", "Status", level),
+                field("build", "Build", &report.build),
+                field("os", "OS", &report.system),
+                field("log", "Log", &report.log),
+            ],
+            note: "Tick the checklist.".into(),
+        }))
     }
 }
 

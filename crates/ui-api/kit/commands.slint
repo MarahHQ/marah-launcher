@@ -43,6 +43,14 @@ export global Commands {
     public function ask-result(key: string) { Host.command("AskResult", Json.text(key)); }
     // ingame, menus, boots or nothing; "" for Not now.
     public function report-result(answer: string) { Host.command("ReportResult", Json.text-or-null(answer)); }
+    // "Send ratings": open it, pick a result (its game's key) or leave it out, show the first
+    // picked report, send the report on screen or skip it, and close.
+    public function open-ratings() { Host.command("Ratings", "\"Open\""); }
+    public function pick-rating(key: string) { Host.command("Ratings", "{\"Pick\":" + Json.text(key) + "}"); }
+    public function next-rating() { Host.command("Ratings", "\"Next\""); }
+    public function send-rating() { Host.command("Ratings", "\"Send\""); }
+    public function skip-rating() { Host.command("Ratings", "\"Skip\""); }
+    public function close-ratings() { Host.command("Ratings", "\"Close\""); }
 
     // The Library's and the Catalog's search, filters, sort and pages. A filter's id "" is
     // every system or genre.

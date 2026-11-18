@@ -18,6 +18,14 @@ fn the_manifest_s_key_map_is_the_keyboard_panel_s() {
     assert_eq!(keys, emu_shadps4::KEYS);
 }
 
+/// "Send ratings" opens shadPS4's report form: the manifest's links allow it, filled in.
+#[test]
+fn the_manifest_allows_the_compatibility_list_s_report_form() {
+    let filled = format!("{}&title=CUSA03173+-+Bloodborne", emulator_kit::compat::SHAD_FORM);
+    assert!(ShadPlugin.manifest().permissions.allows_link(&filled));
+    assert!(!ShadPlugin.manifest().permissions.allows_link("https://github.com/shadps4-emu/shadPS4/issues/new?"));
+}
+
 fn shad() -> PluginId {
     PluginId::new("emu-shadps4").unwrap()
 }
