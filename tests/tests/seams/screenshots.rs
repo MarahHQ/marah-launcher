@@ -1343,6 +1343,52 @@ shots! {
     the_pad_hints => shoot_pad_hints,
     the_system_controls => shoot_system,
     a_game_s_own_settings => shoot_game_settings,
+    send_ratings => shoot_send_ratings,
+}
+
+/// Settings → Send ratings in each built-in theme: the ratings to pick from, then a report in
+/// full, with the personal data out of its log, as `<theme>-send-ratings[-report].png`, and the
+/// report scrolled to its end, as `<theme>-send-ratings-report-end.png`.
+fn shoot_send_ratings(window: &MinimalSoftwareWindow, out: &Path) {
+    use slint::platform::Key;
+    window.set_size(slint::PhysicalSize::new(WIDTH, HEIGHT));
+    for theme in [theme_classic::ID, theme_default::ID] {
+        let mut host = composed_on_current_platform(|h| {
+            let mut emu = launcher_testkit::FakeEmulator::new(vec!["Paper Knights", "Quiet Orbit"]);
+            emu.list = true;
+            emu.build_sha = h.http().serve(&emu.build_url, vec![7u8; 20_000]);
+            h.home(Path::new("/home/alice")).computer("alice-desktop").plugin(emu.plugin("emu-a"))
+        });
+        host.ui.start_with(Some(id(theme))).unwrap();
+        host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
+        run_until(&host, 5000, |core| core.view().boot.ready);
+        let logs = host.test.host.data_dir().join("logs").join("emu-a");
+        std::fs::create_dir_all(&logs).unwrap();
+        // A long log: the report scrolls.
+        let log = (1..=60).map(|i| format!("[Render] frame {i}: a line of the emulator's log\n")).collect::<String>()
+            + "[Loader] open /home/alice/Games/PS4/CUSA1/eboot.bin\n\
+               [Net] alice@alice-desktop at 192.168.1.20\n[Render] vkCreateDevice failed\n";
+        for (game, level) in [("G0", launcher_api::CompatLevel::Menus), ("G1", launcher_api::CompatLevel::Ingame)] {
+            std::fs::write(logs.join(format!("{game}.log")), &log).unwrap();
+            host.dispatch(Command::AskResult(format!("emu-a:{game}").parse().unwrap()));
+            host.dispatch(Command::ReportResult(Some(level)));
+        }
+        host.dispatch(Command::Navigate(Route::Settings));
+        host.dispatch(Command::Ratings(launcher_core::RatingsCmd::Open));
+        follow(&mut host);
+        shoot(window, &out.join(format!("{theme}-send-ratings.png")));
+        key(&mut host, Key::DownArrow);
+        key(&mut host, Key::DownArrow);
+        key(&mut host, Key::Return);
+        follow(&mut host);
+        shoot(window, &out.join(format!("{theme}-send-ratings-report.png")));
+        for _ in 0..20 {
+            key(&mut host, Key::DownArrow);
+        }
+        follow(&mut host);
+        shoot(window, &out.join(format!("{theme}-send-ratings-report-end.png")));
+    }
+    not_blank(out, &["classic-send-ratings", "default-send-ratings-report"]);
 }
 
 /// A KytyPS5 game's own settings in each built-in theme, as `<theme>[-rtl]-game-settings.png`.

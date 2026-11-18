@@ -330,6 +330,9 @@ pub(crate) fn ask_result(core: &Core, game: GameKey) -> CoreResult<()> {
 pub(crate) fn report_result(core: &Core, level: Option<CompatLevel>) -> CoreResult<()> {
     let Some((game, build)) = core.state().result_prompt.take() else { return Ok(()) };
     core.library().answer(&game, level, build.as_deref())?;
+    if level.is_some() {
+        crate::ratings::queue(core, &game)?;
+    }
     core.changed(Area::Sessions);
     Ok(())
 }

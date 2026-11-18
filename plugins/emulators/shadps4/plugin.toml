@@ -5,7 +5,7 @@ name = "PS4"
 # The program the plugin installs and runs. Sentences about the program name it.
 emulator = "shadPS4"
 version = "0.1.0"
-host_api = "^0.3.2"
+host_api = "^0.3.3"
 # The official builds this plugin installs: the Linux AppImage and the Windows program.
 platforms = ["linux", "macos", "windows"]
 # The console it plays: it gets that console's catalog.
@@ -67,6 +67,8 @@ gpu_memory_gb = 3.5
 discrete_gpu = true
 
 [permissions]
+# The compatibility list's report form, filled in, which "Send ratings" opens for the player.
+links = ["https://github.com/shadps4-compatibility/shadps4-game-compatibility/issues/new?"]
 # GitHub's API, release downloads and the CDN they redirect to (builds and the compatibility list),
 # and raw.githubusercontent.com, where the PS4 system files come from.
 network = ["api.github.com", "github.com", "*.githubusercontent.com"]

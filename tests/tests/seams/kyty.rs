@@ -801,6 +801,31 @@ async fn a_game_s_menu_finds_its_folder_and_log_and_names_the_community_list() {
 }
 
 #[tokio::test]
+async fn send_ratings_opens_kytyps5_s_own_report_form_filled_in() {
+    let k = boot(&[V1]).await;
+    k.test.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
+    let game: launcher_api::GameKey = "emu-kyty:PPSA01234".parse().unwrap();
+    k.test.core.dispatch(Command::AskResult(game.clone())).await.unwrap();
+    k.test.core.dispatch(Command::ReportResult(Some(launcher_api::CompatLevel::Menus))).await.unwrap();
+
+    let ratings = |c| Command::Ratings(c);
+    k.test.core.dispatch(ratings(launcher_core::RatingsCmd::Open)).await.unwrap();
+    let items = k.test.core.view().ratings.items;
+    assert_eq!(items.len(), 1);
+    assert_eq!((items[0].title.as_str(), items[0].list.as_str()), ("Astro Bot", "KytyPS5 compatibility list"));
+    k.test.core.dispatch(ratings(launcher_core::RatingsCmd::Next)).await.unwrap();
+    let preview = k.test.core.view().ratings.preview;
+    assert_eq!(preview.destination, "github.com/KytyPS5/KytyPS5/issues/new");
+    assert_eq!(preview.title, "[GAME STATUS]: Astro Bot (PPSA01234)");
+    assert!(preview.body.contains("Compatibility status: Main menu"), "{}", preview.body);
+    k.test.core.dispatch(ratings(launcher_core::RatingsCmd::Send)).await.unwrap();
+
+    let links = k.test.host.opener.links();
+    assert_eq!(links.len(), 1, "the manifest's links allow the form");
+    assert!(links[0].starts_with(emulator_kit::compat::KYTY_FORM), "{}", links[0]);
+}
+
+#[tokio::test]
 async fn a_game_has_its_own_settings_and_a_change_shows_on_its_page() {
     let k = boot(&[V1]).await;
     k.test.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();

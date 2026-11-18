@@ -10,8 +10,8 @@ use launcher_api::serde_json::{self, Value};
 use launcher_api::{
     ArtworkKind, Catalog, CompatInfo, CompatLevel, Compatibility, ConfigScope, Configurator, GAMES_FOLDER, GameDetails,
     GameSummary, HOST_INSTALL_GAME, HOST_OPEN_EMULATOR, HostPath, ImageSource, Installable, Order, PACKAGES_FOLDER,
-    Page, PageRequest, Platform, PluginResult, RelPath, SearchQuery, SectionRow, SlotContent, SlotId, SlotItem,
-    SlotRequest, Slots, async_trait,
+    Page, PageRequest, Platform, PluginResult, RelPath, ReportForm, ResultReport, SearchQuery, SectionRow, SlotContent,
+    SlotId, SlotItem, SlotRequest, Slots, async_trait,
 };
 
 use crate::builds::{BuildManager, Flavor, LISTS_TTL};
@@ -28,6 +28,9 @@ pub struct CompatList {
     pub page: &'static str,
     /// Reads the list for a system, by upper-case title id.
     pub parse: fn(&Value, Option<Platform>) -> HashMap<String, CompatInfo>,
+    /// Its report form, filled in with the player's result; `None` for a list that takes no
+    /// reports through a form.
+    pub report: Option<fn(&crate::compat::ReportedGame, &ResultReport) -> Option<ReportForm>>,
 }
 
 /// What sets one console emulator apart, besides its builds.
@@ -194,6 +197,14 @@ impl<F: Flavor> Compatibility for ConsoleEmulator<F> {
             Some(info) => CompatInfo { page, ..info },
             None => CompatInfo { level: CompatLevel::Unknown, notes: None, source: None, page, tested: None },
         })
+    }
+
+    async fn report(&self, game: &str, report: &ResultReport) -> PluginResult<Option<ReportForm>> {
+        let Some(fill) = self.spec.compat.as_ref().and_then(|c| c.report) else { return Ok(None) };
+        let found = self.games.find(self.host.folders.as_ref(), game).await?;
+        let game =
+            crate::compat::ReportedGame { title: &found.title, title_id: &found.title_id, version: &found.version };
+        Ok(fill(&game, report))
     }
 }
 

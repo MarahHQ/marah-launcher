@@ -28,7 +28,7 @@ use launcher_api::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) use self::records::{PluginImage, Records};
+pub(crate) use self::records::{PluginImage, Rated, Records};
 use crate::changes::{Area, Notifier};
 use crate::releases::{CatalogCopy, Offer};
 use crate::{CoreError, CoreResult};
@@ -610,6 +610,23 @@ impl LibrarySubsystem {
         self.inner.records.answer(game, level, build).map_err(|e| CoreError::Io(e.to_string()))?;
         self.inner.notifier.changed(Area::Library);
         Ok(())
+    }
+
+    /// Keeps the player's result for `game`, just saved, to send: see [`Records::queue_report`].
+    pub fn queue_report(&self, game: &GameKey, log: &str) -> CoreResult<()> {
+        self.inner.records.queue_report(game, log).map_err(|e| CoreError::Io(e.to_string()))
+    }
+
+    /// The player's result for `game` was sent to its community list.
+    pub fn mark_sent(&self, game: &GameKey) -> CoreResult<()> {
+        self.inner.records.mark_sent(game).map_err(|e| CoreError::Io(e.to_string()))?;
+        self.inner.notifier.changed(Area::Library);
+        Ok(())
+    }
+
+    /// The player's results, sent and not.
+    pub fn rated(&self) -> Vec<Rated> {
+        self.inner.records.rated()
     }
 
     /// Whether the player answered "How far did it get?" for `game` on `build`, or said

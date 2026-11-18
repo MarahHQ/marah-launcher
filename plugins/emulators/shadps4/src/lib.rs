@@ -234,7 +234,12 @@ async fn init(ctx: PluginContext, files: Vec<system_files::SystemFile>) -> Plugi
     let spec = ConsoleSpec {
         console: Console::Ps4,
         packages: Packages::Formats(&[Format::Ps4Package]),
-        compat: Some(CompatList { url: COMPATIBILITY, page: LIST_PAGE, parse: compat::shad }),
+        compat: Some(CompatList {
+            url: COMPATIBILITY,
+            page: LIST_PAGE,
+            parse: compat::shad,
+            report: Some(compat::shad_report),
+        }),
         keys: KEYS,
         section: "shadps4",
         version_row: true,

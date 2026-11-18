@@ -354,6 +354,7 @@ pub(crate) fn build(s: &Snapshot) -> AppView {
         task: s.library.task.clone(),
         system: system_vm(s),
         result_prompt: state.result_prompt.as_ref().map(|(key, _)| s.library.title(key)),
+        ratings: crate::ratings::view(state.ratings.as_ref(), |key| s.library.title(key)),
         closing: state.closing.as_ref().map(|step| step.text.clone()),
         closing_game: state.closing.as_ref().and_then(|step| step.game.as_ref()).map(|(key, title)| {
             let art = s.library.art(key);

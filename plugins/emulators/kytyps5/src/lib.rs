@@ -480,7 +480,12 @@ impl CodePlugin for KytyPlugin {
         let spec = ConsoleSpec {
             console: Console::Ps5,
             packages: Packages::Formats(&[Format::Ps5Package, Format::Exfat]),
-            compat: Some(CompatList { url: COMPATIBILITY, page: LIST_PAGE, parse: compat::kyty }),
+            compat: Some(CompatList {
+                url: COMPATIBILITY,
+                page: LIST_PAGE,
+                parse: compat::kyty,
+                report: Some(compat::kyty_report),
+            }),
             keys: KEYS,
             section: "kyty",
             version_row: false,

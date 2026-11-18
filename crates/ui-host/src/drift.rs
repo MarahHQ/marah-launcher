@@ -454,6 +454,21 @@ fn full_view() -> AppView {
         },
         task: Some(s()),
         result_prompt: Some(s()),
+        ratings: RatingsVm {
+            open: true,
+            items: vec![RatingItemVm { game: s(), title: s(), result: s(), list: s(), picked: true }],
+            previewing: true,
+            preview: ReportPreviewVm {
+                game: s(),
+                game_title: s(),
+                list: s(),
+                destination: s(),
+                title: s(),
+                body: s(),
+                note: s(),
+                step: s(),
+            },
+        },
         closing: Some(s()),
         closing_game: Some(ClosingGameVm { title: s(), cover: Some(image()), background: Some(image()) }),
         system: SystemVm {

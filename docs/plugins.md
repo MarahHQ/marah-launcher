@@ -212,7 +212,7 @@ cover = "cover.jpg"
 | `name` | yes | What the player sees: in the plugin list, on the plugin page, and where a sentence means the console. An emulator names its console: `PS5`. |
 | `emulator` | no | For an emulator, the name of the program it installs and runs, such as `KytyPS5`. Sentences about the program use it. Empty when the program has no name of its own; then `name` is used. |
 | `version` | yes | The plugin's semver version. |
-| `host_api` | yes | A semver range of the API versions the plugin works with, such as `^0.3`. The host refuses the plugin when the range doesn't include `launcher_api::API_VERSION` (now `0.3.2`). |
+| `host_api` | yes | A semver range of the API versions the plugin works with, such as `^0.3`. The host refuses the plugin when the range doesn't include `launcher_api::API_VERSION` (now `0.3.3`). |
 | `platforms` | no | `linux`, `macos`, `windows`. Empty means every system. |
 | `console` | no | For an emulator, the console it plays: ASCII letters, digits and `-`, kept in uppercase (`ps5` and `PS5` are one console). A `releases` plugin gives the emulator that console's catalog. Not the systems the plugin runs on. |
 | `capabilities` | no | The capabilities `init` provides. See [Capabilities](#capabilities). |
@@ -401,7 +401,7 @@ entry (`Permissions` in `crates/api/src/manifest.rs`).
 | `process` | Programs the plugin may start. Empty means none. See below. |
 | `long_running` | System plugins only: `system:` entries of `process` that may run with no time limit through `Programs::stream`, such as `system:bluetoothctl`. |
 | `polkit` | System plugins only: `system:` entries of `process` that may run as the administrator through `pkexec`. |
-| `links` | Links the host may open with the system's handler, by how they start: `steam://install/`. A link must be one line of plain characters. Empty means none. |
+| `links` | Links the host may open with the system's handler, by how they start: `steam://install/`, or a compatibility list's report form. A link must be one line of plain characters. Empty means none. |
 
 ### Process rules
 
@@ -583,6 +583,21 @@ See [Settings and the plugin page](#settings-and-the-plugin-page).
 `boots`, `menus`, `ingame`, `playable`), and optional `notes`, `source` (the system it was
 tested on), `page` and `tested` (`YYYY-MM-DD`). An unknown game must fail: the contract suite
 checks it.
+
+`Compatibility::report(game, &ResultReport)` (API 0.3.3, with a default body that returns
+`None`) fills in the list's report form with the player's own result: the level, the emulator
+build, the system, the processor, graphics and memory, and the end of the emulator's log with
+the personal data already out. It returns a `ReportForm`: the list's name, the form's link with
+its own query (`https://github.com/<owner>/<repo>/issues/new?template=<file>`), the title, the
+fields in the form's order (`id`, `label`, `value`), and a `note` for what the player still
+does on the form, such as its checklist. Return `None` for a list that takes no reports through
+a form. `permissions.links` must allow the form's link.
+
+The host takes personal data out of the title and every field again, shows the player the whole
+report, and only on their yes opens the form in the browser, with the title and the fields as
+query parameters, as GitHub's issue forms read them. The player submits it there; the host holds
+no account. The `emulator-kit` builds the forms of shadPS4's and KytyPS5's lists
+(`compat::shad_report`, `compat::kyty_report`).
 
 ### Slots
 

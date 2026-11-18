@@ -14,7 +14,7 @@ import { AboutSlint, Palette } from "std-widgets.slint";
 // is in settings-layout.slint, with the same conditions. Each component hands the row that took
 // the focus to `reveal`, for the sheet to scroll to it.
 
-// The game folders, and a rescan.
+// The game folders, a rescan, and Send ratings.
 export component GamesSection inherits VerticalLayout {
     callback reveal(length, length);
 
@@ -30,7 +30,7 @@ export component GamesSection inherits VerticalLayout {
             hint: Look.games(Vm.home.games.length) + " found";
             focused: Prefs.is(1, Vm.folders.length);
             first: Vm.folders.length == 0;
-            last: true;
+            last: false;
             accessible-role: button;
             accessible-label: "rescan";
             accessible-action-default => { Commands.refresh-library(); }
@@ -39,6 +39,22 @@ export component GamesSection inherits VerticalLayout {
             property <int> seen: Prefs.serial;
             changed seen => { if (self.focused && Prefs.pending == 0) { Commands.refresh-library(); } }
             Value { kind: Vm.home.loading ? "text" : "action"; text: Vm.home.loading ? "Scanning…" : "Rescan"; }
+        }
+        // The player's ratings go to the community compatibility lists, each after they saw it.
+        Row {
+            label: "Send ratings";
+            hint: "Your \"how it runs\" ratings, to the community compatibility lists";
+            focused: Prefs.is(1, Vm.folders.length + 1);
+            first: false;
+            last: true;
+            accessible-role: button;
+            accessible-label: "send-ratings";
+            accessible-action-default => { Commands.open-ratings(); }
+            reveal(y, h) => { root.reveal(y, h); }
+            clicked => { Prefs.section = 1; Prefs.row = Vm.folders.length + 1; Commands.open-ratings(); }
+            property <int> seen: Prefs.serial;
+            changed seen => { if (self.focused && Prefs.pending == 0) { Commands.open-ratings(); } }
+            Value { kind: "action"; text: "Send"; }
         }
 }
 

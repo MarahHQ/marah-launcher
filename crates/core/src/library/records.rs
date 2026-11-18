@@ -1,7 +1,8 @@
 //! The library's saved records: the games the player hid from the Catalog
 //! (`app.hidden_games`), the offers' covers kept for installed games (`app.game_art`), and the
 //! player's own results (`app.results`, with `app.result_builds` and `app.result_skipped`, the
-//! builds each answer was for), and each game's folder (`app.game_folders`), where its game
+//! builds each answer was for, and `app.result_reports`, whether each was sent to its
+//! community list), and each game's folder (`app.game_folders`), where its game
 //! file is.
 
 use std::collections::{HashMap, HashSet};
@@ -19,6 +20,21 @@ const GAME_FOLDERS: [&str; 2] = ["app", "game_folders"];
 const RESULTS: &str = "results";
 const RESULT_BUILDS: &str = "result_builds";
 const RESULT_SKIPPED: &str = "result_skipped";
+const RESULT_REPORTS: &str = "result_reports";
+
+/// A result of the player's, for "Send ratings".
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Rated {
+    pub game: GameKey,
+    pub level: CompatLevel,
+    /// The emulator build it was for.
+    pub build: Option<String>,
+    /// The end of the emulator's log, without personal data, when the player rated it. Empty
+    /// for none, and for a result from before "Send ratings".
+    pub log: String,
+    /// Its report was opened for the player to submit.
+    pub sent: bool,
+}
 
 /// A plugin's image: the plugin that has it, and where.
 pub(crate) type PluginImage = (PluginId, ImageSource);
@@ -122,6 +138,39 @@ impl Records {
         }
     }
 
+    /// Keeps the result just saved for `game` as not sent yet, with `log`: the end of the
+    /// emulator's log, without personal data. Saved as `{ "log": …, "sent": false }`.
+    pub fn queue_report(&self, game: &GameKey, log: &str) -> std::io::Result<()> {
+        self.config.set(&["app", RESULT_REPORTS, &game.to_string()], serde_json::json!({ "log": log, "sent": false }))
+    }
+
+    /// Marks the result of `game` as sent. Its log goes: it was only kept for the report.
+    pub fn mark_sent(&self, game: &GameKey) -> std::io::Result<()> {
+        self.config.set(&["app", RESULT_REPORTS, &game.to_string()], serde_json::json!({ "sent": true }))
+    }
+
+    /// The player's results, sent and not, by the game's key.
+    pub fn rated(&self) -> Vec<Rated> {
+        let reports = self.config.get(&["app", RESULT_REPORTS]);
+        let builds = self.config.get(&["app", RESULT_BUILDS]);
+        let mut rated: Vec<Rated> = self
+            .results()
+            .into_iter()
+            .filter_map(|(key, level)| {
+                let report = reports.get(&key);
+                Some(Rated {
+                    game: key.parse().ok()?,
+                    level,
+                    build: builds.get(&key).and_then(Value::as_str).map(str::to_owned),
+                    log: report.and_then(|r| r.get("log")).and_then(Value::as_str).unwrap_or_default().to_owned(),
+                    sent: report.and_then(|r| r.get("sent")).and_then(Value::as_bool).unwrap_or(false),
+                })
+            })
+            .collect();
+        rated.sort_by_key(|r| r.game.to_string());
+        rated
+    }
+
     /// Whether the player answered for `game` on `build`, or said "Not now" to it. A game with
     /// no build is always asked.
     pub fn answered(&self, game: &GameKey, build: Option<&str>) -> bool {
@@ -183,5 +232,41 @@ mod tests {
         r.answer(&game, None, Some("1.1")).unwrap();
         assert!(r.answered(&game, Some("1.1")), "\"Not now\" for that build");
         assert_eq!(r.results().get("emu:g"), Some(&CompatLevel::Ingame), "the result stays");
+    }
+
+    #[test]
+    fn a_result_waits_to_be_sent_until_it_is_and_a_new_one_waits_again() {
+        let r = records();
+        let game = key("emu:g");
+        r.answer(&game, Some(CompatLevel::Menus), Some("1.0")).unwrap();
+        r.queue_report(&game, "the end of the log").unwrap();
+        let rated = Rated {
+            game: game.clone(),
+            level: CompatLevel::Menus,
+            build: Some("1.0".into()),
+            log: "the end of the log".into(),
+            sent: false,
+        };
+        assert_eq!(r.rated(), vec![rated.clone()]);
+
+        r.mark_sent(&game).unwrap();
+        assert_eq!(
+            r.config.get(&["app", RESULT_REPORTS]),
+            serde_json::json!({ "emu:g": { "sent": true } }),
+            "the saved format"
+        );
+        assert_eq!(r.rated(), vec![Rated { log: String::new(), sent: true, ..rated }], "the log goes once sent");
+
+        r.answer(&game, Some(CompatLevel::Ingame), Some("1.1")).unwrap();
+        r.queue_report(&game, "").unwrap();
+        assert!(!r.rated()[0].sent, "a new result is sent again");
+    }
+
+    #[test]
+    fn a_result_from_before_sending_waits_with_no_log() {
+        let r = records();
+        r.answer(&key("emu:g"), Some(CompatLevel::Boots), None).unwrap();
+        let rated = r.rated();
+        assert_eq!((rated[0].sent, rated[0].log.as_str(), rated[0].build.as_deref()), (false, "", None));
     }
 }

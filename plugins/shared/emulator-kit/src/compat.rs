@@ -6,13 +6,107 @@
 //!   `shadps4-compatibility/shadps4-game-compatibility`,
 //!   `{ "CUSA…": { "os-linux": { "status": "status-ingame", "last_tested": … } } }`.
 //!
+//! Both take reports through a GitHub issue form: [`shad_report`] and [`kyty_report`] fill one
+//! in with the player's result.
+//!
 //! The list's own top-level status is the best of any system, which would let a Windows
 //! "in game" hide a Linux "doesn't boot", so the result for this system wins when there is one.
 
 use std::collections::HashMap;
 
 use launcher_api::serde_json::Value;
-use launcher_api::{CompatInfo, CompatLevel, Platform};
+use launcher_api::{CompatInfo, CompatLevel, Platform, ReportField, ReportForm, ResultReport};
+
+/// shadPS4's report form, which feeds its list.
+pub const SHAD_FORM: &str =
+    "https://github.com/shadps4-compatibility/shadps4-game-compatibility/issues/new?template=game_compatibility.yml";
+/// KytyPS5's "Game Emulation Status Report" form, which feeds its list.
+pub const KYTY_FORM: &str = "https://github.com/KytyPS5/KytyPS5/issues/new?template=kytyps5-game-emulation.yaml";
+
+/// A game, as a report names it.
+pub struct ReportedGame<'a> {
+    pub title: &'a str,
+    pub title_id: &'a str,
+    pub version: &'a str,
+}
+
+fn field(id: &str, label: &str, value: impl Into<String>) -> ReportField {
+    ReportField { id: id.into(), label: label.into(), value: value.into() }
+}
+
+/// What a result means, in the words of both forms' help.
+fn meaning(level: CompatLevel) -> &'static str {
+    match level {
+        CompatLevel::Ingame | CompatLevel::Playable => "The game reaches gameplay",
+        CompatLevel::Menus => "The game reaches its menus, but not gameplay",
+        CompatLevel::Boots => "The game shows its first logos, but doesn't reach the menus",
+        CompatLevel::Nothing | CompatLevel::Unknown => "The game doesn't start",
+    }
+}
+
+/// shadPS4's form, filled in. Its checklist can't be: the player ticks it on the form.
+pub fn shad_report(game: &ReportedGame, report: &ResultReport) -> Option<ReportForm> {
+    let level = report.level?;
+    let status = match level {
+        CompatLevel::Playable => "Playable",
+        CompatLevel::Ingame => "Ingame",
+        CompatLevel::Menus => "Menus",
+        CompatLevel::Boots => "Boots",
+        CompatLevel::Nothing | CompatLevel::Unknown => "Nothing",
+    };
+    Some(ReportForm {
+        list: "shadPS4 compatibility list".into(),
+        form: SHAD_FORM.into(),
+        title: format!("{} - {}", game.title_id, game.title),
+        fields: vec![
+            field("game-name", "Game name", game.title),
+            field("game-serial", "Game serial", game.title_id),
+            field("game-version", "Game version", game.version),
+            field("emulator-version", "shadPS4 version", report.build.as_str()),
+            field("emulation-status", "Current status", status),
+            field("Operating-System", "Operating system", report.system.as_str()),
+            field("processor", "Processor", report.cpu.as_str()),
+            field("graphics-card", "Graphics card", report.gpu.as_str()),
+            field("emulation-description", "Description", format!("{} on {}.", meaning(level), report.system)),
+            field("log", "Log file", report.log.as_str()),
+        ],
+        note: "On the form, tick its checklist: shadPS4 takes reports only for a game dumped from a copy you own, \
+               unmodified, played on a major release of shadPS4, not a nightly build."
+            .into(),
+    })
+}
+
+/// KytyPS5's form, filled in.
+pub fn kyty_report(game: &ReportedGame, report: &ResultReport) -> Option<ReportForm> {
+    let level = report.level?;
+    let status = match level {
+        CompatLevel::Ingame | CompatLevel::Playable => "In game",
+        CompatLevel::Menus => "Main menu",
+        CompatLevel::Boots => "Logo",
+        CompatLevel::Nothing | CompatLevel::Unknown => "Doesn't boot",
+    };
+    Some(ReportForm {
+        list: "KytyPS5 compatibility list".into(),
+        form: KYTY_FORM.into(),
+        title: format!("[GAME STATUS]: {} ({})", game.title, game.title_id),
+        fields: vec![
+            field("game-title", "Game title", game.title),
+            field("game-id", "Game ID", game.title_id),
+            field("kyty-version", "KytyPS5 version", report.build.as_str()),
+            field("compatibility-status", "Compatibility status", status),
+            field("what-happened", "Result details", format!("{} on {}.", meaning(level), report.system)),
+            field("steps-to-reproduce", "Steps to reproduce", "Start the game in KytyPS5."),
+            field("expected-behavior", "Expected behavior", "The game plays normally."),
+            field("os", "OS", report.system.as_str()),
+            field("cpu", "CPU", report.cpu.as_str()),
+            field("gpu", "GPU", report.gpu.as_str()),
+            field("ram-vram", "RAM / VRAM", report.memory.as_str()),
+            field("log-file", "Log file", report.log.as_str()),
+        ],
+        note: "KytyPS5 asks for the whole log: on the form, attach it if you can (the game's menu, View emulator log)."
+            .into(),
+    })
+}
 
 fn kyty_level(s: &str) -> Option<CompatLevel> {
     Some(match s {
@@ -190,6 +284,61 @@ mod tests {
         let stamped =
             json!({ "CUSA00001": { "os-linux": { "status": "status-boots", "last_tested": "2026-10-01T22:30:38Z" } } });
         assert_eq!(shad(&stamped, Some(Platform::Linux))["CUSA00001"].tested.as_deref(), Some("2026-10-01"));
+    }
+
+    fn report() -> ResultReport {
+        ResultReport {
+            level: Some(CompatLevel::Menus),
+            build: "0.21.0".into(),
+            system: "Linux".into(),
+            cpu: "AMD Ryzen 7 5800X".into(),
+            gpu: "AMD Radeon RX 6800".into(),
+            memory: "32 GB".into(),
+            log: "[Render] the error".into(),
+        }
+    }
+
+    fn values(form: &ReportForm) -> Vec<(&str, &str)> {
+        form.fields.iter().map(|f| (f.id.as_str(), f.value.as_str())).collect()
+    }
+
+    #[test]
+    fn shadps4_s_form_is_filled_in_with_its_own_fields() {
+        let game = ReportedGame { title: "Bloodborne", title_id: "CUSA03173", version: "01.09" };
+        let form = shad_report(&game, &report()).unwrap();
+        assert_eq!(form.form, SHAD_FORM);
+        assert_eq!(form.title, "CUSA03173 - Bloodborne", "the list's own titles");
+        assert_eq!(
+            values(&form),
+            [
+                ("game-name", "Bloodborne"),
+                ("game-serial", "CUSA03173"),
+                ("game-version", "01.09"),
+                ("emulator-version", "0.21.0"),
+                ("emulation-status", "Menus"),
+                ("Operating-System", "Linux"),
+                ("processor", "AMD Ryzen 7 5800X"),
+                ("graphics-card", "AMD Radeon RX 6800"),
+                ("emulation-description", "The game reaches its menus, but not gameplay on Linux."),
+                ("log", "[Render] the error"),
+            ]
+        );
+        assert!(form.note.contains("checklist"));
+        assert!(shad_report(&game, &ResultReport::default()).is_none(), "no result, no report");
+    }
+
+    #[test]
+    fn kytyps5_s_form_is_filled_in_with_its_own_fields() {
+        let game = ReportedGame { title: "Astro Bot", title_id: "PPSA01325", version: "" };
+        let form = kyty_report(&game, &ResultReport { level: Some(CompatLevel::Nothing), ..report() }).unwrap();
+        assert_eq!(form.form, KYTY_FORM);
+        assert_eq!(form.title, "[GAME STATUS]: Astro Bot (PPSA01325)");
+        let values = values(&form);
+        assert!(values.contains(&("compatibility-status", "Doesn't boot")));
+        assert!(values.contains(&("game-id", "PPSA01325")));
+        assert!(values.contains(&("kyty-version", "0.21.0")));
+        assert!(values.contains(&("ram-vram", "32 GB")));
+        assert!(values.contains(&("log-file", "[Render] the error")));
     }
 
     #[test]

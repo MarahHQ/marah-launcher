@@ -72,7 +72,7 @@ pub use theme::*;
 /// that is Marah Launcher's, which every release raises. This one changes by hand, with the API: a new
 /// minor for an addition before 1.0 breaks no plugin only if their ranges allow it, so raise it
 /// together with the built-in plugins' `host_api`.
-pub const API_VERSION: &str = "0.3.2";
+pub const API_VERSION: &str = "0.3.3";
 
 pub fn api_version() -> semver::Version {
     semver::Version::parse(API_VERSION).expect("API_VERSION is valid semver")

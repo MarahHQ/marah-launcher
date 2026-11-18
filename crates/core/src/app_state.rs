@@ -80,6 +80,8 @@ pub(crate) struct AppState {
     /// A game that just closed, to ask the player how far it got, and the emulator build it
     /// ran on.
     pub result_prompt: Option<(GameKey, Option<String>)>,
+    /// "Send ratings", while it is open.
+    pub ratings: Option<crate::ratings::SendRatings>,
     /// Log out, Restart or Shut down is closing what runs first: the step it is at.
     pub closing: Option<crate::closing::Step>,
     /// Log out closed what ran: the launcher can go.
@@ -117,6 +119,7 @@ impl AppState {
             library_view: GridQuery::library(),
             catalog_view: GridQuery::catalog(),
             result_prompt: None,
+            ratings: None,
             closing: None,
             log_out_ready: false,
             hardware: None,

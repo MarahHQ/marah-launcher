@@ -5,7 +5,7 @@ name = "PS5"
 # The program the plugin installs and runs. Sentences about the program name it.
 emulator = "KytyPS5"
 version = "0.1.0"
-host_api = "^0.3"
+host_api = "^0.3.3"
 # KytyPS5 ships Linux and Windows builds, and macOS x86-64 builds that run under Rosetta 2.
 platforms = ["linux", "macos", "windows"]
 # The console it plays: it gets that console's catalog.
@@ -68,6 +68,8 @@ gpu_memory_gb = 7.5
 discrete_gpu = true
 
 [permissions]
+# The compatibility list's report form, filled in, which "Send ratings" opens for the player.
+links = ["https://github.com/KytyPS5/KytyPS5/issues/new?"]
 # GitHub's API, its release downloads and the CDN they redirect to, and the compatibility list.
 network = ["api.github.com", "github.com", "*.githubusercontent.com", "kytyps5.github.io"]
 # Where the binary is in each system's build: at the top (Linux, Windows), one folder down,
