@@ -2,7 +2,7 @@
 //! shadPS4 plugins run the full suites in `kyty.rs` and `shadps4.rs`; the testkit's scripted
 //! emulator runs them here.
 
-use launcher_api::PluginId;
+use launcher_api::{CompatLevel, PluginId};
 use launcher_testkit::FakeHost;
 use launcher_testkit::contract;
 
@@ -64,4 +64,17 @@ async fn the_fake_emulator_keeps_every_contract() {
     let test = host.plugin(emulator.plugin("emu-a")).boot_core().await;
     contract::emulator(&test, &PluginId::new("emu-a").unwrap()).await;
     assert_eq!(emulator.exits().len(), 1, "the launch contract's game exited");
+}
+
+/// Its build choices are left out: their installer never installs.
+#[tokio::test]
+async fn the_fake_catalog_keeps_the_contracts_of_its_catalog_slots_launcher_and_compatibility() {
+    for (id, emulator) in [
+        ("emu-tested", launcher_testkit::FakeCatalog::new("emu-tested").tested()),
+        ("emu-lists", launcher_testkit::FakeCatalog::new("emu-lists").lists(&[("CUSA00000", CompatLevel::Playable)])),
+    ] {
+        let plugin = emulator.games(["Alpha", "Beta", "Gamma"]).playable().key("Cross", "J").build();
+        let test = FakeHost::new().plugin(plugin).boot_core().await;
+        contract::emulator(&test, &PluginId::new(id).unwrap()).await;
+    }
 }

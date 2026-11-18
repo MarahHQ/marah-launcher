@@ -171,7 +171,8 @@ impl FakeCatalog {
         self
     }
 
-    /// The community's result for each game: Playable, last tested on 2026-09-01.
+    /// The community's result for each game: Playable, last tested on 2026-09-01. A game not
+    /// in its catalog is NotFound.
     pub fn tested(mut self) -> Self {
         self.compatibility = true;
         self
@@ -307,9 +308,10 @@ impl FakeCatalog {
                 provided.launcher = Some(Arc::new(Play));
             }
             if self.compatibility {
+                let tested = Tested((0..self.titles.len()).map(|i| format!("G{i}")).collect());
                 provided.compatibility = match self.listed.is_empty() {
-                    true => Some(Arc::new(Tested)),
-                    false => Some(Arc::new(Listed(self.listed.clone()))),
+                    true => Some(Arc::new(tested)),
+                    false => Some(Arc::new(Listed(tested, self.listed.clone()))),
                 };
             }
             match self.build {
@@ -350,11 +352,13 @@ struct Games {
 
 #[async_trait]
 impl Catalog for Games {
-    async fn list(&self, _: PageRequest) -> PluginResult<Page<GameSummary>> {
+    async fn list(&self, page: PageRequest) -> PluginResult<Page<GameSummary>> {
         let items = self
             .titles
             .iter()
             .enumerate()
+            .skip(page.offset as usize)
+            .take(page.limit as usize)
             .map(|(i, t)| GameSummary {
                 id: format!("G{i}"),
                 title: t.clone(),
@@ -368,8 +372,12 @@ impl Catalog for Games {
             .collect();
         Ok(Page { items, total: None })
     }
-    async fn search(&self, _: &SearchQuery) -> PluginResult<Vec<GameSummary>> {
-        Ok(self.list(PageRequest::ALL).await?.items)
+    /// The games whose title has the text, in any case.
+    async fn search(&self, query: &SearchQuery) -> PluginResult<Vec<GameSummary>> {
+        let text = query.text.to_lowercase();
+        let found =
+            self.list(PageRequest::ALL).await?.items.into_iter().filter(|g| g.title.to_lowercase().contains(&text));
+        Ok(found.take(query.limit as usize).collect())
     }
     async fn details(&self, game: &str) -> PluginResult<GameDetails> {
         if self.details_fail {
@@ -461,11 +469,15 @@ impl Launcher for Play {
     }
 }
 
-struct Tested;
+/// The community's result for each of these games.
+struct Tested(Vec<String>);
 
 #[async_trait]
 impl Compatibility for Tested {
-    async fn status(&self, _: &str) -> PluginResult<CompatInfo> {
+    async fn status(&self, game: &str) -> PluginResult<CompatInfo> {
+        if !self.0.iter().any(|id| id == game) {
+            return Err(PluginError::NotFound(game.into()));
+        }
         Ok(CompatInfo {
             level: CompatLevel::Playable,
             notes: Some("Tested on Linux".into()),
@@ -477,16 +489,16 @@ impl Compatibility for Tested {
 }
 
 /// [`Tested`], with a list that looks up title ids.
-struct Listed(Vec<(String, CompatLevel)>);
+struct Listed(Tested, Vec<(String, CompatLevel)>);
 
 #[async_trait]
 impl Compatibility for Listed {
     async fn status(&self, game: &str) -> PluginResult<CompatInfo> {
-        Tested.status(game).await
+        self.0.status(game).await
     }
 
     async fn result_for_title(&self, title_id: &str) -> PluginResult<Option<CompatInfo>> {
-        let Some((_, level)) = self.0.iter().find(|(id, _)| id.eq_ignore_ascii_case(title_id)) else {
+        let Some((_, level)) = self.1.iter().find(|(id, _)| id.eq_ignore_ascii_case(title_id)) else {
             return Ok(None);
         };
         Ok(Some(CompatInfo {
