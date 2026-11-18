@@ -545,4 +545,170 @@ mod tests {
             let _ = std::fs::remove_dir_all(&root);
         });
     }
+
+    /// Opt-in, `MARAH_TORRENT_TESTS=1`: a download stopped about half done, by a launcher that
+    /// closes, goes on after the next launch from the pieces it has, and downloads only the
+    /// rest. Once finished, it seeds after a launch without downloading anything.
+    #[test]
+    fn an_unfinished_download_goes_on_after_a_restart_from_the_pieces_it_has() {
+        resumes_after_a_restart("whole", None);
+    }
+
+    /// The same for a download with the middle file left out: no file for it appears, and
+    /// the pieces it shares with the chosen files count after the restart.
+    #[test]
+    fn an_unfinished_download_with_a_file_left_out_goes_on_after_a_restart() {
+        resumes_after_a_restart("partial", Some(&[0, 2]));
+    }
+
+    async fn wait_for(
+        torrents: &RqbitTorrents,
+        id: &str,
+        what: &str,
+        done: impl Fn(&TorrentStats) -> bool,
+    ) -> TorrentStats {
+        for _ in 0..1200 {
+            if let Some(stats) = torrents.stats(id).filter(|s| done(s)) {
+                return stats;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("never {what}: {:?}", torrents.stats(id));
+    }
+
+    /// The bytes the torrent fetched from peers since it last went live.
+    fn fetched(torrents: &RqbitTorrents, id: &str) -> u64 {
+        torrents.handle(id).and_then(|h| h.live()).map(|l| l.stats_snapshot().fetched_bytes).unwrap_or(0)
+    }
+
+    fn resumes_after_a_restart(case: &str, only: Option<&[usize]>) {
+        if std::env::var_os("MARAH_TORRENT_TESTS").is_none() {
+            return;
+        }
+        const PIECE: u64 = 32 * 1024;
+        let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+        runtime.block_on(async {
+            let root = std::env::temp_dir().join(format!("marah-launcher-torrent-resume-{case}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            let source = root.join("seed/Game");
+            std::fs::create_dir_all(&source).unwrap();
+            let bytes = |len: u32, step: u32| (0..len).map(|i| (i.wrapping_mul(step) % 251) as u8).collect::<Vec<u8>>();
+            // No file starts or ends on a piece's edge.
+            let named = [
+                ("game.bin", bytes(1_500_001, 7)),
+                ("update.bin", bytes(1_000_003, 13)),
+                ("dlc.bin", bytes(1_500_007, 17)),
+            ];
+            for (name, data) in &named {
+                std::fs::write(source.join(name), data).unwrap();
+            }
+            // The seeder sends 1 MiB a second, so the download can stop about half done.
+            let seeder = Session::new_with_opts(
+                root.join("seed"),
+                SessionOptions {
+                    dht: None,
+                    disable_trackers: true,
+                    disable_local_service_discovery: true,
+                    persistence: None,
+                    fastresume: false,
+                    ratelimits: librqbit::limits::LimitsConfig { upload_bps: NonZeroU32::new(1024 * 1024), download_bps: None },
+                    listen: Some(librqbit::ListenerOptions {
+                        mode: librqbit::ListenerMode::TcpOnly,
+                        listen_addr: "127.0.0.1:0".parse().unwrap(),
+                        enable_upnp_port_forwarding: false,
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+            let (made, served) = seeder
+                .create_and_serve_torrent(
+                    &source,
+                    librqbit::CreateTorrentOptions { name: None, trackers: vec![], piece_length: Some(PIECE as u32) },
+                )
+                .await
+                .unwrap();
+            let uploaded = || served.live().map(|l| l.stats_snapshot().uploaded_bytes).unwrap_or(0);
+            let magnet = made.as_magnet().to_string();
+            let id = made.info_hash().as_string();
+            let peers = vec![seeder.listen_addr().unwrap()];
+            let dir = root.join("leech/torrents");
+            let out = root.join("leech/out");
+
+            let torrents = RqbitTorrents::local(dir.clone(), peers.clone());
+            let info = torrents.resolve(&magnet).await.unwrap();
+            let data = |i: usize| &named.iter().find(|(n, _)| info.files[i].path.ends_with(n)).unwrap().1;
+            let path = |i: usize| out.join(&info.files[i].path);
+            let chosen = |i: usize| only.is_none_or(|o| o.contains(&i));
+            torrents.start(&id, &magnet, &out, false, only).await.unwrap();
+            let before = wait_for(&torrents, &id, "about half done", |s| s.total > 0 && s.done * 10 >= s.total * 4).await;
+            assert!(!before.finished && before.done * 10 <= before.total * 8, "stopped too late: {before:?}");
+
+            // The launcher closes.
+            torrents.stop_all().await.unwrap();
+            drop(torrents);
+            let bits = std::fs::read(dir.join("resume").join(format!("{id}.bitv"))).unwrap();
+            let pieces_kept = bits.iter().map(|b| u64::from(b.count_ones())).sum::<u64>();
+            assert!(pieces_kept * PIECE >= before.done, "the pieces it had are written down: {pieces_kept} pieces, {before:?}");
+            for i in (0..info.files.len()).filter(|&i| !chosen(i)) {
+                assert!(!path(i).exists(), "no file for a skipped one");
+            }
+
+            // The next launch: the core adds it again; its check finds the pieces it had.
+            let relaunched = RqbitTorrents::local(dir.clone(), peers.clone());
+            let started = std::time::Instant::now();
+            relaunched.start(&id, &magnet, &out, true, only).await.unwrap();
+            let after = wait_for(&relaunched, &id, "checked", |s| s.state != TransferState::Checking).await;
+            let check_time = started.elapsed();
+            assert_eq!(after.state, TransferState::Paused);
+            assert_eq!(after.total, before.total);
+            assert!(after.done >= before.done, "progress lost: {} before, {} after", before.done, after.done);
+            let uploaded_before = uploaded();
+            relaunched.unpause(&id).await.unwrap();
+            wait_for(&relaunched, &id, "finished", |s| s.finished && s.state == TransferState::Live).await;
+            let fetched_after = fetched(&relaunched, &id);
+            let sent_after = uploaded() - uploaded_before;
+            let rest = after.total - after.done;
+            eprintln!(
+                "{case}: total {} B, done before the stop {} B ({}%), after the re-add {} B ({}%, checked in {check_time:?}), \
+                 fetched after the restart {fetched_after} B (seeder sent {sent_after} B), the rest was {rest} B",
+                after.total,
+                before.done,
+                before.done * 100 / before.total,
+                after.done,
+                after.done * 100 / after.total,
+            );
+            assert!(fetched_after >= rest, "it fetched what it lacked: {fetched_after} of {rest}");
+            assert!(fetched_after <= rest + 4 * PIECE, "it fetched only the rest: {fetched_after}, the rest was {rest}");
+            assert!(sent_after <= rest + 4 * PIECE, "the seeder sent only the rest: {sent_after}, the rest was {rest}");
+            for i in 0..info.files.len() {
+                if chosen(i) {
+                    assert_eq!(&std::fs::read(path(i)).unwrap(), data(i), "file {i} whole");
+                } else {
+                    assert!(!path(i).exists(), "no file for a skipped one after the restart");
+                    let kept = std::fs::metadata(dir.join("kept").join(&id).join(i.to_string())).unwrap().len();
+                    assert!(kept > 0 && kept <= 2 * PIECE, "it keeps its share of two pieces: {kept}");
+                }
+            }
+
+            // Finished and seeding, the launcher closes; the next launch seeds without
+            // downloading.
+            relaunched.stop_all().await.unwrap();
+            drop(relaunched);
+            let seeding = RqbitTorrents::local(dir.clone(), peers.clone());
+            seeding.start(&id, &magnet, &out, true, only).await.unwrap();
+            let checked = wait_for(&seeding, &id, "checked", |s| s.state != TransferState::Checking).await;
+            assert_eq!((checked.state, checked.finished), (TransferState::Paused, true));
+            seeding.unpause(&id).await.unwrap();
+            wait_for(&seeding, &id, "live", |s| s.state == TransferState::Live).await;
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            assert_eq!(fetched(&seeding, &id), 0, "a finished download fetches nothing");
+            assert!(seeding.stats(&id).unwrap().finished);
+            seeding.stop_all().await.unwrap();
+            seeder.stop().await;
+            let _ = std::fs::remove_dir_all(&root);
+        });
+    }
 }
