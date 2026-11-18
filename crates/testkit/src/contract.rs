@@ -222,9 +222,8 @@ pub trait ArchiveFixture {
 
 /// The refusals every [`Archives`] adapter makes before it writes anything: a path that climbs
 /// out with `..`, an absolute path, a link that points out on its own or through other links,
-/// a file under a link, an entry that needs a password, and an archive bigger than the free
-/// space. A plain archive unpacks, so an adapter that refuses
-/// everything fails too.
+/// an entry under a link, an entry that needs a password, and an archive bigger than the free
+/// space. A plain archive unpacks, so an adapter that refuses everything fails too.
 pub async fn archives(adapter: &dyn Archives, fixture: &dyn ArchiveFixture) {
     let file = |path: &str, bytes: &[u8]| Sample::File(path.into(), bytes.to_vec());
     let plain = || vec![file("Game/eboot.bin", b"elf"), file("readme.txt", b"hi")];
