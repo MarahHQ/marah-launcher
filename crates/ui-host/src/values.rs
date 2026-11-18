@@ -514,6 +514,7 @@ mod tests {
             availability_text: String::new(),
             hidden: false,
             can: Default::default(),
+            consoles: Vec::new(),
         };
         let value = of(&card);
         assert_eq!(field(&value, "cover-state"), &text("none"), "no cover");

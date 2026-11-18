@@ -210,6 +210,38 @@ pub struct GameCardVm {
     pub hidden: bool,
     /// What can be done with the game: the same for every game and on every screen.
     pub can: GameActionsVm,
+    /// For a Catalog game on several consoles, in the Catalog's "All": each console it has,
+    /// the card's own first. Empty for a game on one console.
+    pub consoles: Vec<ConsoleVm>,
+}
+
+/// One console a Catalog game has: its label (`PS5`) and its system.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConsoleVm {
+    pub platform: String,
+    #[serde(flatten)]
+    pub system: GameSystemVm,
+}
+
+/// One version of a Catalog game: the game on one console, and how it runs on this PC.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GameVersionVm {
+    /// The version's [`launcher_api::GameKey`] as text: open it to see that version.
+    pub key: String,
+    pub platform: String,
+    #[serde(flatten)]
+    pub system: GameSystemVm,
+    /// The version this PC runs best (the first one). None is when no version can start here.
+    pub best: bool,
+    /// For the best version: why it is the best, "Its plugin recommends the least of this PC".
+    /// Empty for the others.
+    pub why: String,
+    /// How it runs here, in a few words: "Playable · Should run well".
+    pub how: String,
+    /// The version the Game Hub shows.
+    pub current: bool,
+    /// The player has this version installed.
+    pub installed: bool,
 }
 
 /// What can be done with a game, worked out once for any game, a Library one or a Catalog
@@ -423,6 +455,9 @@ pub struct GameDetailVm {
     /// For a game a catalog offers: its releases by version, highest first. Empty for an
     /// installed game.
     pub releases: Vec<ReleaseVm>,
+    /// For a Catalog game on several consoles: its versions, the best for this PC first. Empty
+    /// for a game on one console.
+    pub versions: Vec<GameVersionVm>,
     /// For a game a catalog offers: the name of the program that runs it, `KytyPS5`.
     pub emulator: String,
     /// For a game a catalog offers: where its downloads go; empty when the emulator can't

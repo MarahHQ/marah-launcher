@@ -248,11 +248,18 @@ const EDITIONS: [&[&str]; 10] = [
 /// and "Racer" are one game, "Racer 2" is not. "All DLC" goes too. An apostrophe joins words
 /// ("collector's").
 fn edition_free(title: &str) -> String {
+    plain(&edition_free_words(title).concat())
+}
+
+/// The title's words in lower case, without its edition (see [`edition_free`]). Letters of
+/// any script stay.
+pub(crate) fn edition_free_words(title: &str) -> Vec<String> {
     let words: Vec<String> = title
         .chars()
         .filter(|c| !matches!(c, '\'' | '\u{2019}'))
-        .map(|c| if c.is_alphanumeric() { c.to_ascii_lowercase() } else { ' ' })
+        .map(|c| if c.is_alphanumeric() { c } else { ' ' })
         .collect::<String>()
+        .to_lowercase()
         .split_whitespace()
         .map(str::to_owned)
         .collect();
@@ -267,11 +274,11 @@ fn edition_free(title: &str) -> String {
         } else if has(i, &["all", "dlc"]) {
             i += 2;
         } else {
-            kept.push(words[i].as_str());
+            kept.push(words[i].clone());
             i += 1;
         }
     }
-    plain(&kept.concat())
+    kept
 }
 
 /// Groups one catalog's releases into offers: releases that share a title id, or a title

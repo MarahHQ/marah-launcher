@@ -3,6 +3,7 @@
 
 mod consoles;
 mod copies;
+mod games;
 mod grid;
 mod offers;
 mod sources;

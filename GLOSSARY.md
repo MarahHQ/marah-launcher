@@ -43,6 +43,10 @@ name that is the same on every computer and a place on this one. The host reads 
 **Base copy**: the copy of a console's catalog without a refresh: the copy fetched from the
 catalog address, else the bundled one. A refresh is always of one base copy.
 
+**Best for this PC** (`game_groups::best_first`): of a game's versions, the one this PC runs
+best: it can start here, then gets the furthest, then meets its emulator's recommended parts,
+then needs the least of the PC. The user guide's Catalog section lists the rule.
+
 **Build manager** (`BuildManager`, emulator-kit): runs an emulator's builds over its flavor. It
 plans downloads, installs, updates, rolls back and removes builds, and picks the program a game
 starts.
@@ -138,6 +142,10 @@ peers and upload time of each topic, with no titles.
 `launcher_art/`: what Marah Launcher knows about the game, so the Library shows it whole without asking any
 store, and the game takes its card with it to another computer.
 
+**Game group** (`GameGroups`): the offers that are one game on several consoles, its versions.
+Their titles without the edition are the same words, and their years, else their publishers,
+agree. The Catalog's "All" shows one card per group.
+
 **Game install**: a plugin's `GameInstaller` decoding a package or a finished download into a
 game folder, in the background. The game installs subsystem owns the job; the plugin reports
 through an `InstallJob`.
@@ -145,6 +153,9 @@ through an `InstallJob`.
 **Game record** (`GameRecord`): everything the core knows about one game, by its game key: the
 game as its plugin lists it, its badges, its details, a store's metadata, and for an installed
 game, the catalog's offer it is and that offer's cover. The library subsystem holds one per game.
+
+**Game version** (`GameVersionVm`): one offer of a game group: the game on one console. Not the
+version of a release ("Version 1.05"), which is the game's update.
 
 **Game words** (`GameWords`, launcher-core `game_words.rs`): the description, developer and genres a
 game's page says. The game's own words come first; the layers of store data fill in what they

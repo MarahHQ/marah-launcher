@@ -68,7 +68,23 @@ impl Snapshot<'_> {
 
     /// What the grids read.
     pub fn grid_data<'a>(&'a self, ownership: &'a Ownership<'a>) -> GridData<'a> {
-        GridData { library: &self.library, ownership, plays: &self.sessions.plays, hidden_filter: self.hidden_filter }
+        GridData {
+            library: &self.library,
+            ownership,
+            plays: &self.sessions.plays,
+            hidden_filter: self.hidden_filter,
+            pc: self.this_pc(),
+        }
+    }
+
+    /// This PC's system and how it meets each emulator's needs, for each game's best version.
+    pub fn this_pc(&self) -> crate::game_groups::ThisPc {
+        let emulators = self.plugins.order().iter().filter_map(|id| {
+            let manifest = self.plugins.manifest(id).filter(|m| m.kind == PluginKind::Emulator)?;
+            let verdict = self.state.hardware.as_ref().map(|specs| crate::hardware::verdict(specs, &manifest.requires));
+            Some((id.clone(), crate::game_groups::EmulatorFit::new(&manifest.requires, verdict.as_ref())))
+        });
+        crate::game_groups::ThisPc { system: self.plugins.host().platform, emulators: emulators.collect() }
     }
 
     /// The games beside `game` in its row or grid, at most `most` (see

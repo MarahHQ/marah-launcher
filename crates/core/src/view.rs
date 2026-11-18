@@ -168,6 +168,7 @@ fn card(s: &Snapshot, entry: &Entry, selected: Option<&GameKey>) -> GameCardVm {
         hidden: false,
         // A Library game's; `offer_card` gives an offer's.
         can: game_actions(s, &entry.key, None),
+        consoles: Vec::new(),
     }
 }
 
@@ -239,7 +240,10 @@ fn grid_vm(s: &Snapshot, data: &GridData, query: &GridQuery, selected: Option<&G
         .take(query.shown)
         .map(|e| match offers.get(&e.key) {
             Some(offer) if query.grid == Grid::Catalog => {
-                GameCardVm { hidden: library.hidden(&e.key), ..offer_card(s, data.ownership, offer, selected) }
+                let card =
+                    GameCardVm { hidden: library.hidden(&e.key), ..offer_card(s, data.ownership, offer, selected) };
+                // "All" shows one card per game: the card stands for each of its versions.
+                if query.system.is_none() { game_card(s, data, &offers, card, offer, selected) } else { card }
             }
             _ => card(s, e, selected),
         })
@@ -261,6 +265,94 @@ fn grid_vm(s: &Snapshot, data: &GridData, query: &GridQuery, selected: Option<&G
         sort: query.sort.as_str().into(),
         query: query.query.clone(),
     }
+}
+
+/// An offer's card in the Catalog's "All", for the game of each of its versions: the consoles
+/// it has, the card's own first; selected when a version is; new when a version is.
+fn game_card(
+    s: &Snapshot,
+    data: &GridData,
+    offers: &std::collections::HashMap<&GameKey, &crate::releases::Offer>,
+    mut card: GameCardVm,
+    offer: &crate::releases::Offer,
+    selected: Option<&GameKey>,
+) -> GameCardVm {
+    let library = data.library;
+    let keys = library.groups.versions(&offer.entry.key);
+    if keys.len() < 2 {
+        return card;
+    }
+    let versions: Vec<&crate::releases::Offer> = keys.iter().filter_map(|k| offers.get(k).copied()).collect();
+    let best = crate::game_groups::best_first(library, &data.pc, &versions);
+    let own = std::iter::once(offer);
+    let others = best.iter().map(|v| v.offer).filter(|o| o.entry.key != offer.entry.key);
+    card.consoles = own
+        .chain(others)
+        .map(|o| ConsoleVm {
+            platform: o.entry.summary.platform.clone(),
+            system: s.plugins.system(&o.entry.summary.platform),
+        })
+        .collect();
+    card.selected = selected.is_some_and(|k| keys.contains(k));
+    let new = |o: &&crate::releases::Offer| o.releases.iter().any(|r| crate::releases::is_new(&r.added, s.today()));
+    let has = |id: &str| card.badges.iter().any(|b| b.id == id);
+    if !has("installed") && !has("new") && versions.iter().any(new) {
+        card.badges.push(badge(&offer.entry.key.plugin, "new", "New", Tone::Info));
+    }
+    card
+}
+
+/// How a version runs on this PC, in a few words: "Playable · Should run well", or why it
+/// won't start.
+fn version_how(version: &crate::game_groups::Version, here: Option<Platform>) -> String {
+    use crate::game_groups::Speed;
+    let fit = &version.fit;
+    if !fit.starts {
+        let for_here = version.offer.releases.iter().any(|r| crate::releases::not_here(&r.system, here).is_empty());
+        return match (fit.speed, for_here) {
+            (Speed::No, _) => "Won't start on this PC".into(),
+            (_, false) => "Can't run here".into(),
+            _ => compat_label(version.level).into(),
+        };
+    }
+    let speed = match fit.speed {
+        Speed::Good => "Should run well",
+        Speed::Slow => "May run slowly",
+        Speed::No => "Won't start",
+        Speed::Unknown => "Can't tell yet",
+    };
+    format!("{} · {speed}", compat_label(version.level))
+}
+
+/// The versions of the Catalog game `key` is one of, the best for this PC first. Empty for a
+/// game on one console.
+fn versions_vm(s: &Snapshot, owned: &Ownership, key: &GameKey) -> Vec<GameVersionVm> {
+    let library = &s.library;
+    let keys = library.groups.versions(key);
+    if keys.len() < 2 {
+        return Vec::new();
+    }
+    let offers: Vec<&crate::releases::Offer> = keys.iter().filter_map(|k| library.offer(k)).collect();
+    let pc = s.this_pc();
+    let best = crate::game_groups::best_first(library, &pc, &offers);
+    let why = crate::game_groups::why_best(&best[0], best.get(1), compat_label);
+    best.iter()
+        .enumerate()
+        .map(|(at, v)| {
+            let summary = &v.offer.entry.summary;
+            GameVersionVm {
+                key: v.offer.entry.key.to_string(),
+                platform: summary.platform.clone(),
+                system: s.plugins.system(&summary.platform),
+                // When no version can start here, none is the best.
+                best: at == 0 && v.fit.starts,
+                why: if at == 0 { why.clone() } else { String::new() },
+                how: version_how(v, pc.system),
+                current: &v.offer.entry.key == key,
+                installed: owned.installed_game(v.offer).is_some(),
+            }
+        })
+        .collect()
 }
 
 /// What clicking `notice` opens, for example "Open Downloads"; empty for nothing.
@@ -698,6 +790,7 @@ fn detail_vm(s: &Snapshot, owned: &Ownership, key: &GameKey) -> Option<GameDetai
             .filter(|(game, _)| game == key)
             .map(|(_, why)| why.clone())
             .unwrap_or_default(),
+        versions: if offer.is_some() { versions_vm(s, owned, key) } else { Vec::new() },
     })
 }
 
