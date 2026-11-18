@@ -9,6 +9,7 @@
 //! hold for the app's readers and the test kit's fake alike.
 
 use std::collections::{HashMap, VecDeque};
+use std::ffi::{OsStr, OsString};
 use std::path::{Component, Path, PathBuf};
 
 use crate::ArchiveError;
@@ -128,19 +129,20 @@ fn check(entry: ArchiveEntry) -> Result<Planned, ArchiveError> {
 /// The most links the plan follows on one link's way. Linux follows 40, macOS 32.
 const MOST_LINKS: usize = 40;
 
-/// The listing's links by their path: the first link at each path, by its place in the
-/// listing, and its target.
-type Links<'a> = HashMap<&'a Path, (usize, &'a Path)>;
+/// The listing's links by their path in lower case ([`fold`]): the first link at each path,
+/// by its place in the listing, and its target.
+type Links<'a> = HashMap<PathBuf, (usize, &'a Path)>;
 
 /// Checks the entries against the listing's links, whatever their order: each link must end
 /// inside the folder once the links on its way are followed, no hard link may name a link or
-/// a path through one, and nothing else may sit at a link's path or under it. A format reader or `unar` may write in another order, and an
-/// entry under a link would be written wherever the link points.
+/// a path through one, and nothing else may sit at a link's path or under it. A format reader
+/// or `unar` may write in another order, and an entry under a link would be written wherever
+/// the link points. Names that differ only in case match.
 fn check_links(planned: &[Planned]) -> Result<(), ArchiveError> {
     let mut links = Links::new();
     for (at, entry) in planned.iter().enumerate() {
         if let EntryKind::Link(target) = &entry.kind {
-            links.entry(&entry.path).or_insert((at, target));
+            links.entry(fold(&entry.path)).or_insert((at, target));
         }
     }
     let escapes = |entry: &Planned, how| ArchiveError::Escapes { entry: entry.name.clone(), how };
@@ -149,7 +151,7 @@ fn check_links(planned: &[Planned]) -> Result<(), ArchiveError> {
             EntryKind::Link(target) => !ends_inside(&entry.path, target, &links),
             // A hard link to a link is a second link at a new place, where its relative target
             // ends somewhere else. Through a link, the plan can't tell what it names.
-            EntryKind::HardLink(target) => target.ancestors().any(|at| links.contains_key(at)),
+            EntryKind::HardLink(target) => fold(target).ancestors().any(|at| links.contains_key(at)),
             _ => false,
         };
         if out {
@@ -157,8 +159,9 @@ fn check_links(planned: &[Planned]) -> Result<(), ArchiveError> {
         }
     }
     for (at, entry) in planned.iter().enumerate() {
-        let on_a_link = links.get(entry.path.as_path()).is_some_and(|(link, _)| *link != at);
-        let under_a_link = entry.path.ancestors().skip(1).any(|folder| links.contains_key(folder));
+        let path = fold(&entry.path);
+        let on_a_link = links.get(&path).is_some_and(|(link, _)| *link != at);
+        let under_a_link = path.ancestors().skip(1).any(|folder| links.contains_key(folder));
         if on_a_link || under_a_link {
             return Err(escapes(entry, Escape::ThroughLink));
         }
@@ -166,9 +169,29 @@ fn check_links(planned: &[Planned]) -> Result<(), ArchiveError> {
     Ok(())
 }
 
+/// `path` with each name in lower case, so that names that differ only in case match, as they
+/// do on macOS and Windows. Linux tells them apart, so there the plan refuses a little more
+/// than it must. A name that is not UTF-8 stays as it is.
+fn fold(path: &Path) -> PathBuf {
+    path.iter().map(fold_name).collect()
+}
+
+// TODO: macOS also matches a name in another Unicode form: `é` as one character and `e` plus a
+// combining accent are one name there, but not here. That needs a Unicode normalization crate,
+// which launcher-core does not have. Lower case is also not exactly the file system's own fold.
+/// One name in lower case. Each character on its own, so that a final `Σ` folds to `σ` as it
+/// does inside a name, not to `ς`.
+fn fold_name(name: &OsStr) -> OsString {
+    match name.to_str() {
+        Some(name) => name.chars().flat_map(char::to_lowercase).collect::<String>().into(),
+        None => name.to_os_string(),
+    }
+}
+
 /// Whether a link at `link` to `target` ends inside the folder, following `links` on the way
 /// as the system would. A `..` after a link climbs from where the link ends, not from where it
-/// sits. A way through more than [`MOST_LINKS`] links counts as outside.
+/// sits. A way through more than [`MOST_LINKS`] links counts as outside. Names match as
+/// [`fold`] makes them.
 fn ends_inside(link: &Path, target: &Path, links: &Links) -> bool {
     let mut at = PathBuf::new();
     let mut left: VecDeque<Component> = link.parent().into_iter().flat_map(Path::components).collect();
@@ -177,8 +200,8 @@ fn ends_inside(link: &Path, target: &Path, links: &Links) -> bool {
     while let Some(part) = left.pop_front() {
         match part {
             Component::Normal(name) => {
-                at.push(name);
-                if let Some((_, to)) = links.get(at.as_path()) {
+                at.push(fold_name(name));
+                if let Some((_, to)) = links.get(&at) {
                     followed += 1;
                     if followed > MOST_LINKS {
                         return false;
@@ -362,6 +385,24 @@ mod tests {
         // Even a link that stays inside: the plan can't say where a copy of it would end.
         let inside = vec![file("b/f", 1), link("a", "b"), hard_link("h", "a/f")];
         assert_eq!(plan_unpack(inside, &dest(), None).unwrap_err(), escapes("h", Escape::LinksOut));
+    }
+
+    #[test]
+    fn link_names_that_differ_only_in_case_are_the_same_link() {
+        // macOS and Windows find `D/l` by the name `d/l`, so `x` ends one folder above the top.
+        let chained = vec![link("D/l", ".."), link("x", "d/l/..")];
+        assert_eq!(plan_unpack(chained, &dest(), None).unwrap_err(), escapes("x", Escape::LinksOut));
+        let chained = vec![link("d/l", ".."), link("x", "D/L/..")];
+        assert_eq!(plan_unpack(chained, &dest(), None).unwrap_err(), escapes("x", Escape::LinksOut));
+        let refused = plan_unpack(vec![link("a", "b"), file("A/f", 1)], &dest(), None).unwrap_err();
+        assert_eq!(refused, escapes("A/f", Escape::ThroughLink));
+        let refused = plan_unpack(vec![link("a", "b"), file("A", 1)], &dest(), None).unwrap_err();
+        assert_eq!(refused, escapes("A", Escape::ThroughLink));
+        let refused = plan_unpack(vec![link("d/e/s", "../.."), hard_link("h", "D/E/S")], &dest(), None).unwrap_err();
+        assert_eq!(refused, escapes("h", Escape::LinksOut));
+        // A Greek capital sigma folds the same at the end of a name as inside it.
+        let refused = plan_unpack(vec![link("οσ", "b"), file("ΟΣ/f", 1)], &dest(), None).unwrap_err();
+        assert_eq!(refused, escapes("ΟΣ/f", Escape::ThroughLink));
     }
 
     #[test]
