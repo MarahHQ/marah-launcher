@@ -336,6 +336,7 @@ impl Core {
                 crate::launcher_update::ThisLauncher {
                     data_dir: kernel.host().data_dir.clone(),
                     install: kernel.host().install,
+                    appimage: kernel.host().appimage.clone(),
                 },
                 kernel.config().clone(),
                 Notifier::new(changes.clone(), kernel.events().clone()),

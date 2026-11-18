@@ -64,6 +64,7 @@ mod uninstall;
 mod unpack;
 mod view;
 mod vpn;
+mod zsync;
 
 pub use app::{Command, Core, Grid, Route};
 pub use archive_plan::{ArchiveEntry, EntryKind, Plan, Planned, UNPACK_SPARE, plan_unpack, room};

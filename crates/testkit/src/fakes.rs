@@ -26,6 +26,8 @@ struct HttpState {
     redirects: BTreeMap<String, String>,
     /// URLs of plain (not download) requests.
     sent: Vec<String>,
+    /// Plain requests' URLs, each with its Range header if it had one.
+    sent_ranges: Vec<(String, Option<String>)>,
 }
 
 /// Lets a held download, request, lookup or unpack go on. Dropping it also lets it go on.
@@ -102,6 +104,11 @@ impl FakeHttp {
         self.lock().sent.clone()
     }
 
+    /// Every plain request so far, by URL, with its Range header (`bytes=a-b`) if it had one.
+    pub fn sent_ranges(&self) -> Vec<(String, Option<String>)> {
+        self.lock().sent_ranges.clone()
+    }
+
     /// Every download request so far: URL and starting offset.
     pub fn requests(&self) -> Vec<(String, u64)> {
         self.lock().requests.clone()
@@ -128,6 +135,8 @@ impl HttpTransport for FakeHttp {
         let held = {
             let mut state = self.lock();
             state.sent.push(request.url.clone());
+            let range = request.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case("range")).map(|(_, v)| v.clone());
+            state.sent_ranges.push((request.url.clone(), range));
             state.hold_send.remove(&request.url)
         };
         // Not under the lock: other requests answer while this one waits.

@@ -79,7 +79,7 @@ The script also runs the launcher with no network through `unshare` (util-linux)
 systems have already.
 
 The AppImage also needs [linuxdeploy](https://github.com/linuxdeploy/linuxdeploy), named by
-`LINUXDEPLOY`.
+`LINUXDEPLOY`, and `zsyncmake` (the `zsync` package) for its control file.
 
 - **macOS**: to package, `brew install mpv dylibbundler cmake zstd lz4` (the `libmpv` and
   `libarchive` actions in `.github/actions/`). For the icons, `brew install librsvg`.
@@ -121,7 +121,7 @@ it. `make build` and `make package` use Cargo's release profile.
 | `make build` | `cargo build -p launcher-app --release` |
 | `make package` | `scripts/package.sh`: a release build in `dist/marah-launcher-<os>-<arch>/` |
 | `make linux-packages` | `make package`, then the deb, rpm and Arch packages in `dist/packages/`, checked. `NFPM` picks the nfpm (default `scripts/nfpm.sh`). |
-| `make appimage` | `make package`, then `scripts/appimage.sh`. Needs `LINUXDEPLOY`. |
+| `make appimage` | `make package`, then `scripts/appimage.sh`. Needs `LINUXDEPLOY` and `zsyncmake`. |
 | `make test-rpm` | `scripts/test-rpm.sh`: an rpm of this checkout in `dist/test-rpm/`, for this PC only |
 | `make deny` | `cargo deny check` |
 | `make hooks-install` | Installs the git hooks for commit and push |
