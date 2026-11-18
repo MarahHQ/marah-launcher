@@ -411,6 +411,10 @@ path with `~` for your home folder. **Rescan game folders** looks for games agai
 
 On Marah OS, Marah Launcher comes with the system's update.
 
+The AppImage downloads only the parts of the new version that changed. The rest comes from the
+AppImage you run. The update shows how much it downloads, for example "12.0 MB of 119.0 MB". When
+that can't work, it downloads the whole file.
+
 ### Downloads
 
 | Setting | What it does |

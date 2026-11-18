@@ -7,7 +7,8 @@ name: Package
 #   Windows  the zip and the installer, signed when the certificate is set
 #
 # On a Marah Launcher tag (v<version>) it attaches the files to the tag's draft release, with a SHA-256
-# file and signed build provenance for each and latest.json for the launcher's updater, and
+# file and signed build provenance for each, the AppImage's zsync control file, and latest.json
+# for the launcher's updater, and
 # publishes the release as the latest. Then, with a token of the Marah Bot GitHub App, it
 # names the release in marah-launcher.txt on MarahHQ/marah-os's main, so Release Please opens the
 # Marah OS release pull request there, and starts its os.yml for new images with this Marah
@@ -110,8 +111,13 @@ jobs:
       - name: AppImage, deb, rpm and Arch packages (Linux)
         if: runner.os == 'Linux'
         run: |
+          # zsyncmake, for the AppImage's control file (updates that download only what changed).
+          sudo apt-get install -y --no-install-recommends zsync
           scripts/appimage.sh
           APPIMAGE_EXTRACT_AND_RUN=1 dist/Marah-Launcher-x86_64.AppImage --version
+          # Its update information, which AppImage tools read from the .upd_info section.
+          readelf -p .upd_info dist/Marah-Launcher-x86_64.AppImage | grep 'gh-releases-zsync|' > /dev/null
+          test -s dist/Marah-Launcher-x86_64.AppImage.zsync
       - if: runner.os == 'Linux'
         timeout-minutes: 15
         uses: ./.github/actions/linux-packages
@@ -164,6 +170,7 @@ jobs:
             dist/*.tar.gz
             dist/*.zip
             dist/*.AppImage
+            dist/*.AppImage.zsync
             dist/*.deb
             dist/*.rpm
             dist/*.pkg.tar.zst

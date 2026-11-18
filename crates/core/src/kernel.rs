@@ -39,6 +39,8 @@ pub struct HostConfig {
     pub runs_32bit: bool,
     /// How this launcher was installed: its package in a release, and how its update goes in.
     pub install: crate::launcher_update::Install,
+    /// The running AppImage file (`$APPIMAGE`): a launcher update reuses its unchanged blocks.
+    pub appimage: Option<PathBuf>,
     /// Whether Marah Launcher is the whole screen, on Marah OS, or on its USB stick.
     pub place: crate::system::Place,
     pub api_version: semver::Version,
@@ -79,6 +81,7 @@ impl HostConfig {
             platform: Platform::current(),
             runs_32bit: std::path::Path::new("/lib/ld-linux.so.2").exists(),
             install: crate::launcher_update::Install::detect(),
+            appimage: std::env::var_os("APPIMAGE").map(PathBuf::from),
             place: crate::system::Place::detect(),
             api_version: launcher_api::api_version(),
             call_timeout: Duration::from_secs(30),

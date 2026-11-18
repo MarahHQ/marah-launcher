@@ -113,6 +113,13 @@ Nothing is signed. The `build` job makes the tar.gz (`scripts/package.sh`), the 
 (`scripts/appimage.sh`) and the deb, rpm and Arch packages (the `linux-packages` action, with
 nfpm). `packaging/linux/nfpm.yaml` sets no signature.
 
+The AppImage carries the standard AppImage update information in its `.upd_info` section:
+`gh-releases-zsync|<owner>|<repo>|latest|Marah-Launcher-<arch>.AppImage.zsync`, with the owner and
+repo from `update_repo` in `brand.toml`. `scripts/appimage.sh` sets it through linuxdeploy's
+`LDAI_UPDATE_INFORMATION`. Then `zsyncmake` (the runner's `zsync` package) writes the zsync
+control file, `Marah-Launcher-<arch>.AppImage.zsync`, from the finished AppImage. The control file
+goes into the release beside the AppImage. It has no `.sha256` and no entry in `latest.json`.
+
 The tools CI downloads are pinned and checked against a SHA-256: nfpm (`linux-packages`
 action), linuxdeploy and the Windows mpv build (`libmpv` action). The Windows libarchive comes
 from the runner's MSYS2, which the workflow does not pin.
@@ -170,7 +177,14 @@ applies a kept update at start.
 5. It downloads only over HTTPS from `github.com`, `objects.githubusercontent.com` and
    `release-assets.githubusercontent.com` (`HOSTS`), with at most 5 redirects
    (`MAX_REDIRECTS`). Any other host stops the download.
-6. It computes the file's SHA-256 and compares it with `sha256` in `latest.json`. A mismatch
+6. An AppImage install first tries a delta update (`crates/core/src/zsync.rs`). It reads
+   `<AppImage url>.zsync` and parses its header and block checksums. It rolls the weak checksum
+   over the running AppImage (`APPIMAGE`), and checks each hit with the block's MD4. Then it
+   downloads only the missing blocks, with one HTTP `Range` request for each run of them, and
+   joins them with the reused blocks. A missing or broken control file, a range answer that is
+   not a 206 of the right length, or a result with the wrong SHA-256 makes it log a line and
+   download the whole file. The control file's SHA-1 is not checked: step 7 checks the SHA-256.
+7. It computes the file's SHA-256 and compares it with `sha256` in `latest.json`. A mismatch
    fails the update.
 
 How the update goes in (`Install::method`):

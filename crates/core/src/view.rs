@@ -1082,9 +1082,18 @@ fn launcher_update_vm(update: &crate::launcher_update::LauncherUpdateSnapshot) -
             version.clone(),
             format!("{} {version} is out · download it", launcher_api::brand::PRODUCT_NAME),
         ),
-        UpdateState::Downloading { version } => {
+        UpdateState::Downloading { version, size: None } => {
             ("downloading", version.clone(), format!("Downloading {} {version}…", launcher_api::brand::PRODUCT_NAME))
         }
+        UpdateState::Downloading { version, size: Some((download, whole)) } => (
+            "downloading",
+            version.clone(),
+            format!(
+                "Downloading {} {version}: {}, only what changed…",
+                launcher_api::brand::PRODUCT_NAME,
+                crate::display::progress_text(*download, Some(*whole))
+            ),
+        ),
         UpdateState::Ready { version } => (
             "ready",
             version.clone(),

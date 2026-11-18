@@ -190,7 +190,7 @@ fn short_count(n: u64) -> String {
 }
 
 /// `12.5 MB of 40.0 MB`, or `12.5 MB` when the size is unknown.
-fn progress_text(received: u64, total: Option<u64>) -> String {
+pub(crate) fn progress_text(received: u64, total: Option<u64>) -> String {
     let mb = |b: u64| format!("{:.1} MB", b as f64 / 1_000_000.0);
     match total {
         Some(t) => format!("{} of {}", mb(received), mb(t)),

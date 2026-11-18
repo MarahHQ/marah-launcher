@@ -292,3 +292,160 @@ fn the_install_is_told_by_the_files_beside_the_binary() {
     std::fs::create_dir_all(&app).unwrap();
     assert_eq!(Install::of(&app, false), Install::MacApp);
 }
+
+/// The AppImage's release address, its zsync control file beside it.
+const APPIMAGE: &str =
+    "https://github.com/owner/marah-launcher/releases/download/v9.9.9/Marah-Launcher-x86_64.AppImage";
+/// What `zsyncmake -b 1024` (0.6.2, Ubuntu 22.04's, as the release build has) made from
+/// [`xorshift`]`(100_000)`: 98 blocks, the last one short.
+const CONTROL: &[u8] = include_bytes!("../../fixtures/zsync/xorshift-100000.zsync");
+
+/// Bytes from a xorshift32 generator: the new AppImage the control file describes.
+fn xorshift(len: usize) -> Vec<u8> {
+    let mut x: u32 = 0x2545_f491;
+    (0..len)
+        .map(|_| {
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            x as u8
+        })
+        .collect()
+}
+
+/// The running AppImage: the new one with a byte changed in blocks 5, 40 and 80.
+fn old_appimage(new: &[u8]) -> Vec<u8> {
+    let mut old = new.to_vec();
+    for block in [5, 40, 80] {
+        old[block * 1024 + 100] ^= 0xff;
+    }
+    old
+}
+
+/// An AppImage install running `old`, and a release of the new AppImage with `control` beside
+/// it (none: no control file) and `sha256` in latest.json (none: the new AppImage's own).
+async fn appimage_release(
+    old: &[u8],
+    control: Option<&[u8]>,
+    sha256: Option<&str>,
+) -> (launcher_testkit::TestCore, tempfile::TempDir) {
+    let install = tempfile::tempdir().unwrap();
+    let running = install.path().join("Marah-Launcher-x86_64.AppImage");
+    std::fs::write(&running, old).unwrap();
+    let host = FakeHost::new().install(Install::AppImage).appimage(&running);
+    let sha = host.http().serve(APPIMAGE, xorshift(100_000));
+    if let Some(control) = control {
+        host.http().serve(&format!("{APPIMAGE}.zsync"), control.to_vec());
+    }
+    host.http().serve(LATEST, manifest_for(Install::AppImage, "9.9.9", APPIMAGE, sha256.unwrap_or(&sha)));
+    let t = host.boot_core().await;
+    t.core.kernel().config().set(&["app", "update_repo"], "owner/marah-launcher".into()).unwrap();
+    t.core.dispatch(Command::LauncherUpdate(launcher_core::LauncherUpdateCmd::Check)).await.unwrap();
+    (t, install)
+}
+
+/// The AppImage requests so far: each one's Range header, or `None` for the whole file.
+fn appimage_requests(t: &launcher_testkit::TestCore) -> Vec<Option<String>> {
+    t.http.sent_ranges().into_iter().filter(|(url, _)| url == APPIMAGE).map(|(_, range)| range).collect()
+}
+
+async fn download(t: &launcher_testkit::TestCore) {
+    t.core.dispatch(Command::LauncherUpdate(launcher_core::LauncherUpdateCmd::Download)).await.unwrap();
+}
+
+/// The update kept for the next start is the new AppImage, byte for byte.
+fn kept_is_the_new_appimage(t: &launcher_testkit::TestCore) {
+    let update = t.core.view().settings.launcher_update;
+    assert_eq!(update.state, "ready", "{}", update.text);
+    let kept = staged(t.data_dir()).expect("kept for the next start");
+    assert_eq!(kept.file.file_name().unwrap(), "Marah-Launcher-x86_64.AppImage");
+    assert!(std::fs::read(&kept.file).unwrap() == xorshift(100_000), "byte for byte the new AppImage");
+}
+
+#[tokio::test]
+async fn an_appimage_update_downloads_only_the_blocks_that_changed() {
+    let new = xorshift(100_000);
+    let (t, _install) = appimage_release(&old_appimage(&new), Some(CONTROL), None).await;
+    download(&t).await;
+    kept_is_the_new_appimage(&t);
+    let ranges = [5, 40, 80].map(|b| Some(format!("bytes={}-{}", b * 1024, b * 1024 + 1023)));
+    assert_eq!(appimage_requests(&t), ranges, "only the changed blocks, and never the whole file");
+}
+
+#[tokio::test]
+async fn each_range_follows_github_s_redirect_to_the_file_host() {
+    let new = xorshift(100_000);
+    let (t, _install) = appimage_release(&old_appimage(&new), Some(CONTROL), None).await;
+    let served = "https://release-assets.githubusercontent.com/github-production-release-asset/1/appimage";
+    t.http.serve(served, new.clone());
+    t.http.redirect(APPIMAGE, served);
+    download(&t).await;
+    kept_is_the_new_appimage(&t);
+    let at_host: Vec<Option<String>> =
+        t.http.sent_ranges().into_iter().filter(|(url, _)| url == served).map(|(_, range)| range).collect();
+    let ranges = [5, 40, 80].map(|b| Some(format!("bytes={}-{}", b * 1024, b * 1024 + 1023)));
+    assert_eq!(at_host, ranges);
+}
+
+#[tokio::test]
+async fn an_appimage_update_shows_how_much_it_downloads_of_the_whole() {
+    let new = xorshift(100_000);
+    let (t, _install) = appimage_release(&old_appimage(&new), Some(CONTROL), None).await;
+    let gate = t.http.hold_next(APPIMAGE);
+    let watch = async {
+        for _ in 0..500 {
+            let update = t.core.view().settings.launcher_update;
+            if update.state == "downloading" && update.text.contains(" of ") {
+                gate.release();
+                return update.text;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        gate.release();
+        t.core.view().settings.launcher_update.text
+    };
+    let ((), text) = tokio::join!(download(&t), watch);
+    // 3 blocks of 1024 bytes, of 100,000.
+    assert!(text.contains("0.0 MB of 0.1 MB"), "{text}");
+    kept_is_the_new_appimage(&t);
+}
+
+#[tokio::test]
+async fn without_a_control_file_the_appimage_is_downloaded_whole() {
+    let new = xorshift(100_000);
+    let (t, _install) = appimage_release(&old_appimage(&new), None, None).await;
+    download(&t).await;
+    kept_is_the_new_appimage(&t);
+    assert_eq!(appimage_requests(&t), [None]);
+}
+
+#[tokio::test]
+async fn a_broken_control_file_or_a_server_without_ranges_means_the_whole_appimage() {
+    let new = xorshift(100_000);
+    let mut cut = CONTROL.to_vec();
+    cut.truncate(CONTROL.len() - 3);
+    let (t, _install) = appimage_release(&old_appimage(&new), Some(&cut), None).await;
+    download(&t).await;
+    kept_is_the_new_appimage(&t);
+    assert_eq!(appimage_requests(&t), [None], "a cut control file");
+
+    let (t, _install) = appimage_release(&old_appimage(&new), Some(CONTROL), None).await;
+    t.http.ignore_ranges();
+    download(&t).await;
+    kept_is_the_new_appimage(&t);
+    assert_eq!(appimage_requests(&t).last(), Some(&None), "the server sent the whole file for a range");
+}
+
+#[tokio::test]
+async fn an_appimage_that_doesn_t_match_its_sha256_is_refused_after_a_whole_download() {
+    let new = xorshift(100_000);
+    let (t, _install) = appimage_release(&old_appimage(&new), Some(CONTROL), Some(&"0".repeat(64))).await;
+    download(&t).await;
+    let update = t.core.view().settings.launcher_update;
+    assert_eq!(update.state, "failed");
+    assert!(update.text.contains("SHA-256"), "{}", update.text);
+    let asked = appimage_requests(&t);
+    assert_eq!(asked.len(), 4, "three ranges, then the whole file: {asked:?}");
+    assert_eq!(asked.last(), Some(&None));
+    assert!(staged(t.data_dir()).is_none(), "nothing kept");
+}

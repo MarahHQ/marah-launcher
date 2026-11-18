@@ -59,6 +59,8 @@ impl FakeHost {
         host.runs_32bit = true;
         // An installed launcher, not the test binary's own folder.
         host.install = launcher_core::launcher_update::Install::Folder;
+        // Not an AppImage the tests might run from.
+        host.appimage = None;
         // A desktop, not Marah OS, whatever the computer running the tests is.
         host.place = launcher_core::system::Place::default();
         // No display or sound of the computer running the tests in a sandboxed game.
@@ -199,6 +201,12 @@ impl FakeHost {
     /// How the launcher was installed, which decides how its update goes in.
     pub fn install(mut self, install: launcher_core::launcher_update::Install) -> Self {
         self.host.install = install;
+        self
+    }
+
+    /// The running AppImage file, whose blocks a launcher update reuses.
+    pub fn appimage(mut self, file: impl Into<std::path::PathBuf>) -> Self {
+        self.host.appimage = Some(file.into());
         self
     }
 

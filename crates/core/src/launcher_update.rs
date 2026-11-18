@@ -2,7 +2,11 @@
 //! package's address and SHA-256 by kind of install (`macos-aarch64`, `linux-x86_64`,
 //! `linux-x86_64-appimage`, `linux-x86_64-rpm`, `windows-x86_64-setup`, …: [`package_key`]).
 //! The core reads it from the repo in `app.update_repo` ("owner/name", by default
-//! `MarahHQ/marah-launcher`), downloads this install's package and checks its SHA-256. Then it
+//! `MarahHQ/marah-launcher`), downloads this install's package and checks its SHA-256. An
+//! AppImage downloads only the blocks that changed when it can: the release's zsync control
+//! file (`<AppImage>.zsync`) says the new file's blocks, the running AppImage has most of them,
+//! and HTTP range requests get the rest ([`crate::zsync`]). When that fails, it downloads the
+//! whole file. Then it
 //! goes in the way the install takes ([`Install`]): kept in `updates/` with `ready.json` for the
 //! app to swap in or run at its next start ([`apply_staged`]), or handed to the system's
 //! package manager. On Marah OS the system updates the launcher, so nothing is downloaded.
@@ -27,6 +31,8 @@ use crate::{CoreError, CoreResult, HttpTransport, LoginSession};
 /// Where a release's files are served from, after GitHub's redirects.
 const HOSTS: [&str; 3] = ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"];
 const MAX_REDIRECTS: usize = 5;
+/// More range requests than this for one AppImage delta: the whole file is quicker.
+const MAX_RANGES: usize = 1000;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct Manifest {
@@ -54,6 +60,8 @@ pub(crate) enum UpdateState {
     },
     Downloading {
         version: String,
+        /// An AppImage's delta: the bytes it downloads, of the whole file's.
+        size: Option<(u64, u64)>,
     },
     /// Kept in `updates/`: it goes in at the next start.
     Ready {
@@ -226,6 +234,8 @@ pub(crate) struct ThisLauncher {
     /// The data folder: the update goes in its `updates/`.
     pub data_dir: PathBuf,
     pub install: Install,
+    /// The running AppImage file: an update reuses its unchanged blocks.
+    pub appimage: Option<PathBuf>,
 }
 
 /// The subsystem's state, read whole.
@@ -303,7 +313,7 @@ impl LauncherUpdateSubsystem {
         let UpdateState::Available { version, asset } = self.state().clone() else {
             return Err(CoreError::Invalid("no launcher update to download".into()));
         };
-        self.set(UpdateState::Downloading { version: version.clone() });
+        self.set(UpdateState::Downloading { version: version.clone(), size: None });
         let done = self.update(&version, &asset).await;
         self.set(done.unwrap_or_else(|e| UpdateState::Failed(e.to_string())));
         Ok(())
@@ -320,26 +330,40 @@ impl LauncherUpdateSubsystem {
 
     /// GET, following redirects only to GitHub's release hosts.
     async fn get(&self, url: &str) -> CoreResult<Vec<u8>> {
+        self.fetch(url, None).await
+    }
+
+    /// GET the bytes `start..=end` of `url`, or the whole file without a range. A range must
+    /// come back as a 206 of exactly its length: a server that sends the whole file fails.
+    async fn fetch(&self, url: &str, range: Option<(u64, u64)>) -> CoreResult<Vec<u8>> {
         let mut url = url.to_owned();
         for _ in 0..=MAX_REDIRECTS {
             if !host_of(&url).is_some_and(|h| HOSTS.contains(&h)) {
                 return Err(CoreError::Invalid(format!("updates come from GitHub only, not {url}")));
             }
-            let response = self
-                .inner
-                .ports
-                .http
-                .send(HttpRequest::get(url.clone()))
-                .await
-                .map_err(|e| CoreError::Io(e.to_string()))?;
+            let mut request = HttpRequest::get(url.clone());
+            if let Some((start, end)) = range {
+                request.headers.push(("Range".into(), format!("bytes={start}-{end}")));
+            }
+            let response = self.inner.ports.http.send(request).await.map_err(|e| CoreError::Io(e.to_string()))?;
             if (300..400).contains(&response.status) {
                 let location =
                     response.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case("location")).map(|(_, v)| v.clone());
                 url = location.ok_or_else(|| CoreError::Io("a redirect without a Location".into()))?;
                 continue;
             }
-            if response.status != 200 {
-                return Err(CoreError::Io(format!("{url}: HTTP {}", response.status)));
+            let Some((start, end)) = range else {
+                if response.status != 200 {
+                    return Err(CoreError::Io(format!("{url}: HTTP {}", response.status)));
+                }
+                return Ok(response.body);
+            };
+            if response.status != 206 || response.body.len() as u64 != end + 1 - start {
+                return Err(CoreError::Io(format!(
+                    "{url}: HTTP {} with {} bytes for the range {start}-{end}",
+                    response.status,
+                    response.body.len()
+                )));
             }
             return Ok(response.body);
         }
@@ -401,13 +425,33 @@ impl LauncherUpdateSubsystem {
         }
     }
 
-    /// Downloads the package, checks its SHA-256, and keeps it for the next start.
+    /// Downloads the package, checks its SHA-256, and keeps it for the next start. An AppImage
+    /// tries a delta first; any failure there downloads the whole file instead.
     async fn stage(&self, version: &str, asset: &Asset) -> CoreResult<Staged> {
-        let bytes = self.get(&asset.url).await?;
-        let sum = hex::encode(sha2::Sha256::digest(&bytes));
-        if !sum.eq_ignore_ascii_case(asset.sha256.trim()) {
-            return Err(CoreError::Invalid(format!("the download's SHA-256 is {sum}, not {}", asset.sha256)));
-        }
+        let delta = match self.delta(version, asset).await {
+            Ok(bytes) if sha256_matches(&bytes, &asset.sha256) => Some(bytes),
+            Ok(_) => {
+                tracing::warn!("the AppImage built from its changed blocks doesn't match its SHA-256");
+                None
+            }
+            Err(DeltaError::NotAppImage) => None,
+            Err(DeltaError::Failed(error)) => {
+                tracing::warn!(%error, "no delta update of the AppImage");
+                None
+            }
+        };
+        let bytes = match delta {
+            Some(bytes) => bytes,
+            None => {
+                self.set(UpdateState::Downloading { version: version.to_owned(), size: None });
+                let bytes = self.get(&asset.url).await?;
+                if !sha256_matches(&bytes, &asset.sha256) {
+                    let sum = hex::encode(sha2::Sha256::digest(&bytes));
+                    return Err(CoreError::Invalid(format!("the download's SHA-256 is {sum}, not {}", asset.sha256)));
+                }
+                bytes
+            }
+        };
         let dir = self.inner.here.data_dir.join("updates");
         let name = asset.url.rsplit('/').next().filter(|n| !n.is_empty() && !n.contains("..")).unwrap_or("package");
         let file = dir.join(name);
@@ -419,6 +463,60 @@ impl LauncherUpdateSubsystem {
         tokio::fs::write(dir.join("ready.json"), ready).await.map_err(io)?;
         Ok(staged)
     }
+
+    /// The new AppImage from the running one's blocks and the ranges that changed: the
+    /// control file beside the release's AppImage says which.
+    async fn delta(&self, version: &str, asset: &Asset) -> Result<Vec<u8>, DeltaError> {
+        let running = match (&self.inner.here.install, &self.inner.here.appimage) {
+            (Install::AppImage, Some(running)) => running.clone(),
+            _ => return Err(DeltaError::NotAppImage),
+        };
+        let failed = |e: &dyn std::fmt::Display| DeltaError::Failed(e.to_string());
+        let control = self.get(&format!("{}.zsync", asset.url)).await.map_err(|e| failed(&e))?;
+        let control = crate::zsync::Control::parse(&control).map_err(|e| failed(&e))?;
+        let control = Arc::new(control);
+        let scan = control.clone();
+        // Reading and rolling over the whole AppImage: off the async threads.
+        let (old, plan) = tokio::task::spawn_blocking(move || {
+            let mut old = std::fs::read(&running).map_err(|e| e.to_string())?;
+            old.resize(old.len() + scan.padding(), 0);
+            let plan = scan.plan(&old);
+            Ok::<_, String>((old, plan))
+        })
+        .await
+        .map_err(|e| failed(&e))?
+        .map_err(|e| failed(&e))?;
+        if plan.reused() == 0 {
+            return Err(DeltaError::Failed("the running AppImage has none of the new one's blocks".into()));
+        }
+        if plan.missing().len() > MAX_RANGES {
+            return Err(DeltaError::Failed(format!("{} ranges changed", plan.missing().len())));
+        }
+        tracing::info!(
+            reused = plan.reused(),
+            blocks = control.blocks(),
+            download = plan.missing_bytes(),
+            "a delta update of the AppImage"
+        );
+        let size = Some((plan.missing_bytes(), control.length));
+        self.set(UpdateState::Downloading { version: version.to_owned(), size });
+        let mut fetched = Vec::with_capacity(plan.missing().len());
+        for &range in plan.missing() {
+            fetched.push(self.fetch(&asset.url, Some(range)).await.map_err(|e| failed(&e))?);
+        }
+        plan.assemble(&control, &old, &fetched).map_err(|e| failed(&e))
+    }
+}
+
+/// Why there was no delta update.
+enum DeltaError {
+    /// Not an AppImage, or not running from one: nothing to reuse.
+    NotAppImage,
+    Failed(String),
+}
+
+fn sha256_matches(bytes: &[u8], sha256: &str) -> bool {
+    hex::encode(sha2::Sha256::digest(bytes)).eq_ignore_ascii_case(sha256.trim())
 }
 
 /// The update kept for this start, if any.
@@ -655,7 +753,7 @@ mod tests {
         }
         let notifier = Notifier::new(crate::changes::Changes::new(), crate::EventBus::default());
         let ports = LauncherUpdatePorts { http: http.clone(), login_session: Arc::new(crate::NoLoginSession) };
-        let here = ThisLauncher { data_dir: PathBuf::from("/nowhere"), install: Install::Folder };
+        let here = ThisLauncher { data_dir: PathBuf::from("/nowhere"), install: Install::Folder, appimage: None };
         (LauncherUpdateSubsystem::new(ports, here, config, notifier), http)
     }
 
