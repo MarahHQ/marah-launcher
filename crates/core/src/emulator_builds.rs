@@ -248,10 +248,12 @@ pub(crate) fn start_pass_installs(core: &Core) -> std::collections::BTreeSet<Plu
 }
 
 /// The emulator gets an update: automatic updates are on, and the last read found one for its
-/// official build. Its install isn't under way, nor waiting to resume.
+/// official build. Its install isn't under way. A saved record alone doesn't stop the update: a
+/// resume that ended before its first step leaves its record, and the update's own claim keeps
+/// it from running beside a resume.
 fn wants_update(core: &Core, plugin: &PluginId) -> bool {
     let builds = core.builds();
-    if builds.busy(plugin) || builds.resuming(plugin) {
+    if builds.busy(plugin) {
         return false;
     }
     let emu = builds.emulator(plugin);

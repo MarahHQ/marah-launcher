@@ -221,6 +221,21 @@ async fn an_update_that_waited_for_a_game_skips_an_emulator_that_is_updating() {
 }
 
 #[tokio::test]
+async fn an_install_record_that_no_install_holds_doesn_t_stop_updates() {
+    let (t, emu) = core_with(FakeEmulator::new(vec!["A"])).await;
+    install(&t.core).await;
+    // A resume that stopped before its first step leaves its record, and nothing holds it.
+    let saved = |t: &TestCore| t.core.kernel().config().get(&["app", "installs", "emu-a"]);
+    let record = serde_json::json!({ "version": "1.0", "from": null, "phase": "downloading" });
+    t.core.kernel().config().set(&["app", "installs", "emu-a"], record).unwrap();
+    emu.release("2.0");
+
+    t.core.dispatch(Command::CheckUpdates).await.unwrap();
+    assert!(installed(&t.core).await.contains(&"2.0".to_owned()));
+    assert!(saved(&t).is_null(), "the update's end takes the record");
+}
+
+#[tokio::test]
 async fn an_emulator_build_isn_t_removed_while_it_updates() {
     let (t, emu) = core_with(FakeEmulator::new(vec!["A"])).await;
     install(&t.core).await;
