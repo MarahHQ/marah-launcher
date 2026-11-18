@@ -348,11 +348,16 @@ async fn a_list_without_the_title_look_up_leaves_the_offers_as_before() {
 /// has its PS4 version and a PS5 version. It returns once the library knows the PS4 version is
 /// the installed game.
 async fn astro_installed_on_ps4() -> TestCore {
+    astro_installed_on(emu_ps4()).await
+}
+
+/// [`astro_installed_on_ps4`], with `ps4` as the PS4 emulator.
+async fn astro_installed_on(ps4: FakeCatalog) -> TestCore {
     let t = FakeHost::new()
         .hardware(strong_pc(true))
         .built_in(launcher_api::PluginBox::code(release_catalog::ReleaseCatalog::default()))
         .plugin(emu_ps5().build())
-        .plugin(emu_ps4().games(["Astro Bot"]).lists(&[("CUSA00000", CompatLevel::Playable)]).build())
+        .plugin(ps4.games(["Astro Bot"]).lists(&[("CUSA00000", CompatLevel::Playable)]).build())
         .boot_core()
         .await;
     t.http.serve(
@@ -424,4 +429,24 @@ async fn the_hub_of_a_version_nobody_rated_shows_no_result_of_the_player_s() {
     let t = astro_installed_on_ps4().await;
     assert_eq!(your_result_on(&t, ASTRO_INSTALLED).await, "");
     assert_eq!(your_result_on(&t, ASTRO_PS5).await, "", "nor a version that isn't installed");
+}
+
+#[tokio::test]
+async fn the_hub_of_a_version_shows_the_play_time_of_the_installed_game_it_is() {
+    use futures::StreamExt;
+    let t = astro_installed_on(emu_ps4().playable()).await;
+    let mut events = t.core.events();
+    // Play on the version starts the installed game, emu-ps4:G0.
+    let launch = launcher_core::SessionCmd::Launch(ASTRO_INSTALLED.parse().unwrap());
+    t.core.dispatch(Command::Session(launch)).await.unwrap();
+    let process = t.spawner.wait_for(1).await;
+    t.core.dispatch(Command::OpenGame(ASTRO_INSTALLED.parse().unwrap())).await.unwrap();
+    assert!(t.core.view().detail.unwrap().running, "the version's hub says the game runs");
+    // A session shorter than three seconds doesn't count.
+    t.clock.advance(std::time::Duration::from_millis(3100)).await;
+    process.exit(0);
+    while !matches!(events.next().await, Some(launcher_api::Event::ProcessExited { .. }) | None) {}
+    t.core.dispatch(Command::OpenGame(ASTRO_INSTALLED.parse().unwrap())).await.unwrap();
+    let detail = t.core.view().detail.unwrap();
+    assert_eq!((detail.played_secs, detail.last_played_days), (3, Some(0)));
 }

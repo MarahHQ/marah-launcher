@@ -264,7 +264,8 @@ also shows as YOUR RESULT on the version's Game Hub, unless you rated the versio
 "Not tested". The Catalog reads the lists each time it reads the catalogs.
 
 On the card, a version you have installed stands for the game, so Play starts the game you
-have. The card is **New** when any of its versions came to the catalog in the last two weeks.
+have. The version's Game Hub shows the play time and the last play of the game you have. The
+card is **New** when any of its versions came to the catalog in the last two weeks.
 
 To hide a game on more than one console, open a version's Game Hub and choose **Hide**, or
 open the game's menu (Options) on its card or in its Game Hub. Then pick one of these:

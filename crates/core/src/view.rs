@@ -653,7 +653,7 @@ fn detail_vm(s: &Snapshot, owned: &Ownership, key: &GameKey) -> Option<GameDetai
     let needs_emulator = has_installer && !installed;
     // The program, not the console: "Launches with the KytyPS5 emulator".
     let name = manifest.map(|m| m.emulator_name().to_owned()).unwrap_or_default();
-    let stats = s.sessions.plays.of(key);
+    let stats = s.sessions.plays.of(played);
     let meta = library.meta(key);
     // A release's store data fills in, field by field, what the store's catalog leaves out.
     let metas = library.metadata(key);
@@ -751,7 +751,7 @@ fn detail_vm(s: &Snapshot, owned: &Ownership, key: &GameKey) -> Option<GameDetai
         facts: details.facts.clone(),
         played_secs: stats.secs,
         played: String::new(),
-        last_played_days: last_played_days(s, key),
+        last_played_days: last_played_days(s, played),
         last_played: String::new(),
         releases: offer
             .map(|o| {
