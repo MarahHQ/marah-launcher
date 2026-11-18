@@ -273,12 +273,13 @@ fn offer_genres(library: &LibrarySnapshot, offer: &Offer) -> Vec<String> {
 }
 
 /// How far a game gets, for the "In-game" filter and the sort: the player's own result first,
-/// then the community's.
-fn reach(library: &LibrarySnapshot, key: &GameKey) -> CompatLevel {
-    library
-        .result(key)
-        .or_else(|| library.detail(key).and_then(|d| d.compat.as_ref()).map(|c| c.level))
-        .unwrap_or(CompatLevel::Unknown)
+/// then the community's (for an offer, its installed game's: see [`crate::game_groups::community`]).
+fn reach(library: &LibrarySnapshot, owned: &Ownership, offer: Option<&Offer>, key: &GameKey) -> CompatLevel {
+    let community = || match offer {
+        Some(offer) => crate::game_groups::community(library, owned, offer),
+        None => library.detail(key).and_then(|d| d.compat.as_ref()).map(|c| c.level),
+    };
+    library.result(key).or_else(community).unwrap_or(CompatLevel::Unknown)
 }
 
 fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
@@ -292,14 +293,16 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
     // the filter turned off in the catalog's settings, its chip goes and it doesn't apply.
     let hidden_filter = catalog && data.hidden_filter;
     let only_hidden = hidden_filter && query.hidden;
-    // Hidden by the player in Marah Launcher, or in the game's store (Steam's Hidden collection).
-    let store_hidden =
-        |e: &Entry| offers.get(&e.key).is_some_and(|o| !o.releases.is_empty() && o.releases.iter().all(|r| r.hidden));
-    let is_hidden = |e: &Entry| catalog && (library.hidden(&e.key) || store_hidden(e));
-    let hidden_count = entries.iter().filter(|e| is_hidden(e)).count();
+    let is_hidden = |e: &Entry| catalog && offers.get(&e.key).is_some_and(|o| hidden_offer(library, o));
+    // The cards the player sees: under "All", one per game; under a system, that system's.
+    let groups = &library.groups;
+    let in_view = |e: &&Entry| query.system.as_ref().is_none_or(|s| &e.summary.platform == s);
+    let cards =
+        |list: Vec<&Entry>| if catalog && query.system.is_none() { card_count(groups, &list) } else { list.len() };
+    let hidden: Vec<&Entry> = entries.iter().copied().filter(|e| is_hidden(e)).filter(in_view).collect();
     let entries: Vec<&Entry> = entries.into_iter().filter(|e| is_hidden(e) == only_hidden).collect();
     // How many games there are before the search and the filters: hidden ones count nowhere.
-    let all = if catalog { card_count(&library.groups, &entries) } else { entries.len() };
+    let all = if catalog { card_count(groups, &entries) } else { entries.len() };
     // The Library's chips are the store's genres; the Catalog's are the fixed genres. Read once
     // a game: the search reads them too.
     let genre_cache: std::cell::RefCell<HashMap<&GameKey, Vec<String>>> = Default::default();
@@ -349,14 +352,17 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
     };
     // Near spellings only when nothing matches as typed.
     let mut found = scored(false);
-    if found.is_empty() && !search.is_empty() {
+    let typos = found.is_empty() && !search.is_empty();
+    if typos {
         found = scored(true);
     }
+    // The hidden games the search finds, as the "Hidden" filter shows them.
+    let hidden_count = cards(hidden.into_iter().filter(|e| score(e, typos).is_some()).collect());
     let scores: HashMap<&GameKey, Rank> = found.iter().map(|(e, s)| (&e.key, *s)).collect();
     let searched: Vec<&Entry> = found.into_iter().map(|(e, _)| e).collect();
     // Systems count what the search leaves; genres count what the system leaves too. The
     // Catalog's "All" counts its cards, one per game; a system counts that system's versions.
-    let groups = &library.groups;
+    // A filter counts the cards it shows: in the system shown, one per game under "All".
     let all_count = if catalog { card_count(groups, &searched) } else { searched.len() };
     let mut systems =
         vec![FilterVm { id: String::new(), label: "All".into(), count: all_count, on: query.system.is_none() }];
@@ -372,8 +378,8 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
             }),
         }
     }
-    let level = |e: &Entry| reach(library, &e.key);
-    let ingame = searched.iter().filter(|e| level(e) >= CompatLevel::Ingame).count();
+    let level = |e: &Entry| reach(library, owned, offers.get(&e.key).copied(), &e.key);
+    let ingame = cards(searched.iter().copied().filter(in_view).filter(|e| level(e) >= CompatLevel::Ingame).collect());
     // The Catalog's only: the Library's games are the player's own. Shown once a game has a
     // result to filter by.
     let only_ingame = catalog && query.ingame;
@@ -387,7 +393,8 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
     }
     // The Catalog's offers of the games the player has.
     let installed = |e: &Entry| offers.get(&e.key).is_some_and(|o| owned.installed_game(o).is_some());
-    let installed_count = if catalog { searched.iter().filter(|e| installed(e)).count() } else { 0 };
+    let installed_count =
+        if catalog { cards(searched.iter().copied().filter(in_view).filter(|e| installed(e)).collect()) } else { 0 };
     if installed_count > 0 || (catalog && query.installed) {
         systems.push(FilterVm {
             id: GridFilter::Installed.as_str().into(),
@@ -406,7 +413,7 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
     }
     let in_system: Vec<&Entry> = searched
         .into_iter()
-        .filter(|e| query.system.as_ref().is_none_or(|s| &e.summary.platform == s))
+        .filter(in_view)
         .filter(|e| !only_ingame || level(e) >= CompatLevel::Ingame)
         .filter(|e| !catalog || !query.installed || installed(e))
         .collect();
@@ -437,9 +444,11 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
             None => library.detail(&e.key).and_then(|d| d.details.size_bytes),
         }
     };
-    // A game's newest version counts.
+    // A game's newest version counts, of the ones this view shows: a hidden version is out but
+    // under "Hidden".
     let added = |e: &Entry| {
         let versions = groups.versions(&e.key).iter().filter_map(|k| offers.get(k));
+        let versions = versions.filter(|o| !catalog || hidden_offer(library, o) == only_hidden);
         versions.map(|o| o.releases[0].added.clone()).max().unwrap_or_default()
     };
     // The catalog's own date of its best release first, then the store's, then the year.
@@ -459,7 +468,7 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
             score(b).total_cmp(&score(a))
         }),
         Sort::Release => shown.sort_by_cached_key(|e| std::cmp::Reverse(released(e))),
-        Sort::Compat => shown.sort_by_key(|e| std::cmp::Reverse(level(e))),
+        Sort::Compat => shown.sort_by_cached_key(|e| std::cmp::Reverse(level(e))),
         Sort::Added => shown.sort_by_cached_key(|e| std::cmp::Reverse(added(e))),
         Sort::Title => shown.sort_by_cached_key(|e| e.summary.title.to_lowercase()),
     }
@@ -469,6 +478,12 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
         shown.sort_by_key(|e| std::cmp::Reverse(scores.get(&e.key).copied().unwrap_or_default()));
     }
     GridGames { shown, all, systems, genres }
+}
+
+/// The player hid `offer` from the Catalog, in Marah Launcher or in its store (Steam's Hidden
+/// collection).
+pub(crate) fn hidden_offer(library: &LibrarySnapshot, offer: &Offer) -> bool {
+    library.hidden(&offer.entry.key) || (!offer.releases.is_empty() && offer.releases.iter().all(|r| r.hidden))
 }
 
 /// How many cards `entries` make in the Catalog's "All": one per game.
@@ -494,7 +509,7 @@ fn one_per_game<'a>(
     let cards: HashSet<&GameKey> = games
         .values()
         .map(|versions| {
-            let best = crate::game_groups::best_first(data.library, &data.pc, versions);
+            let best = crate::game_groups::best_first(data.library, data.ownership, &data.pc, versions);
             let installed = best.iter().find(|v| data.ownership.installed_game(v.offer).is_some());
             &installed.unwrap_or(&best[0]).offer.entry.key
         })
@@ -863,6 +878,66 @@ mod tests {
         library.offers = Arc::new(offers);
         let query = GridQuery { query: "jpn".into(), ..GridQuery::catalog() };
         assert_eq!(shown_with(&library, &query, this_pc()).0, ["astro-ps5"]);
+    }
+
+    #[test]
+    fn the_filter_chips_count_the_cards_they_show() {
+        let mut library = astro_on_two_consoles();
+        // Both of Astro Bot's versions reach gameplay; the player hid both of Quest's one.
+        for key in ["cat:astro-ps5", "cat:astro-pc"] {
+            library.results.insert(key.into(), CompatLevel::Playable);
+        }
+        library.hidden.insert("cat:quest".into());
+        let count_in = |library: &LibrarySnapshot, query: &GridQuery, id: &str| {
+            let (_, chips) = shown_with(library, query, this_pc());
+            chips.into_iter().find(|(chip, _)| chip == id).map(|(_, n)| n)
+        };
+        let count = |query: &GridQuery, id: &str| count_in(&library, query, id);
+        let ingame = GridFilter::InGame.as_str();
+        assert_eq!(count(&GridQuery::catalog(), ingame), Some(1), "All: Astro Bot is one card");
+        let on_ingame = GridQuery { ingame: true, ..GridQuery::catalog() };
+        assert_eq!(shown_with(&library, &on_ingame, this_pc()).0.len(), 1, "and the chip shows one card");
+        let ps5 = GridQuery { system: Some("PS5".into()), ..GridQuery::catalog() };
+        assert_eq!(count(&ps5, ingame), Some(1), "PS5: its own version");
+        assert_eq!(count(&ps5, GridFilter::Hidden.as_str()), None, "PS5: Quest is on PS4, so no Hidden chip");
+        assert_eq!(count(&ps5, ""), Some(1), "the All chip counts its cards");
+        let ps4 = GridQuery { system: Some("PS4".into()), ..GridQuery::catalog() };
+        assert_eq!(count(&ps4, GridFilter::Hidden.as_str()), Some(1));
+        // The player hid Astro Bot too: under Hidden, two cards, not three offers.
+        library.hidden.extend(["cat:astro-ps5".into(), "cat:astro-pc".into()]);
+        assert_eq!(count_in(&library, &GridQuery::catalog(), GridFilter::Hidden.as_str()), Some(2));
+        let hidden = GridQuery { hidden: true, ..GridQuery::catalog() };
+        assert_eq!(shown_with(&library, &hidden, this_pc()).0.len(), 2);
+        // A search: the Hidden chip counts what it finds.
+        let search = GridQuery { query: "quest".into(), ..GridQuery::catalog() };
+        assert_eq!(count_in(&library, &search, GridFilter::Hidden.as_str()), Some(1));
+    }
+
+    #[test]
+    fn the_installed_chip_counts_a_game_installed_on_two_consoles_once() {
+        let offers = (*astro_on_two_consoles().offers).clone();
+        let games = vec![entry("kyty:astro", "Astro Bot", "PS5"), entry("pc:astro", "Astro Bot", "PC")];
+        let library = library_with(games, offers);
+        let installed = |query: &GridQuery| {
+            let (_, chips) = shown_with(&library, query, this_pc());
+            chips.into_iter().find(|(id, _)| id == GridFilter::Installed.as_str()).map(|(_, n)| n)
+        };
+        assert_eq!(installed(&GridQuery::catalog()), Some(1), "All: one card");
+        for console in ["PS5", "PC"] {
+            let query = GridQuery { system: Some(console.into()), ..GridQuery::catalog() };
+            assert_eq!(installed(&query), Some(1), "{console}: its own version");
+        }
+        let on = GridQuery { installed: true, ..GridQuery::catalog() };
+        assert_eq!(shown_with(&library, &on, this_pc()).0.len(), 1, "and the chip shows one card");
+    }
+
+    #[test]
+    fn a_version_hidden_alone_gives_its_card_no_newest_date() {
+        let mut library = astro_on_two_consoles();
+        // Astro Bot's PS5 version is the newest added of all; the player hid it alone.
+        library.hidden.insert("cat:astro-ps5".into());
+        let (keys, _) = shown_with(&library, &GridQuery::catalog(), this_pc());
+        assert_eq!(keys, ["quest", "astro-pc"], "the PC version's own date: older than Quest's");
     }
 
     #[test]

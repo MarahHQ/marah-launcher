@@ -127,6 +127,9 @@ pub enum LibraryCmd {
     /// Hidden games leave the Catalog, but for the "Hidden" filter (`GridFilter::Hidden`). Kept
     /// in the config.
     Hide { game: GameKey, hidden: bool },
+    /// Hides one version of a game on several consoles, or shows it again: its other versions
+    /// stay as they are. For a game on one console, it is [`LibraryCmd::Hide`].
+    HideVersion { game: GameKey, hidden: bool },
 }
 
 /// A game's art, from the layers of [`LibrarySnapshot::metadata`] and its own details.
@@ -407,6 +410,11 @@ impl LibrarySubsystem {
                 for version in groups.versions(&game) {
                     self.inner.records.set_hidden(version, hidden).map_err(|e| CoreError::Io(e.to_string()))?;
                 }
+                self.inner.notifier.changed(Area::Library);
+                Ok(())
+            }
+            LibraryCmd::HideVersion { game, hidden } => {
+                self.inner.records.set_hidden(&game, hidden).map_err(|e| CoreError::Io(e.to_string()))?;
                 self.inner.notifier.changed(Area::Library);
                 Ok(())
             }

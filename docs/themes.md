@@ -294,7 +294,7 @@ A variant with a sub-enum takes that enum, written as JSON the same way.
 | `Navigate` | A `Route`: `"Home"`, `"Library"`, `"Catalog"`, `"Downloads"`, `"Settings"`, `"Emulators"`, `"Themes"`, `{"GameDetail": key}`, `{"Plugin": id}`, `{"GameSettings": key}`. See [Where the player is](#where-the-player-is). |
 | `Back` | None. |
 | `Select`, `OpenGame`, `UninstallGame`, `AskResult` | A game key. |
-| `Library` | `"Refresh"`, or `{"Hide": {"game": key, "hidden": bool}}`. |
+| `Library` | `"Refresh"`, `{"Hide": {"game": key, "hidden": bool}}` (every version of the game), or `{"HideVersion": {"game": key, "hidden": bool}}` (that version alone). |
 | `LibrarySearch`, `CatalogSearch` | Text. |
 | `LibrarySystem`, `CatalogSystem` | A system id (`PS5`) or a grid filter (`ingame`, `installed`, `hidden`), or `null` to clear them. |
 | `LibraryGenre`, `CatalogGenre` | A genre, or `null` for every genre. |

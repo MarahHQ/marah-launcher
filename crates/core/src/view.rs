@@ -267,8 +267,9 @@ fn grid_vm(s: &Snapshot, data: &GridData, query: &GridQuery, selected: Option<&G
     }
 }
 
-/// An offer's card in the Catalog's "All", for the game of each of its versions: the consoles
-/// it has, the card's own first; selected when a version is; new when a version is.
+/// An offer's card in the Catalog's "All", for the game of each of its versions that the view
+/// shows (a version the player hid alone is out, but under "Hidden"): the consoles it has, the
+/// card's own first; selected when a version is; new when a version is.
 fn game_card(
     s: &Snapshot,
     data: &GridData,
@@ -282,8 +283,16 @@ fn game_card(
     if keys.len() < 2 {
         return card;
     }
-    let versions: Vec<&crate::releases::Offer> = keys.iter().filter_map(|k| offers.get(k).copied()).collect();
-    let best = crate::game_groups::best_first(library, &data.pc, &versions);
+    let hidden = crate::grid_query::hidden_offer(library, offer);
+    let versions: Vec<&crate::releases::Offer> = keys
+        .iter()
+        .filter_map(|k| offers.get(k).copied())
+        .filter(|o| crate::grid_query::hidden_offer(library, o) == hidden)
+        .collect();
+    if versions.len() < 2 {
+        return card;
+    }
+    let best = crate::game_groups::best_first(library, data.ownership, &data.pc, &versions);
     let own = std::iter::once(offer);
     let others = best.iter().map(|v| v.offer).filter(|o| o.entry.key != offer.entry.key);
     card.consoles = own
@@ -334,7 +343,7 @@ fn versions_vm(s: &Snapshot, owned: &Ownership, key: &GameKey) -> Vec<GameVersio
     }
     let offers: Vec<&crate::releases::Offer> = keys.iter().filter_map(|k| library.offer(k)).collect();
     let pc = s.this_pc();
-    let best = crate::game_groups::best_first(library, &pc, &offers);
+    let best = crate::game_groups::best_first(library, owned, &pc, &offers);
     let why = crate::game_groups::why_best(&best[0], best.get(1), compat_label);
     best.iter()
         .enumerate()
@@ -658,6 +667,9 @@ fn detail_vm(s: &Snapshot, owned: &Ownership, key: &GameKey) -> Option<GameDetai
     };
     let line = crate::game_words::home_line(details, &metas, meta.map(|(_, m)| m.tagline.as_str()), origin);
     let compatibility = offer.map(crate::releases::compatibility).unwrap_or_default();
+    // An offer's details carry no community result: the installed game it is has the emulator's
+    // (see [`crate::game_groups::community`]).
+    let community = d.compat.as_ref().or_else(|| installed_as.and_then(|g| library.detail(&g.key)?.compat.as_ref()));
     // Where the offer's downloads go, and the free space there.
     let download_folder = offer.and_then(|o| s.state.disks.download_folder(&o.emulator, &o.releases[0].platform));
     let free = download_folder.and_then(|f| f.free);
@@ -713,9 +725,9 @@ fn detail_vm(s: &Snapshot, owned: &Ownership, key: &GameKey) -> Option<GameDetai
         has_folder: s.files.game_folders.contains(key),
         has_log: s.files.has_log,
         hidden: library.hidden(key),
-        compat_page: d.compat.as_ref().and_then(|c| c.page.clone()).unwrap_or_default(),
+        compat_page: community.and_then(|c| c.page.clone()).unwrap_or_default(),
         trailer_url: meta.map(|(_, m)| m.trailer.clone()).unwrap_or_default(),
-        compat: d.compat.as_ref().map(compat_vm),
+        compat: community.map(compat_vm),
         badges: badges_of(library, key),
         actions: slot_vms(&key.plugin, SlotId::GameAction, d.actions.clone()),
         sections: slot_vms(&key.plugin, SlotId::GameDetailSection, d.sections.clone()),

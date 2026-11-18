@@ -1828,6 +1828,57 @@ fn the_boot_screen_renders_a_plugin_s_question() {
     not_blank(&out, &["classic-boot-question", "default-boot-question"]);
 }
 
+/// Astro Drift on PS5 and PS4, and Quest on PS4, in the Catalog of `theme`, sorted by title.
+fn astro_drift(theme: &str) -> Composed {
+    // shadPS4 recommends less than KytyPS5: on a PC that meets both, the PS4 version is the best.
+    let needs = "vulkan = \"1.3\"\n[requires.recommended]\ncpu_threads = 8\nmemory_gb = 7.0";
+    let mut host = composed_on_current_platform(|h| {
+        h.hardware(this_pc((1, 3)))
+            .plugin(FakeCatalog::kyty().playable().requires(&format!("{needs}\ngpu_memory_gb = 7.5")).build())
+            .plugin(
+                FakeCatalog::new("emu-ps4")
+                    .system("PS4")
+                    .console("PS4")
+                    .requires(&format!("{needs}\ngpu_memory_gb = 3.5"))
+                    .games([])
+                    .build(),
+            )
+            .built_in(launcher_api::PluginBox::code(release_catalog::ReleaseCatalog::default()))
+    });
+    if theme == "default" {
+        host.ui.start_with(Some(id(theme_default::ID))).unwrap();
+    } else {
+        host.ui.start().unwrap();
+    }
+    let topic = |console: &str, id: u32, title_id: &str, title: &str| {
+        serde_json::json!({ "id": id.to_string(), "title": format!("[{console}] {title} [EUR / v1.00]"), "size": "20 GB",
+            "magnet": format!("magnet:?xt=urn:btih:{id:040x}"),
+            "game_info": { "name": title, "title_id": title_id, "version": "1.00", "region": "EUR",
+                "release_year": "2024", "publisher": "Sony" } })
+    };
+    let file = |topics: serde_json::Value| {
+        serde_json::json!({ "complete": true, "translation": { "language": "en" }, "topic_count": topics.as_array().unwrap().len(),
+            "topics": topics }).to_string()
+    };
+    let ps5 = file(serde_json::json!([topic("PS5", 1, "PPSA01234", "Astro Drift")]));
+    let ps4 =
+        file(serde_json::json!([topic("PS4", 2, "CUSA01234", "Astro Drift"), topic("PS4", 3, "CUSA00002", "Quest")]));
+    host.test.http.serve("https://xyz.dev/c/ps5.json", ps5);
+    host.test.http.serve("https://xyz.dev/c/ps4.json", ps4);
+    host.dispatch(Command::SetConfig {
+        plugin: id("release-catalog"),
+        scope: launcher_api::ConfigScope::Emulator,
+        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
+    });
+    host.catalogs_fetched();
+    host.until(launcher_core::Area::Hardware, |core| core.view().settings.hardware.known);
+    host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
+    host.dispatch(Command::Navigate(Route::Catalog));
+    host.dispatch(Command::CatalogSort(launcher_core::Sort::Title));
+    host.load_images();
+    host
+}
+
 /// A game on PS5 and PS4 in each built-in theme: its one card in the Catalog's "All", with a
 /// chip for each console, as `<theme>-catalog-versions.png`; its Game Hub with the keys on the
 /// versions, the best for this PC first, as `<theme>-versions.png`. Right and Return open the
@@ -1836,55 +1887,8 @@ fn the_boot_screen_renders_a_plugin_s_question() {
 fn a_game_on_two_consoles_is_one_card_and_its_hub_lists_the_versions_in_each_theme() {
     use slint::platform::Key;
     let (window, out) = offscreen();
-    // shadPS4 recommends less than KytyPS5: on a PC that meets both, the PS4 version is the best.
-    let needs = "vulkan = \"1.3\"\n[requires.recommended]\ncpu_threads = 8\nmemory_gb = 7.0";
     for theme in ["classic", "default"] {
-        let mut host = composed_on_current_platform(|h| {
-            h.hardware(this_pc((1, 3)))
-                .plugin(FakeCatalog::kyty().playable().requires(&format!("{needs}\ngpu_memory_gb = 7.5")).build())
-                .plugin(
-                    FakeCatalog::new("emu-ps4")
-                        .system("PS4")
-                        .console("PS4")
-                        .requires(&format!("{needs}\ngpu_memory_gb = 3.5"))
-                        .games([])
-                        .build(),
-                )
-                .built_in(launcher_api::PluginBox::code(release_catalog::ReleaseCatalog::default()))
-        });
-        if theme == "default" {
-            host.ui.start_with(Some(id(theme_default::ID))).unwrap();
-        } else {
-            host.ui.start().unwrap();
-        }
-        let topic = |console: &str, id: u32, title_id: &str, title: &str| {
-            serde_json::json!({ "id": id.to_string(), "title": format!("[{console}] {title} [EUR / v1.00]"), "size": "20 GB",
-                "magnet": format!("magnet:?xt=urn:btih:{id:040x}"),
-                "game_info": { "name": title, "title_id": title_id, "version": "1.00", "region": "EUR",
-                    "release_year": "2024", "publisher": "Sony" } })
-        };
-        let file = |topics: serde_json::Value| {
-            serde_json::json!({ "complete": true, "translation": { "language": "en" }, "topic_count": topics.as_array().unwrap().len(),
-                "topics": topics }).to_string()
-        };
-        let ps5 = file(serde_json::json!([topic("PS5", 1, "PPSA01234", "Astro Drift")]));
-        let ps4 = file(serde_json::json!([
-            topic("PS4", 2, "CUSA01234", "Astro Drift"),
-            topic("PS4", 3, "CUSA00002", "Quest")
-        ]));
-        host.test.http.serve("https://xyz.dev/c/ps5.json", ps5);
-        host.test.http.serve("https://xyz.dev/c/ps4.json", ps4);
-        host.dispatch(Command::SetConfig {
-            plugin: id("release-catalog"),
-            scope: launcher_api::ConfigScope::Emulator,
-            value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
-        });
-        host.catalogs_fetched();
-        host.until(launcher_core::Area::Hardware, |core| core.view().settings.hardware.known);
-        host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
-        host.dispatch(Command::Navigate(Route::Catalog));
-        host.dispatch(Command::CatalogSort(launcher_core::Sort::Title));
-        host.load_images();
+        let mut host = astro_drift(theme);
         assert_eq!(host.values("card-console"), ["PS4", "PS5", "PS4"], "{theme}: Astro Drift's two, Quest's one");
         shoot(&window, &out.join(format!("{theme}-catalog-versions.png")));
 
@@ -1903,4 +1907,57 @@ fn a_game_on_two_consoles_is_one_card_and_its_hub_lists_the_versions_in_each_the
         assert_eq!(host.core().view().detail.map(|d| d.platform), Some("PS5".into()), "{theme}: the other version");
     }
     not_blank(&out, &["classic-catalog-versions", "classic-versions", "default-catalog-versions", "default-versions"]);
+}
+
+/// Hide on a game on two consoles, in each built-in theme: the Game Hub's Hide opens the game's
+/// menu with the keys on "Hide the PS4 version", as `<theme>-hide-versions.png`; Down reaches
+/// "Hide every version", and Return on the first hides the PS4 version alone. The card's eye
+/// hides the game under "All", and one version under a console's chip.
+#[test]
+fn hide_on_a_game_on_two_consoles_asks_which_versions_in_each_theme() {
+    use slint::platform::Key;
+    let (window, out) = offscreen();
+    for theme in ["classic", "default"] {
+        let mut host = astro_drift(theme);
+        let eyes = host.values("card-hide");
+        assert_eq!(eyes, ["Hide every version of Astro Drift", "Hide Quest"], "{theme}: the card is the game");
+        // Under a console's chip, the eye hides that console's version alone.
+        let system =
+            |id: Option<&str>| Command::CatalogSystem(id.map(|id| launcher_core::SystemChoice::System(id.into())));
+        host.dispatch(system(Some("PS5")));
+        host.load_images();
+        assert_eq!(host.values("card-hide"), ["Hide Astro Drift"], "{theme}");
+        host.first("card-hide").invoke_accessible_default_action();
+        host.pump();
+        host.dispatch(system(None));
+        host.load_images();
+        assert_eq!(host.values("card-console"), ["PS4", "PS4"], "{theme}: Astro Drift's PS4 version stays");
+        // Show, on a version of the game, shows every version again.
+        let show = launcher_core::LibraryCmd::Hide {
+            game: "release-catalog:emu-ps4/CUSA01234".parse().unwrap(),
+            hidden: false,
+        };
+        host.dispatch(Command::Library(show));
+        host.dispatch(Command::OpenGame("release-catalog:emu-ps4/CUSA01234".parse().unwrap()));
+        host.load_images();
+        // The screen's change handler runs on the next pass, and closes the game's menu.
+        slint::platform::update_timers_and_animations();
+        // The pointer's way: the pill is outside the key order. Not `press_first`: its settle
+        // moves the testing backend's clock, and this platform has its own.
+        host.first("hub-hide").invoke_accessible_default_action();
+        host.pump();
+        let items = host.values("game-menu");
+        assert!(items.contains(&"Hide every version".to_owned()), "{theme}: {items:?}");
+        assert_eq!(host.focused("game-menu"), ["Hide the PS4 version"], "{theme}: the keys on the one version");
+        shoot(&window, &out.join(format!("{theme}-hide-versions.png")));
+        key(&mut host, Key::DownArrow);
+        assert_eq!(host.focused("game-menu"), ["Hide every version"], "{theme}");
+        key(&mut host, Key::UpArrow);
+        key(&mut host, Key::Return);
+        assert_eq!(host.core().view().detail.map(|d| d.hidden), Some(true), "{theme}: this version is hidden");
+        host.dispatch(Command::Navigate(Route::Catalog));
+        host.load_images();
+        assert_eq!(host.values("card-console"), ["PS5", "PS4"], "{theme}: Astro Drift's PS5 alone, and Quest");
+    }
+    not_blank(&out, &["classic-hide-versions", "default-hide-versions"]);
 }
