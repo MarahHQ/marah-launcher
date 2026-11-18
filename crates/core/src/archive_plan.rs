@@ -130,8 +130,8 @@ fn check(entry: ArchiveEntry) -> Result<Planned, ArchiveError> {
 const MOST_LINKS: usize = 40;
 
 /// The listing's links by their path in lower case ([`fold`]): the first link at each path,
-/// by its place in the listing, and its target.
-type Links<'a> = HashMap<PathBuf, (usize, &'a Path)>;
+/// by its place in the listing, its path as listed, and its target.
+type Links<'a> = HashMap<PathBuf, (usize, &'a Path, &'a Path)>;
 
 /// Checks the entries against the listing's links, whatever their order: each link must end
 /// inside the folder once the links on its way are followed, no hard link may name a link or
@@ -142,13 +142,17 @@ fn check_links(planned: &[Planned]) -> Result<(), ArchiveError> {
     let mut links = Links::new();
     for (at, entry) in planned.iter().enumerate() {
         if let EntryKind::Link(target) = &entry.kind {
-            links.entry(fold(&entry.path)).or_insert((at, target));
+            links.entry(fold(&entry.path)).or_insert((at, &entry.path, target));
         }
     }
     let escapes = |entry: &Planned, how| ArchiveError::Escapes { entry: entry.name.clone(), how };
     for entry in planned {
         let out = match &entry.kind {
-            EntryKind::Link(target) => !ends_inside(&entry.path, target, &links),
+            // Out by either match of names, so out on every system.
+            EntryKind::Link(target) => {
+                !ends_inside(&entry.path, target, &links, Names::Folded)
+                    || !ends_inside(&entry.path, target, &links, Names::Exact)
+            }
             // A hard link to a link is a second link at a new place, where its relative target
             // ends somewhere else. Through a link, the plan can't tell what it names.
             EntryKind::HardLink(target) => fold(target).ancestors().any(|at| links.contains_key(at)),
@@ -160,7 +164,7 @@ fn check_links(planned: &[Planned]) -> Result<(), ArchiveError> {
     }
     for (at, entry) in planned.iter().enumerate() {
         let path = fold(&entry.path);
-        let on_a_link = links.get(&path).is_some_and(|(link, _)| *link != at);
+        let on_a_link = links.get(&path).is_some_and(|(link, _, _)| *link != at);
         let under_a_link = path.ancestors().skip(1).any(|folder| links.contains_key(folder));
         if on_a_link || under_a_link {
             return Err(escapes(entry, Escape::ThroughLink));
@@ -172,6 +176,9 @@ fn check_links(planned: &[Planned]) -> Result<(), ArchiveError> {
 /// `path` with each name in lower case, so that names that differ only in case match, as they
 /// do on macOS and Windows. Linux tells them apart, so there the plan refuses a little more
 /// than it must. A name that is not UTF-8 stays as it is.
+///
+/// The walk in [`ends_inside`] can't just fold: a name that is no link on Linux may be a link
+/// on macOS, and the two ways end in different places.
 fn fold(path: &Path) -> PathBuf {
     path.iter().map(fold_name).collect()
 }
@@ -188,11 +195,21 @@ fn fold_name(name: &OsStr) -> OsString {
     }
 }
 
+/// How [`ends_inside`] matches a name on the way to a link's path.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Names {
+    /// Byte for byte, as Linux does.
+    Exact,
+    /// As [`fold`] makes them, as macOS and Windows do.
+    Folded,
+}
+
 /// Whether a link at `link` to `target` ends inside the folder, following `links` on the way
-/// as the system would. A `..` after a link climbs from where the link ends, not from where it
-/// sits. A way through more than [`MOST_LINKS`] links counts as outside. Names match as
-/// [`fold`] makes them.
-fn ends_inside(link: &Path, target: &Path, links: &Links) -> bool {
+/// as the system would, with names matched as `names` says. A `..` after a link climbs from
+/// where the link ends, not from where it sits. A way through more than [`MOST_LINKS`] links
+/// counts as outside. With [`Names::Exact`], a link that `links` holds under another link's
+/// folded path is missed; [`check_links`] refuses two such links anyway.
+fn ends_inside(link: &Path, target: &Path, links: &Links, names: Names) -> bool {
     let mut at = PathBuf::new();
     let mut left: VecDeque<Component> = link.parent().into_iter().flat_map(Path::components).collect();
     left.extend(target.components());
@@ -200,8 +217,9 @@ fn ends_inside(link: &Path, target: &Path, links: &Links) -> bool {
     while let Some(part) = left.pop_front() {
         match part {
             Component::Normal(name) => {
-                at.push(fold_name(name));
-                if let Some((_, to)) = links.get(&at) {
+                at.push(name);
+                let found = links.get(&fold(&at)).filter(|(_, path, _)| names == Names::Folded || *path == at);
+                if let Some((_, _, to)) = found {
                     followed += 1;
                     if followed > MOST_LINKS {
                         return false;
@@ -393,6 +411,10 @@ mod tests {
         let chained = vec![link("D/l", ".."), link("x", "d/l/..")];
         assert_eq!(plan_unpack(chained, &dest(), None).unwrap_err(), escapes("x", Escape::LinksOut));
         let chained = vec![link("d/l", ".."), link("x", "D/L/..")];
+        assert_eq!(plan_unpack(chained, &dest(), None).unwrap_err(), escapes("x", Escape::LinksOut));
+        // On Linux `A` is no link, so `A/..` is the top and `x` ends one folder above it. On
+        // macOS `A` is the link `a`, and `x` ends in `b/d`. Either way out counts as out.
+        let chained = vec![link("a", "b/c"), link("d/l", ".."), link("x", "A/../d/l/..")];
         assert_eq!(plan_unpack(chained, &dest(), None).unwrap_err(), escapes("x", Escape::LinksOut));
         let refused = plan_unpack(vec![link("a", "b"), file("A/f", 1)], &dest(), None).unwrap_err();
         assert_eq!(refused, escapes("A/f", Escape::ThroughLink));
