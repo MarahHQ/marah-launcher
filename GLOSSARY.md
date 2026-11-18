@@ -199,7 +199,8 @@ storage, folders, programs, HTTP, settings and the log.
 
 **Install claim** (`InstallClaim`): an install, update or uninstall of one emulator's build in
 progress. The builds subsystem gives one emulator one claim at a time, so a second install of it
-is refused, and no game of it starts while the claim lives.
+is refused, and no game of it starts while the claim lives. An automatic install or update that
+finds the claim taken is skipped, with no notice.
 
 **Install event** (`InstallEvent`): what the game installs subsystem asks of the core: refresh
 the library for a new game, tell the player of a failure, or start the install of a download

@@ -18,9 +18,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use launcher_api::{Event, GameKey, InstallPhase, PluginId};
 
+use crate::EventBus;
 use crate::changes::{Area, Notifier};
 use crate::config::ConfigService;
-use crate::{CoreError, CoreResult, EventBus};
 
 /// Where the installs under way are saved.
 const INSTALLS: [&str; 2] = ["app", "installs"];
@@ -200,19 +200,21 @@ impl BuildsSubsystem {
         self.state().emulators.insert(plugin.clone(), emulator);
     }
 
-    /// One install of an emulator at a time. The check and the claim happen under one lock, so
-    /// two installs can't both start.
-    pub fn claim(&self, plugin: &PluginId) -> CoreResult<InstallClaim> {
+    /// One install of an emulator at a time: `None` while another install of `plugin` holds
+    /// the claim. The check and the claim happen under one lock, so two installs can't both
+    /// start. The flow says what a taken claim means: a refusal for the player's own install, a
+    /// skip for an automatic one.
+    pub fn claim(&self, plugin: &PluginId) -> Option<InstallClaim> {
         {
             let mut state = self.state();
             if !state.installing.insert(plugin.clone()) {
-                return Err(CoreError::Invalid(format!("{plugin} is already installing: wait for it")));
+                return None;
             }
             // The emulator shows in the lists and on the boot screen before its first read.
             state.emulators.entry(plugin.clone()).or_default();
         }
         self.inner.notifier.changed(Area::Downloads);
-        Ok(InstallClaim { builds: self.clone(), plugin: plugin.clone() })
+        Some(InstallClaim { builds: self.clone(), plugin: plugin.clone() })
     }
 
     /// An install, update or uninstall of `plugin` is under way: it moves the emulator's files

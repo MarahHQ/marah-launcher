@@ -204,7 +204,7 @@ routes a command to a flow when no one subsystem owns it.
 | Flow | Does |
 | --- | --- |
 | `navigation.rs` | Opens screens on the stack, goes back, selects games, and sets the grids' search, filters, sort and pages. |
-| `emulator_builds.rs` | Reads, installs, updates and removes emulator builds through the plugins, and checks for updates. Each install claims its emulator first (`BuildsSubsystem::claim`). |
+| `emulator_builds.rs` | Reads, installs, updates and removes emulator builds through the plugins, and checks for updates. Each install claims its emulator first (`BuildsSubsystem::claim`). A taken claim refuses the player's install and skips an automatic one. |
 | `plugin_downloads.rs` | Starts and resumes a plugin's download plans. |
 | `plugin_settings.rs` | Sets plugin settings and theme options, runs plugin actions, maps host folders, turns plugins on or off. |
 | `release_downloads.rs` | Resolves the Catalog's downloads and installs, and turns torrent and install events into work. |

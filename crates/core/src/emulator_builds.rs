@@ -14,7 +14,7 @@ use launcher_api::{
 use launcher_ui_api::NoticeKind;
 
 use crate::app::{Core, Route};
-use crate::builds::InstallPrompt;
+use crate::builds::{InstallClaim, InstallPrompt};
 use crate::changes::Area;
 use crate::error::require;
 use crate::{CoreError, CoreResult};
@@ -58,14 +58,42 @@ pub(crate) async fn refresh_emulators(core: &Core) {
 }
 
 /// The install workflow: plan, download, check, install. Each phase is saved, so a crash
-/// resumes it at the next start.
+/// resumes it at the next start. It is refused while another install of the emulator runs.
 pub(crate) async fn install(
     core: &Core,
     plugin: &PluginId,
     version: Option<String>,
     from: Option<String>,
 ) -> CoreResult<()> {
-    let claim = core.builds().claim(plugin)?;
+    let claim = claim(core, plugin)?;
+    install_claimed(core, claim, plugin, version, from).await
+}
+
+/// The player's own install, update or uninstall claims the emulator, or is refused.
+fn claim(core: &Core, plugin: &PluginId) -> CoreResult<InstallClaim> {
+    core.builds()
+        .claim(plugin)
+        .ok_or_else(|| CoreError::Invalid(format!("{plugin} is already installing: wait for it")))
+}
+
+/// An automatic install or update claims the emulator. While another install holds it, the
+/// automatic one is skipped: that is no failure, and the player sees nothing.
+fn claim_if_free(core: &Core, plugin: &PluginId) -> Option<InstallClaim> {
+    let claim = core.builds().claim(plugin);
+    if claim.is_none() {
+        tracing::info!(plugin_id = %plugin, "another install of the emulator runs: this one is skipped");
+    }
+    claim
+}
+
+/// [`install`], once it holds the claim.
+async fn install_claimed(
+    core: &Core,
+    claim: InstallClaim,
+    plugin: &PluginId,
+    version: Option<String>,
+    from: Option<String>,
+) -> CoreResult<()> {
     let kernel = core.kernel();
     let provided = kernel.provided(plugin).await?;
     let installer = require(plugin, Capability::Installer, provided.installer.clone())?;
@@ -111,19 +139,33 @@ pub(crate) async fn install(
     result
 }
 
+/// The player's update of `plugin` to its newest build.
 pub(crate) async fn update(core: &Core, plugin: &PluginId) -> CoreResult<()> {
+    let (from, to) = found_update(core, plugin).await?;
+    install(core, plugin, Some(to), Some(from)).await
+}
+
+/// An automatic update of `plugin`, skipped while another install of it runs.
+async fn update_if_free(core: &Core, plugin: &PluginId) -> CoreResult<()> {
+    let (from, to) = found_update(core, plugin).await?;
+    let Some(claim) = claim_if_free(core, plugin) else { return Ok(()) };
+    install_claimed(core, claim, plugin, Some(to), Some(from)).await
+}
+
+/// Reads `plugin`'s builds: its newest installed build, and the newer one it updates to.
+async fn found_update(core: &Core, plugin: &PluginId) -> CoreResult<(String, String)> {
     refresh_emulator(core, plugin).await;
     let emu = core.builds().emulator(plugin);
     let from = emu.installed.last().cloned().ok_or_else(|| CoreError::Invalid(format!("{plugin} is not installed")))?;
     let to = emu.update().ok_or_else(|| CoreError::Invalid(format!("{plugin} is up to date")))?;
-    install(core, plugin, Some(to), Some(from)).await
+    Ok((from, to))
 }
 
 pub(crate) async fn uninstall(core: &Core, plugin: &PluginId, version: &str) -> CoreResult<()> {
     let kernel = core.kernel();
     let provided = kernel.provided(plugin).await?;
     let installer = require(plugin, Capability::Installer, provided.installer)?;
-    let claim = core.builds().claim(plugin)?;
+    let claim = claim(core, plugin)?;
     kernel.guard(plugin, "installer.uninstall", installer.uninstall(version)).await?;
     claim.end(version, InstallPhase::Uninstalled);
     refresh_emulator(core, plugin).await;
@@ -205,7 +247,7 @@ async fn install_updates(core: &Core) {
             continue;
         }
         updates.push(async move {
-            if let Err(e) = update(core, &plugin).await {
+            if let Err(e) = update_if_free(core, &plugin).await {
                 core.state().startup.failed.insert(plugin);
                 core.notices().problem(e.to_string());
             }
@@ -224,8 +266,9 @@ async fn install_missing(core: &Core) {
     // The emulators install side by side: one's download doesn't wait for another's.
     let installs = core.kernel().of_kind(PluginKind::Emulator).into_iter().filter(|p| wants_build(core, p)).map(
         |plugin| async move {
+            let Some(claim) = claim_if_free(core, &plugin) else { return };
             tracing::info!(plugin_id = %plugin, "installing the emulator's newest build");
-            if let Err(e) = install(core, &plugin, None, None).await {
+            if let Err(e) = install_claimed(core, claim, &plugin, None, None).await {
                 core.state().startup.failed.insert(plugin.clone());
                 tracing::warn!(error = %e, plugin_id = %plugin, "could not install the emulator's build");
             }
@@ -299,7 +342,7 @@ pub(crate) fn game_closed(core: &Core, plugin: &PluginId) {
     }
     let (core, plugin) = (core.clone(), plugin.clone());
     tokio::spawn(async move {
-        if let Err(e) = update(&core, &plugin).await {
+        if let Err(e) = update_if_free(&core, &plugin).await {
             core.notices().problem(e.to_string());
         }
         core.changed(Area::Downloads);
