@@ -122,6 +122,9 @@ checks the listing. The second pass writes only what the plan holds.
 | An entry needs a password. | `Password` |
 | A path is absolute, has `..` that climbs out, or is empty. | `Escapes` with `Leaves` |
 | A link points to an absolute path, or climbs out with `..`. | `Escapes` with `LinksOut` |
+| A link climbs out once the archive's other links on its way are followed. | `Escapes` with `LinksOut` |
+| A link goes through more than 40 links, as a link loop does. | `Escapes` with `LinksOut` |
+| An entry sits under a link's path, or at a link's path when it is not that link. | `Escapes` with `ThroughLink` |
 | A hard link names a target that is not a plain path inside the folder. | `Escapes` with `LinksOut` |
 | The files' bytes plus the spare do not fit in the free space. | `NoRoom` |
 
@@ -131,7 +134,13 @@ having room.
 The plan leaves out the archive's own top, an entry such as `./` that some tars list first.
 It also leaves out devices and pipes (`EntryKind::Other`).
 
-The adapter checks the disk again during the second pass. `Work::place` in
+The link rules look at the whole listing, not at the entries before. A reader, or `unar`, may
+write the entries in another order. For example, link `d/l` points to `..` and link `x`
+points to `d/l/..`. Each link alone stays inside. But `d/l` ends at the folder's top, so `x`
+ends one folder above it, and the plan refuses `x`. A link may go through other links that
+stay inside, as `Qt.framework/Qt` to `Versions/Current/Qt` does in a macOS framework.
+
+The adapter checks the disk again during the second pass, as a second guard. `Work::place` in
 `crates/app/src/archives.rs` refuses to write where a link is already on the disk
 (`Escape::ThroughLink`), and where the path ends up outside the folder once links are
 followed (`Escape::LeavesThroughLink`). If the second pass finds an entry the first pass did
@@ -210,7 +219,7 @@ by the kind, never by the text.
 | Kind | Meaning |
 | --- | --- |
 | `Password` | An entry needs a password. Marah Launcher cannot ask for one. |
-| `Escapes` | A path or link gets out of the folder. |
+| `Escapes` | A path or link gets out of the folder, or an entry would be written through a link. |
 | `NoRoom` | The disk is too small. The text gives both sizes in GB. |
 | `Unsupported` | The reader cannot read this. Another reader may. |
 | `Missing` | A library or program is not installed. The text says which. |
@@ -243,6 +252,8 @@ checks that:
 - A `..` path is refused, and nothing is written.
 - An absolute path is refused.
 - A link to `../../../etc/passwd` or `/etc/passwd` is refused.
+- A link that climbs out through another link is refused, and nothing is written.
+- A file under a link is refused, and nothing is written.
 - An archive that needs a password is refused. If the fixture cannot make one, the check is
   skipped and says so.
 - An archive bigger than the free space is refused.
