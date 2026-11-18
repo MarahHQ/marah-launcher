@@ -1,6 +1,7 @@
 import { Vm, Host } from "../types.slint";
 import { Commands } from "commands.slint";
 import { Look } from "look.slint";
+import { Games } from "games.slint";
 import { Hub } from "game-detail.slint";
 import { Dl } from "downloads.slint";
 import { Prefs } from "settings-rows.slint";
@@ -168,6 +169,19 @@ export component ShellKeys inherits FocusScope {
         root.screen-changed();
         root.focus();
     }
+
+    // A key move among the games (`Games.select`) goes to the core once the moves stop: each
+    // move starts the wait again.
+    send := Timer {
+        interval: Look.select-after;
+        running: Games.moving && !Games.sent;
+        triggered => { Games.send(); }
+    }
+    property <int> moves: Games.moves;
+    changed moves => { send.restart(); }
+    // The core's selection changed: the cursor follows it, unless a move waits.
+    property <string> core-key: Games.core-key;
+    changed core-key => { Games.core-moved(); }
 
     // Every key comes here first, whichever element has the focus: the on-screen keyboard
     // takes the controller's while it is open, and ✕ on a text field opens it again.

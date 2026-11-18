@@ -35,6 +35,7 @@ import { Sys, SystemSheet } from "kit/system-panel.slint";
 import { Screens, ShellKeys, Overlays, ShellHints, Hint } from "kit/shell.slint";
 import { Reveal } from "kit/reveal.slint";
 import { Brand } from "brand.slint";
+import { Games } from "kit/games.slint";
 
 // The Default theme. One backdrop of game art behind every screen, the top bar
 // over the main screens, and the keys that do something in a pill at the bottom. A gamepad's
@@ -58,8 +59,8 @@ export component Shell inherits Window {
     // The art behind: the shown game's art once its details are loaded, its cover until then.
     property <image> art: Vm.screen == "game-detail" && Vm.detail.background.width > 0 ? Vm.detail.background
         : Vm.screen == "game-detail" ? Vm.detail.cover
-        : Nav.has-detail && Vm.detail.background.width > 0 ? Vm.detail.background
-        : Nav.has-game ? Nav.games[Nav.shown].cover
+        : Games.has-detail && Vm.detail.background.width > 0 ? Vm.detail.background
+        : Games.has-game ? Games.games[Games.shown].cover
         : Vm.detail.background;
 
     // Sizes follow the window from its first frame.
@@ -69,18 +70,6 @@ export component Shell inherits Window {
     // A game starts: the start sound. The screen stays as it is.
     property <bool> has-running: Vm.has-running;
     changed has-running => { if (root.has-running) { Host.play-sound("start"); } }
-    // A move in the Home row or a grid goes to the core once the moves stop: each move
-    // starts the wait again.
-    send := Timer {
-        interval: Look.select-after;
-        running: Nav.moving && !Nav.sent;
-        triggered => { Nav.send(); }
-    }
-    property <int> moves: Nav.moves;
-    changed moves => { send.restart(); }
-    // The core's selection changed: the cursor follows it, unless a move waits.
-    property <string> core-key: Nav.core-key;
-    changed core-key => { Nav.core-moved(); }
     // The backup browser opened: its keys come here, whatever had the focus.
     property <bool> browsing: Browser.open;
     changed browsing => { if (root.browsing) { keys.focus(); } }
@@ -112,7 +101,7 @@ export component Shell inherits Window {
         height: root.height;
         art: root.art;
         // On Home, a newly selected game's art waits for its details.
-        ready: !root.home || !Nav.has-game || !Nav.library || Nav.has-detail;
+        ready: !root.home || !Games.has-game || !Games.library || Games.has-detail;
         // Settings and the running card draw their own wash.
         dim: root.home || Vm.screen == "game-detail" || root.sheet ? 0 : 0.84;
     }
@@ -125,7 +114,7 @@ export component Shell inherits Window {
         theme-key(text) => {
             // Triangle or /: search the Catalog on its screen, else the Library.
             if (text == "/" && !Nav.typing && !Prefs.editing) {
-                if (Nav.catalog) {
+                if (Games.catalog) {
                     Nav.zone = "bar";
                     Nav.bar = 0;
                     Nav.typing = true;
@@ -135,7 +124,7 @@ export component Shell inherits Window {
                 return true;
             }
             // Square (the pad's Insert), or T outside the Library's typing: the shown game's trailer.
-            if ((text == Key.Insert || ((text == "t" || text == "T") && !Nav.library && !Nav.catalog))
+            if ((text == Key.Insert || ((text == "t" || text == "T") && !Games.library && !Games.catalog))
                 && root.trailer-key) {
                 Trailers.watch();
                 return true;
@@ -148,7 +137,7 @@ export component Shell inherits Window {
             }
             false
         }
-        screen-key(text) => { (root.home || Nav.catalog) && Nav.key(text) }
+        screen-key(text) => { (root.home || Games.catalog) && Nav.key(text) }
         // The kit's pages are back at their start (`ShellKeys`); the theme's own keys follow.
         screen-changed => {
             Nav.sort-open = false;
@@ -209,7 +198,7 @@ export component Shell inherits Window {
     // The shown game's menu and trailer: the keys that open them work here.
     // The download sheet keeps them.
     property <bool> game-keys: Vm.has-detail && Hub.consent < 0 && !Nav.sort-open
-        && (Vm.screen == "game-detail" || (Nav.library && Nav.has-detail));
+        && (Vm.screen == "game-detail" || (Games.library && Games.has-detail));
     property <bool> trailer-key: root.game-keys && Vm.detail.trailer-url != "";
     property <bool> overlay: Vm.has-install-prompt || Vm.has-question || GameMenu.open || Vm.has-trailer || Viewer.open || Nav.sort-open
         || Osk.open || PowerMenu.open;
@@ -240,9 +229,9 @@ export component Shell inherits Window {
             { pad: "✕", key: "Enter", label: "Select" },
             { pad: "L1  R1", key: "Tab", label: "Top bar" },
         ];
-    property <bool> grid-header: (Nav.library || Vm.screen == "catalog")
+    property <bool> grid-header: (Games.library || Vm.screen == "catalog")
         && (Nav.zone == "bar" || Nav.zone == "filters" || Nav.zone == "genres") && !Nav.typing;
-    if (root.overlay || root.grid-header || !(Nav.library || Vm.screen == "catalog"))
+    if (root.overlay || root.grid-header || !(Games.library || Vm.screen == "catalog"))
         && !(Vm.has-trailer && Vm.trailer.playing && !Trailers.controls)
         // The backup browser shows its own keys.
         && !Browser.open

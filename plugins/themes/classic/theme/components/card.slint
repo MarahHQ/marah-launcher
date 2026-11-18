@@ -1,24 +1,23 @@
 import { Vm, Host, GameCard } from "../types.slint";
-import { Commands } from "../kit/commands.slint";
 import { Icon } from "../kit/icon.slint";
 import { Tokens } from "../tokens.slint";
 import { Look } from "../kit/look.slint";
 import { FocusRing, Cover } from "../kit/widgets.slint";
 import { Nav } from "nav.slint";
-import { Hub } from "../kit/game-detail.slint";
 import { SlotBadges } from "../kit/slot-badges.slint";
+import { Games } from "../kit/games.slint";
 
 // A Library card: its 2:3 cover with the console on top, how it runs and its
 // rating at the bottom; then two lines for the title, and its size. A game a catalog offers
 // also says how many releases it has, beside the size, and how easy its best release is to
 // download, under it. The focused card grows a little and gets the white ring. Its interface is the contract's: the focus comes from the
-// Library's or the Catalog's keys, at once (`Nav.selected-key`), before the core hears of the move.
+// Library's or the Catalog's keys, at once (`Games.selected-key`), before the core hears of the move.
 export component Card inherits Rectangle {
     in property <GameCard> game;
     in property <length> cover-height: self.width * 1.5;
     callback activated();
 
-    property <bool> focused: (Nav.library || Nav.catalog) && Nav.zone == "grid" && Nav.selected-key == root.game.key;
+    property <bool> focused: (Games.library || Games.catalog) && Nav.zone == "grid" && Games.selected-key == root.game.key;
     property <bool> lit: root.focused || touch.has-hover;
     property <bool> small: root.width < 200 * Look.px;
     property <bool> offered: root.game.releases > 0;
@@ -28,15 +27,6 @@ export component Card inherits Rectangle {
     accessible-label: root.game.title;
     accessible-item-selected: root.focused;
     accessible-action-default => { root.activated(); }
-
-    // The eye's press (see the eye below).
-    function hide() {
-        if (root.game.hidden || root.game.consoles.length > 0) {
-            Commands.hide-game(root.game.key, !root.game.hidden);
-        } else {
-            Commands.hide-version(root.game.key, true);
-        }
-    }
 
     touch := TouchArea { mouse-cursor: pointer; clicked => { root.activated(); } }
 
@@ -121,7 +111,7 @@ export component Card inherits Rectangle {
                 accessible-label: "card-hide";
                 accessible-value: root.game.hidden ? "Show " + root.game.title
                     : root.game.consoles.length > 0 ? "Hide every version of " + root.game.title : "Hide " + root.game.title;
-                accessible-action-default => { root.hide(); }
+                accessible-action-default => { Games.hide(root.game); }
                 Icon {
                     width: parent.width * 0.6;
                     height: self.width;
@@ -129,7 +119,7 @@ export component Card inherits Rectangle {
                 }
                 eye := TouchArea {
                     mouse-cursor: pointer;
-                    clicked => { root.hide(); }
+                    clicked => { Games.hide(root.game); }
                 }
             }
             // The game's main action, the same for every game (`GameCard.can`): Play when it
@@ -153,14 +143,7 @@ export component Card inherits Rectangle {
                 accessible-value: self.label + " " + root.game.title;
                 accessible-action-default => { self.act(); }
                 function act() {
-                    if (self.plays) {
-                        Commands.launch(root.game.key);
-                    } else if (root.game.can.get-store != "") {
-                        Commands.download-release(root.game.key, root.game.can.get-release, "");
-                    } else {
-                        Hub.to-releases = true;
-                        root.activated();
-                    }
+                    if (Games.act(root.game)) { root.activated(); }
                 }
                 action-row := HorizontalLayout {
                     padding-left: 12 * Look.px;

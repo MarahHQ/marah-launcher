@@ -65,7 +65,7 @@ From `theme.toml`:
 | `version` | `0.3.0` |
 | `host_api` | `^0.3` |
 | `activation` | `eager` |
-| `ui_api` | `^0.4.1` |
+| `ui_api` | `^0.4.2` |
 | `input` | `["gamepad", "pointer"]` |
 | `navigation` | `focus` |
 | breakpoints | `compact` (`max_width = 900`), then `regular` |
@@ -250,7 +250,7 @@ three rows. A letter or a digit typed in the grid starts a search with it. In th
 Escape goes back to the screen it opened from.
 
 A move shows at once. The core hears of the selection `Look.select-after` (100 ms) after the
-last move: the shell's timer calls `Nav.send`.
+last move: the kit's `ShellKeys` timer calls `Games.send`.
 
 ### Game Hub (`screens/game-detail.slint`)
 
@@ -351,9 +351,9 @@ or "No games here".
 ### Navigation (`components/nav.slint`)
 
 The `Nav` global: the view (`home` or `library`), the zone, the focused item of each zone, the
-grid's columns, the search box, the list of sorts, and each grid's scroll. It holds the theme's
-own selection (`cursor`) and sends it to the core after the moves stop. It re-exports the kit's
-`Origin`. The keys are in [Keys on Home](#keys-on-home-and-in-the-library-componentsnavslint).
+grid's columns, the search box, the list of sorts, and each grid's scroll. The games on screen,
+the theme's own selection (`cursor`) and the commands for the view on screen are the kit's
+`Games` (`kit/games.slint`). `Nav` re-exports the kit's `Origin`. The keys are in [Keys on Home](#keys-on-home-and-in-the-library-componentsnavslint).
 
 ### Top bar (`components/top-bar.slint`)
 

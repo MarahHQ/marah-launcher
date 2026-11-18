@@ -55,6 +55,7 @@ pub const KIT: &[(&str, &str)] = &[
     ("game-menu.slint", include_str!("../kit/game-menu.slint")),
     ("game-settings.slint", include_str!("../kit/game-settings.slint")),
     ("game-stage.slint", include_str!("../kit/game-stage.slint")),
+    ("games.slint", include_str!("../kit/games.slint")),
     ("icon.slint", include_str!("../kit/icon.slint")),
     ("install-os.slint", include_str!("../kit/install-os.slint")),
     ("install-prompt.slint", include_str!("../kit/install-prompt.slint")),
