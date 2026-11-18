@@ -90,8 +90,17 @@ then its meta file.
 Both are saved in the plugin's `versions.json`.
 
 **Disks** (`Disks`): each console's download folder and the free space on the disk that holds
-it, read ahead so the view doesn't ask the disk. The core reads them again when a Game Hub
+it, and for each download the free space where its files go and where its game installs, read
+ahead so the view doesn't ask the disk. The core reads them again when a Game Hub or Downloads
 opens, the catalogs are read, a folder changes, and a download starts or ends.
+
+**Download and install** (`InstallAfter`, `TorrentCmd::Begin`): the download sheet's first
+button. The checked files download, and the game installs by itself into the game folder once
+the download finishes, through the same install as **Install**.
+
+**Download sheet** (`FilesSheet`, kit `downloads.slint`): "Choose what to download", which
+**Download** on a Ready download opens. It lists the files with a checkbox each, the free space
+on both drives and the game folder.
 
 **Display text**: the words a theme shows for a fact of the view, such as "7.6 GB" for a size
 or "Mar 12, 2024" for a date. The core builds it when it builds the view (`display.rs`); the
@@ -344,6 +353,12 @@ time.
 
 **Settings schema**: a plugin's JSON Schema for a settings scope, read as the fields a panel
 shows and as the type of the text the player types (`settings_schema.rs`).
+
+**Skipped file** (`TorrentJob::skip`): a file of a download the player unchecked on the download
+sheet. The engine gives it skip priority but may still make it, as a stub with the bytes of a
+piece it shares with a checked file; the core deletes those stubs once the download finishes. A
+download with skipped files doesn't share. File kinds (game, update, DLC, extra) come from the
+file's name (`torrents/picks.rs`); the game itself can't be skipped.
 
 **Snapshot**: a subsystem's state read whole, in one lock. Reading it changes nothing. The
 core's `Snapshot` (`Core::snapshot()`) holds one read of each subsystem, a copy of the state no

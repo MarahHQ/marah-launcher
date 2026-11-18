@@ -88,6 +88,16 @@ export global Commands {
     public function install-download(id: string, folder: string) {
         Host.command("GameInstall", "{\"Download\":{\"id\":" + Json.text(id) + ",\"folder\":" + Json.text(folder) + "}}");
     }
+    // The download sheet: checks or unchecks file `file` of a Ready download (-1 for every
+    // file), then Download, or Download and install into the game folder `folder`.
+    public function pick-file(id: string, file: int, on: bool) {
+        Host.command("Torrent", "{\"Pick\":{\"id\":" + Json.text(id) + ",\"file\":" + (file < 0 ? "null" : "" + file)
+            + ",\"on\":" + Json.flag(on) + "}}");
+    }
+    public function begin-download(id: string, install: bool, folder: string) {
+        Host.command("Torrent", "{\"Begin\":{\"id\":" + Json.text(id) + ",\"install\":" + Json.flag(install)
+            + ",\"folder\":" + Json.text(folder) + "}}");
+    }
     // An action from a download's `actions`, or delete-files. Installing is a game install's.
     public function torrent-action(id: string, action: string) {
         if (action == "install") {

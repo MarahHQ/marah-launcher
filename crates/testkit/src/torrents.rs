@@ -18,6 +18,8 @@ type Files = Vec<(String, Vec<u8>)>;
 
 struct Running {
     folder: PathBuf,
+    /// The files it downloads, by their place in the torrent; `None` for every one.
+    only: Option<Vec<usize>>,
     /// Started paused, or paused since: it talks to no peer.
     paused: bool,
     stats: TorrentStats,
@@ -30,6 +32,8 @@ struct State {
     running: BTreeMap<String, Running>,
     /// Every start: hash, and whether it started paused.
     started: Vec<(String, bool)>,
+    /// The files each torrent's last start asked for; `None` for every one.
+    only: BTreeMap<String, Option<Vec<usize>>>,
     /// Every route asked for, in order.
     routes: Vec<Option<String>>,
     /// How many times every torrent was stopped at once.
@@ -42,6 +46,11 @@ struct State {
 #[derive(Clone, Default)]
 pub struct FakeTorrents {
     state: Arc<Mutex<State>>,
+}
+
+/// File `i` is one the torrent downloads.
+fn chosen(only: &Option<Vec<usize>>, i: usize) -> bool {
+    only.as_ref().is_none_or(|o| o.contains(&i))
 }
 
 fn hash_of(magnet: &str) -> PluginResult<String> {
@@ -88,12 +97,12 @@ impl FakeTorrents {
         }
     }
 
-    /// Every piece arrives: the files are written into the torrent's folder.
+    /// Every piece arrives: the files it downloads are written into the torrent's folder.
     pub fn complete(&self, hash: &str) {
         let mut state = self.lock();
         let files = state.swarm.get(hash).map(|(_, f)| f.clone()).unwrap_or_default();
         let Some(r) = state.running.get_mut(hash) else { return };
-        for (path, bytes) in files {
+        for (_, (path, bytes)) in files.into_iter().enumerate().filter(|(i, _)| chosen(&r.only, *i)) {
             let to = r.folder.join(&path);
             std::fs::create_dir_all(to.parent().unwrap()).unwrap();
             std::fs::write(to, bytes).unwrap();
@@ -115,6 +124,12 @@ impl FakeTorrents {
     /// Every start so far, as (hash, started paused).
     pub fn started(&self) -> Vec<(String, bool)> {
         self.lock().started.clone()
+    }
+
+    /// The files the last start of torrent `hash` asked for, by their place in it: `None` for
+    /// every file, and also when it never started.
+    pub fn only(&self, hash: &str) -> Option<Vec<usize>> {
+        self.lock().only.get(hash).cloned().flatten()
     }
 
     /// The hashes of the torrents running now.
@@ -150,26 +165,47 @@ impl Torrents for FakeTorrents {
         })
     }
 
-    /// A start checks the files in the folder at once. Whole, the torrent is finished: live,
-    /// or paused when it started paused. Else a live one checks until the test sends pieces
-    /// ([`FakeTorrents::progress`]), and a paused one stays paused with pieces missing.
-    async fn start(&self, id: &str, magnet: &str, folder: &Path, paused: bool) -> PluginResult<()> {
+    /// A start checks the files it downloads in the folder at once. Whole, the torrent is
+    /// finished: live, or paused when it started paused. Else a live one checks until the test
+    /// sends pieces ([`FakeTorrents::progress`]), and a paused one stays paused with pieces
+    /// missing. As librqbit does, it makes the files it skips as stubs: their full length, with
+    /// none of their bytes.
+    async fn start(
+        &self,
+        id: &str,
+        magnet: &str,
+        folder: &Path,
+        paused: bool,
+        only: Option<&[usize]>,
+    ) -> PluginResult<()> {
         let hash = hash_of(magnet)?;
+        let only = only.map(<[usize]>::to_vec);
         let mut state = self.lock();
         let files =
             state.swarm.get(&hash).map(|(_, f)| f.clone()).ok_or_else(|| PluginError::Network("no peers".into()))?;
-        let total = files.iter().map(|(_, b)| b.len() as u64).sum();
-        let whole = files.iter().all(|(p, b)| std::fs::read(folder.join(p)).is_ok_and(|on_disk| &on_disk == b));
+        for (_, (path, bytes)) in files.iter().enumerate().filter(|(i, _)| !chosen(&only, *i)) {
+            let stub = folder.join(path);
+            if !stub.exists() {
+                std::fs::create_dir_all(stub.parent().unwrap()).unwrap();
+                std::fs::File::create(&stub).unwrap().set_len(bytes.len() as u64).unwrap();
+            }
+        }
+        let wanted: Vec<&(String, Vec<u8>)> =
+            files.iter().enumerate().filter(|(i, _)| chosen(&only, *i)).map(|(_, f)| f).collect();
+        let total = wanted.iter().map(|(_, b)| b.len() as u64).sum();
+        let whole = wanted.iter().all(|(p, b)| std::fs::read(folder.join(p)).is_ok_and(|on_disk| &on_disk == b));
         let state_now = match (whole, paused) {
             (_, true) => TransferState::Paused,
             (true, false) => TransferState::Live,
             (false, false) => TransferState::Checking,
         };
         state.started.push((id.to_owned(), paused));
+        state.only.insert(id.to_owned(), only.clone());
         state.running.insert(
             id.to_owned(),
             Running {
                 folder: folder.to_owned(),
+                only,
                 paused,
                 stats: TorrentStats {
                     state: state_now,

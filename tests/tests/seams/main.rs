@@ -12,6 +12,7 @@ mod common;
 mod compare;
 mod contracts;
 mod default_theme;
+mod download_and_install;
 mod every_theme;
 mod folders;
 mod game_files;

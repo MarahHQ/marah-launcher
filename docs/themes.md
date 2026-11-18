@@ -307,7 +307,7 @@ A variant with a sub-enum takes that enum, written as JSON the same way.
 | `ReportResult` | `"ingame"`, `"menus"`, `"boots"`, `"nothing"`, or `null` for Not now. |
 | `Ratings` | Send ratings: `"Open"`, `{"Pick": key}` (picks a rating or leaves it out), `"Next"` (shows the first picked report), `"Send"` (opens the report on screen in the browser), `"Skip"` (sends nothing), `"Close"`. |
 | `ConfirmInstall`, `CancelInstall` | None. |
-| `Torrent` | `{"Download": {"offer": key, "release": id, "folder": path}}` (`folder` optional), `{"Act": {"id": id, "action": action}}`, `{"SeedDownloads": bool}`. See [Torrent actions](#torrent-actions). |
+| `Torrent` | `{"Download": {"offer": key, "release": id, "folder": path}}` (`folder` optional), `{"Act": {"id": id, "action": action}}`, `{"Pick": {"id": id, "file": n, "on": bool}}` (`file` `null` for every file), `{"Begin": {"id": id, "install": bool, "folder": path}}` (`folder` optional), `{"SeedDownloads": bool}`. See [Torrent actions](#torrent-actions). |
 | `GameInstall` | `{"Download": {"id": id, "folder": path}}` (`folder` optional), `{"Package": {"plugin": id, "source": {"folder": name, "root": n, "path": path}}}` (a `HostPath`), `{"RemoveUnpacked": {"id": id}}`, `{"Cancel": {"id": id}}`. |
 | `Vpn` | `{"SetOnly": bool}`, `{"Choose": name}`, `{"Connect": name}`, `{"Disconnect": name}`, `{"Import": path}`. |
 | `Backup` | `"Refresh"`, `{"BackUp": {"large": bool}}`, `{"Restore": file}`, `{"RestoreFile": path}`, `{"Delete": file}`, `{"Browse": path or null}`, `"CloseBrowser"`, `{"ShowHidden": bool}`, `{"Filter": text}`. |
@@ -365,6 +365,13 @@ The theme turns an action into a command:
 | `play` | `Session`, `{"Launch": game}`, with the torrent's `game`. |
 | `remove-unpacked` | `GameInstall`, `{"RemoveUnpacked": {"id": id}}`. |
 | `cancel-install` | `GameInstall`, `{"Cancel": {"id": id}}`. |
+
+`start` on a `ready` torrent is the download sheet's: the kit opens it first. The sheet shows
+`picks` (each file, its `kind`, `on` and `locked`), `picked`, `download-free`, `install-free`,
+`download-room` and `install-room`. `Commands.pick-file(id, n, on)` (`n` -1 for every file) sends
+`Pick`, and `Commands.begin-download(id, install, folder)` sends `Begin`: with `install`, the game
+installs into `folder` once the download finishes, and the torrent's `install-after` is true. A
+`Begin` the core refuses leaves the torrent `ready`, with the reason in `install-error`.
 
 The core never lists `delete-files`. A theme sends it (`"DeleteFiles"`) when the player removes a
 download with its files. `Commands.torrent-action(id, action)` in `kit/commands.slint` does all of

@@ -190,8 +190,8 @@ reach the releases.
 
 Pick a release to open "Set up a download". It shows the release and the download folder. Choose
 **Look up metadata** to add the download to Downloads. Marah Launcher first reads only the torrent's
-files and size. You look at them in Downloads, then press **Download** there to start it.
-Installing is a separate step.
+files and size. Then press **Download** on its card in Downloads to choose the files and start it
+(see [Choosing what to download](#choosing-what-to-download)).
 
 Only download content you are allowed to get and share. While a release downloads, Marah Launcher also
 uploads pieces of it to other players.
@@ -278,6 +278,36 @@ files**, **Cancel install** and **Open folder**. A Steam game shows **Open in St
 - A finished download goes on sharing while Marah Launcher is open, at most 128 KB/s. **Stop sharing**
   stops it until the next start. Settings → Downloads → **Keep sharing finished downloads**
   stops it for all of them.
+
+### Choosing what to download
+
+**Download** on a download whose files are read opens "Choose what to download":
+
+- Each file of the torrent has a checkbox, with what it is (**Game**, **Update**, **DLC** or
+  **Extra**) and its size. The game itself is always on: its box is locked. Updates, DLC and
+  extras, such as text files, pictures and soundtracks, are yours to leave out. **Select all**
+  and **Select none** check or uncheck them all. The parts of one archive go on and off
+  together. The sheet shows the first 100 files; the files after them always download.
+- The line above the files says how many are checked and their size.
+- The sheet shows the free space where the files download and where the game installs. When
+  the checked files don't fit, it says so in yellow, and the button that needs the room is off.
+- **Game folder** is where the game goes. Press ✕ on it to type another folder inside a game
+  folder.
+
+Then press one of these:
+
+- **Download and install**: the checked files download. When the download finishes, the game
+  installs by itself into the game folder, as **Install** does. Marah Launcher checks the game
+  folder before anything downloads.
+- **Download**: the checked files download, and you install the game later with **Install**.
+- **Not now**: nothing downloads.
+
+Files you leave out never download. When the download finishes, Marah Launcher deletes the empty
+placeholders the torrent engine made for them. A download with files left out doesn't share
+once it finishes.
+
+A problem shows where it happens. A download that fails says why on its card. An install that
+fails says why on the card too, and the downloaded files stay: press **Install** to try again.
 
 ### Installing a download
 

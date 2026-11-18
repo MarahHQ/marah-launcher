@@ -181,6 +181,14 @@ export struct Verdict { plugin: string, emulator: string, level: string, headlin
 // VPN is connected. `install-note`: what its emulator installs from, for the install sheet;
 // `install-folder`: the game folder the sheet offers (`~` for the home folder);
 // `install-error`: why the last Install didn't start.
+// The download sheet: `picks`, its files with a checkbox each (`kind`: game, update, dlc or
+// extra; `locked`: the game itself, always on); `picked`, what the checked ones come to;
+// `download-free` and `install-free`, the free space on the drives of the download folder and
+// of the game folder ("" when the system doesn't say); `download-room` and `install-room`, why
+// the checked files don't fit there ("" when they do). `install-after`: it installs by itself
+// into the game folder once it finishes.
+export struct TorrentPick { path: string, size: string, kind: string, on: bool, locked: bool }
+
 export struct Torrent {
     id: string,
     title: string,
@@ -211,6 +219,13 @@ export struct Torrent {
     // `install` installing), its one action `open-store` (the store's own Downloads page), and
     // it has no folder to open. Empty for a torrent.
     store: string,
+    picks: [TorrentPick],
+    picked: string,
+    download-free: string,
+    install-free: string,
+    download-room: string,
+    install-room: string,
+    install-after: bool,
 }
 
 export struct GameDetail {

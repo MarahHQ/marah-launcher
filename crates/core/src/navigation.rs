@@ -34,6 +34,8 @@ pub(crate) async fn navigate(core: &Core, route: Route) -> CoreResult<()> {
     match &route {
         Route::GameDetail(game) => return open_game(core, game.clone()).await,
         Route::Emulators => crate::emulator_builds::refresh_emulators(core).await,
+        // A download's sheet shows the free space where it goes and where it installs.
+        Route::Downloads => crate::disks::refresh(core),
         Route::Plugin(plugin) => {
             let manifest = core.kernel().manifest(plugin)?;
             // A service's blocks show on its page too.

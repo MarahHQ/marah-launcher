@@ -191,7 +191,16 @@ fn shoot_classic(host: &mut Composed, window: &MinimalSoftwareWindow, out: &Path
             // Downloaded: its archive unpacks. Once: the next theme finds it unpacked.
             let first = host.core().view().downloads.torrents.first().is_some_and(|t| t.state == "ready");
             if first {
+                // Download opens the download sheet: its files, the drives and the game folder.
                 key(host, Key::Return);
+                shoot_strip(window, out, &format!("{prefix}-files-sheet-open"));
+                shoot(window, &out.join(format!("{prefix}-files-sheet.png")));
+                // Download only: the archive unpacks, and the install sheet comes later.
+                i_slint_backend_testing::ElementHandle::find_by_accessible_label(host.instance(), "start-download")
+                    .next()
+                    .expect("the sheet's Download")
+                    .invoke_accessible_default_action();
+                host.pump();
                 // Bytes arrive: the card says the time left, and Open folder follows its buttons.
                 host.test.torrents.progress(&release.id, 4);
                 host.test.torrents.rate(&release.id, 1);
@@ -274,6 +283,35 @@ fn shoot_install_sheet(host: &mut Composed, window: &MinimalSoftwareWindow, out:
     host.ui.render().unwrap();
     shoot(window, &out.join(format!("{prefix}-install-sheet-error.png")));
     key(host, slint::platform::Key::Escape);
+}
+
+/// The Default theme's download sheet of a Ready download, its game and an update, as
+/// `default-files-sheet.png`. It leaves the download Ready, and the Catalog open.
+fn shoot_default_files_sheet(host: &mut Composed, window: &MinimalSoftwareWindow, out: &Path) {
+    let games = host.core().view().catalog.games.games;
+    let offer = games.iter().find(|g| g.platform != "PC").cloned().expect("a console game in the catalog");
+    host.dispatch(Command::OpenGame(offer.key.parse().unwrap()));
+    let release = host.core().view().detail.and_then(|d| d.releases.first().cloned()).expect("a release");
+    let files: &[(&str, &[u8])] = &[("Game/game.pkg", b"package"), ("Game/Update/update-1.02.pkg", b"update")];
+    host.test.torrents.has(&release.id, "Game", files);
+    host.dispatch(Command::Torrent(launcher_core::TorrentCmd::Download {
+        offer: offer.key.parse().unwrap(),
+        release: release.id.clone(),
+        folder: None,
+    }));
+    run_until(host, 1000, |core| core.view().downloads.torrents.iter().any(|t| t.state == "ready"));
+    host.dispatch(Command::Navigate(Route::Downloads));
+    host.load_images();
+    follow(host);
+    i_slint_backend_testing::ElementHandle::find_by_accessible_label(host.instance(), "torrent-action:start")
+        .find(|e| e.accessible_value().as_deref() == Some(release.id.as_str()))
+        .expect("the download's Download")
+        .invoke_accessible_default_action();
+    host.pump();
+    shoot(window, &out.join("default-files-sheet.png"));
+    key(host, slint::platform::Key::Escape);
+    host.dispatch(Command::Navigate(Route::Catalog));
+    follow(host);
 }
 
 /// The second offer's download while it looks up its files, as `<prefix>-downloads-resolving.png`:
@@ -1681,6 +1719,7 @@ fn the_default_theme_renders_its_library() {
     follow(&mut host);
     shoot(&window, &out.join("default-catalog-genres.png"));
     key(&mut host, Key::Escape);
+    shoot_default_files_sheet(&mut host, &window, &out);
     host.dispatch(Command::SetThemeOption { key: "direction".into(), value: "rtl".into() });
     follow(&mut host);
     host.first("library-genre").invoke_accessible_default_action();
@@ -1699,6 +1738,7 @@ fn the_default_theme_renders_its_library() {
             "default-library-sort",
             "default-catalog",
             "default-catalog-genres",
+            "default-files-sheet",
             "default-catalog-genres-rtl",
             "default-library-rtl",
         ],
