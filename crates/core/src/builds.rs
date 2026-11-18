@@ -120,10 +120,15 @@ pub(crate) struct BuildsSubsystem {
 pub(crate) struct InstallClaim {
     builds: BuildsSubsystem,
     plugin: PluginId,
+    /// [`InstallClaim::end`] let go already, and named the change.
+    ended: bool,
 }
 
 impl Drop for InstallClaim {
     fn drop(&mut self) {
+        if self.ended {
+            return;
+        }
         self.builds.state().installing.remove(&self.plugin);
         self.builds.inner.notifier.changed(Area::Downloads);
     }
@@ -141,11 +146,12 @@ impl InstallClaim {
     }
 
     /// The install ended in `phase`: its record goes, and the emulator is free again.
-    pub fn end(self, version: &str, phase: InstallPhase) {
+    pub fn end(mut self, version: &str, phase: InstallPhase) {
         if let Err(e) = self.builds.inner.config.remove(&[INSTALLS[0], INSTALLS[1], self.plugin.as_str()]) {
             tracing::warn!(error = %e, "could not save install state");
         }
         self.builds.state().installing.remove(&self.plugin);
+        self.ended = true;
         self.builds.published(&self.plugin, version, phase);
     }
 }
@@ -214,7 +220,7 @@ impl BuildsSubsystem {
             state.emulators.entry(plugin.clone()).or_default();
         }
         self.inner.notifier.changed(Area::Downloads);
-        Some(InstallClaim { builds: self.clone(), plugin: plugin.clone() })
+        Some(InstallClaim { builds: self.clone(), plugin: plugin.clone(), ended: false })
     }
 
     /// An install, update or uninstall of `plugin` is under way: it moves the emulator's files
@@ -268,5 +274,35 @@ impl BuildsSubsystem {
         let prompt = self.state().install_prompt.take();
         self.inner.notifier.changed(Area::Sessions);
         prompt
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::changes::{Change, Changes};
+
+    fn builds() -> (BuildsSubsystem, tokio::sync::broadcast::Receiver<Change>) {
+        let changes = Changes::new();
+        let heard = changes.subscribe();
+        let notifier = Notifier::new(changes, EventBus::new(16));
+        (BuildsSubsystem::new(Arc::new(ConfigService::in_memory()), EventBus::new(16), notifier), heard)
+    }
+
+    /// The changes to the builds heard since the last call.
+    fn downloads(heard: &mut tokio::sync::broadcast::Receiver<Change>) -> usize {
+        std::iter::from_fn(|| heard.try_recv().ok()).filter(|c| c.area == Area::Downloads).count()
+    }
+
+    #[test]
+    fn an_install_s_end_sends_one_change() {
+        let (builds, mut heard) = builds();
+        let plugin = PluginId::new("emu-a".to_owned()).unwrap();
+        let claim = builds.claim(&plugin).expect("the emulator is free");
+        downloads(&mut heard);
+
+        claim.end("1.0", InstallPhase::Installed);
+        assert_eq!(downloads(&mut heard), 1);
+        assert!(!builds.busy(&plugin));
     }
 }
