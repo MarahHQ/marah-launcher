@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.13.0](https://github.com/MarahHQ/marah-launcher/compare/v0.12.0...v0.13.0) (2026-11-18)
+
+
+### Features
+
+* **torrents:** a download with files left out shares the files it has ([#65](https://github.com/MarahHQ/marah-launcher/issues/65)) ([0c42b83](https://github.com/MarahHQ/marah-launcher/commit/0c42b83ccacfba82080bebbff0bdab78e9b2e0c9))
+
+
+### Bug Fixes
+
+* **hub:** a version's Game Hub shows the player's result for the installed game it is ([#63](https://github.com/MarahHQ/marah-launcher/issues/63)) ([48ac94d](https://github.com/MarahHQ/marah-launcher/commit/48ac94d678500d5e7f2795dd3268646ecc5e6f43))
+
 ## [0.12.0](https://github.com/MarahHQ/marah-launcher/compare/v0.11.1...v0.12.0) (2026-11-18)
 
 
