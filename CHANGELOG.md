@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.11.0](https://github.com/MarahHQ/marah-launcher/compare/v0.10.1...v0.11.0) (2026-11-18)
+
+
+### Features
+
+* a forgiving game search, with best matches and recent searches on the keyboard ([#54](https://github.com/MarahHQ/marah-launcher/issues/54)) ([de394ff](https://github.com/MarahHQ/marah-launcher/commit/de394ffee8f146a30379da0978bc8a100ac6b4ae))
+* a notice tells the player when the battery falls to 20% and to 10% ([#51](https://github.com/MarahHQ/marah-launcher/issues/51)) ([8f60c68](https://github.com/MarahHQ/marah-launcher/commit/8f60c68a50a5bcd26a0f90a346345170b5e67072))
+* **catalog:** one card per game across consoles, with the version best for this PC ([#56](https://github.com/MarahHQ/marah-launcher/issues/56)) ([bfb6b9e](https://github.com/MarahHQ/marah-launcher/commit/bfb6b9eb05902f3a9f87b7e8a0096c312a4d16cf))
+* **core:** an AppImage update downloads only the blocks that changed ([#53](https://github.com/MarahHQ/marah-launcher/issues/53)) ([8df3592](https://github.com/MarahHQ/marah-launcher/commit/8df359293b1db0a1aa06e2aa2c8ec551e1c0796a))
+* download and install in one step, with a choice of files and the drives' free space ([#57](https://github.com/MarahHQ/marah-launcher/issues/57)) ([e4403fa](https://github.com/MarahHQ/marah-launcher/commit/e4403fa3f57fc3049a5d363f956724b3de21d8ba))
+* Send ratings sends the player's results to the community compatibility lists ([#55](https://github.com/MarahHQ/marah-launcher/issues/55)) ([17e3d3e](https://github.com/MarahHQ/marah-launcher/commit/17e3d3e239edd6f8e143f0e7c8536224776f32ed))
+
 ## [0.10.1](https://github.com/MarahHQ/marah-launcher/compare/v0.10.0...v0.10.1) (2026-11-18)
 
 
