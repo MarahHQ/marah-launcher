@@ -50,15 +50,7 @@ fn the_catalog_is_the_library_s_view_and_loads_a_page_at_a_time() {
             "game_info": { "name": format!("Game {n:03}") } })
         })
         .collect();
-    let catalog = serde_json::json!({ "complete": true, "translation": { "language": "en" }, "topic_count": 130,
-        "topics": topics });
-    host.test.http.serve("https://xyz.dev/c/ps5.json", catalog.to_string());
-    host.dispatch(Command::SetConfig {
-        plugin: id("release-catalog"),
-        scope: launcher_api::ConfigScope::Emulator,
-        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
-    });
-    host.catalogs_fetched();
+    host.serve_catalog(&[("ps5", serde_json::json!(topics))]);
     host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
     host.resize(1600.0, 900.0);
     host.dispatch(Command::Navigate(launcher_core::Route::Catalog));
@@ -98,15 +90,7 @@ fn three_on_the_catalog() -> Composed {
             "game_info": { "name": name } })
         })
         .collect();
-    let catalog = serde_json::json!({ "complete": true, "translation": { "language": "en" }, "topic_count": 3,
-        "topics": topics });
-    host.test.http.serve("https://xyz.dev/c/ps5.json", catalog.to_string());
-    host.dispatch(Command::SetConfig {
-        plugin: id("release-catalog"),
-        scope: launcher_api::ConfigScope::Emulator,
-        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
-    });
-    host.catalogs_fetched();
+    host.serve_catalog(&[("ps5", serde_json::json!(topics))]);
     host.resize(1600.0, 900.0);
     // The boot screen is over everything until the library and Home's art are in.
     host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
@@ -172,15 +156,7 @@ fn the_bar_under_the_catalog_s_header_shows_how_far_down_all_its_games_the_grid_
             "game_info": { "name": format!("Game {n:03}") } })
         })
         .collect();
-    let catalog = serde_json::json!({ "complete": true, "translation": { "language": "en" }, "topic_count": 200,
-        "topics": topics });
-    host.test.http.serve("https://xyz.dev/c/ps5.json", catalog.to_string());
-    host.dispatch(Command::SetConfig {
-        plugin: id("release-catalog"),
-        scope: launcher_api::ConfigScope::Emulator,
-        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
-    });
-    host.catalogs_fetched();
+    host.serve_catalog(&[("ps5", serde_json::json!(topics))]);
     host.resize(1600.0, 900.0);
     host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
     host.load_images();
@@ -224,15 +200,7 @@ fn back_from_a_game_s_details_the_catalog_is_where_it_was() {
             "game_info": { "name": format!("Game {n:03}") } })
         })
         .collect();
-    let catalog = serde_json::json!({ "complete": true, "translation": { "language": "en" }, "topic_count": 60,
-        "topics": topics });
-    host.test.http.serve("https://xyz.dev/c/ps5.json", catalog.to_string());
-    host.dispatch(Command::SetConfig {
-        plugin: id("release-catalog"),
-        scope: launcher_api::ConfigScope::Emulator,
-        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
-    });
-    host.catalogs_fetched();
+    host.serve_catalog(&[("ps5", serde_json::json!(topics))]);
     host.resize(1600.0, 900.0);
     // The boot screen is over everything until the library and Home's art are in.
     host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
@@ -278,15 +246,7 @@ fn the_catalog_loads_only_the_covers_near_the_screen() {
             "game_info": { "name": format!("Game {n:03}"), "title_id": format!("PPSA{:05}", n + 1) } })
         })
         .collect();
-    let catalog = serde_json::json!({ "complete": true, "translation": { "language": "en" }, "topic_count": 60,
-        "topics": topics });
-    host.test.http.serve("https://xyz.dev/c/ps5.json", catalog.to_string());
-    host.dispatch(Command::SetConfig {
-        plugin: id("release-catalog"),
-        scope: launcher_api::ConfigScope::Emulator,
-        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
-    });
-    host.catalogs_fetched();
+    host.serve_catalog(&[("ps5", serde_json::json!(topics))]);
     host.resize(1600.0, 900.0);
     host.dispatch(Command::Navigate(launcher_core::Route::Catalog));
     // The store describes the page in the background.
@@ -383,15 +343,7 @@ fn alpha_and_bolt_on_the_catalog() -> Composed {
             "game_info": { "name": name, "version": format!("v1.0{id}") } })
     };
     let topics = serde_json::json!([topic(1, "Alpha", 5, 'a'), topic(2, "Alpha", 4, 'b'), topic(3, "Bolt", 1, 'c')]);
-    let catalog = serde_json::json!({ "complete": true, "translation": { "language": "en" }, "topic_count": 3,
-        "topics": topics });
-    host.test.http.serve("https://xyz.dev/c/ps5.json", catalog.to_string());
-    host.dispatch(Command::SetConfig {
-        plugin: id("release-catalog"),
-        scope: launcher_api::ConfigScope::Emulator,
-        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
-    });
-    host.catalogs_fetched();
+    host.serve_catalog(&[("ps5", topics)]);
     host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
     host.resize(1600.0, 900.0);
     host.dispatch(Command::Navigate(launcher_core::Route::Catalog));
@@ -449,11 +401,11 @@ fn catalog_with_refresh(refresh: bool) -> Composed {
             .built_in(launcher_api::PluginBox::code(release_catalog::ReleaseCatalog::default()))
     });
     host.ui.start().unwrap();
-    let catalog = serde_json::json!({ "complete": true, "translation": { "language": "en" }, "topic_count": 1,
-        "topics": [{ "id": "1", "title": "[PS5] Astro [EUR / v01.05]", "size": "1 GB",
-            "magnet": format!("magnet:?xt=urn:btih:{ASTRO_HASH}"),
-            "game_info": { "name": "Astro", "title_id": "PPSA01234", "version": "v01.05" } }] });
-    host.test.http.serve("https://xyz.dev/c/ps5.json", catalog.to_string());
+    let topics = serde_json::json!([{ "id": "1", "title": "[PS5] Astro [EUR / v01.05]", "size": "1 GB",
+        "magnet": format!("magnet:?xt=urn:btih:{ASTRO_HASH}"),
+        "game_info": { "name": "Astro", "title_id": "PPSA01234", "version": "v01.05" } }]);
+    // Its own settings: the refresh is what the test is about.
+    host.test.http.serve("https://xyz.dev/c/ps5.json", catalog_file(topics));
     host.dispatch(Command::SetConfig {
         plugin: id("release-catalog"),
         scope: launcher_api::ConfigScope::Emulator,

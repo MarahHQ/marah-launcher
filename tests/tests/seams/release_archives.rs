@@ -1,98 +1,40 @@
 //! Seam 1, core app API: a finished download's archives are unpacked through the host's
 //! archives port (a fake) before the emulator's game installer takes the download.
 
-use std::sync::{Arc, Mutex};
-
 use launcher_api::*;
 use launcher_core::{ArchiveKind, Area, Command, GameInstallCmd, TorrentAction};
-use launcher_testkit::{FakeHost, StubPlugin, TestCore};
+use launcher_testkit::{FakeCatalog, FakeHost, TestCore};
 
-use crate::common::{catalogs_fetched, id};
+use crate::common::serve_catalog;
 
 const HASH: &str = "c12fe1c06bba254a9dc9f519b335aa7c1367a88a";
-const URL: &str = "https://xyz.dev/c/ps5.json";
-
-/// An emulator with no games of its own, whose game installer says which source it got.
-fn emulator(sources: Arc<Mutex<Vec<HostPath>>>) -> StubPlugin {
-    struct Emu(Arc<Mutex<Vec<HostPath>>>);
-    #[async_trait]
-    impl Catalog for Emu {
-        async fn list(&self, _: PageRequest) -> PluginResult<Page<GameSummary>> {
-            Ok(Page { items: vec![], total: None })
-        }
-        async fn search(&self, _: &SearchQuery) -> PluginResult<Vec<GameSummary>> {
-            Ok(vec![])
-        }
-        async fn details(&self, game: &str) -> PluginResult<GameDetails> {
-            Err(PluginError::NotFound(game.into()))
-        }
-        async fn artwork(&self, _: &str, _: ArtworkKind) -> PluginResult<Option<ImageSource>> {
-            Ok(None)
-        }
-    }
-    #[async_trait]
-    impl GameInstaller for Emu {
-        async fn candidates(&self) -> PluginResult<Vec<Installable>> {
-            Ok(vec![])
-        }
-        async fn begin(&self, source: &HostPath, job: Arc<dyn InstallJob>) -> PluginResult<HostPath> {
-            self.0.lock().unwrap().push(source.clone());
-            job.finished(Ok(InstalledGame { dest: source.clone(), title: "Astro".into() }));
-            Ok(HostPath::new("games", 0, RelPath::new("PS5/astro.part").unwrap()))
-        }
-    }
-    StubPlugin::from_toml(
-        "id = \"emu-kyty\"\nkind = \"emulator\"\nname = \"PS5\"\nemulator = \"KytyPS5\"\nversion = \"1.0.0\"\nhost_api = \"^0.3\"\n\
-         console = \"PS5\"\n\
-         capabilities = [\"catalog\", \"game_installer\"]\n\
-         [[permissions.filesystem]]\nfolder = \"packages\"\n\
-         [[permissions.filesystem]]\nfolder = \"games\"\nwrite = true\n",
-    )
-    .provides(move |_| {
-        let emu = Arc::new(Emu(sources.clone()));
-        Ok(Provided { catalog: Some(emu.clone()), game_installer: Some(emu), ..Provided::default() })
-    })
-}
-
 struct Setup {
     t: TestCore,
     home: tempfile::TempDir,
-    sources: Arc<Mutex<Vec<HostPath>>>,
+    emulator: FakeCatalog,
 }
 
-/// The catalog offers one release, whose torrent holds `files`.
+/// The catalog offers one release, whose torrent holds `files`, to KytyPS5 with no games of its
+/// own, whose game installer installs Astro.
 async fn setup(files: &[(&str, &[u8])]) -> Setup {
-    let sources = Arc::new(Mutex::new(Vec::new()));
-    setup_with(|h| h.plugin(emulator(sources.clone())), files, sources.clone()).await
+    let emulator = FakeCatalog::kyty().installs("Astro");
+    setup_with(|h| h.plugin(emulator.clone().build()), files, emulator.clone()).await
 }
 
-/// [`setup`] with the PS5 emulator `add` puts in.
-async fn setup_with(
-    add: impl FnOnce(FakeHost) -> FakeHost,
-    files: &[(&str, &[u8])],
-    sources: Arc<Mutex<Vec<HostPath>>>,
-) -> Setup {
+/// [`setup`] with the PS5 emulator `add` puts in; `emulator` is the one whose installs the
+/// test reads.
+async fn setup_with(add: impl FnOnce(FakeHost) -> FakeHost, files: &[(&str, &[u8])], emulator: FakeCatalog) -> Setup {
     let home = tempfile::tempdir().unwrap();
     let t = add(FakeHost::new().home(home.path()))
         .built_in(PluginBox::code(release_catalog::ReleaseCatalog::default()))
         .boot_core()
         .await;
-    let catalog = serde_json::json!({ "complete": true, "translation": { "language": "en" }, "topic_count": 1,
-        "topics": [{ "id": "1", "title": "[PS5] Astro [EUR / v01.05]", "size": "1 GB",
-            "magnet": format!("magnet:?xt=urn:btih:{HASH}"),
-            "game_info": { "name": "Astro", "title_id": "PPSA01234", "region": "EUR", "version": "v01.05" } }] });
-    t.http.serve(URL, catalog.to_string());
     t.torrents.has(HASH, "Astro", files);
-    t.core
-        .dispatch(Command::SetConfig {
-            plugin: id("release-catalog"),
-            scope: ConfigScope::Emulator,
-            value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
-        })
-        .await
-        .unwrap();
-    catalogs_fetched(&t.core).await;
-    Setup { t, home, sources }
+    let astro = serde_json::json!([{ "id": "1", "title": "[PS5] Astro [EUR / v01.05]", "size": "1 GB",
+        "magnet": format!("magnet:?xt=urn:btih:{HASH}"),
+        "game_info": { "name": "Astro", "title_id": "PPSA01234", "region": "EUR", "version": "v01.05" } }]);
+    serve_catalog(&t, &[("ps5", astro)]).await;
+    Setup { t, home, emulator }
 }
 
 impl Setup {
@@ -162,7 +104,7 @@ async fn a_finished_download_unpacks_its_archive_and_install_takes_the_unpacked_
 
     install(&s.t.core).await;
     until(&s.t.core, Area::Installs, |r| r.install == "done").await;
-    let sources = s.sources.lock().unwrap().clone();
+    let sources = s.emulator.installed_from();
     assert_eq!(sources, [HostPath::new("packages", 0, RelPath::new(format!("PS5/torrent-{HASH}")).unwrap())]);
 }
 
@@ -235,7 +177,7 @@ async fn cancel_stops_the_unpacking_and_install_starts_it_again() {
     install(&s.t.core).await;
     until(&s.t.core, Area::Installs, |r| r.install == "done").await;
     assert_eq!(std::fs::read(s.folder().join("unpacked/Astro/game/game.pkg")).unwrap(), b"game");
-    assert_eq!(s.sources.lock().unwrap().len(), 1, "installed once unpacked");
+    assert_eq!(s.emulator.installed_from().len(), 1, "installed once unpacked");
 }
 
 #[tokio::test]
@@ -279,7 +221,7 @@ async fn install_right_after_a_restart_cut_an_unpack_unpacks_and_installs() {
     install(&again).await;
     until(&again, Area::Installs, |r| r.install == "done").await;
     assert_eq!(std::fs::read(s.folder().join("unpacked/Astro/game/game.pkg")).unwrap(), b"game");
-    assert_eq!(s.sources.lock().unwrap().len(), 1, "installed once unpacked");
+    assert_eq!(s.emulator.installed_from().len(), 1, "installed once unpacked");
 }
 
 #[tokio::test]
@@ -328,7 +270,7 @@ async fn installing_the_unpacked_game_moves_it_into_the_games_folder_and_the_arc
     let s = setup_with(
         |h| h.built_in(PluginBox::code(emu_kyty::KytyPlugin)),
         &[("Astro/game.7z", b"seven")],
-        Arc::default(),
+        FakeCatalog::kyty(),
     )
     .await;
     let param = br#"{"titleId":"PPSA01234","localizedParameters":{"en-US":{"titleName":"Astro"}}}"#;

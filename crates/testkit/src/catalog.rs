@@ -2,7 +2,7 @@
 //! games, [`FakeStore`], a store that describes games, and [`FakeService`], a service that
 //! fills slots.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -22,6 +22,16 @@ enum Build {
     ToInstall,
     /// This build is installed, or none for "". A first play asks to install build 1.0.
     Installed(&'static str),
+}
+
+/// The game installer a [`FakeCatalog`] has.
+#[derive(Clone, Copy)]
+enum GameInstall {
+    None,
+    /// [`FakeCatalog::waiting_installer`].
+    Waiting,
+    /// [`FakeCatalog::installs`], as the game with this title.
+    AtOnce(&'static str),
 }
 
 /// An emulator plugin with a catalog of games, built for a test. Its games are `G0`, `G1`, …
@@ -48,7 +58,10 @@ pub struct FakeCatalog {
     listed: Vec<(String, CompatLevel)>,
     build: Build,
     packages: bool,
-    waiting_installer: bool,
+    game_installer: GameInstall,
+    /// Where each install of [`GameInstall::AtOnce`] began.
+    sources: Arc<Mutex<Vec<HostPath>>>,
+    install_note: Option<String>,
     in_folders: bool,
     keymap: Vec<(String, String)>,
     requires: Option<String>,
@@ -76,7 +89,9 @@ impl FakeCatalog {
             listed: Vec::new(),
             build: Build::None,
             packages: false,
-            waiting_installer: false,
+            game_installer: GameInstall::None,
+            sources: Arc::default(),
+            install_note: None,
             in_folders: false,
             keymap: Vec::new(),
             requires: None,
@@ -221,7 +236,26 @@ impl FakeCatalog {
     /// A game installer that writes a quarter of the game into the games folder, then waits
     /// until the player cancels.
     pub fn waiting_installer(mut self) -> Self {
-        self.waiting_installer = true;
+        self.game_installer = GameInstall::Waiting;
+        self
+    }
+
+    /// A game installer that installs each download at once, where it is, as the game `title`.
+    /// [`FakeCatalog::installed_from`] says where each install began.
+    pub fn installs(mut self, title: &'static str) -> Self {
+        self.game_installer = GameInstall::AtOnce(title);
+        self
+    }
+
+    /// Where each install of [`FakeCatalog::installs`] began, in order. It shares them with its
+    /// clones.
+    pub fn installed_from(&self) -> Vec<HostPath> {
+        self.sources.lock().unwrap().clone()
+    }
+
+    /// The manifest's `install_note`: what its game installer installs from.
+    pub fn install_note(mut self, note: &str) -> Self {
+        self.install_note = Some(note.into());
         self
     }
 
@@ -240,7 +274,7 @@ impl FakeCatalog {
         if !matches!(self.build, Build::None) {
             capabilities.extend(["installer", "downloader"]);
         }
-        if self.waiting_installer {
+        if !matches!(self.game_installer, GameInstall::None) {
             capabilities.push("game_installer");
         }
         let capabilities: Vec<String> = capabilities.iter().map(|c| format!("\"{c}\"")).collect();
@@ -252,6 +286,9 @@ impl FakeCatalog {
         toml += "version = \"1.0.0\"\nhost_api = \"^0.3\"\n";
         if let Some(console) = &self.console {
             toml += &format!("console = \"{console}\"\n");
+        }
+        if let Some(note) = &self.install_note {
+            toml += &format!("install_note = \"{note}\"\n");
         }
         toml += &format!("capabilities = [{}]\n", capabilities.join(", "));
         if self.system {
@@ -277,7 +314,7 @@ impl FakeCatalog {
         if self.packages {
             toml += "[[permissions.filesystem]]\nfolder = \"packages\"\n";
         }
-        if self.waiting_installer || self.in_folders {
+        if !matches!(self.game_installer, GameInstall::None) || self.in_folders {
             toml += "[[permissions.filesystem]]\nfolder = \"games\"\nwrite = true\n";
         }
         for (button, keys) in &self.keymap {
@@ -325,8 +362,12 @@ impl FakeCatalog {
                     provided.downloader = Some(Arc::new(NoBuild));
                 }
             }
-            if self.waiting_installer {
-                provided.game_installer = Some(Arc::new(WaitingInstaller));
+            match self.game_installer {
+                GameInstall::None => {}
+                GameInstall::Waiting => provided.game_installer = Some(Arc::new(WaitingInstaller)),
+                GameInstall::AtOnce(title) => {
+                    provided.game_installer = Some(Arc::new(AtOnce { title, sources: self.sources.clone() }))
+                }
             }
             let art: Vec<(&str, Vec<u8>)> = [("system/icon.png", &self.icon), ("system/cover.png", &self.cover)]
                 .into_iter()
@@ -587,6 +628,25 @@ impl GameInstaller for WaitingInstaller {
             job.finished(Err(PluginError::Other("The install was cancelled".into())));
         });
         Ok(HostPath::new("games", 0, RelPath::new("PS5/game.part").unwrap()))
+    }
+}
+
+/// A game installer that installs each download at once, where it is.
+struct AtOnce {
+    title: &'static str,
+    sources: Arc<Mutex<Vec<HostPath>>>,
+}
+
+#[async_trait]
+impl GameInstaller for AtOnce {
+    async fn candidates(&self) -> PluginResult<Vec<Installable>> {
+        Ok(vec![])
+    }
+    async fn begin(&self, source: &HostPath, job: Arc<dyn InstallJob>) -> PluginResult<HostPath> {
+        self.sources.lock().unwrap().push(source.clone());
+        job.finished(Ok(InstalledGame { dest: source.clone(), title: self.title.into() }));
+        let work = format!("PS5/{}.part", self.title.to_lowercase());
+        Ok(HostPath::new("games", 0, RelPath::new(work).expect("a plain title")))
     }
 }
 

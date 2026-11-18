@@ -5,50 +5,21 @@ use std::time::Duration;
 
 use launcher_api::*;
 use launcher_core::{Area, Command, TorrentAction};
-use launcher_testkit::{FakeHost, StubPlugin, TestCore};
+use launcher_testkit::{FakeCatalog, FakeHost, TestCore};
 
-use crate::common::{catalogs_fetched, full_path, id};
+use crate::common::{full_path, serve_catalog};
 
 const ASTRO: &str = "c12fe1c06bba254a9dc9f519b335aa7c1367a88a";
 const BOLT: &str = "d23fe1c06bba254a9dc9f519b335aa7c1367a88b";
 
-/// An emulator with no games of its own: it only takes the downloads' packages folder.
-fn emulator() -> StubPlugin {
-    struct Emu;
-    #[async_trait]
-    impl Catalog for Emu {
-        async fn list(&self, _: PageRequest) -> PluginResult<Page<GameSummary>> {
-            Ok(Page { items: vec![], total: None })
-        }
-        async fn search(&self, _: &SearchQuery) -> PluginResult<Vec<GameSummary>> {
-            Ok(vec![])
-        }
-        async fn details(&self, game: &str) -> PluginResult<GameDetails> {
-            Err(PluginError::NotFound(game.into()))
-        }
-        async fn artwork(&self, _: &str, _: ArtworkKind) -> PluginResult<Option<ImageSource>> {
-            Ok(None)
-        }
-    }
-    StubPlugin::from_toml(
-        "id = \"emu-kyty\"\nkind = \"emulator\"\nname = \"KytyPS5\"\nversion = \"1.0.0\"\nhost_api = \"^0.3\"\n\
-         console = \"PS5\"\n\
-         capabilities = [\"catalog\"]\n\
-         [[permissions.filesystem]]\nfolder = \"packages\"\n",
-    )
-    .provides(|_| Ok(Provided { catalog: Some(std::sync::Arc::new(Emu)), ..Provided::default() }))
-}
-
-/// A catalog with two games, Astro and Bolt, one release each.
-fn catalog() -> String {
+/// The catalog's two games, Astro and Bolt, one release each.
+fn topics() -> serde_json::Value {
     let topic = |n: &str, name: &str, title: &str, hash: &str| {
         serde_json::json!({ "id": n, "title": format!("[PS5] {name} [EUR / v01.00]"), "size": "1 GB",
             "magnet": format!("magnet:?xt=urn:btih:{hash}"),
             "game_info": { "name": name, "title_id": title, "region": "EUR", "version": "v01.00" } })
     };
-    serde_json::json!({ "complete": true, "translation": { "language": "en" }, "topic_count": 2,
-        "topics": [topic("1", "Astro", "PPSA01234", ASTRO), topic("2", "Bolt", "PPSA05678", BOLT)] })
-    .to_string()
+    serde_json::json!([topic("1", "Astro", "PPSA01234", ASTRO), topic("2", "Bolt", "PPSA05678", BOLT)])
 }
 
 struct Setup {
@@ -65,22 +36,13 @@ async fn setup_on(build: impl FnOnce(FakeHost) -> FakeHost) -> Setup {
     let home = tempfile::tempdir().unwrap();
     let t = build(FakeHost::new())
         .home(home.path())
-        .plugin(emulator())
+        .plugin(FakeCatalog::kyty().build())
         .built_in(PluginBox::code(release_catalog::ReleaseCatalog::default()))
         .boot_core()
         .await;
-    t.http.serve("https://xyz.dev/c/ps5.json", catalog());
     t.torrents.has(ASTRO, "Astro", &[("Astro/astro.pkg", b"astro")]);
     t.torrents.has(BOLT, "Bolt", &[("Bolt/bolt.pkg", b"bolt")]);
-    t.core
-        .dispatch(Command::SetConfig {
-            plugin: id("release-catalog"),
-            scope: ConfigScope::Emulator,
-            value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
-        })
-        .await
-        .unwrap();
-    catalogs_fetched(&t.core).await;
+    serve_catalog(&t, &[("ps5", topics())]).await;
     Setup { t, _home: home }
 }
 
