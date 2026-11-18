@@ -142,7 +142,7 @@ pub(crate) async fn launch(core: &Core, game: GameKey) -> CoreResult<()> {
     let claim = core.sessions().claim()?;
     // An install or update moves the emulator's files and the games' saves: no game starts
     // until it is done.
-    if crate::emulator_builds::busy(core, &plugin) {
+    if core.builds().busy(&plugin) {
         let name = kernel.manifest(&plugin).map(|m| m.name.clone()).unwrap_or_else(|_| plugin.to_string());
         return Err(CoreError::Invalid(format!("{name} is updating: play when it is done")));
     }
@@ -169,7 +169,7 @@ pub(crate) async fn launch(core: &Core, game: GameKey) -> CoreResult<()> {
     let new = NewSession {
         game: game.clone(),
         title,
-        build: crate::emulator_builds::build_of(core, &plugin),
+        build: core.builds().build_of(&plugin),
         command,
         log: log_path(&kernel.host().data_dir, &game),
         game_process: spec.game_process,
@@ -218,7 +218,7 @@ pub(crate) async fn open_emulator(core: &Core, plugin: &PluginId) -> CoreResult<
     let kernel = core.kernel();
     let claim = core.sessions().claim()?;
     let manifest = kernel.manifest(plugin)?;
-    if crate::emulator_builds::busy(core, plugin) {
+    if core.builds().busy(plugin) {
         return Err(CoreError::Invalid(format!("{} is updating: open it when it is done", manifest.name)));
     }
     let provided = kernel.provided(plugin).await?;
@@ -235,7 +235,7 @@ pub(crate) async fn open_emulator(core: &Core, plugin: &PluginId) -> CoreResult<
     let new = NewSession {
         game: window.clone(),
         title: name,
-        build: crate::emulator_builds::build_of(core, plugin),
+        build: core.builds().build_of(plugin),
         command,
         log: log_path(&kernel.host().data_dir, &window),
         game_process: None,
@@ -320,7 +320,7 @@ fn own_build_missing(page: &str, folder: &str, program: &str, has_downloaded: bo
 
 /// "Rate how it runs": asks "How far did it get?" for `game`, on the build it runs on.
 pub(crate) fn ask_result(core: &Core, game: GameKey) -> CoreResult<()> {
-    let build = crate::emulator_builds::build_of(core, &game.plugin);
+    let build = core.builds().build_of(&game.plugin);
     core.state().result_prompt = Some((game, build));
     core.changed(Area::Sessions);
     Ok(())
