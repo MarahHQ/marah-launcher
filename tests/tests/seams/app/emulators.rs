@@ -221,6 +221,25 @@ async fn an_update_that_waited_for_a_game_skips_an_emulator_that_is_updating() {
 }
 
 #[tokio::test]
+async fn an_emulator_build_isn_t_removed_while_it_updates() {
+    let (t, emu) = core_with(FakeEmulator::new(vec!["A"])).await;
+    install(&t.core).await;
+    emu.release("2.0");
+    let gate = t.http.hold_after(&emu.build_url, 10);
+    let core = t.core.clone();
+    let update = tokio::spawn(async move { core.dispatch(Command::UpdateEmulator { plugin: id("emu-a") }).await });
+    let busy = |core: &Core| core.view().emulators.emulators.iter().any(|e| e.plugin == id("emu-a") && e.busy);
+    t.until(Area::Downloads, busy).await;
+
+    let uninstall = Command::UninstallEmulator { plugin: id("emu-a"), version: "1.0".into() };
+    let err = t.core.dispatch(uninstall).await.unwrap_err();
+    assert!(err.to_string().contains("already installing"), "{err}");
+    gate.release();
+    update.await.unwrap().unwrap();
+    assert_eq!(installed(&t.core).await, ["2.0"], "the update ends as if no uninstall came");
+}
+
+#[tokio::test]
 async fn opening_another_plugin_replaces_the_open_one_so_back_goes_to_the_list() {
     let t = FakeHost::new()
         .plugin(FakeEmulator::new(vec!["A"]).plugin("emu-a"))
