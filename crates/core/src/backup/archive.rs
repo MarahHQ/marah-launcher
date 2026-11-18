@@ -127,7 +127,7 @@ pub(crate) const APP_KEYS: [&str; 16] = [
 /// downloads, or they say what happened on it. A new key under `app` goes in one list or the
 /// other; a test fails until it does.
 #[cfg(test)]
-const MACHINE_KEYS: [&str; 20] = [
+const MACHINE_KEYS: [&str; 21] = [
     "folders",
     "download_folder",
     "install_folder",
@@ -148,6 +148,7 @@ const MACHINE_KEYS: [&str; 20] = [
     "pc_noticed",
     "backup_folder",
     "backup_recent",
+    "recent_searches",
 ];
 
 /// The part of the config a backup holds: `{ "app": { …APP_KEYS }, "plugins": … }`.

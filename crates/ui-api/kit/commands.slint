@@ -56,6 +56,9 @@ export global Commands {
     public function catalog-genre(id: string) { Host.command("CatalogGenre", Json.text-or-null(id)); }
     public function catalog-sort(sort: string) { Host.command("CatalogSort", Json.text(sort)); }
     public function catalog-more() { Host.command("CatalogMore", ""); }
+    // A search the player made, kept among the last searches; and forgetting them all.
+    public function remember-search(text: string) { Host.command("RememberSearch", Json.text(text)); }
+    public function forget-searches() { Host.command("ForgetSearches", ""); }
 
     // Running games.
     public function launch(key: string) { Host.command("Session", "{\"Launch\":" + Json.text(key) + "}"); }

@@ -115,8 +115,8 @@ manifests, the theme's option values, the time by the core's clock, and what the
 from the disk (`Files`). `view::build` (`view.rs`) is pure: it takes no lock, does no I/O and
 keeps no state. Display text, such as sizes and dates, is written in `display.rs` as the view
 builds. The view's rules live in pure modules over the snapshot, each with its own tests:
-`ownership.rs`, `grid_query.rs`, `settings_schema.rs`, `disks.rs`, `game_words.rs` and
-`releases.rs`.
+`ownership.rs`, `grid_query.rs`, `search.rs` (the search's score), `settings_schema.rs`,
+`disks.rs`, `game_words.rs` and `releases.rs`.
 
 A theme holds no state. A theme switch loses nothing: the new theme binds to the same
 `AppView`. A drift test in `launcher-ui-host` (`drift.rs`) fails when `contract/types.slint` and the

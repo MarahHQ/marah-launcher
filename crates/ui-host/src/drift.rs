@@ -177,6 +177,8 @@ fn library() -> LibraryVm {
         genres: vec![filter()],
         sort: s(),
         query: s(),
+        matches: vec![s()],
+        recent: vec![s()],
     }
 }
 

@@ -284,6 +284,11 @@ _Avoid_: place (a place is the backup browser's), kind (a plugin's kind is somet
 **Recent folder** (`PlaceKind::Recent`): a folder a restore came from, kept as a place in the
 backup browser. The core keeps the last five in `app.backup_recent` (`Pref::BackupRecent`).
 
+**Recent search** (`Pref::RecentSearches`): a search the player made, kept when they press
+Done or Enter, or open a game from the keyboard's picks. The core keeps the last eight,
+newest first, in `app.recent_searches` (`RECENT_SEARCHES`); the view gives them to the
+Library and the Catalog as `recent`. `Command::ForgetSearches` clears them.
+
 **Refreshed copy**: a base copy brought up to date from its forums' feeds and forum lists. The
 Game Catalog keeps it in `refreshed/`.
 
@@ -309,6 +314,11 @@ home folder, and only the folders the plugin names. The PC plugin asks for it fo
 
 **Schedule**: the Game Catalog's rules for when a fetch or a refresh runs and how long a hold
 is (`schedule.rs`). They take the time as an input, so the tests need no clock.
+
+**Search score**: how well a game answers a grid's search (`search::score`): a title that is
+what was typed or starts with it first, then each word whole, its initials or its start, then
+the other fields, a genre, and near spellings (typos) last. A search ranks the grid by it; the
+sort orders the games that score the same. The view names the best five as `matches`.
 
 **Seed-only start**: a start of a finished download after a restart. The torrent starts paused,
 checks its files, and seeds only when every piece is there. It never downloads.

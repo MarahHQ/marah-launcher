@@ -79,3 +79,55 @@ async fn navigation_and_selection_live_in_the_core() {
     assert_eq!(view.home.selected, Some(1));
     assert!(view.home.games[1].selected);
 }
+
+#[tokio::test]
+async fn the_library_s_search_forgives_and_ranks_the_best_matches_first() {
+    let games =
+        vec!["Godfall", "God of War III", "The Last of Us Part I", "Final Fantasy VII", "Ōkami HD", "Bloodborne"];
+    let t = FakeHost::new().plugin(FakeEmulator::new(games).plugin("emu-a")).boot_core().await;
+    t.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
+
+    let search = |text: &'static str| {
+        let t = &t;
+        async move {
+            t.core.dispatch(Command::LibrarySearch(text.into())).await.unwrap();
+            let library = t.core.view().home.library;
+            let titles: Vec<String> = library.games.iter().map(|g| g.title.clone()).collect();
+            let best: Vec<String> = titles.iter().take(launcher_core::BEST_MATCHES).cloned().collect();
+            assert_eq!(library.matches, if text.is_empty() { Vec::new() } else { best }, "the best matches");
+            titles
+        }
+    };
+    assert_eq!(search("god").await, ["God of War III", "Godfall"], "a whole word before the start of one");
+    assert_eq!(search("gow 3").await, ["God of War III"], "initials, and a number for its numeral");
+    assert_eq!(search("tlou").await, ["The Last of Us Part I"]);
+    assert_eq!(search("ff7").await, ["Final Fantasy VII"]);
+    assert_eq!(search("okami").await, ["Ōkami HD"], "without its accent");
+    assert_eq!(search("bloodbrone").await, ["Bloodborne"], "a typo");
+    assert_eq!(search("").await.len(), 6, "no search, no best matches");
+}
+
+#[tokio::test]
+async fn the_last_searches_are_kept_across_a_restart_and_can_be_forgotten() {
+    let first = FakeHost::new().plugin(FakeEmulator::new(vec!["Alpha"]).plugin("emu-a")).boot_core().await;
+    for text in ["alpha", "beta", " Alpha ", ""] {
+        first.core.dispatch(Command::RememberSearch(text.into())).await.unwrap();
+    }
+    assert_eq!(first.core.view().home.library.recent, ["Alpha", "beta"], "newest first, once, trimmed");
+    assert_eq!(first.core.view().catalog.games.recent, ["Alpha", "beta"], "the Catalog's too");
+    for i in 0..10 {
+        first.core.dispatch(Command::RememberSearch(format!("search {i}"))).await.unwrap();
+    }
+    assert_eq!(first.core.view().home.library.recent.len(), launcher_core::RECENT_SEARCHES, "the oldest go");
+    let saved = std::fs::read(first.host.data_dir().join("config.json")).unwrap();
+
+    // The next start reads what the first one saved.
+    let host = FakeHost::new().plugin(FakeEmulator::new(vec!["Alpha"]).plugin("emu-a"));
+    std::fs::write(host.data_dir().join("config.json"), saved).unwrap();
+    let second = host.boot_core().await;
+    let recent = second.core.view().home.library.recent;
+    assert_eq!((recent.len(), recent[0].as_str()), (launcher_core::RECENT_SEARCHES, "search 9"));
+
+    second.core.dispatch(Command::ForgetSearches).await.unwrap();
+    assert!(second.core.view().home.library.recent.is_empty());
+}

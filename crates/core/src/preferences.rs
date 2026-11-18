@@ -68,6 +68,9 @@ pub enum Pref {
     /// The last folders a restore came from, newest first: the browser's Recent places. The
     /// core sets it.
     BackupRecent,
+    /// The player's last searches of the Library and the Catalog, newest first, at most
+    /// [`crate::RECENT_SEARCHES`]. The core sets it.
+    RecentSearches,
 }
 
 /// What values a [`Pref`] takes.
@@ -81,6 +84,8 @@ pub enum PrefKind {
     Name,
     /// A list of paths.
     Paths,
+    /// A list of texts.
+    Texts,
 }
 
 /// What a [`Pref`] is: its values, its value when unset, and whether the player sets it.
@@ -94,7 +99,7 @@ pub struct PrefSpec {
 
 impl Pref {
     /// Every preference.
-    pub const ALL: [Pref; 14] = [
+    pub const ALL: [Pref; 15] = [
         Pref::Sounds,
         Pref::Animations,
         Pref::Fullscreen,
@@ -109,6 +114,7 @@ impl Pref {
         Pref::PcNoticed,
         Pref::BackupFolder,
         Pref::BackupRecent,
+        Pref::RecentSearches,
     ];
 
     /// Its key under `app` in the config.
@@ -128,6 +134,7 @@ impl Pref {
             Pref::PcNoticed => "pc_noticed",
             Pref::BackupFolder => "backup_folder",
             Pref::BackupRecent => "backup_recent",
+            Pref::RecentSearches => "recent_searches",
         }
     }
 
@@ -144,6 +151,7 @@ impl Pref {
             Pref::Monitor | Pref::BackupFolder => (PrefKind::Name, Value::Null, true),
             Pref::Theme | Pref::PcNoticed => (PrefKind::Name, Value::Null, false),
             Pref::BackupRecent => (PrefKind::Paths, Value::Array(Vec::new()), false),
+            Pref::RecentSearches => (PrefKind::Texts, Value::Array(Vec::new()), false),
         };
         PrefSpec { kind, default, by_player }
     }
@@ -179,7 +187,9 @@ impl Pref {
         match (self.spec().kind, value) {
             (PrefKind::Flag, Value::Bool(_)) => Some(value.clone()),
             (PrefKind::Name, Value::Null | Value::String(_)) => Some(value.clone()),
-            (PrefKind::Paths, Value::Array(paths)) => paths.iter().all(Value::is_string).then(|| value.clone()),
+            (PrefKind::Paths | PrefKind::Texts, Value::Array(items)) => {
+                items.iter().all(Value::is_string).then(|| value.clone())
+            }
             (PrefKind::Size { min, max }, Value::Number(n)) => {
                 let size = n.as_f64()? as f32;
                 size.is_finite().then(|| Value::from(f64::from(size.clamp(min, max))))
@@ -206,6 +216,8 @@ pub struct PreferencesSnapshot {
     pub welcomed: bool,
     /// The theme the player chose last, when its id is valid.
     pub theme: Option<PluginId>,
+    /// The player's last searches, newest first.
+    pub recent_searches: Vec<String>,
 }
 
 /// The ports the subsystem uses, and nothing else.
@@ -252,7 +264,32 @@ impl Preferences {
             monitor: name(Pref::Monitor),
             welcomed: flag(Pref::Welcomed),
             theme: name(Pref::Theme).and_then(|id| PluginId::new(id).ok()),
+            recent_searches: self.recent_searches(),
         }
+    }
+
+    /// The player's last searches, newest first.
+    pub fn recent_searches(&self) -> Vec<String> {
+        let saved = self.get(Pref::RecentSearches);
+        saved.as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect()
+    }
+
+    /// Keeps `text` first among the last searches: trimmed, once, at most
+    /// [`crate::RECENT_SEARCHES`] of them. Blank text is no search.
+    pub fn remember_search(&self, text: &str) -> CoreResult<()> {
+        let text = text.trim();
+        if text.is_empty() {
+            return Ok(());
+        }
+        let mut searches = vec![text.to_owned()];
+        searches.extend(self.recent_searches().into_iter().filter(|s| !s.eq_ignore_ascii_case(text)));
+        searches.truncate(crate::RECENT_SEARCHES);
+        self.save(Pref::RecentSearches, serde_json::json!(searches))
+    }
+
+    /// Forgets the last searches.
+    pub fn forget_searches(&self) -> CoreResult<()> {
+        self.save(Pref::RecentSearches, Value::Array(Vec::new()))
     }
 
     /// Sets a preference the player sets. "Start at login" asks the system first.
@@ -326,6 +363,7 @@ mod tests {
             (Pref::PcNoticed, Value::Null),
             (Pref::BackupFolder, Value::Null),
             (Pref::BackupRecent, serde_json::json!([])),
+            (Pref::RecentSearches, serde_json::json!([])),
         ];
         assert_eq!(defaults.len(), Pref::ALL.len(), "every pref has a row");
         for (pref, default) in defaults {
@@ -379,6 +417,32 @@ mod tests {
     #[test]
     fn the_player_sets_only_their_own_prefs() {
         let by_core: Vec<Pref> = Pref::ALL.into_iter().filter(|p| !p.spec().by_player).collect();
-        assert_eq!(by_core, [Pref::Theme, Pref::PcNoticed, Pref::BackupRecent]);
+        assert_eq!(by_core, [Pref::Theme, Pref::PcNoticed, Pref::BackupRecent, Pref::RecentSearches]);
+    }
+
+    fn preferences() -> Preferences {
+        struct NoLogin;
+        impl LoginSession for NoLogin {}
+        let notifier = Notifier::new(crate::changes::Changes::new(), crate::EventBus::default());
+        let ports = PrefPorts { login_session: Arc::new(NoLogin) };
+        Preferences::new(Arc::new(ConfigService::in_memory()), ports, notifier)
+    }
+
+    #[test]
+    fn a_search_is_remembered_first_once_and_the_oldest_go() {
+        let prefs = preferences();
+        prefs.remember_search("  god of war ").unwrap();
+        prefs.remember_search("   ").unwrap();
+        prefs.remember_search("tlou").unwrap();
+        prefs.remember_search("God of War").unwrap();
+        assert_eq!(prefs.recent_searches(), ["God of War", "tlou"], "trimmed, newest first, once in any case");
+        for i in 0..10 {
+            prefs.remember_search(&format!("search {i}")).unwrap();
+        }
+        let kept = prefs.recent_searches();
+        assert_eq!(kept.len(), crate::RECENT_SEARCHES);
+        assert_eq!((kept[0].as_str(), kept[7].as_str()), ("search 9", "search 2"));
+        prefs.forget_searches().unwrap();
+        assert!(prefs.snapshot().recent_searches.is_empty());
     }
 }

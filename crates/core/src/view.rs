@@ -244,8 +244,15 @@ fn grid_vm(s: &Snapshot, data: &GridData, query: &GridQuery, selected: Option<&G
             _ => card(s, e, selected),
         })
         .collect();
+    let matches = if crate::search::fold(&query.query).trim().is_empty() {
+        Vec::new()
+    } else {
+        games.iter().take(crate::BEST_MATCHES).map(|g| g.title.clone()).collect()
+    };
     LibraryVm {
         selected: games.iter().position(|g| g.selected),
+        matches,
+        recent: s.prefs.recent_searches.clone(),
         games,
         total,
         all,

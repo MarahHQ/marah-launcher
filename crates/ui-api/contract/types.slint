@@ -104,8 +104,11 @@ export struct Filter { id: string, label: string, count: int, on: bool }
 // the pages shown so far (the command LibraryMore or CatalogMore shows the next). `sort` is
 // title, played, size (largest first), smallest, rating, release (newest first), compat or
 // added. Change them with the commands LibrarySearch, LibrarySystem, LibraryGenre and
-// LibrarySort, or the Catalog ones.
-export struct Library { games: [GameCard], total: int, all: int, selected: int, systems: [Filter], genres: [Filter], sort: string, query: string }
+// LibrarySort, or the Catalog ones. `matches`: the titles of the best matches of the search,
+// best first, at most five (each is the game at the same index in `games`); empty with no
+// search. `recent`: the player's last searches, newest first, at most eight, the same in the
+// Library and the Catalog. The command RememberSearch adds one, ForgetSearches clears them.
+export struct Library { games: [GameCard], total: int, all: int, selected: int, systems: [Filter], genres: [Filter], sort: string, query: string, matches: [string], recent: [string] }
 
 export struct Home { games: [GameCard], selected: int, loading: bool, groups: [Group], library: Library }
 
