@@ -208,6 +208,50 @@ The Catalog has three filters among its systems. Each one shows only when it has
 - **Installed**: the games you have.
 - **Hidden**: only the games you hid. Other views leave them out.
 
+### One card per game
+
+Under **All**, a game that the catalogs offer on more than one console is one card. The card
+has a chip for each console, and it stands for the version this PC runs best. A console chip
+above the grid, such as **PS5**, shows that console's games, one card each.
+
+Two offers are one game only when there is proof:
+
+- Their titles are the same words, without the edition ("Deluxe Edition", "Game of the Year
+  Edition" and the others the Catalog already groups). Case and punctuation don't count.
+- They are on two consoles.
+- They came out at most four years apart. When a date is missing, both catalogs name a
+  publisher, and the two names share a word.
+
+A sequel ("Alan Wake 2"), a remaster, a remake, a director's cut and a standalone expansion
+have other words, so they stay separate. So do two games of one name years apart ("Prey" of
+2006 and 2017), and titles under three letters long. When a catalog's data can't decide, the
+games stay separate cards.
+
+The game's Game Hub lists its versions under **Versions**, with how each runs on this PC. The
+first one is **Best for this PC**, with the reason. Choose another version to open its Game Hub.
+With a controller, press Down from the buttons to reach the versions.
+
+Marah Launcher picks the best version with the same data as the Game Hub's facts. It compares
+the versions in this order, and the first difference decides:
+
+1. It can start on this PC. A version can't when its emulator won't start here ("Won't start"
+   under On this PC), when its releases are for another system, or when it doesn't start.
+2. How far the game gets: your own result first, then the community's list, then a PC release
+   made for this system (Playable), then ProtonDB's rating of a Windows release (Platinum and
+   Gold are Playable, Silver and Bronze In-game, Borked doesn't start). Not tested is below
+   Boots and above "Doesn't start".
+3. How well this PC meets what the emulator recommends: Should run well, then May run slowly,
+   then Can't tell yet.
+4. How much the version's plugin recommends ([requires.recommended] in its manifest), less
+   first: a plugin that recommends nothing, such as the PC's, then shadPS4's PS4 games, then
+   KytyPS5's PS5 games.
+5. The Catalog's order: the newest first.
+
+When no version can start on this PC, none is marked best.
+
+On the card, a version you have installed stands for the game, so Play starts the game you
+have. **Hide** on the card, or in a version's Game Hub, hides each version of the game.
+
 The Game Catalog plugin gives the catalogs. Its page is under Emulators. With the Game Catalog
 turned off, there is no Catalog and no Search button. Its settings include **Catalog address**,
 **Sources address**, **Refresh from the forums**, **Show the Hidden filter**, and one "Show

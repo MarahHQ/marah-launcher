@@ -160,6 +160,7 @@ fn card() -> GameCardVm {
         availability_text: s(),
         hidden: true,
         can: GameActionsVm::default(),
+        consoles: vec![ConsoleVm { platform: s(), system: GameSystemVm { name: s(), color: Some([1, 2, 3]) } }],
     }
 }
 
@@ -329,6 +330,16 @@ fn detail() -> GameDetailVm {
             counted_text: s(),
             availability: s(),
             availability_text: s(),
+        }],
+        versions: vec![GameVersionVm {
+            key: s(),
+            platform: s(),
+            system: GameSystemVm { name: s(), color: Some([1, 2, 3]) },
+            best: true,
+            why: s(),
+            how: s(),
+            current: true,
+            installed: true,
         }],
         emulator: s(),
         download_folder: s(),

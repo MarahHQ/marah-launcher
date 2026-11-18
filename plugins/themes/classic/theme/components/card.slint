@@ -49,7 +49,7 @@ export component Card inherits Rectangle {
                 name-size: Math.max(15 * Look.px, parent.width * 0.11);
             }
             // The console, in its own colors.
-            if root.game.platform != "" : Rectangle {
+            if root.game.consoles.length == 0 && root.game.platform != "" : Rectangle {
                 x: Look.rtl ? 8 * Look.px : parent.width - self.width - 8 * Look.px;
                 y: 8 * Look.px;
                 width: console.preferred-width + (root.small ? 14 : 18) * Look.px;
@@ -67,6 +67,31 @@ export component Card inherits Rectangle {
                     font-weight: 800;
                     letter-spacing: 0.5 * Look.px;
                     color: Look.console-ink(root.game.system-color);
+                }
+            }
+            // A game on several consoles: each one, the card's own first.
+            if root.game.consoles.length > 0 : HorizontalLayout {
+                x: Look.rtl ? 8 * Look.px : parent.width - self.width - 8 * Look.px;
+                y: 8 * Look.px;
+                width: Math.min(self.preferred-width, parent.width - 60 * Look.px);
+                height: (root.small ? 24 : 30) * Look.px;
+                spacing: 4 * Look.px;
+                for console in root.game.consoles : Rectangle {
+                    width: console-name.preferred-width + (root.small ? 10 : 14) * Look.px;
+                    border-radius: 8 * Look.px;
+                    background: Look.console-fill(console.system-color);
+                    border-width: 1px;
+                    border-color: Look.console-edge(console.system-color);
+                    accessible-role: text;
+                    accessible-label: "card-console";
+                    accessible-value: console.platform;
+                    console-name := Text {
+                        text: console.platform;
+                        font-size: (root.small ? 13 : 16) * Look.px;
+                        font-weight: 800;
+                        letter-spacing: 0.5 * Look.px;
+                        color: Look.console-ink(console.system-color);
+                    }
                 }
             }
             // A Catalog game's eye: hides the game, or shows a hidden one again. On the focused

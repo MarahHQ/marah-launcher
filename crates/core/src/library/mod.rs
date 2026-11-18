@@ -30,6 +30,7 @@ use serde_json::Value;
 
 pub(crate) use self::records::{PluginImage, Rated, Records};
 use crate::changes::{Area, Notifier};
+use crate::game_groups::GameGroups;
 use crate::releases::{CatalogCopy, Offer};
 use crate::{CoreError, CoreResult};
 
@@ -122,8 +123,9 @@ pub enum LibraryCmd {
     /// Lists every catalog plugin's games again, with their badges, and reads the stores'
     /// metadata and the games' details in the background.
     Refresh,
-    /// Hides a game the Catalog offers, or shows it again. Hidden games leave the Catalog, but
-    /// for the "Hidden" filter (`GridFilter::Hidden`). Kept in the config.
+    /// Hides a game the Catalog offers, or shows it again, with its versions on other consoles.
+    /// Hidden games leave the Catalog, but for the "Hidden" filter (`GridFilter::Hidden`). Kept
+    /// in the config.
     Hide { game: GameKey, hidden: bool },
 }
 
@@ -146,6 +148,8 @@ pub(crate) struct LibrarySnapshot {
     pub catalogs: Arc<Vec<CatalogCopy>>,
     /// The games the catalogs offer, newest first.
     pub offers: Arc<Vec<Offer>>,
+    /// The offers that are versions of one game on several consoles.
+    pub groups: Arc<GameGroups>,
     /// The catalog plugins' Catalog buttons and badges (`catalog.action`), by plugin.
     pub catalog_buttons: Arc<Vec<(PluginId, Vec<SlotItem>)>>,
     /// The catalog plugins answered once: until then the Catalog says it is loading.
@@ -292,6 +296,7 @@ struct State {
     order: Arc<Vec<GameKey>>,
     catalogs: Arc<Vec<CatalogCopy>>,
     offers: Arc<Vec<Offer>>,
+    groups: Arc<GameGroups>,
     catalog_buttons: Arc<Vec<(PluginId, Vec<SlotItem>)>>,
     catalogs_read: bool,
     loading: bool,
@@ -378,6 +383,7 @@ impl LibrarySubsystem {
             order: state.order.clone(),
             catalogs: state.catalogs.clone(),
             offers: state.offers.clone(),
+            groups: state.groups.clone(),
             catalog_buttons: state.catalog_buttons.clone(),
             catalogs_read: state.catalogs_read,
             loading: state.loading,
@@ -395,7 +401,12 @@ impl LibrarySubsystem {
     pub fn handle(&self, command: LibraryCmd) -> CoreResult<()> {
         match command {
             LibraryCmd::Hide { game, hidden } => {
-                self.inner.records.set_hidden(&game, hidden).map_err(|e| CoreError::Io(e.to_string()))?;
+                // A game on several consoles hides, or shows, on each of them: the Catalog's
+                // "All" has one card for them.
+                let groups = self.state().groups.clone();
+                for version in groups.versions(&game) {
+                    self.inner.records.set_hidden(version, hidden).map_err(|e| CoreError::Io(e.to_string()))?;
+                }
                 self.inner.notifier.changed(Area::Library);
                 Ok(())
             }
@@ -575,6 +586,7 @@ impl LibrarySubsystem {
             s.catalogs = Arc::new(copies);
             s.catalogs_read = true;
             s.catalog_buttons = Arc::new(buttons);
+            s.groups = Arc::new(GameGroups::new(&offers));
             s.offers = Arc::new(offers);
             let keep = s.set_installed(installed).then(|| Self::kept(s));
             (added, keep)
@@ -596,6 +608,7 @@ impl LibrarySubsystem {
         self.change(Area::Catalogs, |s| {
             s.catalogs = Arc::default();
             s.offers = Arc::default();
+            s.groups = Arc::default();
         });
     }
 

@@ -4,12 +4,13 @@
 //! prefetch and the store's descriptions of the Catalog's page all ask the same question the
 //! same way.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use launcher_api::{CompatLevel, GameKey};
 use launcher_ui_api::{FilterVm, LibraryVm};
 
 use crate::app::Grid;
+use crate::game_groups::{GameGroups, ThisPc};
 use crate::library::{Entry, LibrarySnapshot};
 use crate::ownership::Ownership;
 use crate::releases::Offer;
@@ -172,6 +173,8 @@ pub(crate) struct GridData<'a> {
     pub plays: &'a PlayTimes,
     /// The Catalog shows its "Hidden" filter: no catalog plugin turned it off.
     pub hidden_filter: bool,
+    /// What this PC runs, for each game's best version.
+    pub pc: ThisPc,
 }
 
 /// A grid's games, searched, filtered and sorted, before paging, with the filters' chips.
@@ -195,11 +198,14 @@ pub(crate) fn neighbours(
     most: usize,
 ) -> Vec<GameKey> {
     let mut found: Vec<GameKey> = Vec::new();
+    // In the Catalog's "All", the card of the game `game` is a version of.
+    let groups = &data.library.groups;
+    let card = |k: &GameKey| k == game || groups.game(k).is_some_and(|g| groups.game(game) == Some(g));
     let mut around = |list: Vec<&GameKey>, steps: &[isize]| {
-        let Some(at) = list.iter().position(|k| *k == game) else { return };
+        let Some(at) = list.iter().position(|k| card(k)) else { return };
         for step in steps {
             if let Some(key) = at.checked_add_signed(*step).and_then(|i| list.get(i))
-                && *key != game
+                && !card(key)
                 && !found.contains(key)
             {
                 found.push((*key).clone());
@@ -293,7 +299,7 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
     let hidden_count = entries.iter().filter(|e| is_hidden(e)).count();
     let entries: Vec<&Entry> = entries.into_iter().filter(|e| is_hidden(e) == only_hidden).collect();
     // How many games there are before the search and the filters: hidden ones count nowhere.
-    let all = entries.len();
+    let all = if catalog { card_count(&library.groups, &entries) } else { entries.len() };
     // The Library's chips are the store's genres; the Catalog's are the fixed genres. Read once
     // a game: the search reads them too.
     let genre_cache: std::cell::RefCell<HashMap<&GameKey, Vec<String>>> = Default::default();
@@ -348,9 +354,12 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
     }
     let scores: HashMap<&GameKey, Rank> = found.iter().map(|(e, s)| (&e.key, *s)).collect();
     let searched: Vec<&Entry> = found.into_iter().map(|(e, _)| e).collect();
-    // Systems count what the search leaves; genres count what the system leaves too.
+    // Systems count what the search leaves; genres count what the system leaves too. The
+    // Catalog's "All" counts its cards, one per game; a system counts that system's versions.
+    let groups = &library.groups;
+    let all_count = if catalog { card_count(groups, &searched) } else { searched.len() };
     let mut systems =
-        vec![FilterVm { id: String::new(), label: "All".into(), count: searched.len(), on: query.system.is_none() }];
+        vec![FilterVm { id: String::new(), label: "All".into(), count: all_count, on: query.system.is_none() }];
     for e in &searched {
         let platform = &e.summary.platform;
         match systems.iter_mut().find(|s| &s.id == platform) {
@@ -401,6 +410,8 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
         .filter(|e| !only_ingame || level(e) >= CompatLevel::Ingame)
         .filter(|e| !catalog || !query.installed || installed(e))
         .collect();
+    // The Catalog's "All": one card per game, of the versions the filters leave.
+    let in_system = if catalog && query.system.is_none() { one_per_game(data, &offers, in_system) } else { in_system };
     let chips: HashMap<&GameKey, Vec<String>> = in_system.iter().map(|e| (&e.key, genres_of_entry(e))).collect();
     let chips_of = |e: &Entry| chips.get(&e.key).map(Vec::as_slice).unwrap_or_default();
     let mut genre_counts: BTreeMap<String, usize> = BTreeMap::new();
@@ -426,7 +437,11 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
             None => library.detail(&e.key).and_then(|d| d.details.size_bytes),
         }
     };
-    let added = |e: &Entry| offers.get(&e.key).map(|o| o.releases[0].added.clone()).unwrap_or_default();
+    // A game's newest version counts.
+    let added = |e: &Entry| {
+        let versions = groups.versions(&e.key).iter().filter_map(|k| offers.get(k));
+        versions.map(|o| o.releases[0].added.clone()).max().unwrap_or_default()
+    };
     // The catalog's own date of its best release first, then the store's, then the year.
     let released = |e: &Entry| {
         let catalog = offers.get(&e.key).and_then(|o| crate::releases::release_day(owned.best_release(o)));
@@ -454,6 +469,37 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
         shown.sort_by_key(|e| std::cmp::Reverse(scores.get(&e.key).copied().unwrap_or_default()));
     }
     GridGames { shown, all, systems, genres }
+}
+
+/// How many cards `entries` make in the Catalog's "All": one per game.
+fn card_count(groups: &GameGroups, entries: &[&Entry]) -> usize {
+    let mut games = HashSet::new();
+    entries.iter().filter(|e| groups.game(&e.key).is_none_or(|g| games.insert(g))).count()
+}
+
+/// `entries` with one card per game: of a game's versions among them, the one the player has
+/// installed, else the best for this PC (see [`crate::game_groups::best_first`]).
+fn one_per_game<'a>(
+    data: &GridData<'a>,
+    offers: &HashMap<&GameKey, &'a Offer>,
+    entries: Vec<&'a Entry>,
+) -> Vec<&'a Entry> {
+    let groups = &data.library.groups;
+    let mut games: HashMap<usize, Vec<&'a Offer>> = HashMap::new();
+    for e in &entries {
+        if let (Some(g), Some(o)) = (groups.game(&e.key), offers.get(&e.key)) {
+            games.entry(g).or_default().push(o);
+        }
+    }
+    let cards: HashSet<&GameKey> = games
+        .values()
+        .map(|versions| {
+            let best = crate::game_groups::best_first(data.library, &data.pc, versions);
+            let installed = best.iter().find(|v| data.ownership.installed_game(v.offer).is_some());
+            &installed.unwrap_or(&best[0]).offer.entry.key
+        })
+        .collect();
+    entries.into_iter().filter(|e| groups.game(&e.key).is_none() || cards.contains(&e.key)).collect()
 }
 
 #[cfg(test)]
@@ -505,16 +551,69 @@ mod tests {
         let library = LibrarySubsystem::new(Records::new(config), notifier);
         library.set_library(games, HashMap::new(), Vec::new());
         let mut snapshot = library.snapshot();
+        snapshot.groups = Arc::new(GameGroups::new(&offers));
         snapshot.offers = Arc::new(offers);
         snapshot.hidden = hidden.iter().map(|k| k.to_string()).collect();
         snapshot
+    }
+
+    /// [`library`] of `games` and `offers`, none hidden.
+    fn library_with(games: Vec<Entry>, offers: Vec<Offer>) -> LibrarySnapshot {
+        library(games, offers, &[])
+    }
+
+    /// An offer of `title` on `console` from emulator `emulator`, released in 2024.
+    fn version(key_text: &str, title: &str, console: &str, emulator: &str, added: &str) -> Offer {
+        let mut offer = offer(key_text, title, added, 1);
+        offer.entry.summary.platform = console.into();
+        offer.emulator = PluginId::new(emulator).unwrap();
+        offer.releases[0].platform = console.into();
+        offer.releases[0].facts.push(launcher_api::Fact::new(launcher_api::FactKind::ReleaseDate, "Released", "2024"));
+        offer
+    }
+
+    /// Astro Bot on PS5 (newest) and PC, and Quest on PS4.
+    fn astro_on_two_consoles() -> LibrarySnapshot {
+        library(
+            Vec::new(),
+            vec![
+                version("cat:astro-ps5", "Astro Bot", "PS5", "kyty", "2026-10-03"),
+                version("cat:astro-pc", "Astro Bot", "PC", "pc", "2026-10-01"),
+                version("cat:quest", "Quest", "PS4", "shad", "2026-10-02"),
+            ],
+            &[],
+        )
+    }
+
+    /// The emulators of [`astro_on_two_consoles`]: the PC's needs nothing, KytyPS5 the most.
+    fn this_pc() -> ThisPc {
+        use crate::game_groups::{EmulatorFit, Speed};
+        let fit = |recommends| EmulatorFit { speed: Speed::Good, recommends };
+        ThisPc {
+            system: Some(launcher_api::Platform::Linux),
+            emulators: HashMap::from([
+                (PluginId::new("kyty").unwrap(), fit([75, 145, 12])),
+                (PluginId::new("shad").unwrap(), fit([35, 70, 8])),
+                (PluginId::new("pc").unwrap(), fit([0; 3])),
+            ]),
+        }
+    }
+
+    /// The keys `query` shows, and its chips as (id, count), with `pc`.
+    fn shown_with(library: &LibrarySnapshot, query: &GridQuery, pc: ThisPc) -> (Vec<String>, Vec<(String, usize)>) {
+        let (jobs, installs, plays) = (BTreeMap::new(), InstallsSnapshot::default(), PlayTimes::default());
+        let ownership = Ownership::new(library, &jobs, &installs);
+        let data = GridData { library, ownership: &ownership, plays: &plays, hidden_filter: true, pc };
+        let games = query.games(&data);
+        let keys = games.shown.iter().map(|e| e.key.local.clone()).collect();
+        (keys, games.systems.into_iter().map(|c| (c.id, c.count)).collect())
     }
 
     /// `read` over `library`, with no downloads and no play time.
     fn over<T>(library: &LibrarySnapshot, plays: &PlayTimes, read: impl FnOnce(&GridData) -> T) -> T {
         let (jobs, installs) = (BTreeMap::new(), InstallsSnapshot::default());
         let ownership = Ownership::new(library, &jobs, &installs);
-        read(&GridData { library, ownership: &ownership, plays, hidden_filter: true })
+        read(&GridData { library, ownership: &ownership, plays, hidden_filter: true, pc: ThisPc::default() })
     }
 
     fn keys(library: &LibrarySnapshot, query: &GridQuery) -> Vec<String> {
@@ -716,6 +815,64 @@ mod tests {
         };
         assert_eq!(near(&HashMap::new()), ["g5", "g3"]);
         assert_eq!(near(&HashMap::from([(Grid::Library, 3)])), ["g5", "g3", "g7", "g1"]);
+    }
+
+    #[test]
+    fn all_shows_one_card_per_game_its_best_version_for_this_pc() {
+        let library = astro_on_two_consoles();
+        let (keys, chips) = shown_with(&library, &GridQuery::catalog(), this_pc());
+        assert_eq!(keys, ["astro-pc", "quest"], "the PC's needs no emulator; sorted by the newest version");
+        let chip = |id: &str| (id.to_owned(), 1);
+        assert_eq!(chips, [(String::new(), 2), chip("PS5"), chip("PC"), chip("PS4")], "All counts cards");
+        let (all, _) = shown_with(&library, &GridQuery::catalog(), ThisPc::default());
+        assert_eq!(all, ["astro-ps5", "quest"], "nothing known of this PC: the Catalog's order");
+    }
+
+    #[test]
+    fn the_version_the_player_has_installed_stands_for_its_game() {
+        let mut library = astro_on_two_consoles();
+        let offers = (*library.offers).clone();
+        let installed = library_with(vec![entry("kyty:astro", "Astro Bot", "PS5")], offers);
+        library = installed;
+        let (keys, _) = shown_with(&library, &GridQuery::catalog(), this_pc());
+        assert_eq!(keys, ["astro-ps5", "quest"], "not the best, the PC's: the one Play starts");
+    }
+
+    #[test]
+    fn a_console_chip_shows_that_console_s_versions_as_before() {
+        let library = astro_on_two_consoles();
+        let on = |system: &str| {
+            let query = GridQuery { system: Some(system.into()), ..GridQuery::catalog() };
+            shown_with(&library, &query, this_pc()).0
+        };
+        assert_eq!(on("PS5"), ["astro-ps5"]);
+        assert_eq!(on("PC"), ["astro-pc"]);
+        assert_eq!(on("PS4"), ["quest"]);
+    }
+
+    #[test]
+    fn the_filters_pick_among_a_game_s_versions_first() {
+        let mut library = astro_on_two_consoles();
+        // The player hid the PC version alone (in an earlier run): All shows the PS5's.
+        library.hidden.insert("cat:astro-pc".into());
+        assert_eq!(shown_with(&library, &GridQuery::catalog(), this_pc()).0, ["astro-ps5", "quest"]);
+        // A search that finds only one version's release shows that version.
+        let mut library = astro_on_two_consoles();
+        let mut offers = (*library.offers).clone();
+        offers[0].releases[0].region = "JPN".into();
+        library.offers = Arc::new(offers);
+        let query = GridQuery { query: "jpn".into(), ..GridQuery::catalog() };
+        assert_eq!(shown_with(&library, &query, this_pc()).0, ["astro-ps5"]);
+    }
+
+    #[test]
+    fn the_neighbours_of_a_version_are_its_card_s() {
+        let library = astro_on_two_consoles();
+        let (lib, cat) = (GridQuery::library(), GridQuery::catalog());
+        let near = over(&library, &PlayTimes::default(), |data| {
+            neighbours(data, &lib, &cat, &HashMap::new(), &key("cat:astro-pc"), 2)
+        });
+        assert_eq!(near, [key("cat:quest")], "not the card itself");
     }
 
     #[test]

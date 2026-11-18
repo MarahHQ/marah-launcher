@@ -1,4 +1,4 @@
-import { Vm, Host, Release } from "../types.slint";
+import { Vm, Host, Release, GameVersion } from "../types.slint";
 import { Commands } from "commands.slint";
 import { Tokens } from "../tokens.slint";
 import { Look } from "look.slint";
@@ -37,6 +37,9 @@ export global Hub {
     out property <bool> trailer: Vm.detail.trailer-url != "";
     out property <int> trailer-button: root.buttons + (root.store ? 1 : 0);
     out property <int> menu: root.trailer-button + (root.trailer ? 1 : 0);
+    // The keys are on a version's tile (a Catalog game on several consoles): its index, or -1.
+    // They land on the first, the best for this PC.
+    in-out property <int> version: -1;
     // The keys are on a release's row (a game a catalog offers): its index, or -1.
     in-out property <int> release: -1;
     // A release's download sheet is open, asking the player first: its index, or -1. The
@@ -49,6 +52,14 @@ export global Hub {
     in-out property <bool> asked;
     out property <string> shown-folder: root.folder != "" ? root.folder : Vm.detail.download-folder;
 
+    // A version's tile was picked: the Game Hub shows that version.
+    public function pick-version(index: int) {
+        if (!Vm.detail.versions[index].current) {
+            root.version = -1;
+            Commands.open-game(Vm.detail.versions[index].key);
+        }
+        Host.play-sound("select");
+    }
     // A release's row was picked: a release with no download asks first; one with a download
     // opens Downloads.
     public function pick-release(index: int) {
@@ -106,8 +117,28 @@ export global Hub {
             if (text == Key.Escape || text == Key.Backspace) { root.consent = -1; }
             return true;
         }
+        if (root.version >= 0) {
+            if (text == Key.LeftArrow || text == Key.RightArrow) {
+                let forward = (text == Key.RightArrow) == !Look.rtl;
+                root.version = Math.clamp(root.version + (forward ? 1 : -1), 0, Vm.detail.versions.length - 1);
+                Host.play-sound("move");
+                return true;
+            }
+            if (text == Key.Return) { root.pick-version(root.version); return true; }
+            if (text == Key.UpArrow) { root.version = -1; return true; }
+            if (text == Key.DownArrow) {
+                root.version = -1;
+                if (Vm.detail.releases.length > 0) { root.release = 0; } else { root.details = true; }
+                return true;
+            }
+        }
         if (root.release >= 0) {
-            if (text == Key.UpArrow) { root.release -= 1; return true; }
+            if (text == Key.UpArrow) {
+                // Up from the first release: to the versions, when the game has some.
+                if (root.release == 0 && Vm.detail.versions.length > 0) { root.version = 0; }
+                root.release -= 1;
+                return true;
+            }
             if (text == Key.DownArrow) {
                 if (root.release + 1 < Vm.detail.releases.length) { root.release += 1; } else { root.release = -1; root.details = true; }
                 return true;
@@ -167,6 +198,11 @@ export global Hub {
                 let action = Vm.detail.actions[root.focus - root.play];
                 Commands.run-action(action.plugin, action.action, Vm.detail.key, action.args);
             }
+            return true;
+        }
+        if (text == Key.DownArrow && !root.details && Vm.detail.versions.length > 0) {
+            // A Catalog game on several consoles: down to its versions first.
+            root.version = 0;
             return true;
         }
         if (text == Key.DownArrow && !root.details && Vm.detail.releases.length > 0) {
@@ -251,6 +287,87 @@ component Note inherits Rectangle {
         color: Tokens.color-warning;
         wrap: word-wrap;
         horizontal-alignment: Look.rtl ? right : left;
+    }
+}
+
+// One version of a Catalog game, on one console: the console, how it runs on this PC, and on
+// the best one, "BEST FOR THIS PC" and why. The version the Game Hub shows is lit.
+component VersionTile inherits Rectangle {
+    in property <GameVersion> version;
+    in property <bool> focused;
+    callback picked();
+    // The tile has the keys: the page scrolls to show it.
+    callback reveal(length, length);
+    changed focused => { if (root.focused) { root.reveal(self.absolute-position.y, self.height); } }
+    property <TextHorizontalAlignment> align: Look.rtl ? right : left;
+    min-height: lines.preferred-height + 28 * Look.px;
+    border-radius: 16 * Look.px;
+    background: root.focused || root.version.current ? Tokens.color-tint.with-alpha(0.122) : Tokens.color-panel.with-alpha(0.722);
+    border-width: root.focused ? 3 * Look.px : 1px;
+    border-color: root.focused ? Tokens.color-tint : root.version.current ? Tokens.color-tint.with-alpha(0.5) : Look.line;
+    animate background { duration: Tokens.motion-fast; }
+    accessible-role: button;
+    accessible-label: "version-" + root.version.platform;
+    accessible-value: (root.version.best ? "Best for this PC · " : "") + root.version.how;
+    accessible-item-selected: root.version.current;
+    accessible-action-default => { root.picked(); }
+    TouchArea { mouse-cursor: pointer; clicked => { root.picked(); } }
+    lines := VerticalLayout {
+        padding: 14 * Look.px;
+        padding-left: 18 * Look.px;
+        padding-right: 18 * Look.px;
+        spacing: 6 * Look.px;
+        alignment: start;
+        HorizontalLayout {
+            alignment: Look.rtl ? end : start;
+            spacing: 10 * Look.px;
+            Rectangle {
+                width: console.preferred-width + 16 * Look.px;
+                height: 30 * Look.px;
+                border-radius: 8 * Look.px;
+                background: Look.console-fill(root.version.system-color);
+                border-width: 1px;
+                border-color: Look.console-edge(root.version.system-color);
+                console := Text {
+                    text: root.version.platform;
+                    font-size: 16 * Look.px;
+                    font-weight: 800;
+                    letter-spacing: 0.5 * Look.px;
+                    color: Look.console-ink(root.version.system-color);
+                }
+            }
+            if root.version.best : Text {
+                text: "BEST FOR THIS PC";
+                font-size: 14 * Look.px;
+                font-weight: 700;
+                letter-spacing: 1.5 * Look.px;
+                color: Tokens.color-success;
+                vertical-alignment: center;
+            }
+            if !root.version.best && root.version.installed : Text {
+                text: "INSTALLED";
+                font-size: 14 * Look.px;
+                font-weight: 700;
+                letter-spacing: 1.5 * Look.px;
+                color: Look.text3;
+                vertical-alignment: center;
+            }
+        }
+        Text {
+            text: root.version.how;
+            font-size: 18 * Look.px;
+            font-weight: 500;
+            color: Tokens.color-text;
+            overflow: elide;
+            horizontal-alignment: root.align;
+        }
+        if root.version.why != "" : Text {
+            text: root.version.why;
+            font-size: 16 * Look.px;
+            color: Tokens.color-text-muted;
+            wrap: word-wrap;
+            horizontal-alignment: root.align;
+        }
     }
 }
 
@@ -868,6 +985,31 @@ export component GameDetailPage inherits Rectangle {
                 color: Tokens.color-text-muted;
                 wrap: word-wrap;
                 horizontal-alignment: root.align;
+            }
+            // A Catalog game on several consoles: its versions, the best for this PC first.
+            if Vm.detail.versions.length > 0 : VerticalLayout {
+                padding-top: 8 * Look.px;
+                spacing: 10 * Look.px;
+                Text {
+                    text: "VERSIONS";
+                    font-size: 15 * Look.px;
+                    font-weight: 600;
+                    letter-spacing: 1.5 * Look.px;
+                    color: Look.text3;
+                    horizontal-alignment: root.align;
+                }
+                HorizontalLayout {
+                    spacing: 12 * Look.px;
+                    // The tiles share the row evenly.
+                    for v[i] in Vm.detail.versions : VersionTile {
+                        horizontal-stretch: 1;
+                        preferred-width: 100 * Look.px;
+                        version: v;
+                        focused: Hub.version == i;
+                        reveal(y, h) => { root.reveal(y, h); }
+                        picked => { Hub.version = i; Hub.pick-version(i); }
+                    }
+                }
             }
             // A game a catalog offers: its releases by version, highest first.
             if Vm.detail.releases.length > 0 : VerticalLayout {

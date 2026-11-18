@@ -55,6 +55,9 @@ export struct GameActions {
     uninstall-store: string,
 }
 
+// One console a Catalog game has: its label ("PS5"), its system's full name and color.
+export struct Console { platform: string, system-name: string, system-color: color }
+
 // `release-year` is 0 when the catalog doesn't know it.
 export struct GameCard {
     key: string,
@@ -87,7 +90,17 @@ export struct GameCard {
     hidden: bool,
     // What can be done with it: the same on every card and the Game Hub.
     can: GameActions,
+    // For a Catalog game on several consoles, in the Catalog's "All": each console it has, the
+    // card's own first. Empty for a game on one console.
+    consoles: [Console],
 }
+
+// One version of a Catalog game: the game on one console. `key` opens it. `best`: the one
+// this PC runs best (the first; none when no version can start here), and `why` it is ("Its
+// plugin recommends the least of this PC"); empty for the others. `how`: how it runs here
+// ("Playable · Should run well"). `current`: the version the Game Hub shows. `installed`: the
+// player has it.
+export struct GameVersion { key: string, platform: string, system-name: string, system-color: color, best: bool, why: string, how: string, current: bool, installed: bool }
 
 // The library's games on one platform. `selected` is an index into `games`, or -1 when the
 // selected game is on another platform.
@@ -287,6 +300,9 @@ export struct GameDetail {
     availability-text: string,
     // Why the download the player last asked for here didn't start; empty when it did.
     download-error: string,
+    // For a Catalog game on several consoles: its versions, the best for this PC first. Empty
+    // for a game on one console.
+    versions: [GameVersion],
 }
 
 
