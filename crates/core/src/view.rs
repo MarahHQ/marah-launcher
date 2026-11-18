@@ -694,6 +694,11 @@ fn detail_vm(s: &Snapshot, owned: &Ownership, key: &GameKey) -> Option<GameDetai
         }),
         (this_pc, _, _) => this_pc,
     };
+    // An offer's own result, else the installed game's (see [`crate::game_groups::player_result`]).
+    let your_result = match offer {
+        Some(offer) => crate::game_groups::player_result(library, owned, offer),
+        None => library.result(key),
+    };
     let home = s.plugins.host().home.as_ref().and_then(|h| h.to_str());
     let fact = |id: &str| details.facts.iter().find(|f| f.id == id).map(|f| f.value.clone()).unwrap_or_default();
     let rating = meta.and_then(|(_, m)| m.rating);
@@ -724,7 +729,7 @@ fn detail_vm(s: &Snapshot, owned: &Ownership, key: &GameKey) -> Option<GameDetai
         layer_url: compatibility.url,
         this_pc,
         pc_warning,
-        your_result: library.result(key).map(CompatLevel::as_str).unwrap_or_default().to_owned(),
+        your_result: your_result.map(CompatLevel::as_str).unwrap_or_default().to_owned(),
         has_folder: s.files.game_folders.contains(key),
         has_log: s.files.has_log,
         hidden: library.hidden(key),
