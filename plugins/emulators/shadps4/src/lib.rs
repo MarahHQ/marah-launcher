@@ -275,6 +275,19 @@ async fn init(ctx: PluginContext, files: Vec<system_files::SystemFile>) -> Plugi
 
 inventory::submit! { PluginFactory::code(|| Box::new(ShadPlugin)) }
 
+/// A PS1 game that Sony sells for PS4: its folder has the PS1 emulator's `config-title.txt` and
+/// the PS1 disc as a `.cue` in `data/`. A folder that can't be read counts as a PS4 game.
+async fn ps1_game(host: &Host, dir: &HostPath) -> bool {
+    let read = async {
+        if !host.folders.exists(&dir.join("config-title.txt")?).await? {
+            return Ok(false);
+        }
+        let data = host.folders.list(&dir.join("data")?).await?;
+        PluginResult::Ok(data.iter().any(|e| !e.is_dir && e.name.to_ascii_lowercase().ends_with(".cue")))
+    };
+    read.await.unwrap_or(false)
+}
+
 struct Shad {
     emu: Arc<ConsoleEmulator<ShadFlavor>>,
 }
@@ -287,7 +300,8 @@ impl Launcher for Shad {
         // `config` is the emulator settings with the game's settings on top.
         let settings = builds.settings().for_launch(config).await;
         let run = builds.run().await?;
-        key_map::set_up(self.emu.host()).await;
+        let pad = if ps1_game(self.emu.host(), &found.dir).await { key_map::Pad::Ps1 } else { key_map::Pad::Ps4 };
+        key_map::set_up(self.emu.host(), pad, &found.title_id).await;
         first_user::set_up(self.emu.host()).await;
         // shadPS4 takes the game folder with -g; -f true|false sets full screen.
         let args = vec!["-g".into(), LaunchArg::path(found.dir), "-f".into(), settings.fullscreen.to_string().into()];

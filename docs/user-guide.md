@@ -283,6 +283,10 @@ Some emulator notes:
   shadPS4's key map (`input_config` in **shadPS4 data**) so that **Back** and **Space** click the
   right half (START) and **Backspace** the left half (SELECT). It changes only shadPS4's own
   touchpad lines: a touchpad you mapped to other keys stays as it is.
+  In a PS1 game on PS4 the Options button does nothing, so before a PS1 game Marah Launcher
+  also makes the controller's **Start** START and **Back** SELECT; before a PS4 game, Start is
+  Options again. In a PS1 game, Options is on the keyboard only (**Enter**). A PS1 game is a
+  PS4 game folder with `config-title.txt` and a `.cue` disc in `data/`.
 - **shadPS4's Save Migration box**: at its first start, shadPS4 asks what to do with saves in
   its old place (`savedata/1`), in a box a controller can't answer. When there are no such saves,
   Marah Launcher makes shadPS4's first user (`home/1000`) before the first PS4 game, so the box
