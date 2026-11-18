@@ -300,6 +300,8 @@ A variant with a sub-enum takes that enum, written as JSON the same way.
 | `LibraryGenre`, `CatalogGenre` | A genre, or `null` for every genre. |
 | `LibrarySort`, `CatalogSort` | `title`, `played`, `size`, `smallest`, `rating`, `release`, `compat` or `added`. |
 | `LibraryMore`, `CatalogMore` | None. Shows the next page. |
+| `RememberSearch` | Text. Keeps a search among the last searches (`Library.recent`). Send it when a search is done, not at each key. |
+| `ForgetSearches` | None. Forgets the last searches. |
 | `GridColumns` | `{"grid": "Library" or "Catalog", "columns": n}`. |
 | `Session` | `{"Launch": key}`, `{"Stop": session}`, `{"ShowGame": session}`, `"ToggleFocus"`. |
 | `ReportResult` | `"ingame"`, `"menus"`, `"boots"`, `"nothing"`, or `null` for Not now. |
@@ -421,7 +423,7 @@ Three rules hold for every kit file. Tests in `contract.rs` check them:
 | `install-os.slint` | `Setup`, `InstallOs` | Marah OS's USB stick: welcome, the disks, the question before erasing, progress. |
 | `install-prompt.slint` | `Prompt`, `InstallPrompt` | The prompt to install an emulator before a first play. |
 | `question-prompt.slint` | `Question`, `QuestionPrompt` | A plugin's question at the start, such as "Install Switch firmware 22.5.0?", with its two buttons. |
-| `keyboard.slint` | `Osk`, `TextField`, `OnScreenKeyboard` | A text field, and the on-screen keyboard it opens for a controller. |
+| `keyboard.slint` | `Osk`, `TextField`, `OnScreenKeyboard` | A text field, and the on-screen keyboard it opens for a controller. A field with `picking` shows a row of picks over the keys (a search's `matches`, or its `recent` searches) and gets `picked(index)` for the one pressed. |
 | `lingering.slint` | `Lingering` | Keeps a sheet on screen while it slides out. |
 | `list-item.slint` | `ListItem` | A row: a label, a line under it, a value at the end. |
 | `look.slint` | `Look` | Shared sizes (`k`, `px`, `tpx`), `rtl`, colors made from tokens, `timed`, `motion-on` and `clock` (the time for what moves on its own, still with Animations off), the kinds of motion (`enter`, `fade` and `emphasis`, each a `-time` and an `-easing`, and `stagger`; what leaves runs its way in backwards), and words and colors for ratings, results, sorts and states. |

@@ -114,6 +114,29 @@ Up and Down move from the systems to the bar to the grid. In the grid:
 - Press L2 or R2 to move three lines at a time.
 - Press ○ to go back to the list of systems.
 
+### Search
+
+The search forgives how you type a name. The best matches come first: a name that is what you
+typed, or starts with it, then the names that have each word, then the near spellings. The
+search finds:
+
+- Words typed together or apart: "godofwar" and "spider man" find God of War and Spider-Man.
+- Initials, with a number at the end: "tlou" finds The Last of Us, "gow" God of War, "re4"
+  Resident Evil 4.
+- Numbers either way, up to 20: "ff7" and "final fantasy 7" find Final Fantasy VII.
+- Names without their accents and punctuation: "pokemon" finds Pokémon.
+- A genre, after the names: "racing" finds racing games.
+- Small typos, when nothing matches as you typed it: "witchr" finds The Witcher. The first
+  letter must be right, and a word needs four letters or more.
+
+In the Catalog, the search also finds a release's title ID, publisher, region and version.
+
+With a controller, the search opens the on-screen keyboard. The row over its keys shows the
+best matches as you type: press Up from the numbers row to reach it, then ✕ on a game to open
+its Game Hub. With nothing typed, the row shows your last searches. ✕ on one runs it again,
+and **Clear** forgets them. Marah Launcher keeps your last eight searches, also after a restart.
+A search counts when you press Done, Enter or a game in the row.
+
 ## Game Hub
 
 ![Game Hub](screenshots/detail.jpg)
