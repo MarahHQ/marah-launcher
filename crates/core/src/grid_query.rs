@@ -13,10 +13,17 @@ use crate::app::Grid;
 use crate::library::{Entry, LibrarySnapshot};
 use crate::ownership::Ownership;
 use crate::releases::Offer;
+use crate::search::{Name, Other, Query};
 use crate::sessions::PlayTimes;
 
 /// How many more games a Library or Catalog page shows each time.
 pub const GRID_PAGE: usize = 60;
+
+/// How many of the player's last searches the core keeps.
+pub const RECENT_SEARCHES: usize = 8;
+
+/// How many of the best matches of a search the view names, for a theme's row of them.
+pub const BEST_MATCHES: usize = 5;
 
 /// A filter the player turns on or off, shown among a grid's systems. Its text, for a theme, is
 /// its chip's id: its name in lower case.
@@ -259,19 +266,6 @@ fn offer_genres(library: &LibrarySnapshot, offer: &Offer) -> Vec<String> {
     crate::releases::genres_in(&words).into_iter().map(str::to_owned).collect()
 }
 
-/// The words of a search or of a field, in lower case: letters and digits. An apostrophe joins
-/// its word ("Assassin's" is "assassins").
-fn search_words(text: &str) -> Vec<String> {
-    let text = text.to_lowercase().replace(['\'', '\u{2019}'], "");
-    text.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(str::to_owned).collect()
-}
-
-/// Whether each of the search's `words` starts a word of `fields`.
-fn has_words<'a>(words: &[String], fields: impl IntoIterator<Item = &'a str>) -> bool {
-    let known: Vec<String> = fields.into_iter().flat_map(search_words).collect();
-    words.iter().all(|w| known.iter().any(|k| k.starts_with(w.as_str())))
-}
-
 /// How far a game gets, for the "In-game" filter and the sort: the player's own result first,
 /// then the community's.
 fn reach(library: &LibrarySnapshot, key: &GameKey) -> CompatLevel {
@@ -300,26 +294,60 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
     let entries: Vec<&Entry> = entries.into_iter().filter(|e| is_hidden(e) == only_hidden).collect();
     // How many games there are before the search and the filters: hidden ones count nowhere.
     let all = entries.len();
-    let needle = query.query.trim().to_lowercase();
-    let words = search_words(&query.query);
-    let found = |e: &Entry| {
-        if e.summary.title.to_lowercase().contains(&needle) {
-            return true;
+    // The Library's chips are the store's genres; the Catalog's are the fixed genres. Read once
+    // a game: the search reads them too.
+    let genre_cache: std::cell::RefCell<HashMap<&GameKey, Vec<String>>> = Default::default();
+    let genres_of_entry = |e: &'a Entry| -> Vec<String> {
+        if let Some(genres) = genre_cache.borrow().get(&e.key) {
+            return genres.clone();
         }
+        let genres = match offers.get(&e.key) {
+            Some(o) if catalog => offer_genres(library, o),
+            _ => genres_of(library, &e.key),
+        };
+        genre_cache.borrow_mut().insert(&e.key, genres.clone());
+        genres
+    };
+    let search = Query::new(&query.query);
+    // How well a game matches the search (see [`crate::search::score`]): in the Catalog, its
+    // best release, with every word in that one release.
+    let score = |e: &'a Entry, typos: bool| -> Option<u32> {
+        if search.is_empty() {
+            return Some(0);
+        }
+        let title = Name::of(&e.summary.title);
         let publisher = library.meta(&e.key).map(|(_, m)| m.publisher.as_str()).unwrap_or_default();
-        let title_id = e.summary.title_id.as_deref().unwrap_or_default();
+        let genres = || genres_of_entry(e);
         match offers.get(&e.key) {
-            // Every word in one release: its title, title ids, publisher, region and version.
-            Some(o) => o.releases.iter().any(|r| {
-                let ids = std::iter::once(r.title_id.as_str()).chain(r.title_ids.iter().map(String::as_str));
-                let own = r.fact_text(launcher_api::FactKind::Publisher);
-                let fields = [e.summary.title.as_str(), &r.title, own, publisher, &r.region, &r.version];
-                has_words(&words, fields.into_iter().chain(ids))
-            }),
-            None => has_words(&words, [e.summary.title.as_str(), title_id, publisher]),
+            Some(o) => o
+                .releases
+                .iter()
+                .filter_map(|r| {
+                    let ids = std::iter::once(r.title_id.as_str()).chain(r.title_ids.iter().map(String::as_str));
+                    let own = r.fact_text(launcher_api::FactKind::Publisher);
+                    let other = Other::new([own, publisher, &r.region, &r.version].into_iter().chain(ids));
+                    // A release's own title, when it isn't the game's.
+                    let release = (r.title != e.summary.title).then(|| Name::of(&r.title));
+                    let names: Vec<&Name> = std::iter::once(&*title).chain(release.as_deref()).collect();
+                    crate::search::score(&search, &names, &other, &genres, typos)
+                })
+                .max(),
+            None => {
+                let title_id = e.summary.title_id.as_deref().unwrap_or_default();
+                crate::search::score(&search, &[&title], &Other::new([title_id, publisher]), &genres, typos)
+            }
         }
     };
-    let searched: Vec<&Entry> = entries.into_iter().filter(|e| needle.is_empty() || found(e)).collect();
+    let scored = |typos: bool| -> Vec<(&'a Entry, u32)> {
+        entries.iter().filter_map(|e| score(e, typos).map(|s| (*e, s))).collect()
+    };
+    // Near spellings only when nothing matches as typed.
+    let mut found = scored(false);
+    if found.is_empty() && !search.is_empty() {
+        found = scored(true);
+    }
+    let scores: HashMap<&GameKey, u32> = found.iter().map(|(e, s)| (&e.key, *s)).collect();
+    let searched: Vec<&Entry> = found.into_iter().map(|(e, _)| e).collect();
     // Systems count what the search leaves; genres count what the system leaves too.
     let mut systems =
         vec![FilterVm { id: String::new(), label: "All".into(), count: searched.len(), on: query.system.is_none() }];
@@ -373,17 +401,7 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
         .filter(|e| !only_ingame || level(e) >= CompatLevel::Ingame)
         .filter(|e| !catalog || !query.installed || installed(e))
         .collect();
-    // The Library's chips are the store's genres; the Catalog's are the fixed genres.
-    let chips: HashMap<&GameKey, Vec<String>> = in_system
-        .iter()
-        .map(|e| {
-            let genres = match offers.get(&e.key) {
-                Some(o) if catalog => offer_genres(library, o),
-                _ => genres_of(library, &e.key),
-            };
-            (&e.key, genres)
-        })
-        .collect();
+    let chips: HashMap<&GameKey, Vec<String>> = in_system.iter().map(|e| (&e.key, genres_of_entry(e))).collect();
     let chips_of = |e: &Entry| chips.get(&e.key).map(Vec::as_slice).unwrap_or_default();
     let mut genre_counts: BTreeMap<String, usize> = BTreeMap::new();
     for e in &in_system {
@@ -429,6 +447,11 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
         Sort::Compat => shown.sort_by_key(|e| std::cmp::Reverse(level(e))),
         Sort::Added => shown.sort_by_cached_key(|e| std::cmp::Reverse(added(e))),
         Sort::Title => shown.sort_by_cached_key(|e| e.summary.title.to_lowercase()),
+    }
+    // A search ranks the games: the best matches first, the sort orders the ones that match
+    // as well.
+    if !search.is_empty() {
+        shown.sort_by_key(|e| std::cmp::Reverse(scores.get(&e.key).copied().unwrap_or_default()));
     }
     GridGames { shown, all, systems, genres }
 }
@@ -547,6 +570,65 @@ mod tests {
         assert_eq!(keys(&library, &query), ["b"], "inside the title");
         query.query = "creed bl".into();
         assert!(keys(&library, &query).is_empty(), "every word, in one game");
+    }
+
+    #[test]
+    fn a_search_ranks_the_best_matches_first_and_the_sort_orders_the_ones_that_match_as_well() {
+        let library = library(
+            Vec::new(),
+            vec![
+                offer("cat:a", "Crisis Core: Final Fantasy VII Reunion", "2026-10-03", 5),
+                offer("cat:b", "Final Fantasy VII Rebirth", "2026-10-01", 5),
+                offer("cat:c", "Final Fantasy VII Remake", "2026-10-02", 5),
+                offer("cat:d", "Fantasy Life", "2026-10-04", 5),
+            ],
+            &[],
+        );
+        let found = |text: &str| keys(&library, &GridQuery { query: text.into(), ..GridQuery::catalog() });
+        assert_eq!(found(""), ["d", "a", "c", "b"], "no search: newest added first");
+        assert_eq!(found("final fantasy 7"), ["c", "b", "a"], "the titles that start with it, newest first");
+        assert_eq!(found("ff7"), ["c", "b", "a"], "initials and a number");
+        assert_eq!(found("fantasy"), ["d", "a", "c", "b"], "as well matched: the sort");
+        assert_eq!(found("final fantsy"), ["a", "c", "b"], "a typo, when nothing matches as typed: the sort");
+    }
+
+    #[test]
+    fn a_search_is_fast_enough_for_each_key_in_a_catalog_of_five_thousand_games() {
+        const WORDS: [&str; 12] =
+            ["final", "fantasy", "god", "war", "dark", "souls", "racing", "legend", "star", "night", "ring", "city"];
+        let offers: Vec<Offer> = (0..5_000)
+            .map(|i| {
+                let title = format!("{} {} {}", WORDS[i % 12], WORDS[(i / 12) % 12], i % 30);
+                offer(&format!("cat:g{i}"), &title, "2026-10-01", 5)
+            })
+            .collect();
+        let library = library(Vec::new(), offers, &[]);
+        // Each key of "final fantasy 7", then a typo that matches nothing as typed.
+        let typed = "final fantasy 7";
+        let mut texts: Vec<String> = (0..=typed.len()).map(|n| typed[..n].to_owned()).collect();
+        texts.push("finl fantsy".into());
+        let slowest = texts
+            .iter()
+            .map(|text| {
+                let query = GridQuery { query: text.clone(), ..GridQuery::catalog() };
+                // The fastest of a few runs: other tests run at the same time.
+                (0..5)
+                    .map(|_| {
+                        let started = std::time::Instant::now();
+                        over(&library, &PlayTimes::default(), |data| {
+                            std::hint::black_box(query.games(data).shown.len())
+                        });
+                        started.elapsed()
+                    })
+                    .min()
+                    .unwrap()
+            })
+            .max()
+            .unwrap();
+        eprintln!("5,000 games: the slowest key took {slowest:?}");
+        // A frame is 16 ms. The tests build with few optimizations and run side by side, so
+        // the bound leaves room; a release build is faster.
+        assert!(slowest < std::time::Duration::from_millis(30), "{slowest:?} for one key");
     }
 
     #[test]

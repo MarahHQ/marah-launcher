@@ -270,6 +270,13 @@ pub struct LibraryVm {
     /// `title`, `played`, `size`, `rating`, `release`, `compat` or `added`.
     pub sort: String,
     pub query: String,
+    /// The titles of the best matches of `query`, best first, at most five; empty with no
+    /// search. A theme shows them over its on-screen keyboard: each is the game at the same
+    /// index in `games`.
+    pub matches: Vec<String>,
+    /// The player's last searches, newest first, at most eight. The same in the Library and
+    /// the Catalog.
+    pub recent: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

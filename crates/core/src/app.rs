@@ -178,6 +178,12 @@ pub enum Command {
     CatalogSort(crate::Sort),
     /// The Catalog shows its next page of games.
     CatalogMore,
+    /// The player searched for this: it goes first among the last searches, which the view
+    /// gives the Library and the Catalog. A theme sends it when a search is done (Enter, or
+    /// the keyboard's Done), not at each key.
+    RememberSearch(String),
+    /// Forgets the player's last searches.
+    ForgetSearches,
     /// How many columns a grid shows, so the core knows the games above and below the
     /// selection.
     GridColumns {
@@ -576,6 +582,8 @@ impl Core {
             Command::CatalogGenre(genre) => navigation::set_grid(self, Grid::Catalog, |v| v.genre = genre),
             Command::CatalogSort(sort) => navigation::set_grid(self, Grid::Catalog, |v| v.sort = sort),
             Command::CatalogMore => navigation::more(self, Grid::Catalog),
+            Command::RememberSearch(text) => self.preferences().remember_search(&text),
+            Command::ForgetSearches => self.preferences().forget_searches(),
             Command::GridColumns { grid, columns } => navigation::set_columns(self, grid, columns),
             Command::Library(crate::LibraryCmd::Refresh) => library_reads::refresh_library(self).await,
             Command::Library(command) => self.library().handle(command),
