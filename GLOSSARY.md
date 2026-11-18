@@ -23,6 +23,11 @@ checked by the test kit against the app's `HostArchives` and the fake `FakeArchi
 library and so on.
 _Avoid_: section, domain
 
+**As installed** (`AsInstalled`, `Ownership::game`): a game key as the installed game it is. A
+Library game is itself. A Catalog offer is the installed game Ownership links it to, or none. The
+view, the grids and the versions read through it the game Play starts, its play time, whether it
+runs, the player's result and the community result.
+
 **Backup**: one file in the backup folder that holds the app's settings and the backup items:
 `marah-backup-<date>.tar.gz`, with `backup.json` (its manifest, naming the computer that made
 it), `config.json` and `items/…` (`backup/archive.rs`). `BackupCmd::BackUp` makes one. A backup
@@ -259,7 +264,7 @@ one while the `own_build` setting is on. The host never updates it.
 
 **Ownership** (`Ownership`): which installed game a Catalog offer is: the game a download of
 it installed, else the game with one of its title ids, else the game of its name on the same
-console. It also picks the release an offer's card shows.
+console. It also picks the release an offer's card shows, and gives each game key as installed.
 
 **Phase rules** (`torrents::phase::next`): what the BitTorrent engine's stats mean for a
 download, and what the core does next: unpause, stop, finished or stopped. They exist once, in

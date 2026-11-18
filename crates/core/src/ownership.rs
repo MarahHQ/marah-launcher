@@ -6,10 +6,14 @@
 //! by name on the same console, or by a game's whole name that starts the offer's: a game
 //! named from its file, "Mario Strikers Battle League", is the offer "Mario Strikers: Battle
 //! League Football". The view asks it about every offer, so it builds its maps once.
+//!
+//! An offer the player has answers as the installed game it is. [`Ownership::game`] gives a
+//! game key [`AsInstalled`], and the view, the grids and the versions read the player's
+//! result, the community result and the game Play starts through it.
 
 use std::collections::{BTreeMap, HashMap};
 
-use launcher_api::{GameKey, PluginId, Release};
+use launcher_api::{CompatInfo, CompatLevel, GameKey, PluginId, Release};
 
 use crate::game_installs::{GamePhase, InstallsSnapshot};
 use crate::library::{Entry, InstalledOffer, LibrarySnapshot};
@@ -26,6 +30,8 @@ pub(crate) struct Ownership<'a> {
     installs: &'a InstallsSnapshot,
     /// The installed games.
     games: Vec<&'a Entry>,
+    /// The Catalog's offers by key.
+    offers: HashMap<&'a GameKey, &'a Offer>,
     by_id: HashMap<(&'a PluginId, &'a str), &'a Entry>,
     /// By the emulator, and the console and the title as letters and digits (`ps5/astrobot`).
     by_name: HashMap<(&'a PluginId, String), &'a Entry>,
@@ -93,7 +99,19 @@ impl<'a> Ownership<'a> {
                 by_name.entry((&e.key.plugin, name)).or_insert(*e);
             }
         }
-        Self { library, jobs, installs, games, by_id, by_name, by_words, by_loose }
+        let offers = library.offers.iter().map(|o| (&o.entry.key, o)).collect();
+        Self { library, jobs, installs, games, offers, by_id, by_name, by_words, by_loose }
+    }
+
+    /// The game `key` as the player has it: a Library game is itself; a Catalog offer is the
+    /// installed game it is, or none.
+    pub fn game<'k>(&'k self, key: &'k GameKey) -> AsInstalled<'k> {
+        let offer = self.offers.get(key).copied();
+        let installed = match offer {
+            Some(offer) => self.installed_game(offer).map(|g| &g.key),
+            None => Some(key),
+        };
+        AsInstalled { library: self.library, key, offer, installed }
     }
 
     /// The game of the emulator's library that the download `job` installed: the one with the
@@ -194,13 +212,6 @@ impl<'a> Ownership<'a> {
         offer.releases.iter().rev().max_by_key(|r| rank(r)).unwrap_or(&offer.releases[0])
     }
 
-    /// The game Play starts for `key`: for a Catalog offer the player has installed, the
-    /// installed game it is; else `key` itself.
-    pub fn played_game(&self, key: &GameKey) -> GameKey {
-        let installed = self.library.offer(key).and_then(|o| self.installed_game(o));
-        installed.map(|g| g.key.clone()).unwrap_or_else(|| key.clone())
-    }
-
     /// The offer each installed game is, by the game, with the offer's cover.
     ///
     /// A game whose name starts the names of two offers or more is none of them: which one it is
@@ -227,6 +238,62 @@ impl<'a> Ownership<'a> {
                 (game.key.clone(), offer.entry.key.clone(), cover)
             })
             .collect()
+    }
+}
+
+/// A game key as the installed game it is (see [`Ownership::game`]). What the player did with
+/// the game is kept under the installed game's key: Play starts it, and its play time and its
+/// result from playing are saved for it. So an offer reads them from there.
+#[derive(Clone, Copy)]
+pub(crate) struct AsInstalled<'a> {
+    library: &'a LibrarySnapshot,
+    key: &'a GameKey,
+    offer: Option<&'a Offer>,
+    installed: Option<&'a GameKey>,
+}
+
+impl<'a> AsInstalled<'a> {
+    /// The Catalog offer the key is; `None` for a Library game.
+    pub fn offer(&self) -> Option<&'a Offer> {
+        self.offer
+    }
+
+    /// The installed game: a Library game itself, the one an offer is, or none for an offer the
+    /// player doesn't have.
+    pub fn installed(&self) -> Option<&'a GameKey> {
+        self.installed
+    }
+
+    /// The game Play starts, whose play time counts and which runs: the installed game, else
+    /// the key itself.
+    pub fn played(&self) -> &'a GameKey {
+        self.installed.unwrap_or(self.key)
+    }
+
+    /// The player's own result: the one for the key, else the one for the installed game.
+    pub fn player_result(&self) -> Option<CompatLevel> {
+        let result = |key: &GameKey| self.library.result(key);
+        result(self.key).or_else(|| self.installed.and_then(result))
+    }
+
+    /// The community list's result: the key's own (a Library game's emulator's `status`), the
+    /// installed game's, then the result the emulator's list gave for one of an offer's title
+    /// ids ([`LibrarySnapshot::community`]). A result that is no level (`Unknown`, as `status`
+    /// says for a game the list doesn't know) gives way to one with a level; with none, the
+    /// first stays, for its list's page.
+    pub fn community(&self) -> Option<&'a CompatInfo> {
+        let library = self.library;
+        let compat = |key: &GameKey| library.detail(key).and_then(|d| d.compat.as_ref());
+        let installed = self.installed.filter(|g| *g != self.key).and_then(compat);
+        let mut found = [compat(self.key), installed, library.community.get(self.key)].into_iter().flatten();
+        let first = found.clone().next();
+        found.find(|c| c.level != CompatLevel::Unknown).or(first)
+    }
+
+    /// How far the game gets, for the "In-game" filter and the sort: the player's own result,
+    /// else the community's.
+    pub fn reach(&self) -> CompatLevel {
+        self.player_result().or_else(|| self.community().map(|c| c.level)).unwrap_or(CompatLevel::Unknown)
     }
 }
 
@@ -505,21 +572,127 @@ mod tests {
         assert!(owned(&library, |o| o.installed_game(&library.offers[0]).is_none()));
     }
 
-    #[test]
-    fn play_on_an_installed_offer_starts_the_installed_game() {
-        let library = library(
+    /// The installed game Astro (`emu:G1`), its offer `cat:o1`, and `cat:o2`, an offer the
+    /// player doesn't have. `details` are the installed game's.
+    fn astro_and_another(details: Vec<(GameKey, Detail)>) -> LibrarySnapshot {
+        library(
             vec![game("emu:G1", "Astro", "PS5", Some("PPSA01234"))],
-            Vec::new(),
+            details,
             vec![
                 offer("cat:o1", "PS5", vec![release("a", "Astro", "PPSA01234", "1.0")]),
                 offer("cat:o2", "PS5", vec![release("b", "Other", "PPSA09999", "1.0")]),
             ],
-        );
+        )
+    }
+
+    /// Results by game key, as a table test's case gives them.
+    type ByKey = &'static [(&'static str, CompatLevel)];
+
+    /// A community result of `level`, with its list's page.
+    fn compat(level: CompatLevel) -> CompatInfo {
+        CompatInfo { level, notes: None, source: None, page: Some("https://list.example".into()), tested: None }
+    }
+
+    /// The installed game's details, with its emulator's community result.
+    fn astro_detail(level: CompatLevel) -> (GameKey, Detail) {
+        let details = GameDetails {
+            summary: summary("G1", "Astro", "PS5", Some("PPSA01234")),
+            description: String::new(),
+            developer: None,
+            genres: Vec::new(),
+            size_bytes: None,
+            background: None,
+            facts: Vec::new(),
+            folder: None,
+            also: Vec::new(),
+            uninstall_link: None,
+        };
+        let mut detail = Detail::of(details);
+        detail.compat = Some(compat(level));
+        (key("emu:G1"), detail)
+    }
+
+    #[test]
+    fn a_key_answers_as_the_installed_game_it_is() {
+        let library = astro_and_another(Vec::new());
+        // (key, the installed game, the game Play starts, an offer)
+        let cases = [
+            ("cat:o1", Some("emu:G1"), "emu:G1", true),
+            ("cat:o2", None, "cat:o2", true),
+            ("emu:G1", Some("emu:G1"), "emu:G1", false),
+        ];
         owned(&library, |o| {
-            assert_eq!(o.played_game(&key("cat:o1")), key("emu:G1"));
-            assert_eq!(o.played_game(&key("cat:o2")), key("cat:o2"), "not installed: the offer itself");
-            assert_eq!(o.played_game(&key("emu:G1")), key("emu:G1"), "a Library game");
+            for (asked, installed, played, is_offer) in cases {
+                let asked = key(asked);
+                let game = o.game(&asked);
+                assert_eq!(game.installed(), installed.map(key).as_ref(), "{asked}: the installed game");
+                assert_eq!(game.played(), &key(played), "{asked}: Play starts it");
+                assert_eq!(game.offer().is_some(), is_offer, "{asked}: an offer");
+            }
         });
+    }
+
+    #[test]
+    fn the_player_s_result_is_the_key_s_own_else_the_installed_game_s() {
+        use CompatLevel::{Ingame, Menus};
+        // (the results saved, the key, its result)
+        let cases: [(ByKey, &str, Option<CompatLevel>); 5] = [
+            (&[("emu:G1", Menus)], "cat:o1", Some(Menus)),
+            (&[("emu:G1", Menus), ("cat:o1", Ingame)], "cat:o1", Some(Ingame)),
+            (&[("emu:G1", Menus)], "cat:o2", None),
+            (&[("emu:G1", Menus)], "emu:G1", Some(Menus)),
+            (&[], "cat:o1", None),
+        ];
+        for (saved, asked, expected) in cases {
+            let mut library = astro_and_another(Vec::new());
+            library.results = saved.iter().map(|(k, l)| ((*k).to_owned(), *l)).collect();
+            let found = owned(&library, |o| o.game(&key(asked)).player_result());
+            assert_eq!(found, expected, "{asked} with {saved:?}");
+        }
+    }
+
+    #[test]
+    fn the_community_result_is_the_installed_game_s_else_the_list_s_for_the_offer() {
+        use CompatLevel::{Boots, Ingame, Playable, Unknown};
+        // (the installed game's own, the list's by offer, the key, its result)
+        let cases: [(Option<CompatLevel>, ByKey, &str, Option<CompatLevel>); 7] = [
+            (Some(Playable), &[], "cat:o1", Some(Playable)),
+            (Some(Playable), &[], "emu:G1", Some(Playable)),
+            (Some(Playable), &[], "cat:o2", None),
+            (None, &[("cat:o2", Boots)], "cat:o2", Some(Boots)),
+            // The list doesn't know the installed game's title id: its look-up for the offer's
+            // title id says more.
+            (Some(Unknown), &[("cat:o1", Ingame)], "cat:o1", Some(Ingame)),
+            // Nothing else known: the game's own, with its list's page.
+            (Some(Unknown), &[], "cat:o1", Some(Unknown)),
+            (None, &[], "cat:o1", None),
+        ];
+        for (own, listed, asked, expected) in cases {
+            let mut library = astro_and_another(own.map(astro_detail).into_iter().collect());
+            library.community = Arc::new(listed.iter().map(|(k, l)| (key(k), compat(*l))).collect());
+            let found = owned(&library, |o| o.game(&key(asked)).community().cloned());
+            assert_eq!(found, expected.map(compat), "{asked}: own {own:?}, listed {listed:?}");
+        }
+    }
+
+    #[test]
+    fn how_far_a_game_gets_is_the_player_s_result_else_the_community_s() {
+        use CompatLevel::{Boots, Nothing, Playable, Unknown};
+        // (the player's result for the installed game, the installed game's community result,
+        // the key, how far it gets)
+        let cases = [
+            (Some(Nothing), Some(Playable), "cat:o1", Nothing),
+            (None, Some(Playable), "cat:o1", Playable),
+            (None, Some(Boots), "emu:G1", Boots),
+            (None, None, "cat:o1", Unknown),
+            (Some(Nothing), Some(Playable), "cat:o2", Unknown),
+        ];
+        for (result, own, asked, expected) in cases {
+            let mut library = astro_and_another(own.map(astro_detail).into_iter().collect());
+            library.results = result.map(|l| ("emu:G1".to_owned(), l)).into_iter().collect();
+            let found = owned(&library, |o| o.game(&key(asked)).reach());
+            assert_eq!(found, expected, "{asked}: result {result:?}, community {own:?}");
+        }
     }
 
     #[test]

@@ -272,18 +272,6 @@ fn offer_genres(library: &LibrarySnapshot, offer: &Offer) -> Vec<String> {
     crate::releases::genres_in(&words).into_iter().map(str::to_owned).collect()
 }
 
-/// How far a game gets, for the "In-game" filter and the sort: the player's own result first,
-/// then the community's (for an offer, see [`crate::game_groups::player_result`] and
-/// [`crate::game_groups::community`]).
-fn reach(library: &LibrarySnapshot, owned: &Ownership, offer: Option<&Offer>, key: &GameKey) -> CompatLevel {
-    let level = match offer {
-        Some(offer) => crate::game_groups::player_result(library, owned, offer)
-            .or_else(|| crate::game_groups::community(library, owned, offer).map(|c| c.level)),
-        None => library.result(key).or_else(|| library.detail(key).and_then(|d| d.compat.as_ref()).map(|c| c.level)),
-    };
-    level.unwrap_or(CompatLevel::Unknown)
-}
-
 fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
     let library = data.library;
     let owned = data.ownership;
@@ -380,7 +368,8 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
             }),
         }
     }
-    let level = |e: &Entry| reach(library, owned, offers.get(&e.key).copied(), &e.key);
+    // How far a game gets: an offer's is the installed game's too (see [`Ownership::game`]).
+    let level = |e: &Entry| owned.game(&e.key).reach();
     let ingame = cards(searched.iter().copied().filter(in_view).filter(|e| level(e) >= CompatLevel::Ingame).collect());
     // The Catalog's only: the Library's games are the player's own. Shown once a game has a
     // result to filter by.
@@ -511,7 +500,7 @@ fn one_per_game<'a>(
     let cards: HashSet<&GameKey> = games
         .values()
         .map(|versions| {
-            let best = crate::game_groups::best_first(data.library, data.ownership, &data.pc, versions);
+            let best = crate::game_groups::best_first(data.ownership, &data.pc, versions);
             let installed = best.iter().find(|v| data.ownership.installed_game(v.offer).is_some());
             &installed.unwrap_or(&best[0]).offer.entry.key
         })
@@ -931,52 +920,6 @@ mod tests {
         }
         let on = GridQuery { installed: true, ..GridQuery::catalog() };
         assert_eq!(shown_with(&library, &on, this_pc()).0.len(), 1, "and the chip shows one card");
-    }
-
-    #[test]
-    fn an_installed_game_the_list_doesn_t_know_leaves_its_offer_the_list_s_result() {
-        // The player has Astro Bot by another title id than the one the list knows: the
-        // installed game's status says Unknown, the list's look-up In-game.
-        let config = Arc::new(crate::ConfigService::in_memory());
-        let notifier = Notifier::new(Changes::new(), crate::EventBus::default());
-        let subsystem = LibrarySubsystem::new(Records::new(config), notifier);
-        let game = entry("kyty:astro", "Astro Bot", "PS5");
-        subsystem.set_library(vec![game.clone()], HashMap::new(), Vec::new());
-        let mut detail = crate::library::Detail::of(launcher_api::GameDetails {
-            summary: game.summary.clone(),
-            description: String::new(),
-            developer: None,
-            genres: Vec::new(),
-            size_bytes: None,
-            background: None,
-            facts: Vec::new(),
-            folder: None,
-            also: Vec::new(),
-            uninstall_link: None,
-        });
-        let unknown = launcher_api::CompatInfo {
-            level: CompatLevel::Unknown,
-            notes: None,
-            source: None,
-            page: Some("https://list.example".into()),
-            tested: None,
-        };
-        detail.compat = Some(unknown.clone());
-        subsystem.set_detail(&game.key, detail, None);
-        let offer = version("cat:astro-ps5", "Astro Bot", "PS5", "kyty", "2026-10-03");
-        let mut library = subsystem.snapshot();
-        library.offers = Arc::new(vec![offer.clone()]);
-        let (jobs, installs) = (Default::default(), InstallsSnapshot::default());
-        let owned = Ownership::new(&library, &jobs, &installs);
-        assert_eq!(owned.installed_game(&offer).map(|g| &g.key), Some(&game.key), "the offer is the installed game");
-        let community = |library: &LibrarySnapshot| {
-            let owned = Ownership::new(library, &jobs, &installs);
-            crate::game_groups::community(library, &owned, &offer).cloned()
-        };
-        assert_eq!(community(&library), Some(unknown.clone()), "nothing else known: the game's own, with its page");
-        let ingame = launcher_api::CompatInfo { level: CompatLevel::Ingame, ..unknown };
-        library.community = Arc::new(HashMap::from([(offer.entry.key.clone(), ingame.clone())]));
-        assert_eq!(community(&library), Some(ingame));
     }
 
     #[test]

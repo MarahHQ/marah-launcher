@@ -446,9 +446,33 @@ pub(crate) fn not_here(system: &str, here: Option<launcher_api::Platform>) -> St
     format!("This is a {label} release: it can't run on {on}")
 }
 
+/// One of `releases` can start on `here` (see [`not_here`]).
+pub(crate) fn for_here(releases: &[Release], here: Option<launcher_api::Platform>) -> bool {
+    releases.iter().any(|r| not_here(&r.system, here).is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_offer_is_for_this_system_when_one_of_its_releases_is() {
+        use launcher_api::Platform::{Linux, Windows};
+        let on = |systems: &[&str]| -> Vec<Release> {
+            systems.iter().map(|s| Release { system: (*s).into(), ..Release::default() }).collect()
+        };
+        let cases: [(&[&str], Option<launcher_api::Platform>, bool); 6] = [
+            (&["windows"], Some(Linux), true),
+            (&["macos"], Some(Linux), false),
+            (&["macos", "linux"], Some(Linux), true),
+            (&["linux"], Some(Windows), false),
+            (&["linux"], None, true),
+            (&[], Some(Linux), false),
+        ];
+        for (systems, here, expected) in cases {
+            assert_eq!(for_here(&on(systems), here), expected, "{systems:?} on {here:?}");
+        }
+    }
 
     #[test]
     fn genre_words_map_to_the_fixed_genres() {

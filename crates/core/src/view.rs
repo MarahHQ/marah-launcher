@@ -15,7 +15,7 @@ use crate::game_installs::InstallsSnapshot;
 use crate::grid_query::{GridData, GridGames, GridQuery};
 use crate::library::{Entry, LibrarySnapshot, PluginImage, image_ref};
 use crate::order::sort_by_order;
-use crate::ownership::Ownership;
+use crate::ownership::{AsInstalled, Ownership};
 use crate::snapshot::{Plugins, Snapshot};
 use crate::torrents::TorrentJob;
 use crate::{JobPhase, PluginStatus};
@@ -145,8 +145,9 @@ fn last_played_days(s: &Snapshot, key: &GameKey) -> Option<u64> {
     (stats.count > 0).then(|| crate::sessions::days_between(stats.last, s.now_secs))
 }
 
-/// A game's card. `selected`: the game selected on the card's screen.
-fn card(s: &Snapshot, entry: &Entry, selected: Option<&GameKey>) -> GameCardVm {
+/// A game's card. `game`: the entry's game as the player has it. `selected`: the game selected
+/// on the card's screen.
+fn card(s: &Snapshot, entry: &Entry, game: &AsInstalled, selected: Option<&GameKey>) -> GameCardVm {
     let library = &s.library;
     GameCardVm {
         key: entry.key.to_string(),
@@ -166,14 +167,13 @@ fn card(s: &Snapshot, entry: &Entry, selected: Option<&GameKey>) -> GameCardVm {
         availability: String::new(),
         availability_text: String::new(),
         hidden: false,
-        // A Library game's; `offer_card` gives an offer's.
-        can: game_actions(s, &entry.key, None),
+        can: game_actions(s, game),
         consoles: Vec::new(),
     }
 }
 
-/// What can be done with the game `key`: a Library game (`offer` is `None`), or a Catalog
-/// offer with the installed game it is, if any. The one place the rules live:
+/// What can be done with `game`: a Library game, or a Catalog offer with the installed game it
+/// is, if any. The one place the rules live:
 ///
 /// - Play: it is installed (an offer: the installed game it is), and that game's plugin can
 ///   start games. A missing emulator is no reason to hide it: Play installs the emulator first.
@@ -182,15 +182,8 @@ fn card(s: &Snapshot, entry: &Entry, selected: Option<&GameKey>) -> GameCardVm {
 /// - Uninstall: the installed game, by its store's link when its plugin gives one and may open
 ///   it, else by deleting its folder when its plugin may.
 /// - The main action: Play, else Get, else none. Uninstall is never the main one.
-fn game_actions(
-    s: &Snapshot,
-    key: &GameKey,
-    offer: Option<(&crate::releases::Offer, Option<&Entry>)>,
-) -> GameActionsVm {
-    let installed: Option<&GameKey> = match offer {
-        None => Some(key),
-        Some((_, game)) => game.map(|g| &g.key),
-    };
+fn game_actions(s: &Snapshot, game: &AsInstalled) -> GameActionsVm {
+    let installed = game.installed();
     let manifest = |plugin: &PluginId| s.plugins.manifest(plugin);
     let play =
         installed.is_some_and(|k| manifest(&k.plugin).is_some_and(|m| m.capabilities.contains(&Capability::Launcher)));
@@ -207,7 +200,7 @@ fn game_actions(
             actions.uninstall = game.to_string();
         }
     }
-    if let Some((offer, None)) = offer {
+    if let (Some(offer), None) = (game.offer(), installed) {
         match offer.releases.iter().find(|r| !r.store.is_empty()) {
             Some(release) => {
                 actions.get_store = s.plugins.system(&release.platform).name;
@@ -245,7 +238,7 @@ fn grid_vm(s: &Snapshot, data: &GridData, query: &GridQuery, selected: Option<&G
                 // "All" shows one card per game: the card stands for each of its versions.
                 if query.system.is_none() { game_card(s, data, &offers, card, offer, selected) } else { card }
             }
-            _ => card(s, e, selected),
+            _ => card(s, e, &data.ownership.game(&e.key), selected),
         })
         .collect();
     let matches = if crate::search::fold(&query.query).trim().is_empty() {
@@ -292,7 +285,7 @@ fn game_card(
     if versions.len() < 2 {
         return card;
     }
-    let best = crate::game_groups::best_first(library, data.ownership, &data.pc, &versions);
+    let best = crate::game_groups::best_first(data.ownership, &data.pc, &versions);
     let own = std::iter::once(offer);
     let others = best.iter().map(|v| v.offer).filter(|o| o.entry.key != offer.entry.key);
     card.consoles = own
@@ -317,7 +310,7 @@ fn version_how(version: &crate::game_groups::Version, here: Option<Platform>) ->
     use crate::game_groups::Speed;
     let fit = &version.fit;
     if !fit.starts {
-        let for_here = version.offer.releases.iter().any(|r| crate::releases::not_here(&r.system, here).is_empty());
+        let for_here = crate::releases::for_here(&version.offer.releases, here);
         return match (fit.speed, for_here) {
             (Speed::No, _) => "Won't start on this PC".into(),
             (_, false) => "Can't run here".into(),
@@ -343,7 +336,7 @@ fn versions_vm(s: &Snapshot, owned: &Ownership, key: &GameKey) -> Vec<GameVersio
     }
     let offers: Vec<&crate::releases::Offer> = keys.iter().filter_map(|k| library.offer(k)).collect();
     let pc = s.this_pc();
-    let best = crate::game_groups::best_first(library, owned, &pc, &offers);
+    let best = crate::game_groups::best_first(owned, &pc, &offers);
     let why = crate::game_groups::why_best(&best[0], best.get(1), compat_label);
     best.iter()
         .enumerate()
@@ -490,13 +483,13 @@ fn offer_card(
     offer: &crate::releases::Offer,
     selected: Option<&GameKey>,
 ) -> GameCardVm {
-    let mut card = card(s, &offer.entry, selected);
+    let game = owned.game(&offer.entry.key);
+    let mut card = card(s, &offer.entry, &game, selected);
     let best = owned.best_release(offer);
     card.size_bytes = best.size_bytes;
     card.availability = crate::releases::availability(best.seeders).into();
     card.releases = offer.releases.len();
-    let installed = owned.installed_game(offer);
-    card.can = game_actions(s, &offer.entry.key, Some((offer, installed)));
+    let installed = game.installed();
     // A game its store installs has no torrent to be available.
     if offer.releases.iter().any(|r| !r.store.is_empty()) {
         card.availability = String::new();
@@ -512,7 +505,7 @@ fn offer_card(
     }
     // Every release is for another system.
     let here = s.plugins.host().platform;
-    if offer.releases.iter().all(|r| !crate::releases::not_here(&r.system, here).is_empty()) {
+    if !crate::releases::for_here(&offer.releases, here) {
         card.badges.push(badge(plugin, "not-here", "Can't run here", Tone::Warning));
     }
     card
@@ -592,7 +585,7 @@ fn catalog_vm(s: &Snapshot, data: &GridData, on_screen: bool) -> CatalogVm {
 fn home_vm(s: &Snapshot, data: &GridData) -> HomeVm {
     let stack = &s.state.stack;
     let home = stack.selected_on(&Route::Home);
-    let games: Vec<GameCardVm> = s.library.library().map(|e| card(s, e, home)).collect();
+    let games: Vec<GameCardVm> = s.library.library().map(|e| card(s, e, &data.ownership.game(&e.key), home)).collect();
     let selected = games.iter().position(|g| g.selected);
     let mut groups: Vec<GroupVm> = Vec::new();
     for game in &games {
@@ -643,13 +636,13 @@ fn detail_vm(s: &Snapshot, owned: &Ownership, key: &GameKey) -> Option<GameDetai
     let details = &d.details;
     let summary = &details.summary;
     let manifest = s.plugins.manifest(&key.plugin);
-    let offer = library.offer(key);
+    // A Catalog offer answers as the installed game it is: Play, play time, results.
+    let game = owned.game(key);
+    let offer = game.offer();
     let has_installer = manifest.is_some_and(|m| m.capabilities.contains(&Capability::Installer));
     let installed = s.state.emulators.get(&key.plugin).is_some_and(|e| !e.installed.is_empty());
-    // A Catalog offer plays as the installed game it is, and not at all before it is installed.
-    let installed_as = offer.and_then(|o| owned.installed_game(o));
-    let played = installed_as.map(|g| &g.key).unwrap_or(key);
-    let can = game_actions(s, key, offer.map(|o| (o, installed_as)));
+    let played = game.played();
+    let can = game_actions(s, &game);
     let needs_emulator = has_installer && !installed;
     // The program, not the console: "Launches with the KytyPS5 emulator".
     let name = manifest.map(|m| m.emulator_name().to_owned()).unwrap_or_default();
@@ -667,12 +660,8 @@ fn detail_vm(s: &Snapshot, owned: &Ownership, key: &GameKey) -> Option<GameDetai
     };
     let line = crate::game_words::home_line(details, &metas, meta.map(|(_, m)| m.tagline.as_str()), origin);
     let compatibility = offer.map(crate::releases::compatibility).unwrap_or_default();
-    // An offer's details carry no community result: it is the installed game's, else the
-    // emulator's list's for the offer's title id (see [`crate::game_groups::community`]).
-    let community = match offer {
-        Some(offer) => crate::game_groups::community(library, owned, offer),
-        None => d.compat.as_ref(),
-    };
+    // An offer's details carry no community result: see [`AsInstalled::community`].
+    let community = game.community();
     // Where the offer's downloads go, and the free space there.
     let download_folder = offer.and_then(|o| s.state.disks.download_folder(&o.emulator, &o.releases[0].platform));
     let free = download_folder.and_then(|f| f.free);
@@ -694,11 +683,7 @@ fn detail_vm(s: &Snapshot, owned: &Ownership, key: &GameKey) -> Option<GameDetai
         }),
         (this_pc, _, _) => this_pc,
     };
-    // An offer's own result, else the installed game's (see [`crate::game_groups::player_result`]).
-    let your_result = match offer {
-        Some(offer) => crate::game_groups::player_result(library, owned, offer),
-        None => library.result(key),
-    };
+    let your_result = game.player_result();
     let home = s.plugins.host().home.as_ref().and_then(|h| h.to_str());
     let fact = |id: &str| details.facts.iter().find(|f| f.id == id).map(|f| f.value.clone()).unwrap_or_default();
     let rating = meta.and_then(|(_, m)| m.rating);
@@ -757,7 +742,7 @@ fn detail_vm(s: &Snapshot, owned: &Ownership, key: &GameKey) -> Option<GameDetai
             .map(|o| {
                 let today = s.today();
                 let best = &owned.best_release(o).id;
-                crate::releases::ordered(&o.releases, installed_as.is_some())
+                crate::releases::ordered(&o.releases, game.installed().is_some())
                     .into_iter()
                     .map(|crate::releases::Ordered { release: r, label }| ReleaseVm {
                         version_label: label,
@@ -822,7 +807,7 @@ fn on_this_pc(s: &Snapshot, emulator: &PluginId, releases: &[launcher_api::Relea
         return (None, String::new());
     };
     let here = s.plugins.host().platform;
-    if !releases.is_empty() && releases.iter().all(|r| !crate::releases::not_here(&r.system, here).is_empty()) {
+    if !releases.is_empty() && !crate::releases::for_here(releases, here) {
         let mut systems: Vec<&str> = Vec::new();
         for label in releases.iter().map(|r| crate::releases::system_label(&r.system)) {
             if !systems.contains(&label) {

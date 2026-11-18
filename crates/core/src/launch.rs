@@ -122,7 +122,8 @@ pub(crate) async fn session(core: &Core, command: SessionCmd) -> CoreResult<()> 
     // A Catalog offer's Play starts the installed game it is.
     let (library, torrents, installs) =
         (core.library().snapshot(), core.torrents().snapshot(), core.installs().snapshot());
-    let game = crate::ownership::Ownership::new(&library, &torrents.jobs, &installs).played_game(&game);
+    let owned = crate::ownership::Ownership::new(&library, &torrents.jobs, &installs);
+    let game = owned.game(&game).played().clone();
     let result = launch(core, game.clone()).await;
     // The player pressed Play: say why nothing started.
     if let Err(error) = &result {

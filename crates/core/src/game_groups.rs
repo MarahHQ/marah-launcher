@@ -9,10 +9,9 @@
 use std::cmp::Reverse;
 use std::collections::HashMap;
 
-use launcher_api::{CompatInfo, CompatLevel, FactKind, GameKey, Platform, PluginId, Requirements};
+use launcher_api::{CompatLevel, FactKind, GameKey, Platform, PluginId, Requirements};
 
 use crate::hardware::Verdict;
-use crate::library::LibrarySnapshot;
 use crate::ownership::Ownership;
 use crate::releases::Offer;
 
@@ -312,30 +311,12 @@ fn layer_level(rating: &str) -> CompatLevel {
     }
 }
 
-/// The community list's result for `offer`'s game: the installed game's own (its emulator's
-/// `status`) when the player has it, else the result the emulator's list gave for one of the
-/// offer's title ids ([`LibrarySnapshot::community`]). A result that is no level (`Unknown`, as
-/// `status` says for a game the list doesn't know) gives way to one with a level; with none,
-/// the first stays, for its list's page.
-pub(crate) fn community<'a>(library: &'a LibrarySnapshot, owned: &Ownership, offer: &Offer) -> Option<&'a CompatInfo> {
-    let compat = |key: &GameKey| library.detail(key).and_then(|d| d.compat.as_ref());
-    let installed = owned.installed_game(offer).and_then(|game| compat(&game.key));
-    let found = [compat(&offer.entry.key), installed, library.community.get(&offer.entry.key)];
-    let mut found = found.into_iter().flatten();
-    let first = found.clone().next();
-    found.find(|c| c.level != CompatLevel::Unknown).or(first)
-}
-
-/// The player's own result for `offer`'s game: the one for the offer, else the one for the
-/// installed game it is, which is where a result from playing it is kept.
-pub(crate) fn player_result(library: &LibrarySnapshot, owned: &Ownership, offer: &Offer) -> Option<CompatLevel> {
-    library.result(&offer.entry.key).or_else(|| owned.installed_game(offer).and_then(|game| library.result(&game.key)))
-}
-
 /// How `offer`'s game runs here: from the player's result, the community's list, a release for
-/// this system, or the layer's rating, in that order; then the emulator's fit.
-pub(crate) fn version<'a>(library: &LibrarySnapshot, owned: &Ownership, pc: &ThisPc, offer: &'a Offer) -> Version<'a> {
-    let community = community(library, owned, offer).map(|c| c.level);
+/// this system, or the layer's rating, in that order; then the emulator's fit. The results are
+/// the installed game's too (see [`Ownership::game`]).
+pub(crate) fn version<'a>(owned: &Ownership, pc: &ThisPc, offer: &'a Offer) -> Version<'a> {
+    let game = owned.game(&offer.entry.key);
+    let community = game.community().map(|c| c.level);
     let native = pc.system.and_then(|here| {
         let label = match here {
             Platform::Linux => "linux",
@@ -346,7 +327,7 @@ pub(crate) fn version<'a>(library: &LibrarySnapshot, owned: &Ownership, pc: &Thi
     });
     let layer = Some(layer_level(&crate::releases::compatibility(offer).rating));
     let found = [
-        (player_result(library, owned, offer), Said::Player),
+        (game.player_result(), Said::Player),
         (community, Said::Community),
         (native, Said::Native),
         (layer, Said::Layer),
@@ -357,7 +338,7 @@ pub(crate) fn version<'a>(library: &LibrarySnapshot, owned: &Ownership, pc: &Thi
         .unwrap_or((CompatLevel::Unknown, Said::Nobody));
     let emulator = pc.emulators.get(&offer.emulator);
     let speed = emulator.map_or(Speed::Unknown, |e| e.speed);
-    let for_here = offer.releases.iter().any(|r| crate::releases::not_here(&r.system, pc.system).is_empty());
+    let for_here = crate::releases::for_here(&offer.releases, pc.system);
     let fit = Fit {
         starts: speed != Speed::No && for_here && level != CompatLevel::Nothing,
         reach: reach_of(level),
@@ -368,13 +349,8 @@ pub(crate) fn version<'a>(library: &LibrarySnapshot, owned: &Ownership, pc: &Thi
 }
 
 /// The versions of `offers`, best for this PC first. On a tie, the Catalog's order stays.
-pub(crate) fn best_first<'a>(
-    library: &LibrarySnapshot,
-    owned: &Ownership,
-    pc: &ThisPc,
-    offers: &[&'a Offer],
-) -> Vec<Version<'a>> {
-    let mut versions: Vec<Version<'a>> = offers.iter().map(|o| version(library, owned, pc, o)).collect();
+pub(crate) fn best_first<'a>(owned: &Ownership, pc: &ThisPc, offers: &[&'a Offer]) -> Vec<Version<'a>> {
+    let mut versions: Vec<Version<'a>> = offers.iter().map(|o| version(owned, pc, o)).collect();
     versions.sort_by_key(|v| Reverse(v.fit));
     versions
 }
@@ -411,7 +387,7 @@ mod tests {
     use launcher_api::{Fact, GameSummary, Release};
 
     use super::*;
-    use crate::library::Entry;
+    use crate::library::{Entry, LibrarySnapshot};
 
     /// An offer of `title` on `console`, its release dated `date` and published by `publisher`
     /// (empty for none).
@@ -605,7 +581,7 @@ mod tests {
     /// The consoles of `offers`, best for this PC first, and why the first.
     fn pick(pc: &ThisPc, library: &LibrarySnapshot, offers: &[&Offer]) -> (Vec<String>, String) {
         let (jobs, installs) = (Default::default(), Default::default());
-        let versions = best_first(library, &Ownership::new(library, &jobs, &installs), pc, offers);
+        let versions = best_first(&Ownership::new(library, &jobs, &installs), pc, offers);
         let why = why_best(&versions[0], versions.get(1), |l| l.as_str());
         (versions.iter().map(|v| v.offer.entry.summary.platform.clone()).collect(), why)
     }
