@@ -71,6 +71,18 @@ pub(crate) fn no_room(needed: u64, free: u64, place: &str) -> Option<String> {
     })
 }
 
+/// [`no_room`] when the download folder and the game folder share a drive: the download and
+/// the install need room there together.
+pub(crate) fn no_room_both(needed: u64, free: u64) -> Option<String> {
+    (free < needed).then(|| {
+        format!(
+            "Not enough free space on the drive for the download and the install: {} needed, {} free",
+            gigabytes(needed),
+            gigabytes(free)
+        )
+    })
+}
+
 /// The fields of a download that the game installs write ([`crate::game_installs`]): the
 /// unpacking of its archives and the install from it. They are saved with the download.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -183,6 +195,10 @@ pub(crate) struct InstallAfter {
     /// one the sheet offers.
     #[serde(default)]
     pub folder: Option<PathBuf>,
+    /// The install was started, or tried: it doesn't start by itself again, after a restart
+    /// either.
+    #[serde(default)]
+    pub started: bool,
 }
 
 /// What the player can do with a download.
@@ -810,6 +826,21 @@ impl TorrentsSubsystem {
         });
         self.start(id, job.download_start(sharing)).await;
         Ok(())
+    }
+
+    /// "Download and install" may start the install of download `id` now: it was chosen, it
+    /// didn't start yet, and Install wasn't pressed. Marks it started, in the saved record too,
+    /// so it starts once. The game folder it installs into, when it may.
+    pub fn claim_install_after(&self, id: &str) -> Option<InstallAfter> {
+        self.update(id, |job| {
+            let after = job.install_after.as_mut().filter(|a| !a.started)?;
+            if job.hand_off.install_into.is_some() {
+                return None;
+            }
+            after.started = true;
+            Some(after.clone())
+        })
+        .flatten()
     }
 
     /// A download with files left out just finished: it stops, the stubs of the files it

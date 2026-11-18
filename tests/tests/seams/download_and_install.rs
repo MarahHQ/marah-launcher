@@ -449,3 +449,68 @@ async fn an_install_that_can_t_start_after_the_download_says_why_and_keeps_the_f
     assert_eq!(std::fs::read(s.folder().join("Astro/Astro.pkg")).unwrap(), GAME, "the downloaded files stay");
     assert!(refused.actions.contains(&"install".to_owned()));
 }
+
+#[tokio::test]
+async fn on_one_drive_the_sheet_adds_the_download_and_the_install_together() {
+    // The download folder and the game folder share a drive, with room for the game and the
+    // readme twice: once downloaded, once installed.
+    let free = 2 * bytes(&[GAME, README]);
+    let s = setup_on(|h, home| h.disk(home, free)).await;
+    let t = &s.t;
+    let sheet = row(t);
+    let both = "Not enough free space on the drive for the download and the install: 0.0 GB needed, 0.0 GB free";
+    assert_eq!(sheet.download_room, "", "the download alone fits");
+    assert_eq!(sheet.install_room, both);
+
+    // Download and install is refused before anything downloads, into a typed folder too.
+    assert_eq!(begin(t, true, None).await.unwrap_err().to_string(), both);
+    assert_eq!(begin(t, true, Some("~/Games/Mine")).await.unwrap_err().to_string(), both);
+    assert!(t.torrents.started().is_empty());
+
+    // With the update and the DLC left out, both fit.
+    pick(t, Some(1), false).await;
+    pick(t, Some(2), false).await;
+    assert_eq!(row(t).install_room, "");
+    begin(t, true, None).await.unwrap();
+    assert_eq!(t.torrents.started().len(), 1);
+}
+
+#[tokio::test]
+async fn on_one_drive_download_alone_needs_room_for_the_download_only() {
+    let s = setup_on(|h, home| h.disk(home, bytes(&[GAME, UPDATE, DLC, README]))).await;
+    let t = &s.t;
+    assert_ne!(row(t).install_room, "");
+    begin(t, false, None).await.unwrap();
+    assert_eq!(t.torrents.started().len(), 1);
+}
+
+#[tokio::test]
+async fn a_download_that_finished_before_a_restart_installs_at_the_next_start_once() {
+    let s = setup().await;
+    let t = &s.t;
+    // The first run downloads, and stops before the install starts: its record says
+    // "install after download", and the download is complete.
+    t.core.dispatch(Command::Torrent(TorrentCmd::SeedDownloads(false))).await.unwrap();
+    begin(t, false, None).await.unwrap();
+    t.torrents.complete(HASH);
+    until(t, |r| r.state == "complete").await;
+    let config = t.kernel.config();
+    let mut record = config.get(&["app", "torrents", HASH]);
+    record["install_after"] = serde_json::json!({ "folder": null });
+    config.set(&["app", "torrents", HASH], record).unwrap();
+    assert!(s.seen.sources.lock().unwrap().is_empty());
+
+    let again = launcher_core::Core::start(t.kernel.clone()).await;
+    until_in(&again, Area::Installs, |core| {
+        core.view().downloads.torrents.first().is_some_and(|r| r.install == "done")
+    })
+    .await;
+    assert_eq!(s.seen.sources.lock().unwrap().len(), 1);
+    assert!(again.view().notices.iter().any(|n| n.contains("Installing it now")), "{:?}", again.view().notices);
+
+    // The start after that doesn't install it again.
+    let third = launcher_core::Core::start(t.kernel.clone()).await;
+    third.dispatch(Command::Navigate(launcher_core::Route::Downloads)).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert_eq!(s.seen.sources.lock().unwrap().len(), 1, "once");
+}

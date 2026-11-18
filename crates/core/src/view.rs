@@ -890,6 +890,15 @@ fn downloads_vm(s: &Snapshot, owned: &Ownership) -> DownloadsVm {
             let room = |bytes: Option<u64>, place: &str| {
                 bytes.and_then(|b| crate::torrents::no_room(checked, b, place)).filter(|_| ready).unwrap_or_default()
             };
+            // On one drive, the install needs room there beside the download.
+            let install_room = if s.state.disks.one_drive(&j.id) {
+                games_free
+                    .and_then(|b| crate::torrents::no_room_both(checked.saturating_mul(2), b))
+                    .filter(|_| ready)
+                    .unwrap_or_default()
+            } else {
+                room(games_free, "game folder")
+            };
             TorrentVm {
                 folder: crate::display::short_home(&j.folder.display().to_string(), home.as_deref()),
                 install_note: install_note(&s.plugins, &j.emulator),
@@ -908,7 +917,7 @@ fn downloads_vm(s: &Snapshot, owned: &Ownership) -> DownloadsVm {
                 download_free: free(download_free).unwrap_or_default(),
                 install_free: free(games_free).unwrap_or_default(),
                 download_room: room(download_free, "download folder"),
-                install_room: room(games_free, "game folder"),
+                install_room,
                 ..torrent_vm(&s.library, installs, owned, j)
             }
         })
