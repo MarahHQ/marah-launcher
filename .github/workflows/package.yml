@@ -116,7 +116,7 @@ jobs:
           scripts/appimage.sh
           APPIMAGE_EXTRACT_AND_RUN=1 dist/Marah-Launcher-x86_64.AppImage --version
           # Its update information, which AppImage tools read from the .upd_info section.
-          readelf -p .upd_info dist/Marah-Launcher-x86_64.AppImage | grep -q 'gh-releases-zsync|'
+          readelf -p .upd_info dist/Marah-Launcher-x86_64.AppImage | grep 'gh-releases-zsync|' > /dev/null
           test -s dist/Marah-Launcher-x86_64.AppImage.zsync
       - if: runner.os == 'Linux'
         timeout-minutes: 15

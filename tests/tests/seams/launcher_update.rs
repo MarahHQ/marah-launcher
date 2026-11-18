@@ -373,6 +373,21 @@ async fn an_appimage_update_downloads_only_the_blocks_that_changed() {
 }
 
 #[tokio::test]
+async fn each_range_follows_github_s_redirect_to_the_file_host() {
+    let new = xorshift(100_000);
+    let (t, _install) = appimage_release(&old_appimage(&new), Some(CONTROL), None).await;
+    let served = "https://release-assets.githubusercontent.com/github-production-release-asset/1/appimage";
+    t.http.serve(served, new.clone());
+    t.http.redirect(APPIMAGE, served);
+    download(&t).await;
+    kept_is_the_new_appimage(&t);
+    let at_host: Vec<Option<String>> =
+        t.http.sent_ranges().into_iter().filter(|(url, _)| url == served).map(|(_, range)| range).collect();
+    let ranges = [5, 40, 80].map(|b| Some(format!("bytes={}-{}", b * 1024, b * 1024 + 1023)));
+    assert_eq!(at_host, ranges);
+}
+
+#[tokio::test]
 async fn an_appimage_update_shows_how_much_it_downloads_of_the_whole() {
     let new = xorshift(100_000);
     let (t, _install) = appimage_release(&old_appimage(&new), Some(CONTROL), None).await;
