@@ -34,6 +34,7 @@
 //! while it holds its own state.
 
 pub(crate) mod phase;
+pub(crate) mod picks;
 mod records;
 mod vpn;
 
@@ -106,6 +107,14 @@ pub(crate) struct TorrentJob {
     /// The first [`SHOWN_FILES`] files.
     pub files: Vec<TorrentFile>,
     pub file_count: usize,
+    /// The files the player unchecked on the download sheet, by their place in `files`: they
+    /// get skip priority, and their stubs go once it finishes. While it is Ready, `total` is
+    /// the whole torrent's; from its start, what the checked files hold.
+    #[serde(default)]
+    pub skip: Vec<usize>,
+    /// "Download and install": once it finishes, it installs into this game folder.
+    #[serde(default)]
+    pub install_after: Option<InstallAfter>,
     pub error: String,
     #[serde(skip)]
     pub download_rate: u64,
@@ -154,6 +163,26 @@ impl TorrentJob {
     fn running(&self) -> bool {
         self.state.active() || self.seeding || self.verifying
     }
+
+    /// The player left files out. Such a download doesn't share: the stubs of the files it
+    /// skipped go once it finishes, and with them pieces it shares with the checked ones.
+    pub fn partial(&self) -> bool {
+        !self.skip.is_empty()
+    }
+
+    /// How a download (not a seed-only check) starts, with sharing on or off.
+    fn download_start(&self, sharing: bool) -> TorrentStart {
+        TorrentStart::Download { seed: sharing && !self.partial() }
+    }
+}
+
+/// Where "Download and install" installs a download once it finishes.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub(crate) struct InstallAfter {
+    /// The folder the player typed on the download sheet, inside a game folder; `None` for the
+    /// one the sheet offers.
+    #[serde(default)]
+    pub folder: Option<PathBuf>,
 }
 
 /// What the player can do with a download.
@@ -192,6 +221,26 @@ pub enum TorrentCmd {
     },
     /// The player's action on a download, by its id.
     Act { id: String, action: TorrentAction },
+    /// On the download sheet of a Ready download: checks (`on`) or unchecks file `file`, by its
+    /// place in the list; `None` for every file. The game itself stays on, and the parts of an
+    /// archive follow each other.
+    Pick {
+        id: String,
+        #[serde(default)]
+        file: Option<usize>,
+        on: bool,
+    },
+    /// The player pressed Download, or Download and install (`install`), on the download sheet
+    /// of a Ready download: the checked files download. With `install`, it installs by itself
+    /// into the game folder `folder` once it finishes (`~/` for the home folder; `None` for the
+    /// one the sheet offers).
+    Begin {
+        id: String,
+        #[serde(default)]
+        install: bool,
+        #[serde(default, deserialize_with = "crate::typed_text::folder")]
+        folder: Option<PathBuf>,
+    },
     /// "Keep sharing finished downloads": on seeds them; off stops every one.
     SeedDownloads(bool),
 }
@@ -383,7 +432,13 @@ impl TorrentsSubsystem {
                 self.changed();
                 Ok(())
             }
-            TorrentCmd::Download { .. } => Err(CoreError::Invalid("the core resolves downloads first".into())),
+            TorrentCmd::Pick { id, file, on } => {
+                self.pick(&id, file, on);
+                Ok(())
+            }
+            TorrentCmd::Download { .. } | TorrentCmd::Begin { .. } => {
+                Err(CoreError::Invalid("the core resolves downloads first".into()))
+            }
         }
     }
 
@@ -421,6 +476,8 @@ impl TorrentsSubsystem {
             total: new.total,
             files: Vec::new(),
             file_count: 0,
+            skip: Vec::new(),
+            install_after: None,
             error: String::new(),
             download_rate: 0,
             upload_rate: 0,
@@ -465,7 +522,7 @@ impl TorrentsSubsystem {
         }
         for job in jobs {
             self.inner.records.save(&job);
-            if seed && job.state == TorrentState::Complete && job.error.is_empty() {
+            if seed && job.state == TorrentState::Complete && job.error.is_empty() && !job.partial() {
                 let this = self.clone();
                 tokio::spawn(async move { this.start(&job.id, TorrentStart::SeedOnly).await });
             }
@@ -550,7 +607,8 @@ impl TorrentsSubsystem {
             });
             return;
         }
-        if let Err(e) = self.port().start(id, &job.magnet, &job.folder, seeding).await {
+        let only = picks::only(job.file_count, &job.skip);
+        if let Err(e) = self.port().start(id, &job.magnet, &job.folder, seeding, only.as_deref()).await {
             self.update(id, |job| {
                 job.verifying = false;
                 if !seeding {
@@ -604,21 +662,26 @@ impl TorrentsSubsystem {
         for id in ids {
             let Some(stats) = self.port().stats(&id) else { continue };
             running = true;
-            let Some((actions, title)) = self.update(&id, |job| {
+            let Some((actions, title, finished)) = self.update(&id, |job| {
                 job.download_rate = stats.download_rate;
                 job.upload_rate = stats.upload_rate;
                 job.peers = stats.peers;
                 let start = if job.verifying {
                     TorrentStart::SeedOnly
                 } else {
-                    job.start.unwrap_or(TorrentStart::Download { seed: sharing })
+                    job.start.unwrap_or(job.download_start(sharing))
                 };
                 let (phase, actions) = phase::next(&job.phase(), &stats, start, sharing);
+                // A download with files left out shows as complete once their stubs are gone
+                // (`drop_stubs`), and looks for its archives then.
+                if actions.contains(&Action::Finished) && job.partial() {
+                    return (actions, job.title.clone(), Some(phase));
+                }
                 job.set_phase(phase);
                 if actions.contains(&Action::Finished) {
                     job.hand_off.unpack = crate::archives::Unpack::of(&job.folder);
                 }
-                (actions, job.title.clone())
+                (actions, job.title.clone(), None)
             }) else {
                 continue;
             };
@@ -635,7 +698,12 @@ impl TorrentsSubsystem {
                         }
                         self.update(&id, |job| job.seeding = false);
                     }
-                    Action::Finished => self.emit(TorrentEvent::Finished { id: id.clone(), title: title.clone() }),
+                    Action::Finished => {
+                        if let Some(phase) = finished.clone() {
+                            self.drop_stubs(&id, phase).await;
+                        }
+                        self.emit(TorrentEvent::Finished { id: id.clone(), title: title.clone() });
+                    }
                     Action::Stopped => self.emit(TorrentEvent::Stopped { title: title.clone() }),
                 }
             }
@@ -658,7 +726,7 @@ impl TorrentsSubsystem {
                 if job.state == TorrentState::Paused && job.file_count == 0 {
                     self.read_again(id).await;
                 } else {
-                    self.start(id, TorrentStart::Download { seed: self.sharing() }).await;
+                    self.start(id, job.download_start(self.sharing())).await;
                 }
             }
             TorrentAction::Pause if matches!(job.state, TorrentState::Checking | TorrentState::Downloading) => {
@@ -714,6 +782,67 @@ impl TorrentsSubsystem {
             _ => {}
         }
         Ok(())
+    }
+
+    /// Checks or unchecks a file of a Ready download, or every file (`None`).
+    fn pick(&self, id: &str, file: Option<usize>, on: bool) {
+        self.update(id, |job| {
+            if job.state == TorrentState::Ready {
+                job.skip = picks::pick(&job.files, &job.skip, file, on);
+            }
+        });
+    }
+
+    /// The download sheet's Download, or Download and install (`then`): the checked files of
+    /// Ready download `id` download. The core checked the game folder first.
+    pub async fn begin(&self, id: &str, then: Option<InstallAfter>) -> CoreResult<()> {
+        let job = self.job(id).ok_or_else(|| CoreError::Invalid(format!("no download {id}")))?;
+        if job.state != TorrentState::Ready {
+            return Ok(());
+        }
+        if picks::only(job.file_count, &job.skip).is_some_and(|only| only.is_empty()) {
+            return Err(CoreError::Invalid("Choose at least one file".into()));
+        }
+        let sharing = self.sharing();
+        self.update(id, |job| {
+            job.total = picks::checked_bytes(&job.files, job.total, &job.skip);
+            job.install_after = then;
+        });
+        self.start(id, job.download_start(sharing)).await;
+        Ok(())
+    }
+
+    /// A download with files left out just finished: it stops, the stubs of the files it
+    /// skipped go, so no installer takes them for the game's, and then it shows as `phase`
+    /// (complete) and looks for its archives.
+    async fn drop_stubs(&self, id: &str, phase: Phase) {
+        let Some(job) = self.job(id) else { return };
+        if let Err(e) = self.port().stop(id).await {
+            tracing::warn!(error = %e, "a download with files left out didn't stop");
+        }
+        for file in job.skip.iter().filter_map(|i| job.files.get(*i)) {
+            let path = std::path::Path::new(&file.path);
+            if !path.components().all(|c| matches!(c, std::path::Component::Normal(_))) {
+                continue;
+            }
+            if let Err(e) = tokio::fs::remove_file(job.folder.join(path)).await
+                && e.kind() != std::io::ErrorKind::NotFound
+            {
+                tracing::warn!(error = %e, file = %file.path, "a skipped file's stub didn't go");
+            }
+            // The folders it leaves empty go too: an empty Update folder is no update.
+            for parent in path.ancestors().skip(1).filter(|p| !p.as_os_str().is_empty()) {
+                if tokio::fs::remove_dir(job.folder.join(parent)).await.is_err() {
+                    break;
+                }
+            }
+        }
+        let unpack = crate::archives::Unpack::of(&job.folder);
+        self.update(id, |job| {
+            job.set_phase(phase);
+            job.seeding = false;
+            job.hand_off.unpack = unpack;
+        });
     }
 
     /// Forgets a download: it leaves the list and the config.

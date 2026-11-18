@@ -1,5 +1,6 @@
 //! The disks the catalogs' downloads go to: each console's download folder and the free space
-//! on the disk that holds it. A Game Hub says when a release doesn't fit.
+//! on the disk that holds it. A Game Hub says when a release doesn't fit. Also, for each
+//! download's sheet, the free space where its files go and where its game installs.
 //!
 //! The view reads these on every render, so they are read ahead: [`refresh`] runs when a Game
 //! Hub opens, the catalogs are read, a folder changes and a download starts or ends, and keeps
@@ -28,6 +29,10 @@ pub(crate) struct DownloadFolder {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Disks {
     folders: Arc<BTreeMap<(PluginId, String), DownloadFolder>>,
+    /// The free bytes where each download's files go, by its id.
+    downloads: Arc<BTreeMap<String, u64>>,
+    /// The free bytes in each emulator's game folder, the one the install sheet offers.
+    games: Arc<BTreeMap<PluginId, u64>>,
 }
 
 impl Disks {
@@ -35,6 +40,18 @@ impl Disks {
     /// folder, or the catalogs offered none of its games when the disks were last read.
     pub fn download_folder(&self, emulator: &PluginId, console: &str) -> Option<&DownloadFolder> {
         self.folders.get(&(emulator.clone(), console.to_owned()))
+    }
+
+    /// The free bytes on the disk of download `id`'s folder; `None` when the system doesn't
+    /// say.
+    pub fn download_free(&self, id: &str) -> Option<u64> {
+        self.downloads.get(id).copied()
+    }
+
+    /// The free bytes on the disk of `emulator`'s game folder; `None` when it has none or the
+    /// system doesn't say.
+    pub fn games_free(&self, emulator: &PluginId) -> Option<u64> {
+        self.games.get(emulator).copied()
     }
 }
 
@@ -71,5 +88,23 @@ fn read(core: &Core) -> Disks {
         let free = path.ancestors().find(|p| p.is_dir()).and_then(|there| core.ports().hardware.free_bytes(there));
         folders.insert(at, DownloadFolder { path, free });
     }
-    Disks { folders: Arc::new(folders) }
+    let hardware = &core.ports().hardware;
+    let free_at = |path: &std::path::Path| crate::release_downloads::free_at(hardware.as_ref(), path);
+    let mut downloads = BTreeMap::new();
+    let mut games = BTreeMap::new();
+    for job in core.torrents().snapshot().jobs.values() {
+        if let Some(free) = free_at(&job.folder) {
+            downloads.insert(job.id.clone(), free);
+        }
+        if games.contains_key(&job.emulator) {
+            continue;
+        }
+        let kernel = core.kernel();
+        let console = crate::release_downloads::console_of(kernel, &job.emulator);
+        let place = kernel.host_folders(&job.emulator).and_then(|h| h.place(Purpose::Install, &console, None).ok());
+        if let Some(free) = place.and_then(|(_, path)| free_at(&path)) {
+            games.insert(job.emulator.clone(), free);
+        }
+    }
+    Disks { folders: Arc::new(folders), downloads: Arc::new(downloads), games: Arc::new(games) }
 }

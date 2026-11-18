@@ -390,7 +390,12 @@ fn full_view() -> AppView {
                 can_resume: true,
                 can_cancel: true,
             }],
-            torrents: vec![TorrentVm { files: vec![s()], actions: vec![s()], ..TorrentVm::default() }],
+            torrents: vec![TorrentVm {
+                files: vec![s()],
+                actions: vec![s()],
+                picks: vec![TorrentPickVm::default()],
+                ..TorrentVm::default()
+            }],
             seeding: true,
             downloading: 1,
             sharing: 1,

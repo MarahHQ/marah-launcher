@@ -489,7 +489,16 @@ pub trait Torrents: Send + Sync {
     /// Starts the torrent into `folder`, checking the pieces already there first. A torrent
     /// started `paused` stays paused after its check: it downloads nothing until
     /// [`Torrents::unpause`]. One the engine already has, paused, goes on unless `paused`.
-    async fn start(&self, id: &str, magnet: &str, folder: &Path, paused: bool) -> PluginResult<()>;
+    /// `only`: the files to download, by their place in the torrent's file list; `None` for
+    /// every file. The rest get skip priority: the engine may still make them, as stubs.
+    async fn start(
+        &self,
+        id: &str,
+        magnet: &str,
+        folder: &Path,
+        paused: bool,
+        only: Option<&[usize]>,
+    ) -> PluginResult<()>;
     /// Connects a paused torrent to the swarm. No error when it already is.
     async fn unpause(&self, id: &str) -> PluginResult<()>;
     /// Stops the torrent. Its files stay. No error when it isn't running.
@@ -512,7 +521,14 @@ impl Torrents for NoTorrents {
     async fn resolve(&self, _magnet: &str) -> PluginResult<TorrentInfo> {
         Err(launcher_api::PluginError::Unsupported("this build of Marah Launcher can't download torrents".into()))
     }
-    async fn start(&self, _id: &str, _magnet: &str, _folder: &Path, _paused: bool) -> PluginResult<()> {
+    async fn start(
+        &self,
+        _id: &str,
+        _magnet: &str,
+        _folder: &Path,
+        _paused: bool,
+        _only: Option<&[usize]>,
+    ) -> PluginResult<()> {
         Err(launcher_api::PluginError::Unsupported("this build of Marah Launcher can't download torrents".into()))
     }
     async fn unpause(&self, _id: &str) -> PluginResult<()> {

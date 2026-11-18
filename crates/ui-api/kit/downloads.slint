@@ -1,4 +1,4 @@
-import { Vm, Host, Torrent } from "../types.slint";
+import { Vm, Host, Torrent, TorrentPick } from "../types.slint";
 import { Commands } from "commands.slint";
 import { Tokens } from "../tokens.slint";
 import { Look } from "look.slint";
@@ -6,6 +6,7 @@ import { Reveal } from "reveal.slint";
 import { Button } from "button.slint";
 import { ProgressBar } from "progress-bar.slint";
 import { Pill } from "widgets.slint";
+import { Icon } from "icon.slint";
 import { Editor, Prefs, Row, Value } from "settings-rows.slint";
 import { Brand } from "../brand.slint";
 
@@ -59,6 +60,27 @@ export global Dl {
     out property <string> shown-install-folder: root.install-folder != "" ? root.install-folder
         : root.installing ? Vm.torrents[root.install].install-folder : "";
 
+    // The download sheet of a Ready download is open: the torrent's index and id, or -1. The
+    // keys are on Select all (-2), Select none (-1), a file (0 to its files' count - 1), then the
+    // game folder row (`files`), Download and install (`files` + 1), Download (`files` + 2) and
+    // Not now (`files` + 3). It closes once the download starts.
+    in-out property <int> start: -1;
+    in-out property <string> start-id;
+    in-out property <int> start-focus;
+    // The game folder the player typed in the sheet; "" for the one the download offers.
+    in-out property <string> start-folder;
+    out property <bool> starting: root.start >= 0 && root.start < Vm.torrents.length
+        && Vm.torrents[root.start].id == root.start-id && Vm.torrents[root.start].state == "ready";
+    out property <int> files: root.starting ? Vm.torrents[root.start].picks.length : 0;
+    out property <string> shown-start-folder: root.start-folder != "" ? root.start-folder
+        : root.starting ? Vm.torrents[root.start].install-folder : "";
+    // Download and install: a game folder, and room on both drives. The room is known for the
+    // game folder the sheet offers; the core checks a typed one, and the sheet says why.
+    out property <bool> can-install: root.starting && root.shown-start-folder != ""
+        && Vm.torrents[root.start].download-room == ""
+        && (root.start-folder != "" || Vm.torrents[root.start].install-room == "");
+    out property <bool> can-download: root.starting && Vm.torrents[root.start].download-room == "";
+
     // The remove sheet is open, asking whether the files go too: the torrent's index and id, or
     // -1. The keys are on Remove from Downloads (0), Remove and delete files (1) or Not now (2).
     in-out property <int> remove: -1;
@@ -72,7 +94,94 @@ export global Dl {
         root.button = 0;
         root.install = -1;
         root.remove = -1;
+        root.start = -1;
         Prefs.editing = false;
+    }
+
+    // The download sheet: the keys start on Download and install, or on Download when the game
+    // can't install there.
+    public function open-start(t: int) {
+        root.start = t;
+        root.start-id = Vm.torrents[t].id;
+        root.start-folder = "";
+        let installs = Vm.torrents[t].install-folder != "" && Vm.torrents[t].install-room == "" && Vm.torrents[t].download-room == "";
+        root.start-focus = Vm.torrents[t].picks.length + (installs ? 1 : 2);
+        Host.play-sound("select");
+    }
+    public function close-start() {
+        root.start = -1;
+        Prefs.editing = false;
+    }
+    // Checks or unchecks file `i`; the game itself stays on.
+    public function toggle-file(i: int) {
+        if (!Vm.torrents[root.start].picks[i].locked) {
+            Commands.pick-file(root.start-id, i, !Vm.torrents[root.start].picks[i].on);
+            Host.play-sound("move");
+        }
+    }
+    public function pick-all(on: bool) {
+        Commands.pick-file(root.start-id, -1, on);
+        Host.play-sound("move");
+    }
+    // Opens the sheet's game folder row for typing.
+    public function edit-start-folder() {
+        root.start-focus = root.files;
+        Prefs.edit-text = root.shown-start-folder;
+        Prefs.editing = true;
+    }
+    // Download (`install` false), or Download and install. The sheet closes once it starts,
+    // and stays open with the core's reason when it doesn't.
+    public function begin(install: bool) {
+        if (install ? root.can-install : root.can-download) {
+            Commands.begin-download(root.start-id, install, install ? root.start-folder : "");
+        }
+    }
+    // The download sheet's keys.
+    function start-key(text: string) -> bool {
+        // The folder is open for typing: the text box has the keys; Escape closes it.
+        if (Prefs.editing) {
+            if (text == Key.Escape) { Prefs.editing = false; }
+            return true;
+        }
+        let f = root.files;
+        let at = root.start-focus;
+        let folder = Vm.torrents[root.start].install-folder != "";
+        if (text == Key.DownArrow) {
+            let next = at < 0 ? (f > 0 ? 0 : (folder ? f : f + 1))
+                : at < f - 1 ? at + 1
+                : at == f - 1 ? (folder ? f : f + 1)
+                : at == f ? f + 1
+                : at;
+            if (next != at) { root.start-focus = next; Host.play-sound("move"); }
+            return true;
+        }
+        if (text == Key.UpArrow) {
+            let next = at > f ? (folder ? f : Math.max(f - 1, -2))
+                : at > 0 ? at - 1
+                : at == 0 ? -2
+                : at;
+            if (next != at) { root.start-focus = Math.max(next, -2); Host.play-sound("move"); }
+            return true;
+        }
+        if (text == Key.LeftArrow || text == Key.RightArrow) {
+            let forward = (text == Key.RightArrow) != Look.rtl;
+            if (at < 0) { root.start-focus = forward ? -1 : -2; }
+            else if (at > f) { root.start-focus = Math.clamp(at + (forward ? 1 : -1), f + 1, f + 3); }
+            if (root.start-focus != at) { Host.play-sound("move"); }
+            return true;
+        }
+        if (text == Key.Return) {
+            if (at == -2) { root.pick-all(true); }
+            else if (at == -1) { root.pick-all(false); }
+            else if (at < f) { root.toggle-file(at); }
+            else if (at == f) { root.edit-start-folder(); }
+            else if (at == f + 1) { root.begin(true); }
+            else if (at == f + 2) { root.begin(false); }
+            else { root.close-start(); Host.play-sound("back"); }
+            return true;
+        }
+        if (text == Key.Escape || text == Key.Backspace) { root.close-start(); Host.play-sound("back"); }
+        return true;
     }
 
     // The player's answer on the remove sheet: 0 keeps the files, 1 deletes them, 2 is Not now.
@@ -89,6 +198,8 @@ export global Dl {
             root.remove-id = Vm.torrents[t].id;
             root.remove-focus = 0;
             Host.play-sound("select");
+        } else if (action == "start" && Vm.torrents[t].state == "ready") {
+            root.open-start(t);
         } else if (action == "play") {
             Commands.launch(Vm.torrents[t].game);
         } else if (action == "install") {
@@ -118,6 +229,9 @@ export global Dl {
     }
 
     public function key(text: string) -> bool {
+        if (root.starting) {
+            return root.start-key(text);
+        }
         if (root.removing) {
             // The answers are a list: Down moves on, as Right does (Left from right to left).
             if (text == Key.UpArrow || text == Key.DownArrow || text == Key.LeftArrow || text == Key.RightArrow) {
@@ -320,6 +434,286 @@ component InstallSheet inherits Rectangle {
     }
 }
 
+// A file's checkbox on the download sheet: dimmer when locked.
+component FileBox inherits Rectangle {
+    in property <bool> on;
+    in property <bool> locked;
+    width: 26 * Look.px;
+    height: 26 * Look.px;
+    border-radius: 7 * Look.px;
+    border-width: 2 * Look.px;
+    border-color: root.on ? Tokens.color-accent : Look.line;
+    background: root.on ? (root.locked ? Tokens.color-accent.with-alpha(0.5) : Tokens.color-accent) : transparent;
+    if root.on : Icon { name: "check"; width: 20 * Look.px; height: 20 * Look.px; x: 3 * Look.px; y: 3 * Look.px; color: Look.ink; }
+}
+
+// What a file is, and its size, on the download sheet.
+component FileFacts inherits HorizontalLayout {
+    in property <TorrentPick> pick;
+    spacing: 14 * Look.px;
+    Text {
+        text: root.pick.kind == "game" ? (root.pick.locked ? "Game · always" : "Game")
+            : root.pick.kind == "update" ? "Update"
+            : root.pick.kind == "dlc" ? "DLC"
+            : "Extra";
+        font-size: 15 * Look.px;
+        color: root.pick.kind == "game" ? Tokens.color-accent-soft : Tokens.color-text-muted;
+        vertical-alignment: center;
+    }
+    Text {
+        text: root.pick.size;
+        font-size: 15 * Look.px;
+        color: Tokens.color-text-muted;
+        vertical-alignment: center;
+        min-width: 80 * Look.px;
+        horizontal-alignment: Look.rtl ? left : right;
+    }
+}
+
+// One file on the download sheet: a checkbox, its path, what it is and its size, mirrored
+// from right to left. The game itself has a locked box: it always downloads.
+component FileRow inherits Rectangle {
+    in property <TorrentPick> pick;
+    in property <bool> focused;
+    callback toggled();
+    height: 44 * Look.px;
+    border-radius: 12 * Look.px;
+    background: root.focused ? Tokens.color-tint.with-alpha(0.122) : ta.has-hover ? Tokens.color-tint.with-alpha(0.06) : transparent;
+    border-width: root.focused ? 2 * Look.px : 0;
+    border-color: Look.ring;
+    accessible-role: checkbox;
+    accessible-label: "download-file";
+    accessible-value: root.pick.path;
+    accessible-checked: root.pick.on;
+    accessible-item-selected: root.focused;
+    accessible-enabled: !root.pick.locked;
+    accessible-action-default => { root.toggled(); }
+    HorizontalLayout {
+        padding-left: 12 * Look.px;
+        padding-right: 12 * Look.px;
+        spacing: 14 * Look.px;
+        alignment: stretch;
+        if !Look.rtl : VerticalLayout { alignment: center; FileBox { on: root.pick.on; locked: root.pick.locked; } }
+        if Look.rtl : FileFacts { pick: root.pick; }
+        Text {
+            text: root.pick.path;
+            font-size: 17 * Look.px;
+            color: root.pick.on ? Tokens.color-text : Look.text3;
+            overflow: elide;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            horizontal-alignment: Look.rtl ? right : left;
+        }
+        if !Look.rtl : FileFacts { pick: root.pick; }
+        if Look.rtl : VerticalLayout { alignment: center; FileBox { on: root.pick.on; locked: root.pick.locked; } }
+    }
+    ta := TouchArea { mouse-cursor: root.pick.locked ? default : pointer; clicked => { root.toggled(); } }
+}
+
+// The download sheet of a Ready download: its files with a checkbox each (the game itself
+// always on), what the checked ones come to, the free space where it downloads and where it
+// installs, and the game folder. Download and install, the first button, installs the game
+// by itself once the download finishes; Download only downloads. It rises in over a dark wash,
+// as the install sheet, and closes once the download starts.
+component FilesSheet inherits Rectangle {
+    in property <Torrent> torrent;
+    // It rises in after its first frame.
+    reveal := Reveal { }
+    property <TextHorizontalAlignment> align: Look.rtl ? right : left;
+    property <int> f: root.torrent.picks.length;
+    property <length> row-h: 46 * Look.px;
+    // Keeps the focused file in view: five show; the rest scroll.
+    property <int> at: Dl.start-focus;
+    changed at => {
+        if (root.at >= 0 && root.at < root.f) {
+            file-list.viewport-y = -Math.max(0, root.at - 4) * root.row-h;
+        }
+    }
+    background: reveal.in-view ? Tokens.color-shade.with-alpha(0.69) : transparent;
+    animate background { duration: Tokens.motion-normal; }
+    TouchArea { }
+    Rectangle {
+        width: Math.min(940 * Look.px, root.width - 120 * Look.px);
+        height: Math.min(col.preferred-height, root.height - 40 * Look.px);
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2 + (1 - reveal.move) * 30 * Look.px;
+        opacity: reveal.fade;
+        border-radius: 28 * Look.px;
+        background: Tokens.color-surface;
+        border-width: 1px;
+        border-color: Look.line;
+        drop-shadow-blur: 60 * Look.px;
+        drop-shadow-color: Tokens.color-shade.with-alpha(0.8);
+        clip: true;
+        col := VerticalLayout {
+            padding: 32 * Look.px;
+            spacing: 10 * Look.px;
+            Text {
+                text: "Choose what to download";
+                font-size: 30 * Look.px;
+                font-weight: 700;
+                color: Tokens.color-text;
+                horizontal-alignment: root.align;
+                accessible-role: text;
+                accessible-label: "start-title";
+                accessible-value: self.text;
+            }
+            Text {
+                text: root.torrent.title + (root.torrent.version != "" ? " · " + root.torrent.version : "") + (root.torrent.region != "" ? " · " + root.torrent.region : "");
+                font-size: 20 * Look.px;
+                color: Tokens.color-text-muted;
+                overflow: elide;
+                horizontal-alignment: root.align;
+            }
+            HorizontalLayout {
+                spacing: 12 * Look.px;
+                alignment: stretch;
+                // Select all on the start side, then Select none; the line before them.
+                for n in (Look.rtl ? [-1, -2] : []) : Pill {
+                    text: n == -2 ? "Select all" : "Select none";
+                    h: 44 * Look.px;
+                    focused: Dl.start-focus == n;
+                    accessible-role: button;
+                    accessible-label: n == -2 ? "start-all" : "start-none";
+                    accessible-item-selected: self.focused;
+                    accessible-action-default => { Dl.pick-all(n == -2); }
+                    clicked => { Dl.start-focus = n; Dl.pick-all(n == -2); }
+                }
+                Text {
+                    text: root.torrent.picked + (root.torrent.picks.length < root.torrent.file-count ? " · the files past the first " + root.torrent.picks.length + " always download" : "");
+                    font-size: 18 * Look.px;
+                    color: Tokens.color-text;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                    horizontal-alignment: root.align;
+                    accessible-role: text;
+                    accessible-label: "start-picked";
+                    accessible-value: self.text;
+                }
+                for n in (Look.rtl ? [] : [-2, -1]) : Pill {
+                    text: n == -2 ? "Select all" : "Select none";
+                    h: 44 * Look.px;
+                    focused: Dl.start-focus == n;
+                    accessible-role: button;
+                    accessible-label: n == -2 ? "start-all" : "start-none";
+                    accessible-item-selected: self.focused;
+                    accessible-action-default => { Dl.pick-all(n == -2); }
+                    clicked => { Dl.start-focus = n; Dl.pick-all(n == -2); }
+                }
+            }
+            Rectangle {
+                height: Math.min(5, root.f) * root.row-h;
+                clip: true;
+                file-list := Flickable {
+                    width: parent.width;
+                    height: parent.height;
+                    viewport-width: self.width;
+                    viewport-height: root.f * root.row-h;
+                    animate viewport-y { duration: Tokens.motion-fast; }
+                    accessible-role: list;
+                    accessible-label: "download-files";
+                    accessible-value: root.f;
+                    for p[i] in root.torrent.picks : FileRow {
+                        x: 0;
+                        y: i * root.row-h;
+                        width: parent.width;
+                        pick: p;
+                        focused: Dl.start-focus == i;
+                        toggled => { Dl.start-focus = i; Dl.toggle-file(i); }
+                    }
+                }
+            }
+            // The two drives: where the files go, and where the game goes. A typed game folder's
+            // drive is the core's to check.
+            Text {
+                text: "Download folder: " + (root.torrent.download-free != "" ? root.torrent.download-free : "free space unknown")
+                    + (root.torrent.install-folder != "" && Dl.start-folder == "" ? "   ·   Game folder: " + (root.torrent.install-free != "" ? root.torrent.install-free : "free space unknown") : "");
+                font-size: 17 * Look.px;
+                color: Tokens.color-text-muted;
+                wrap: word-wrap;
+                horizontal-alignment: root.align;
+                accessible-role: text;
+                accessible-label: "start-space";
+                accessible-value: self.text;
+            }
+            if root.torrent.download-room != "" || (root.torrent.install-room != "" && Dl.start-folder == "") : Text {
+                text: root.torrent.download-room != "" ? root.torrent.download-room + ": uncheck files or free some space."
+                    : root.torrent.install-room + ": uncheck files, pick another game folder, or press Download.";
+                font-size: 17 * Look.px;
+                color: Tokens.color-warning;
+                wrap: word-wrap;
+                horizontal-alignment: root.align;
+                accessible-role: text;
+                accessible-label: "start-room";
+                accessible-value: self.text;
+            }
+            // Where the game goes: Enter opens it for typing, a folder inside a game folder.
+            if root.torrent.install-folder != "" : folder-row := Row {
+                property <bool> typing: Prefs.editing && self.focused;
+                label: "Game folder";
+                hint: "Inside a game folder (Settings) · Download and install puts the game here";
+                first: true;
+                last: true;
+                focused: Dl.start-focus == root.f;
+                accessible-role: button;
+                accessible-label: "start-folder";
+                accessible-value: Dl.shown-start-folder;
+                accessible-action-default => { Dl.edit-start-folder(); }
+                clicked => { Dl.edit-start-folder(); }
+                if !folder-row.typing : Value { text: Dl.shown-start-folder; }
+                if folder-row.typing : Editor { horizontal-stretch: 2; done(text) => { Dl.start-folder = text; Dl.start-focus = root.f + 1; } }
+            }
+            Text {
+                text: (root.torrent.install-folder != ""
+                        ? "Download and install installs the game by itself once the download finishes; if the install fails, the downloaded files stay. "
+                        : "This emulator has no game folder: add one in Settings to install. ")
+                    + "Files you leave out never download, and a download with files left out doesn't share once it finishes.";
+                font-size: 16 * Look.px;
+                color: Tokens.color-accent-soft;
+                wrap: word-wrap;
+                horizontal-alignment: root.align;
+                accessible-role: text;
+                accessible-label: "start-note";
+                accessible-value: self.text;
+            }
+            if root.torrent.install-error != "" : Text {
+                text: root.torrent.install-error;
+                font-size: 17 * Look.px;
+                color: Tokens.color-danger;
+                wrap: word-wrap;
+                horizontal-alignment: root.align;
+                accessible-role: text;
+                accessible-label: "start-error";
+                accessible-value: self.text;
+            }
+            // Download and install first: on the left, or on the right from right to left.
+            HorizontalLayout {
+                spacing: 14 * Look.px;
+                alignment: Look.rtl ? end : start;
+                padding-top: 8 * Look.px;
+                for b in (Look.rtl ? [3, 2, 1] : [1, 2, 3]) : Pill {
+                    text: b == 1 ? "Download and install" : b == 2 ? "Download" : "Not now";
+                    icon: b == 1 ? "download" : "";
+                    primary: b == 1;
+                    enabled: b == 1 ? Dl.can-install : b == 2 ? Dl.can-download : true;
+                    focused: Dl.start-focus == root.f + b;
+                    dim: Dl.start-focus != root.f + 1;
+                    accessible-role: button;
+                    accessible-label: b == 1 ? "start-install" : b == 2 ? "start-download" : "start-not-now";
+                    accessible-value: self.text;
+                    accessible-item-selected: self.focused;
+                    accessible-enabled: self.enabled;
+                    accessible-action-default => { self.clicked(); }
+                    clicked => {
+                        Dl.start-focus = root.f + b;
+                        if (b == 3) { Dl.close-start(); } else { Dl.begin(b == 1); }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // One answer on the remove sheet: the whole width of the card, what it does under it. The
 // focused one is white, or red when it deletes.
 component RemoveChoice inherits Rectangle {
@@ -503,7 +897,9 @@ export component DownloadsPage inherits Rectangle {
             }
             Rectangle { height: 8 * Look.px; }
             for t[n] in Vm.torrents : card := Rectangle {
-                property <bool> failed: t.state == "failed" || t.install == "failed" || t.unpack == "failed";
+                // An install that didn't start: "Download and install", or the install sheet.
+                property <bool> not-started: t.state == "complete" && t.install == "" && t.install-error != "";
+                property <bool> failed: t.state == "failed" || t.install == "failed" || t.unpack == "failed" || self.not-started;
                 property <bool> done: t.state == "complete";
                 property <bool> waiting: t.state == "resolving" || t.install == "installing";
                 property <bool> focused: Dl.row == n;
@@ -533,11 +929,13 @@ export component DownloadsPage inherits Rectangle {
                             // A store's install says the store does it: "Downloading in Steam".
                             text: (t.install == "installing" ? "Installing"
                                 : t.install == "done" ? "Installed"
+                                : t.install == "failed" ? "Install failed"
+                                : card.not-started ? "Install didn't start"
                                 : t.state == "queued" ? "Queued"
                                 : t.unpack == "unpacking" ? "Unpacking"
                                 : t.unpack == "failed" ? "Unpacking failed"
                                 : t.state == "resolving" ? "Reading its files"
-                                : t.state == "ready" ? "Ready: look at the files, then download"
+                                : t.state == "ready" ? (t.install-after ? "Ready" : "Ready: choose the files, then download")
                                 : t.state == "checking" ? "Checking"
                                 : t.state == "downloading" ? "Downloading"
                                 : t.state == "paused" ? (t.waiting-vpn ? "Paused · waiting for your VPN" : "Paused")
@@ -737,6 +1135,11 @@ export component DownloadsPage inherits Rectangle {
         }
     }
 
+    if Dl.starting : FilesSheet {
+        width: root.width;
+        height: root.height;
+        torrent: Vm.torrents[Dl.start];
+    }
     if Dl.installing : InstallSheet {
         width: root.width;
         height: root.height;

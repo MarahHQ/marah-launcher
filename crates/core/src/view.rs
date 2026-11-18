@@ -879,16 +879,38 @@ fn downloads_vm(s: &Snapshot, owned: &Ownership) -> DownloadsVm {
     let mut cards: Vec<TorrentVm> = torrents
         .jobs
         .values()
-        .map(|j| TorrentVm {
-            folder: crate::display::short_home(&j.folder.display().to_string(), home.as_deref()),
-            install_note: install_note(&s.plugins, &j.emulator),
-            install_folder: s
-                .files
-                .install_folders
-                .get(&j.emulator)
-                .map(|path| crate::display::short_home(&path.display().to_string(), home.as_deref()))
-                .unwrap_or_default(),
-            ..torrent_vm(&s.library, installs, owned, j)
+        .map(|j| {
+            // The sheet's sums: while it is Ready, `total` is the whole torrent's.
+            let ready = j.state == crate::torrents::TorrentState::Ready;
+            let checked =
+                if ready { crate::torrents::picks::checked_bytes(&j.files, j.total, &j.skip) } else { j.total };
+            let (download_free, games_free) =
+                (s.state.disks.download_free(&j.id), s.state.disks.games_free(&j.emulator));
+            let free = |bytes: Option<u64>| bytes.map(|b| format!("{} free", crate::torrents::gigabytes(b)));
+            let room = |bytes: Option<u64>, place: &str| {
+                bytes.and_then(|b| crate::torrents::no_room(checked, b, place)).filter(|_| ready).unwrap_or_default()
+            };
+            TorrentVm {
+                folder: crate::display::short_home(&j.folder.display().to_string(), home.as_deref()),
+                install_note: install_note(&s.plugins, &j.emulator),
+                install_folder: s
+                    .files
+                    .install_folders
+                    .get(&j.emulator)
+                    .map(|path| crate::display::short_home(&path.display().to_string(), home.as_deref()))
+                    .unwrap_or_default(),
+                picked: if ready {
+                    let on = j.file_count.saturating_sub(j.skip.len());
+                    format!("{on} of {} files · {}", j.file_count, crate::display::size_text(checked))
+                } else {
+                    String::new()
+                },
+                download_free: free(download_free).unwrap_or_default(),
+                install_free: free(games_free).unwrap_or_default(),
+                download_room: room(download_free, "download folder"),
+                install_room: room(games_free, "game folder"),
+                ..torrent_vm(&s.library, installs, owned, j)
+            }
         })
         .collect();
     cards.reverse();
@@ -1009,7 +1031,13 @@ fn torrent_vm(library: &LibrarySnapshot, installs: &InstallsSnapshot, owned: &Ow
         seeding: j.seeding,
         verifying: j.verifying,
         waiting_vpn: j.waiting_vpn,
-        error: install.and_then(|g| g.error.clone()).or(unpack_error).unwrap_or_else(|| j.error.clone()),
+        // The stage that failed says why: the install, its unpacking, an install that didn't
+        // start ("Download and install"), then the download.
+        error: install
+            .and_then(|g| g.error.clone())
+            .or(unpack_error)
+            .or_else(|| (!j.hand_off.install_error.is_empty()).then(|| j.hand_off.install_error.clone()))
+            .unwrap_or_else(|| j.error.clone()),
         files: j.files.iter().map(|f| format!("{} · {}", f.path, crate::display::size_text(f.size))).collect(),
         file_count: j.file_count,
         file_summary: String::new(),
@@ -1025,6 +1053,23 @@ fn torrent_vm(library: &LibrarySnapshot, installs: &InstallsSnapshot, owned: &Ow
         install_note: String::new(),
         install_folder: String::new(),
         install_error: j.hand_off.install_error.clone(),
+        picks: crate::torrents::picks::picks(&j.files, &j.skip)
+            .into_iter()
+            .zip(&j.files)
+            .map(|(p, f)| launcher_ui_api::TorrentPickVm {
+                path: f.path.clone(),
+                size: crate::display::size_text(f.size),
+                kind: p.kind.as_str().into(),
+                on: p.on,
+                locked: p.locked,
+            })
+            .collect(),
+        picked: String::new(),
+        download_free: String::new(),
+        install_free: String::new(),
+        download_room: String::new(),
+        install_room: String::new(),
+        install_after: j.install_after.is_some(),
     }
 }
 

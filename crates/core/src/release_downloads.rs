@@ -5,7 +5,8 @@
 //! catalog's release and a folder inside one of the emulator's packages folders: the core
 //! resolves them and adds the download to the subsystem. A release its store installs never
 //! reaches the subsystem. The rest goes to the subsystem as it is. The subsystem's events come
-//! back here: a finished download unpacks and says so.
+//! back here: a finished download unpacks and says so, or, after "Download and install",
+//! installs by itself.
 //!
 //! [`Command::GameInstall`](crate::Command::GameInstall) comes here too. An install needs the
 //! plugin's [`launcher_api::GameInstaller`], its folders and a game folder: the core resolves them
@@ -21,7 +22,7 @@ use crate::app::Core;
 use crate::changes::Area;
 use crate::folders::{HostFolders, Purpose};
 use crate::game_installs::{GameInstallCmd, InstallEvent, NewInstall};
-use crate::torrents::{NewDownload, TorrentAction, TorrentCmd, TorrentEvent, TorrentState, no_room};
+use crate::torrents::{InstallAfter, NewDownload, TorrentAction, TorrentCmd, TorrentEvent, TorrentState, no_room};
 use crate::{CoreError, CoreResult, Kernel};
 
 /// The free bytes on the disk that holds `folder`, which may not be there yet: the disk of the
@@ -80,7 +81,60 @@ pub(crate) async fn torrent(core: &Core, command: TorrentCmd) -> CoreResult<()> 
                 action => core.torrents().handle(TorrentCmd::Act { id, action }).await,
             }
         }
-        command @ TorrentCmd::SeedDownloads(_) => core.torrents().handle(command).await,
+        TorrentCmd::Begin { id, install, folder } => {
+            if !core.torrents().has(&id) {
+                return Err(CoreError::Invalid(format!("no download {id}")));
+            }
+            core.installs().set_install_error(&id, String::new());
+            let begun = begin(core, &id, install, folder).await;
+            // The download sheet stays open and says why.
+            if let Err(e) = &begun {
+                core.installs().set_install_error(&id, e.to_string());
+            }
+            crate::disks::refresh(core);
+            begun
+        }
+        command @ (TorrentCmd::SeedDownloads(_) | TorrentCmd::Pick { .. }) => core.torrents().handle(command).await,
+    }
+}
+
+/// The download sheet's Download, or Download and install (`install`, into `folder`). The game
+/// folder is checked now, before anything downloads: inside a game folder, and room there for
+/// the checked files.
+async fn begin(core: &Core, id: &str, install: bool, folder: Option<std::path::PathBuf>) -> CoreResult<()> {
+    let job = core.torrents().job(id).ok_or_else(|| CoreError::Invalid(format!("no download {id}")))?;
+    let then = if install {
+        let kernel = core.kernel();
+        let folders = folders_of(kernel, &job.emulator)?;
+        let console = console_of(kernel, &job.emulator);
+        let (_, path) = folders.place(Purpose::Install, &console, folder.as_deref())?;
+        let checked = crate::torrents::picks::checked_bytes(&job.files, job.total, &job.skip);
+        if let Some(free) = free_at(core.ports().hardware.as_ref(), &path)
+            && let Some(error) = no_room(checked, free, "game folder")
+        {
+            return Err(CoreError::Invalid(error));
+        }
+        if folder.is_some() {
+            folders.remember(Purpose::Install, &console, &path);
+        }
+        Some(InstallAfter { folder })
+    } else {
+        None
+    };
+    core.torrents().begin(id, then).await
+}
+
+/// "Download and install": the download finished, and installs as Install on its card does.
+/// Why it doesn't start shows on its card, and in a notice.
+async fn install_after(core: &Core, id: &str, title: &str, after: InstallAfter) {
+    let command = GameInstallCmd::Download { id: id.to_owned(), folder: after.folder };
+    if let Err(e) = Box::pin(game_install(core, command)).await {
+        core.installs().set_install_error(id, e.to_string());
+        core.notices().opening(
+            launcher_ui_api::NoticeKind::Error,
+            crate::Route::Downloads,
+            format!("{title} downloaded, but the install didn't start: {e}"),
+        );
     }
 }
 
@@ -88,14 +142,22 @@ pub(crate) async fn torrent(core: &Core, command: TorrentCmd) -> CoreResult<()> 
 pub(crate) fn torrent_event(core: &Core, event: TorrentEvent) {
     match event {
         TorrentEvent::Finished { id, title } => {
-            let waiting = core
-                .torrents()
-                .job(&id)
-                .is_some_and(|j| j.hand_off.unpack.phase == crate::archives::UnpackPhase::Waiting);
+            let job = core.torrents().job(&id);
+            crate::disks::refresh(core);
+            if let Some(after) = job.as_ref().and_then(|j| j.install_after.clone()) {
+                core.notices().opening(
+                    launcher_ui_api::NoticeKind::Success,
+                    crate::Route::Downloads,
+                    format!("Download complete: {title}. Installing it now."),
+                );
+                let core = core.clone();
+                tokio::spawn(async move { install_after(&core, &id, &title, after).await });
+                return;
+            }
+            let waiting = job.is_some_and(|j| j.hand_off.unpack.phase == crate::archives::UnpackPhase::Waiting);
             if waiting {
                 core.installs().unpack(&id, false);
             }
-            crate::disks::refresh(core);
             core.notices().opening(
                 launcher_ui_api::NoticeKind::Success,
                 crate::Route::Downloads,

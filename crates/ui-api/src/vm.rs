@@ -683,6 +683,36 @@ pub struct TorrentVm {
     /// <release>`, its state `queued`, `downloading` or `paused` (or `install` `installing`), and
     /// its one action `open-store`, the store's own Downloads page. Empty for a torrent.
     pub store: String,
+    /// The download sheet's files, the first ones as `files` lists them, each with a checkbox.
+    pub picks: Vec<TorrentPickVm>,
+    /// What the checked files come to: "2 of 3 files · 1.2 GB".
+    pub picked: String,
+    /// The free space on the drive of the download folder, "41.2 GB free"; empty when the
+    /// system doesn't say.
+    pub download_free: String,
+    /// The free space on the drive of the game folder (`install_folder`); empty when the system
+    /// doesn't say.
+    pub install_free: String,
+    /// Why the checked files don't fit in the download folder; empty when they do.
+    pub download_room: String,
+    /// Why the checked files don't fit in the game folder; empty when they do.
+    pub install_room: String,
+    /// It installs by itself into the game folder once it finishes: "Download and install".
+    pub install_after: bool,
+}
+
+/// One file on the download sheet.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct TorrentPickVm {
+    pub path: String,
+    /// "1.2 GB".
+    pub size: String,
+    /// `game`, `update`, `dlc` or `extra`.
+    pub kind: String,
+    /// It downloads.
+    pub on: bool,
+    /// The game itself: always on.
+    pub locked: bool,
 }
 
 /// One settings field, flattened from the plugin's JSON Schema.

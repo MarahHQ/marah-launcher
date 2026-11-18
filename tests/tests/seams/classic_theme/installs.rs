@@ -2,17 +2,6 @@
 
 use super::*;
 
-/// The first bytes of a Linux program.
-fn elf() -> Vec<u8> {
-    let mut h = vec![0u8; 0x200];
-    h[..4].copy_from_slice(b"\x7fELF");
-    h[4] = 2;
-    h[5] = 1;
-    h[16..18].copy_from_slice(&2u16.to_le_bytes());
-    h[18..20].copy_from_slice(&0x3eu16.to_le_bytes());
-    h
-}
-
 /// A PC game the catalog offers, downloaded and finished, on Downloads.
 fn penguins_downloaded(home: &std::path::Path) -> Composed {
     let mut host = composed(|h| {
@@ -51,13 +40,6 @@ fn penguins_downloaded(home: &std::path::Path) -> Composed {
     host.dispatch(Command::Navigate(launcher_core::Route::Downloads));
     host.settle();
     host
-}
-
-/// Waits until the first download's install is `state`.
-fn until_install(host: &mut Composed, state: &str) {
-    host.until(Area::Installs, |core| core.view().downloads.torrents.first().is_some_and(|t| t.install == state));
-    host.settle();
-    assert_eq!(host.core().view().downloads.torrents[0].install, state);
 }
 
 #[test]

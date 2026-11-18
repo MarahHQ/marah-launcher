@@ -213,6 +213,8 @@ impl Setup {
             total: 3,
             files: Vec::new(),
             file_count: 1,
+            skip: Vec::new(),
+            install_after: None,
             error: String::new(),
             download_rate: 0,
             upload_rate: 0,
