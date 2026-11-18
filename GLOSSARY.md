@@ -92,7 +92,11 @@ Both are saved in the plugin's `versions.json`.
 **Disks** (`Disks`): each console's download folder and the free space on the disk that holds
 it, and for each download the free space where its files go and where its game installs, read
 ahead so the view doesn't ask the disk. The core reads them again when a Game Hub or Downloads
-opens, the catalogs are read, a folder changes, and a download starts or ends.
+opens, the catalogs are read, a folder changes, and a download starts or ends. `disks.rs` also
+owns the rule that says whether a download and its install fit, and the words when they don't.
+On one drive, the download and the install need room together: twice the checked bytes. The
+view asks the rule with the numbers read ahead. The commands ask it with numbers read at the
+time, for the folder the player picked.
 
 **Download and install** (`InstallAfter`, `TorrentCmd::Begin`): the download sheet's first
 button. The checked files download, and the game installs by itself into the game folder once

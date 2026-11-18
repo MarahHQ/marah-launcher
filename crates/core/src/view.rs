@@ -676,9 +676,9 @@ fn detail_vm(s: &Snapshot, owned: &Ownership, key: &GameKey) -> Option<GameDetai
     // Where the offer's downloads go, and the free space there.
     let download_folder = offer.and_then(|o| s.state.disks.download_folder(&o.emulator, &o.releases[0].platform));
     let free = download_folder.and_then(|f| f.free);
-    let no_room = |r: &launcher_api::Release| match (r.size_bytes, free) {
-        (Some(size), Some(free)) if !torrents.jobs.contains_key(&r.id) => {
-            crate::torrents::no_room(size, free, "download folder").unwrap_or_default()
+    let no_room = |r: &launcher_api::Release| match r.size_bytes {
+        Some(size) if !torrents.jobs.contains_key(&r.id) => {
+            crate::disks::download_short(size, free).unwrap_or_default()
         }
         _ => String::new(),
     };
@@ -904,21 +904,9 @@ fn downloads_vm(s: &Snapshot, owned: &Ownership) -> DownloadsVm {
             let ready = j.state == crate::torrents::TorrentState::Ready;
             let checked =
                 if ready { crate::torrents::picks::checked_bytes(&j.files, j.total, &j.skip) } else { j.total };
-            let (download_free, games_free) =
-                (s.state.disks.download_free(&j.id), s.state.disks.games_free(&j.emulator));
+            let room = s.state.disks.room(&j.id, &j.emulator);
             let free = |bytes: Option<u64>| bytes.map(|b| format!("{} free", crate::torrents::gigabytes(b)));
-            let room = |bytes: Option<u64>, place: &str| {
-                bytes.and_then(|b| crate::torrents::no_room(checked, b, place)).filter(|_| ready).unwrap_or_default()
-            };
-            // On one drive, the install needs room there beside the download.
-            let install_room = if s.state.disks.one_drive(&j.id) {
-                games_free
-                    .and_then(|b| crate::torrents::no_room_both(checked.saturating_mul(2), b))
-                    .filter(|_| ready)
-                    .unwrap_or_default()
-            } else {
-                room(games_free, "game folder")
-            };
+            let short = |why: Option<String>| why.filter(|_| ready).unwrap_or_default();
             TorrentVm {
                 folder: crate::display::short_home(&j.folder.display().to_string(), home.as_deref()),
                 install_note: install_note(&s.plugins, &j.emulator),
@@ -934,10 +922,10 @@ fn downloads_vm(s: &Snapshot, owned: &Ownership) -> DownloadsVm {
                 } else {
                     String::new()
                 },
-                download_free: free(download_free).unwrap_or_default(),
-                install_free: free(games_free).unwrap_or_default(),
-                download_room: room(download_free, "download folder"),
-                install_room,
+                download_free: free(room.download).unwrap_or_default(),
+                install_free: free(room.install).unwrap_or_default(),
+                download_room: short(crate::disks::download_short(checked, room.download)),
+                install_room: short(room.install_after_short(checked)),
                 ..torrent_vm(&s.library, installs, owned, j)
             }
         })

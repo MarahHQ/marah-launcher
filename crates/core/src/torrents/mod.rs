@@ -63,26 +63,6 @@ pub(crate) fn gigabytes(bytes: u64) -> String {
     format!("{:.1} GB", bytes as f64 / 1e9)
 }
 
-/// Why `needed` bytes don't fit in `free` in the `place` ("download folder"); `None` when they
-/// fit. The Game Hub says the same before the download starts.
-pub(crate) fn no_room(needed: u64, free: u64, place: &str) -> Option<String> {
-    (free < needed).then(|| {
-        format!("Not enough free space in the {place}: {} needed, {} free", gigabytes(needed), gigabytes(free))
-    })
-}
-
-/// [`no_room`] when the download folder and the game folder share a drive: the download and
-/// the install need room there together.
-pub(crate) fn no_room_both(needed: u64, free: u64) -> Option<String> {
-    (free < needed).then(|| {
-        format!(
-            "Not enough free space on the drive for the download and the install: {} needed, {} free",
-            gigabytes(needed),
-            gigabytes(free)
-        )
-    })
-}
-
 /// The fields of a download that the game installs write ([`crate::game_installs`]): the
 /// unpacking of its archives and the install from it. They are saved with the download.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -624,8 +604,7 @@ impl TorrentsSubsystem {
         // After the folder is made: a folder that isn't there has no disk to ask.
         let needed = job.total.saturating_sub(job.done);
         if !seeding
-            && let Some(free) = self.inner.ports.hardware.free_bytes(&job.folder)
-            && let Some(error) = no_room(needed, free, "download folder")
+            && let Some(error) = crate::disks::download_short(needed, self.inner.ports.hardware.free_bytes(&job.folder))
         {
             self.update(id, |job| {
                 job.state = TorrentState::Failed;
