@@ -630,11 +630,11 @@ mod tests {
             over(&library, &PlayTimes::default(), |data| std::hint::black_box(query.games(data).shown.len()));
             started.elapsed()
         };
-        let slowest = texts
+        // Each text's fastest of a few runs: other tests run at the same time.
+        let took: Vec<std::time::Duration> = texts
             .iter()
             .map(|text| {
                 let query = GridQuery { query: text.clone(), ..GridQuery::catalog() };
-                // The fastest of a few runs: other tests run at the same time.
                 (0..5)
                     .map(|_| {
                         let started = std::time::Instant::now();
@@ -646,12 +646,17 @@ mod tests {
                     .min()
                     .unwrap()
             })
-            .max()
-            .unwrap();
-        eprintln!("5,000 games: the first key took {cold:?}, reading every title; the slowest after it {slowest:?}");
-        // A frame is 16 ms. The tests build with few optimizations and run side by side, so
-        // the bound leaves room; a release build is faster.
-        assert!(slowest < std::time::Duration::from_millis(30), "{slowest:?} for one key");
+            .collect();
+        let (no_search, keys) = took.split_first().unwrap();
+        let slowest = keys.iter().max().copied().unwrap();
+        eprintln!(
+            "5,000 games: the grid with no search took {no_search:?}; the first key {cold:?}, reading every \
+             title; the slowest key after it {slowest:?}"
+        );
+        // The bound is the same grid read with no search, so it holds on a slower machine too.
+        // Here a key takes about 1.5 times that, about 8 ms at the tests' few optimizations: well
+        // under a frame of 16 ms.
+        assert!(slowest < *no_search * 3, "{slowest:?} for one key, {no_search:?} with no search");
     }
 
     #[test]
