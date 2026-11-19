@@ -44,7 +44,7 @@ pub(crate) struct InstallPrompt {
 }
 
 /// An emulator's builds and blocks, as its plugin last gave them.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct EmulatorState {
     pub installed: Vec<String>,
     /// "Use your own build" is on: the installed build, if the player picked one, is theirs,
@@ -200,10 +200,13 @@ impl BuildsSubsystem {
         self.inner.reading.lock().await
     }
 
-    /// What the flow read of `plugin`'s builds and blocks.
+    /// What the flow read of `plugin`'s builds and blocks. A read that finds them as they were
+    /// names no change, so the screen doesn't redraw for nothing.
     pub fn read(&self, plugin: &PluginId, emulator: EmulatorState) {
-        self.state().emulators.insert(plugin.clone(), emulator);
-        self.inner.notifier.changed(Area::Downloads);
+        let before = self.state().emulators.insert(plugin.clone(), emulator.clone());
+        if before.as_ref() != Some(&emulator) {
+            self.inner.notifier.changed(Area::Downloads);
+        }
     }
 
     /// One install of an emulator at a time: `None` while another install of `plugin` holds
@@ -314,5 +317,17 @@ mod tests {
         builds.read(&plugin, EmulatorState { installed: vec!["1.0".into()], ..EmulatorState::default() });
         assert_eq!(downloads(&mut heard), 1);
         assert_eq!(builds.build_of(&plugin).as_deref(), Some("1.0"));
+    }
+
+    #[test]
+    fn a_read_that_finds_the_builds_as_they_were_sends_no_change() {
+        let (builds, mut heard) = builds();
+        let plugin = PluginId::new("emu-a".to_owned()).unwrap();
+        let read = || EmulatorState { installed: vec!["1.0".into()], ..EmulatorState::default() };
+        builds.read(&plugin, read());
+        downloads(&mut heard);
+
+        builds.read(&plugin, read());
+        assert_eq!(downloads(&mut heard), 0);
     }
 }
