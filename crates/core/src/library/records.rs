@@ -116,6 +116,13 @@ impl Records {
         }
     }
 
+    /// Forgets the folder kept for `game`.
+    pub fn forget_folder(&self, game: &GameKey) {
+        if let Err(e) = self.config.remove(&["app", "game_folders", &game.to_string()]) {
+            tracing::warn!(error = %e, "could not forget a game's folder");
+        }
+    }
+
     /// The player's own results, by the game's key as text: each saved as its level's name,
     /// `ingame`, `menus`, `boots` or `nothing`.
     pub fn results(&self) -> HashMap<String, CompatLevel> {

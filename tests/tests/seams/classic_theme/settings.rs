@@ -113,9 +113,12 @@ fn the_keys_move_down_the_settings_page_and_change_the_focused_row() {
     assert_eq!(host.first("seed-downloads").accessible_value().as_deref(), Some("on"));
     host.navigate(Key::Return);
     assert_eq!(host.first("seed-downloads").accessible_value().as_deref(), Some("off"), "Enter stops sharing");
-    // Down at Downloads' last row goes on into LAUNCHER's first row; down to "Interface sounds"
-    // and "Start at login".
+    // Down at Downloads' last row passes This PC, which has no rows, into POWER, the last.
     host.navigate(Key::DownArrow);
+    assert_eq!(lit_section(&host), "Power");
+    // R1 from the last section goes round to LAUNCHER, the first; down to "Interface sounds"
+    // and "Start at login".
+    host.navigate(Key::Tab);
     assert_eq!(lit_section(&host), "Launcher");
     for _ in 0..3 {
         host.navigate(Key::DownArrow);
@@ -125,10 +128,6 @@ fn the_keys_move_down_the_settings_page_and_change_the_focused_row() {
     assert_eq!(host.first("sounds").accessible_value().as_deref(), Some("off"), "Enter turns the sounds off");
     host.navigate(Key::DownArrow);
     assert_eq!(host.first("start-at-login").accessible_value().as_deref(), Some("off"));
-    // L1 jumps back a section at a time: Downloads, then GAMES, the first.
-    host.navigate(Key::Backtab);
-    host.navigate(Key::Backtab);
-    assert_eq!(lit_section(&host), "Games");
     // L1 from the first section goes round to POWER, the last: "Quit Marah Launcher".
     host.navigate(Key::Backtab);
     assert_eq!(lit_section(&host), "Power");
@@ -536,17 +535,17 @@ fn restore_from_another_folder_opens_the_browser_over_settings_and_closing_it_st
     let mut host = backup_tab(backups.path());
     host.dispatch(Command::Backup(launcher_core::BackupCmd::Browse(Some(elsewhere.path().into()))));
     host.settle();
-    assert_eq!(host.count("backup-browser"), 1, "the browser opens over the tab");
+    assert_eq!(host.count("folder-browser"), 1, "the browser opens over the tab");
     assert_eq!(host.values("browser-folder"), ["old-pc"]);
     host.press_first("browser-folder");
     host.settle();
-    assert_eq!(host.value("backup-browser"), elsewhere.path().join("old-pc").display().to_string());
+    assert_eq!(host.value("folder-browser"), elsewhere.path().join("old-pc").display().to_string());
     assert_eq!(host.values("browser-crumb").last().map(String::as_str), Some("old-pc"), "the path shows to go up");
     // The places, then Back there closes it.
     host.navigate(Key::LeftArrow);
     host.navigate(Key::Escape);
     host.settle();
-    assert_eq!(host.count("backup-browser"), 0, "Back closes the browser");
+    assert_eq!(host.count("folder-browser"), 0, "Back closes the browser");
     assert_eq!(host.count("back-up"), 1, "and stays in Settings");
 }
 
@@ -582,12 +581,12 @@ fn the_rail_chooses_with_up_and_down_and_this_pc_is_read_and_left_again() {
     let mut host = classic_theme();
     host.dispatch(Command::Navigate(launcher_core::Route::Settings));
     host.settle();
-    host.settings_tab("Games");
+    host.settings_tab("Launcher");
     host.navigate(Key::DownArrow);
-    assert_eq!(lit_section(&host), "Downloads", "Down chooses the next section");
+    assert_eq!(lit_section(&host), "Updates", "Down chooses the next section");
     host.navigate(Key::UpArrow);
     host.navigate(Key::UpArrow);
-    assert_eq!(lit_section(&host), "Games", "Up stops at the first");
+    assert_eq!(lit_section(&host), "Launcher", "Up stops at the first");
 
     host.settings_tab("This PC");
     host.navigate(Key::RightArrow);
@@ -606,21 +605,21 @@ fn the_rail_follows_the_page_the_mouse_wheel_scrolls() {
     let mut host = classic_theme();
     host.dispatch(Command::Navigate(launcher_core::Route::Settings));
     host.settle();
-    host.settings_tab("Games");
-    assert_eq!(lit_section(&host), "Games");
+    host.settings_tab("Launcher");
+    assert_eq!(lit_section(&host), "Launcher");
 
     host.wheel("settings-page", 60);
     assert_eq!(lit_section(&host), "Power", "at the end of the page, the last section is lit");
     host.wheel("settings-page", -60);
-    assert_eq!(lit_section(&host), "Games", "back at the top, the first section is lit");
+    assert_eq!(lit_section(&host), "Launcher", "back at the top, the first section is lit");
 
     host.wheel("settings-page", 60);
     host.navigate(Key::DownArrow);
-    assert_eq!(lit_section(&host), "Downloads", "a key moves on from the focused section, not the one in view");
+    assert_eq!(lit_section(&host), "Updates", "a key moves on from the focused section, not the one in view");
 
     host.wheel("settings-page", 60);
-    host.click("settings-tab:Downloads");
-    assert_eq!(lit_section(&host), "Downloads", "a click on the focused section lights it again");
+    host.click("settings-tab:Updates");
+    assert_eq!(lit_section(&host), "Updates", "a click on the focused section lights it again");
 }
 
 /// A held Up stops at a section's first row: the rail is one more press away.
@@ -630,28 +629,22 @@ fn a_held_up_stops_at_the_first_row() {
     let mut host = classic_theme();
     host.dispatch(Command::Navigate(launcher_core::Route::Settings));
     host.settle();
-    // GAMES is the page's first section: into its first row, then down past Send ratings into
-    // DOWNLOADS.
-    host.settings_tab("Games");
+    // LAUNCHER is the page's first section: into its first row, Full screen, then down two rows.
+    host.settings_tab("Launcher");
     host.navigate(Key::RightArrow);
     host.navigate(Key::DownArrow);
     host.navigate(Key::DownArrow);
-    assert_eq!(lit_section(&host), "Downloads");
     let held: slint::SharedString = Key::UpArrow.into();
-    for _ in 0..3 {
+    for _ in 0..4 {
         host.instance().window().dispatch_event(slint::platform::WindowEvent::KeyPressRepeated { text: held.clone() });
     }
     host.instance().window().dispatch_event(slint::platform::WindowEvent::KeyReleased { text: held });
     host.pump();
-    // Still on Rescan game folders, the page's first row: Enter asks for a scan.
-    let text: slint::SharedString = Key::Return.into();
-    host.instance().window().dispatch_event(slint::platform::WindowEvent::KeyPressed { text });
-    let asked =
-        host.requests.borrow().iter().any(|r| {
-            matches!(r, launcher_ui_host::UiRequest::Core(Command::Library(launcher_core::LibraryCmd::Refresh)))
-        });
-    assert!(asked, "Enter acted on the first row");
-    assert_eq!(lit_section(&host), "Games");
+    // Still on Full screen, the page's first row: Enter turns it.
+    let before = host.core().view().settings.fullscreen;
+    host.navigate(Key::Return);
+    assert_ne!(host.core().view().settings.fullscreen, before, "Enter acted on the first row");
+    assert_eq!(lit_section(&host), "Launcher");
 }
 
 /// From right to left the rows are on the rail's left: Left goes in.
@@ -689,9 +682,10 @@ fn l1_from_reading_this_pc_goes_to_another_section_s_rows() {
     host.navigate(Key::UpArrow);
     host.settings_tab("This PC");
     host.navigate(Key::RightArrow);
-    // L1 twice, past Downloads to Updates: its first row takes Enter.
-    host.navigate(Key::Backtab);
-    host.navigate(Key::Backtab);
+    // L1 four times, past Downloads, Games and Backup to Updates: its first row takes Enter.
+    for _ in 0..4 {
+        host.navigate(Key::Backtab);
+    }
     assert_eq!(lit_section(&host), "Updates");
     let before = host.core().view().settings.auto_update;
     host.navigate(Key::Return);
@@ -714,6 +708,7 @@ fn send_ratings_shows_each_report_in_full_before_it_opens() {
     }
     host.dispatch(Command::Navigate(launcher_core::Route::Settings));
     host.settle();
+    host.settings_tab("Games");
 
     host.press_first("send-ratings");
     assert_eq!(host.count("rating:emu-c:G0") + host.count("rating:emu-c:G1"), 2, "both wait");

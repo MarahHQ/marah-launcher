@@ -884,3 +884,43 @@ async fn a_running_download_is_read_every_poll_on_the_clock_and_not_between() {
     t.clock.advance(Duration::from_millis(7)).await;
     assert_eq!(row(t).done, 8);
 }
+
+/// A drive a download writes to isn't unmounted: the player pauses the download first.
+#[tokio::test]
+async fn a_drive_a_download_writes_to_isn_t_unmounted_until_it_pauses() {
+    let system = launcher_testkit::FakeSystem::new();
+    let plugin = system.plugin();
+    let s = setup_on(HASH, |h| h.plugin(plugin).free_space(PACKAGE.len() as u64)).await;
+    let t = &s.t;
+    // The download folder (~/Downloads) is on a drive inside the PC.
+    let downloads = s.home.path().join("Downloads");
+    std::fs::create_dir_all(&downloads).unwrap();
+    system.with(|m| {
+        m.drives = vec![SystemDrive {
+            device: "/dev/sdb1".into(),
+            disk: "/dev/sdb".into(),
+            uuid: "D1".into(),
+            label: "Data".into(),
+            filesystem: "ext4".into(),
+            mount: Some(downloads.clone()),
+            ..SystemDrive::default()
+        }];
+    });
+    let unmount = || Command::Drive(launcher_core::DriveCmd::Unmount("D1".into()));
+    t.core.dispatch(Command::Drive(launcher_core::DriveCmd::Refresh)).await.unwrap();
+    let download = launcher_core::TorrentCmd::Download { offer: offer(), release: HASH.into(), folder: None };
+    t.core.dispatch(Command::Torrent(download)).await.unwrap();
+    until(t, "ready").await;
+    act(t, TorrentAction::Start).await;
+    t.torrents.progress(HASH, 4);
+    until(t, "downloading").await;
+
+    let refused = t.core.dispatch(unmount()).await.unwrap_err().to_string();
+    assert!(refused.contains("Pause the download of Astro"), "{refused}");
+    assert!(system.read(|m| m.drive_actions.is_empty()));
+
+    act(t, TorrentAction::Pause).await;
+    assert_eq!(row(t).state, "paused");
+    t.core.dispatch(unmount()).await.unwrap();
+    assert_eq!(system.read(|m| m.drive_actions.clone()), ["unmount /dev/sdb1"]);
+}

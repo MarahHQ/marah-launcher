@@ -53,7 +53,7 @@ pub(crate) async fn torrent(core: &Core, command: TorrentCmd) -> CoreResult<()> 
         TorrentCmd::Download { offer, release, folder } => {
             core.torrents().set_download_error(None);
             let started = download_release(core, &offer, &release, folder.as_deref()).await;
-            crate::disks::refresh(core);
+            crate::disks::refresh(core).await;
             // The sheet that asked says why nothing downloads, and so does a notice, for
             // when the player closed the sheet.
             if let Err(e) = &started {
@@ -85,7 +85,7 @@ pub(crate) async fn torrent(core: &Core, command: TorrentCmd) -> CoreResult<()> 
             if let Err(e) = &begun {
                 core.installs().set_install_error(&id, e.to_string());
             }
-            crate::disks::refresh(core);
+            crate::disks::refresh(core).await;
             begun
         }
         command @ (TorrentCmd::SeedDownloads(_) | TorrentCmd::Pick { .. }) => core.torrents().handle(command).await,
@@ -103,12 +103,14 @@ async fn begin(core: &Core, id: &str, install: bool, folder: Option<std::path::P
         let console = console_of(kernel, &job.emulator);
         let (_, path) = folders.place(Purpose::Install, &console, folder.as_deref())?;
         let checked = crate::torrents::picks::checked_bytes(&job.files, job.total, &job.skip);
-        let room = Room::read(core.ports().hardware.as_ref(), &job.folder, Some(&path));
+        let room = Room::read(core.ports().drives.as_ref(), &job.folder, Some(&path));
         if let Some(error) = room.short(Need::DownloadAndInstall, checked) {
             return Err(CoreError::Invalid(error));
         }
         if folder.is_some() {
             folders.remember(Purpose::Install, &console, &path);
+            // The next download's card offers it: the view reads it ahead.
+            crate::snapshot::refresh_files(core).await;
         }
         Some(InstallAfter { folder, started: false })
     } else {
@@ -159,7 +161,7 @@ pub(crate) fn torrent_event(core: &Core, event: TorrentEvent) {
     match event {
         TorrentEvent::Finished { id, title } => {
             let job = core.torrents().job(&id);
-            crate::disks::refresh(core);
+            crate::disks::refresh_soon(core);
             if let Some(after) = core.torrents().claim_install_after(&id) {
                 start_install_after(core, id, title, after);
                 return;
@@ -175,7 +177,7 @@ pub(crate) fn torrent_event(core: &Core, event: TorrentEvent) {
             );
         }
         TorrentEvent::Stopped { title } => {
-            crate::disks::refresh(core);
+            crate::disks::refresh_soon(core);
             core.notices().opening(
                 launcher_ui_api::NoticeKind::Error,
                 crate::Route::Downloads,
@@ -271,7 +273,7 @@ async fn download_release(core: &Core, offer: &GameKey, release: &str, folder: O
     // A picked folder may be on another disk than the one the Game Hub checked.
     if chosen
         && let Some(size) = release.size_bytes
-        && let Some(error) = Room::read(core.ports().hardware.as_ref(), &folder, None).short(Need::Download, size)
+        && let Some(error) = Room::read(core.ports().drives.as_ref(), &folder, None).short(Need::Download, size)
     {
         return Err(CoreError::Invalid(error));
     }
@@ -375,12 +377,14 @@ async fn start_install(core: &Core, id: &str, folder: Option<&Path>) -> CoreResu
     let console = console_of(kernel, &job.emulator);
     let (into, path) = folders.place(Purpose::Install, &console, folder)?;
     // The finished download already takes its room, so the install needs room of its own only.
-    let room = Room::read(core.ports().hardware.as_ref(), &job.folder, Some(&path));
+    let room = Room::read(core.ports().drives.as_ref(), &job.folder, Some(&path));
     if let Some(error) = room.short(Need::Install, job.total) {
         return Err(CoreError::Invalid(error));
     }
     if folder.is_some() {
         folders.remember(Purpose::Install, &console, &path);
+        // The next download's card offers it: the view reads it ahead.
+        crate::snapshot::refresh_files(core).await;
     }
     if let Some((plugin, source)) = core.installs().install_download(id, into.clone()) {
         install_game(core, &plugin, source, Some(into)).await?;

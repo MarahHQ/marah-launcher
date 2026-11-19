@@ -90,17 +90,17 @@ capabilities = ["theme"]
 type = "data"
 
 [theme]
-ui_api = "^0.5"
+ui_api = "^0.6"
 ```
 
 - `id`: 1 to 64 lowercase letters, digits or `-`, starting with a letter. It can't be the id of
   a built-in plugin, such as `default` or `classic`.
 - `host_api` must include the plugin API version, `API_VERSION` in `crates/api/src/lib.rs`
-  (now `0.3.4`).
+  (now `0.3.5`).
 - `capabilities` is exactly `["theme"]`.
 - `[runtime] type = "data"`: a theme has no code.
 - `[theme] ui_api` must include the theme contract's version, `UI_API_VERSION` in
-  `crates/ui-api/src/lib.rs` (now `0.5.1`).
+  `crates/ui-api/src/lib.rs` (now `0.6.0`).
 
 The rest of `[theme]` is optional: input devices, tokens, breakpoints, assets, options and
 system art. Every key is in [reference.md](reference.md#the-theme-section).
@@ -203,7 +203,7 @@ The theme tests are seam tests in `tests/tests/seams/` (package `launcher-tests`
 `seams`):
 
 - `every_theme.rs` runs one suite against each built-in theme in `THEMES`: every screen renders,
-  Settings, Backup, the on-screen keyboard and the backup browser.
+  Settings, Backup, the on-screen keyboard and the folder browser.
 - `themes.rs` covers loading and the rules: the fallback theme, refused keys, a missing screen,
   a wrong `ui_api`, imports out of the folder, `@image-url` and font imports, served files, a
   wrong export, the `Options` global, kit replacement, and exactly one fallback theme.

@@ -21,6 +21,8 @@ pub struct SystemPlatform {
     pub player: audio::Player,
     /// Set by Restart: the launcher starts again once it has shut down.
     pub restart: Arc<AtomicBool>,
+    /// A poll waits on the UI thread for work that ended: the work that ends meanwhile shares it.
+    pub polling: Arc<AtomicBool>,
 }
 
 /// Calls the shell's poll on the UI thread.
@@ -30,12 +32,20 @@ fn poll_shell() {
 
 impl Platform for SystemPlatform {
     fn spawn(&self, work: BoxFuture<'static, Result<(), String>>) {
+        let polling = self.polling.clone();
         self.runtime.spawn(async move {
             if let Err(error) = work.await {
                 tracing::warn!(%error, "command failed");
             }
-            // Refused only once the app closes: nothing is left to poll then.
-            let _ = slint_interpreter::invoke_from_event_loop(poll_shell);
+            if polling.swap(true, Ordering::SeqCst) {
+                return;
+            }
+            // Refused only once the app closes: nothing is left to poll then. The flag goes
+            // down before the poll, so work that ends during it asks for one more.
+            let _ = slint_interpreter::invoke_from_event_loop(move || {
+                polling.store(false, Ordering::SeqCst);
+                poll_shell();
+            });
         });
     }
 

@@ -1,43 +1,85 @@
-import { Vm, Host, SystemJobItem } from "../types.slint";
+import { Vm, Host, SystemJobItem, DriveItem } from "../types.slint";
 import { Commands } from "commands.slint";
 import { Tokens } from "../tokens.slint";
 import { Look } from "look.slint";
 import { Icon } from "icon.slint";
 import { Switch } from "widgets.slint";
 import { TextField } from "keyboard.slint";
+import { Popover, Tooltip, Motion } from "motion.slint";
+import { Reveal } from "reveal.slint";
+import { LoadingLine, LoadingRow } from "loading.slint";
 
-// The machine's settings in the top bar (`Vm.system`): the network, sound and Bluetooth icons
-// open a panel under them. The icons and panels show when Marah Launcher is the whole screen (the Marah Launcher
-// session, Marah OS); a desktop has its own. The battery shows wherever the PC has one.
+// The machine's settings in the top bar (`Vm.system`): the network, sound and Bluetooth icons,
+// and the drives' icon, open a panel under them. The network, sound and Bluetooth icons and
+// panels show when Marah Launcher is the whole screen (the Marah Launcher session, Marah OS); a
+// desktop has its own. The drives' icon and panel show wherever drives can be managed, on a
+// desktop too. The battery shows wherever the PC has one.
 //
 // Each panel is a list of rows the keys move through:
 //   0 Network     "Look for networks", then one row per Wi-Fi network
 //   1 Sound       the volume (left and right change it), mute, then one row per output
 //   2 Bluetooth   on or off, "Pair a device", then one row per device
+//   3 Drives      one row per drive, with its actions as round buttons: Open, Use for games,
+//                 then Eject (Unmount for a drive inside the PC) while it is mounted; Mount while
+//                 it isn't. Left and right move between the buttons, then to the panel beside
 // A secured network that isn't saved asks for its password first, with the on-screen keyboard.
 export global Sys {
     // The open panel, or -1.
     in-out property <int> open: -1;
+    // The panel shown: the open one, or while it fades out, the one that was.
+    in-out property <int> last-open;
+    out property <int> panel: root.open >= 0 ? root.open : root.last-open;
     in-out property <int> row;
+    // In the Drives panel: the focused button of the focused drive, by its place in `actions`.
+    in-out property <int> button;
+    // A key or a pad's button was pressed in the open panel since it opened, or since the
+    // pointer last moved over a button: the Drives panel draws its focused button, and its
+    // name, only then. The pointer shows a button's name on hover.
+    in-out property <bool> keyed;
+    // Opened from a row (Settings → System), not from the top bar: the panel opens next to the
+    // row, whose place in the window this is. The top bar's icons open it under them.
+    in-out property <bool> anchored;
+    in-out property <length> anchor-x;
+    in-out property <length> anchor-y;
+    in-out property <length> anchor-width;
+    in-out property <length> anchor-height;
     // The network whose password is being typed; "" for none.
     in-out property <string> asking;
 
     out property <bool> network-on: Vm.system.network-available;
     out property <bool> audio-on: Vm.system.audio-available;
     out property <bool> bluetooth-on: Vm.system.bluetooth-available;
+    // The last panel the keys reach: the drives', while drives can be managed or that isn't
+    // known yet.
+    out property <int> last: Vm.system.drives-available || Vm.system.drives-loading ? 3 : 2;
 
     public pure function rows(panel: int) -> int {
         panel == 0 ? (root.network-on ? 1 + Vm.system.wifi.length : 0)
             : panel == 1 ? (root.audio-on ? 2 + Vm.system.outputs.length : 0)
             : panel == 2 ? (root.bluetooth-on ? (Vm.system.bluetooth-on ? 2 + Vm.system.devices.length : 1) : 0)
+            : panel == 3 ? Vm.system.drives.length
             : 0
     }
     public function show(panel: int) {
         root.open = panel;
+        root.last-open = panel;
         root.row = 0;
+        root.button = 0;
+        root.keyed = false;
+        root.anchored = false;
         root.asking = "";
         Host.play-sound("select");
         Commands.refresh-system();
+        if (panel == 3) { Commands.refresh-drives(); }
+    }
+    // Opens `panel` next to the row at `x`, `y`, `width`, `height` in the window.
+    public function show-from(panel: int, x: length, y: length, width: length, height: length) {
+        root.show(panel);
+        root.anchored = true;
+        root.anchor-x = x;
+        root.anchor-y = y;
+        root.anchor-width = width;
+        root.anchor-height = height;
     }
     public function close() {
         root.open = -1;
@@ -67,28 +109,51 @@ export global Sys {
             if (!device.paired) { Commands.pair-device(device.address); }
             else if (device.connected) { Commands.disconnect-device(device.address); }
             else { Commands.connect-device(device.address); }
+        } else if (root.open == 3) {
+            if (r >= Vm.system.drives.length) { return; }
+            let drive = Vm.system.drives[r];
+            // While an action runs on the drive, its buttons wait.
+            if (drive.busy != "" || root.button >= drive.actions.length) { Host.play-sound("error"); return; }
+            let action = drive.actions[root.button];
+            if (action == "mount") { Commands.mount-drive(drive.drive); }
+            else if (action == "open") { root.close(); Commands.open-drive(drive.path); }
+            else if (action == "use") { Commands.add-folder("games", drive.path); }
+            else if (action == "eject") { Commands.eject-drive(drive.drive); }
+            else if (action == "unmount") { Commands.unmount-drive(drive.drive); }
         }
         Host.play-sound("select");
     }
     // Handles a key while a panel is open. Returns whether it did anything.
     public function key(text: string) -> bool {
+        root.keyed = true;
         if (text == Key.Escape || text == Key.Backspace) { root.close(); Host.play-sound("back"); return true; }
         if (text == Key.DownArrow) {
-            if (root.row + 1 < root.rows(root.open)) { root.row += 1; Host.play-sound("move"); }
+            if (root.row + 1 < root.rows(root.open)) { root.row += 1; root.button = 0; Host.play-sound("move"); }
             return true;
         }
         if (text == Key.UpArrow) {
-            if (root.row > 0) { root.row -= 1; Host.play-sound("move"); }
+            if (root.row > 0) { root.row -= 1; root.button = 0; Host.play-sound("move"); }
             return true;
+        }
+        // The Drives panel: left and right go between the focused drive's buttons first.
+        if (root.open == 3 && root.row < Vm.system.drives.length && (text == Key.LeftArrow || text == Key.RightArrow)) {
+            let next = root.button + ((text == Key.RightArrow) != Look.rtl ? 1 : -1);
+            if (next >= 0 && next < Vm.system.drives[root.row].actions.length) {
+                root.button = next;
+                Host.play-sound("move");
+                return true;
+            }
         }
         if (root.open == 1 && root.row == 0 && (text == Key.LeftArrow || text == Key.RightArrow)) {
             root.volume((text == Key.RightArrow) != Look.rtl ? 10 : -10);
             return true;
         }
-        // Left and right go to the panel beside, as on the top bar.
+        // Left and right go to the panel beside, as on the top bar. On a desktop the drives'
+        // panel is the only one.
         if (text == Key.LeftArrow || text == Key.RightArrow) {
+            if (!Vm.system.whole-screen) { return true; }
             let next = root.open + ((text == Key.RightArrow) != Look.rtl ? 1 : -1);
-            if (next >= 0 && next <= 2) { root.show(next); }
+            if (next >= 0 && next <= root.last) { root.show(next); }
             return true;
         }
         // Delete (the pad's Select) forgets a saved network or a paired device.
@@ -106,31 +171,42 @@ export global Sys {
 }
 
 // The network icon: Wi-Fi's strength over a dim full fan, a cable, or a slashed fan offline.
+// While the network is read for the first time, a plain full fan: not a state it doesn't know.
 export component NetIcon inherits Rectangle {
     in property <color> tint: Tokens.color-text;
     width: 26 * Look.px;
     height: 26 * Look.px;
-    if Vm.system.connection == "wired" : Icon { name: "wired"; color: root.tint; width: parent.width; height: parent.height; }
-    if Vm.system.connection != "wired" : Icon { name: "wifi-4"; color: root.tint.with-alpha(0.3); width: parent.width; height: parent.height; }
-    if Vm.system.connection == "wifi" && Vm.system.signal-bars > 0 : Icon {
+    if Vm.system.network-loading : Icon { name: "wifi-4"; color: root.tint; width: parent.width; height: parent.height; }
+    if !Vm.system.network-loading && Vm.system.connection == "wired" : Icon { name: "wired"; color: root.tint; width: parent.width; height: parent.height; }
+    if !Vm.system.network-loading && Vm.system.connection != "wired" : Icon { name: "wifi-4"; color: root.tint.with-alpha(0.3); width: parent.width; height: parent.height; }
+    if !Vm.system.network-loading && Vm.system.connection == "wifi" && Vm.system.signal-bars > 0 : Icon {
         name: "wifi-" + Vm.system.signal-bars;
         color: root.tint;
         width: parent.width;
         height: parent.height;
     }
-    if Vm.system.connection == "none" : Icon { name: "slash"; color: root.tint; width: parent.width; height: parent.height; }
+    if !Vm.system.network-loading && Vm.system.connection == "none" : Icon { name: "slash"; color: root.tint; width: parent.width; height: parent.height; }
 }
 
 // The sound icon: the speaker with as many waves as the volume, or crossed out when muted.
+// While the sound is read for the first time, the speaker with its waves.
 export component SoundIcon inherits Icon {
-    name: Vm.system.muted ? "volume-mute" : Vm.system.volume == 0 ? "volume-0" : Vm.system.volume < 50 ? "volume-1" : "volume-2";
+    name: Vm.system.audio-loading ? "volume-2" : Vm.system.muted ? "volume-mute" : Vm.system.volume == 0 ? "volume-0" : Vm.system.volume < 50 ? "volume-1" : "volume-2";
     width: 26 * Look.px;
     height: 26 * Look.px;
 }
 
-// The Bluetooth icon: off, on, or with a device connected.
+// The Bluetooth icon: off, on, or with a device connected. While Bluetooth is read for the
+// first time, the plain mark.
 export component BluetoothIcon inherits Icon {
-    name: !Vm.system.bluetooth-on ? "bluetooth-off" : Vm.system.connected-devices > 0 ? "bluetooth-on" : "bluetooth";
+    name: Vm.system.bluetooth-loading ? "bluetooth" : !Vm.system.bluetooth-on ? "bluetooth-off" : Vm.system.connected-devices > 0 ? "bluetooth-on" : "bluetooth";
+    width: 26 * Look.px;
+    height: 26 * Look.px;
+}
+
+// The drives' icon: a USB drive is plugged in.
+export component StorageIcon inherits Icon {
+    name: "usb";
     width: 26 * Look.px;
     height: 26 * Look.px;
 }
@@ -138,19 +214,27 @@ export component BluetoothIcon inherits Icon {
 // A laptop's battery beside the clock: green while charging, amber at 20% or less, red at 10%
 // or less. Sizes are whole pixels, so its edges stay sharp at every scale.
 export component BatteryIcon inherits Rectangle {
+    // The power isn't read yet: an empty, dim battery with a thin line under it.
+    property <bool> loading: Vm.system.power-loading;
     property <length> unit: Math.max(1px, Math.round(Look.px / 1px) * 1px);
-    property <color> level: Vm.system.battery-charging ? Tokens.color-success
+    property <color> level: root.loading ? Tokens.color-text-muted : Vm.system.battery-charging ? Tokens.color-success
         : Vm.system.battery-percent <= 10 ? Tokens.color-danger
         : Vm.system.battery-percent <= 20 ? Tokens.color-warning : Tokens.color-text;
     width: row.preferred-width;
     accessible-role: text;
     accessible-label: "battery";
-    accessible-value: Vm.system.battery-percent + (Vm.system.battery-charging ? " charging" : "");
+    accessible-value: root.loading ? "loading" : Vm.system.battery-percent + (Vm.system.battery-charging ? " charging" : "");
+    if root.loading : LoadingLine {
+        y: parent.height - 7 * Look.px;
+        width: parent.width;
+    }
     row := HorizontalLayout {
         height: parent.height;
+        opacity: root.loading ? 0.45 : 1;
         spacing: 6 * Look.px;
         alignment: center;
-        Text { text: Vm.system.battery-percent + "%"; font-size: 18 * Look.px; color: Tokens.color-text-muted; vertical-alignment: center; }
+        // While it loads, "--%" keeps about the place the level takes: the bar doesn't move.
+        Text { text: root.loading ? "--%" : Vm.system.battery-percent + "%"; font-size: 18 * Look.px; color: Tokens.color-text-muted; vertical-alignment: center; }
         VerticalLayout {
             alignment: center;
             HorizontalLayout {
@@ -164,7 +248,7 @@ export component BatteryIcon inherits Rectangle {
                     Rectangle {
                         x: 4 * root.unit;
                         y: 4 * root.unit;
-                        width: Math.max(root.unit, Math.round((parent.width - 8 * root.unit) * Vm.system.battery-percent / 100 / 1px) * 1px);
+                        width: root.loading ? 0 : Math.max(root.unit, Math.round((parent.width - 8 * root.unit) * Vm.system.battery-percent / 100 / 1px) * 1px);
                         height: parent.height - 8 * root.unit;
                         border-radius: root.unit;
                         background: root.level;
@@ -194,6 +278,7 @@ component PanelRow inherits Rectangle {
     background: root.focused ? Tokens.color-tint.with-alpha(0.149) : ta.has-hover ? Tokens.color-tint.with-alpha(0.071) : transparent;
     border-width: root.focused ? 2 * Look.px : 0;
     border-color: Tokens.color-tint;
+    animate background, border-width { duration: Motion.focus; easing: Motion.enter; }
     accessible-role: button;
     accessible-label: root.name;
     accessible-value: root.value;
@@ -219,25 +304,210 @@ component PanelRow inherits Rectangle {
     ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
 
+// What a Drives panel button does: its name for the player, and its icon.
+global DriveActions {
+    public pure function label(action: string) -> string {
+        action == "open" ? "Open" : action == "use" ? "Use for games" : action == "mount" ? "Mount"
+            : action == "unmount" ? "Unmount" : action == "eject" ? "Eject" : action
+    }
+    public pure function icon(action: string) -> string {
+        action == "open" ? "folder" : action == "use" ? "gamepad" : action == "mount" ? "mount"
+            : action == "unmount" ? "unmount" : "eject"
+    }
+}
+
+// One round button of a drive's row: its icon, or a turning ring while its action runs. The
+// focused or hovered one says its name under it, drawn over the row: it moves nothing.
+component DriveButton inherits Rectangle {
+    in property <string> action;
+    in property <string> drive;
+    in property <bool> focused;
+    in property <bool> running;
+    // Another action runs on the drive: this one waits.
+    in property <bool> waiting;
+    callback clicked();
+    width: 32 * Look.px;
+    height: 32 * Look.px;
+    property <bool> named: (root.focused && Sys.keyed) || ta.has-hover;
+    // Drawn as focused only once the keys moved in the panel.
+    property <bool> lit: root.focused && Sys.keyed;
+    circle := Rectangle {
+        width: parent.width;
+        height: parent.height;
+        border-radius: self.height / 2;
+        background: root.lit ? Tokens.color-focus : ta.has-hover && !root.waiting ? Tokens.color-tint.with-alpha(0.149) : Tokens.color-tint.with-alpha(0.071);
+        border-width: root.lit ? 2 * Look.px : 0;
+        border-color: Tokens.color-tint;
+        opacity: root.waiting && !root.running ? 0.4 : 1;
+        animate background, border-width { duration: Motion.press; }
+        // A press gives a little.
+        transform-scale: ta.pressed && !root.waiting ? 0.97 : 1;
+        animate transform-scale { duration: Motion.press; }
+        accessible-role: button;
+        accessible-label: root.action == "use" ? "use-for-games" : root.action;
+        accessible-value: root.drive;
+        accessible-description: DriveActions.label(root.action);
+        accessible-item-selected: root.focused;
+        accessible-action-default => { root.clicked(); }
+        // Use for games: a small gamepad, with a plus beside it, not over it.
+        if !root.running : Icon {
+            name: DriveActions.icon(root.action);
+            color: root.lit ? Look.ink : Tokens.color-text;
+            x: root.action == "use" ? 5 * Look.px : (parent.width - self.width) / 2;
+            y: root.action == "use" ? 10 * Look.px : (parent.height - self.height) / 2;
+            width: root.action == "use" ? 15 * Look.px : 18 * Look.px;
+            height: self.width;
+        }
+        if !root.running && root.action == "use" : Icon {
+            name: "plus";
+            color: root.lit ? Look.ink : Tokens.color-text;
+            x: 19 * Look.px;
+            y: 6 * Look.px;
+            width: 9 * Look.px;
+            height: 9 * Look.px;
+        }
+        if root.running : Path {
+            width: 20 * Look.px;
+            height: 20 * Look.px;
+            viewbox-width: 24;
+            viewbox-height: 24;
+            stroke: root.lit ? Look.ink : Tokens.color-text;
+            stroke-width: 2.5 * Look.px;
+            commands: "M 12 3 A 9 9 0 1 1 3 12";
+            transform-rotation: Look.clock * 400deg;
+        }
+        ta := TouchArea {
+            mouse-cursor: root.waiting ? default : pointer;
+            clicked => { if (!root.waiting) { root.clicked(); } }
+            // The pointer is back: the keys' focus hides in favour of the hover.
+            changed has-hover => { if (self.has-hover) { Sys.keyed = false; } }
+        }
+    }
+    // Wider than the button: "Use for games" is one line under it.
+    Tooltip {
+        y: circle.height + 2 * Look.px;
+        x: (parent.width - self.width) / 2;
+        width: 120 * Look.px;
+        text: DriveActions.label(root.action);
+        shown: root.named;
+        hovered: ta.has-hover && !root.lit;
+        name: "drive-button-label";
+    }
+}
+
+// One drive in the Drives panel: its kind's icon, its name and what it is, a thin bar of how
+// full it is, and its actions as round buttons on the far side, in reading order.
+component DriveRow inherits Rectangle {
+    in property <DriveItem> drive;
+    in property <bool> focused;
+    // The focused button, by its place in the drive's actions; -1 for none.
+    in property <int> button;
+    callback pressed(int);
+    height: 76 * Look.px;
+    border-radius: 12 * Look.px;
+    background: root.focused && Sys.keyed ? Tokens.color-tint.with-alpha(0.149) : ta.has-hover ? Tokens.color-tint.with-alpha(0.071) : transparent;
+    border-width: root.focused && Sys.keyed ? 2 * Look.px : 0;
+    border-color: Tokens.color-tint;
+    animate background, border-width { duration: Motion.focus; easing: Motion.enter; }
+    accessible-role: list-item;
+    accessible-label: "drive";
+    accessible-value: root.drive.name;
+    accessible-description: root.drive.detail;
+    accessible-item-selected: root.focused;
+    ta := TouchArea {}
+    property <int> count: root.drive.actions.length;
+    HorizontalLayout {
+        padding-left: 16 * Look.px;
+        padding-right: 12 * Look.px;
+        spacing: 12 * Look.px;
+        VerticalLayout {
+            alignment: center;
+            Icon {
+                name: root.drive.kind == "usb" ? "usb" : root.drive.kind == "card" ? "card" : "disk";
+                color: Tokens.color-text-muted;
+                width: 26 * Look.px;
+                height: 26 * Look.px;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+            spacing: 3 * Look.px;
+            Text { text: root.drive.name; font-size: 19 * Look.tpx; font-weight: 600; color: Tokens.color-text; overflow: elide; horizontal-alignment: Look.rtl ? right : left; }
+            Text { text: root.drive.detail; font-size: 14 * Look.tpx; color: Look.text3; overflow: elide; horizontal-alignment: Look.rtl ? right : left; }
+            if root.drive.used >= 0 : Rectangle {
+                height: 4 * Look.px;
+                border-radius: 2 * Look.px;
+                background: Tokens.color-tint.with-alpha(0.122);
+                Rectangle {
+                    x: Look.rtl ? parent.width - self.width : 0;
+                    width: parent.width * root.drive.used;
+                    animate width { duration: Motion.bar; easing: Motion.enter; }
+                    border-radius: 2 * Look.px;
+                    background: root.drive.used > 0.9 ? Tokens.color-warning : Tokens.color-accent;
+                }
+            }
+        }
+        // Mirrored right to left: the first action stays nearest the text. Centred on the row.
+        HorizontalLayout {
+            spacing: 8 * Look.px;
+            alignment: end;
+            padding-top: (root.height - 32 * Look.px) / 2;
+            padding-bottom: (root.height - 32 * Look.px) / 2;
+            for n[k] in root.count : DriveButton {
+                property <int> at: Look.rtl ? root.count - 1 - k : k;
+                action: root.drive.actions[self.at];
+                drive: root.drive.name;
+                focused: root.button == self.at;
+                running: root.drive.busy == self.action;
+                waiting: root.drive.busy != "";
+                clicked => { root.pressed(self.at); }
+            }
+        }
+    }
+}
+
 // The open panel, under the top bar on the side of its icons.
 export component SystemSheet inherits Rectangle {
-    // Closed by a click outside it.
-    TouchArea { clicked => { Sys.close(); } }
+    // Closed by a click outside it. While it fades out, the clicks go to the screen behind.
+    TouchArea { enabled: Sys.open >= 0; clicked => { Sys.close(); } }
     property <[SystemJobItem]> jobs: Vm.system.jobs;
     // The newest job of a kind for this panel, as a line of text.
-    property <string> job-text: Sys.open == 0 ? root.job-of("join")
-        : Sys.open == 2 ? (root.job-of("pair") != "" ? root.job-of("pair") : root.job-of("scan")) : "";
+    property <string> job-text: Sys.panel == 0 ? root.job-of("join")
+        : Sys.panel == 2 ? (root.job-of("pair") != "" ? root.job-of("pair") : root.job-of("scan"))
+        : Sys.panel == 3 ? (root.job-of("eject") != "" ? root.job-of("eject")
+            : root.job-of("unmount") != "" ? root.job-of("unmount") : root.job-of("mount"))
+        : "";
+    // Drives can't be managed any more: their panel closes, as their icon goes.
+    property <bool> drives: Vm.system.drives-available || Vm.system.drives-loading;
+    changed drives => { if (!root.drives && Sys.panel == 3) { Sys.close(); } }
     // The newest of the last two jobs that is of `kind`: the panel's own work.
     pure function job-of(kind: string) -> string {
         root.jobs.length > 0 && root.jobs[root.jobs.length - 1].kind == kind ? root.jobs[root.jobs.length - 1].text
             : root.jobs.length > 1 && root.jobs[root.jobs.length - 2].kind == kind ? root.jobs[root.jobs.length - 2].text : ""
     }
 
-    panel := Rectangle {
+    // From a row: under it, aligned with its far edge (its near edge right to left), or over it
+    // when there is no room under it; always inside the window, `margin` from its edges.
+    property <length> margin: 16 * Look.px;
+    property <length> gap: 8 * Look.px;
+    property <length> anchored-height: Math.min(root.height - 2 * root.margin, body.preferred-height);
+    property <length> below: Sys.anchor-y + Sys.anchor-height + root.gap;
+    property <length> above: Sys.anchor-y - root.gap - root.anchored-height;
+    // It grows in from the side of what opened it: the icon above it, or the row above or
+    // under it.
+    panel := Popover {
+        open: Sys.open >= 0;
+        origin-x: Sys.anchored ? (Look.rtl ? 0 : self.width) : (Look.rtl ? 0 : self.width);
+        origin-y: Sys.anchored && self.y < Sys.anchor-y ? self.height : 0;
         width: Math.min(root.width - 32 * Look.px, 520 * Look.tpx);
-        x: Look.rtl ? 96 * Look.px : root.width - self.width - 96 * Look.px;
-        y: 96 * Look.px;
-        height: Math.min(root.height - self.y - 40 * Look.px, body.preferred-height);
+        x: !Sys.anchored ? (Look.rtl ? 96 * Look.px : root.width - self.width - 96 * Look.px)
+            : Math.clamp(Look.rtl ? Sys.anchor-x : Sys.anchor-x + Sys.anchor-width - self.width,
+                root.margin, root.width - self.width - root.margin);
+        y: !Sys.anchored ? 96 * Look.px
+            : root.below + root.anchored-height <= root.height - root.margin ? root.below
+            : Math.max(root.margin, root.above);
+        height: Sys.anchored ? root.anchored-height : Math.min(root.height - self.y - 40 * Look.px, body.preferred-height);
         border-radius: 22 * Look.px;
         background: Tokens.color-surface.with-alpha(0.949);
         border-width: 1px;
@@ -246,17 +516,22 @@ export component SystemSheet inherits Rectangle {
         drop-shadow-color: Tokens.color-shade.with-alpha(0.502);
         accessible-role: list;
         accessible-label: "system-panel";
-        accessible-value: Sys.open == 0 ? "network" : Sys.open == 1 ? "sound" : "bluetooth";
+        accessible-value: Sys.panel == 0 ? "network" : Sys.panel == 1 ? "sound" : Sys.panel == 2 ? "bluetooth" : "drives";
         TouchArea {}
         clip: true;
         body := VerticalLayout {
             padding: 18 * Look.px;
             spacing: 6 * Look.px;
             Text {
-                text: Sys.open == 0 ? (Vm.system.connection == "wifi" ? "Wi-Fi · " + Vm.system.network-name
+                // While a part is read for the first time, only its name: not a state it doesn't know.
+                text: Sys.panel == 0 && Vm.system.network-loading ? "Network"
+                    : Sys.panel == 1 && Vm.system.audio-loading ? "Sound"
+                    : Sys.panel == 2 && Vm.system.bluetooth-loading ? "Bluetooth"
+                    : Sys.panel == 0 ? (Vm.system.connection == "wifi" ? "Wi-Fi · " + Vm.system.network-name
                         : Vm.system.connection == "wired" ? "Cable · " + Vm.system.network-name : "Not connected")
-                    : Sys.open == 1 ? (Vm.system.muted ? "Sound · Muted" : "Sound · " + Vm.system.volume + "%")
-                    : (Vm.system.bluetooth-on ? "Bluetooth · " + Vm.system.connected-devices + " connected" : "Bluetooth · Off");
+                    : Sys.panel == 1 ? (Vm.system.muted ? "Sound · Muted" : "Sound · " + Vm.system.volume + "%")
+                    : Sys.panel == 2 ? (Vm.system.bluetooth-on ? "Bluetooth · " + Vm.system.connected-devices + " connected" : "Bluetooth · Off")
+                    : "Drives";
                 font-size: 22 * Look.tpx;
                 font-weight: 600;
                 color: Tokens.color-text;
@@ -274,8 +549,11 @@ export component SystemSheet inherits Rectangle {
                 accessible-value: self.text;
             }
             // Why this part can't be used here.
-            property <string> reason: Sys.open == 0 ? Vm.system.network-reason : Sys.open == 1 ? Vm.system.audio-reason : Vm.system.bluetooth-reason;
-            if Sys.rows(Sys.open) == 0 && self.reason != "" : Text {
+            property <string> reason: Sys.panel == 0 ? Vm.system.network-reason : Sys.panel == 1 ? Vm.system.audio-reason
+                : Sys.panel == 2 ? Vm.system.bluetooth-reason : Vm.system.drives-reason;
+            // The drives list what is there even where they can't be mounted: the reason shows
+            // over them.
+            if (Sys.rows(Sys.panel) == 0 || (Sys.panel == 3 && !Vm.system.drives-available)) && self.reason != "" : Text {
                 text: parent.reason;
                 font-size: 17 * Look.tpx;
                 color: Look.text3;
@@ -315,15 +593,26 @@ export component SystemSheet inherits Rectangle {
                 }
             }
 
+            // A part read for the first time: a loading row, not an empty panel. The rows come
+            // when the read ends.
+            property <bool> loading: Sys.panel == 0 ? Vm.system.network-loading
+                : Sys.panel == 1 ? Vm.system.audio-loading
+                : Sys.panel == 2 ? Vm.system.bluetooth-loading
+                : Vm.system.drives-loading || Vm.system.drives-listing;
+            if self.loading : LoadingRow {
+                what: Sys.panel == 0 ? "Reading the network…" : Sys.panel == 1 ? "Reading the sound…"
+                    : Sys.panel == 2 ? "Reading Bluetooth…" : "Reading drives…";
+            }
+
             // Network.
-            if Sys.open == 0 && Sys.network-on : PanelRow {
+            if Sys.panel == 0 && Sys.network-on : PanelRow {
                 label: "Look for networks";
                 name: "wifi-scan";
                 focused: Sys.row == 0 && Sys.asking == "";
                 clicked => { Sys.row = 0; Sys.activate(); }
                 Icon { name: "search"; color: Tokens.color-text-muted; width: 22 * Look.px; height: 22 * Look.px; y: (parent.height - self.height) / 2; }
             }
-            if Sys.open == 0 && Sys.network-on : VerticalLayout {
+            if Sys.panel == 0 && Sys.network-on : VerticalLayout {
                 spacing: 6 * Look.px;
                 for net[i] in Vm.system.wifi : PanelRow {
                     label: net.ssid;
@@ -342,7 +631,7 @@ export component SystemSheet inherits Rectangle {
             }
 
             // Sound.
-            if Sys.open == 1 && Sys.audio-on : PanelRow {
+            if Sys.panel == 1 && Sys.audio-on : PanelRow {
                 label: "Volume";
                 detail: Vm.system.volume + "%";
                 name: "volume";
@@ -351,7 +640,7 @@ export component SystemSheet inherits Rectangle {
                 clicked => { Sys.row = 0; }
                 SoundIcon { color: Tokens.color-text-muted; width: 22 * Look.px; height: 22 * Look.px; y: (parent.height - self.height) / 2; }
             }
-            if Sys.open == 1 && Sys.audio-on : Rectangle {
+            if Sys.panel == 1 && Sys.audio-on : Rectangle {
                 height: 8 * Look.px;
                 Rectangle {
                     x: 18 * Look.px;
@@ -364,11 +653,11 @@ export component SystemSheet inherits Rectangle {
                         width: parent.width * Vm.system.volume / 100;
                         border-radius: 3 * Look.px;
                         background: Vm.system.muted ? Look.text3 : Tokens.color-accent;
-                        animate width { duration: Tokens.motion-fast; }
+                        animate width { duration: Motion.bar; easing: Motion.enter; }
                     }
                 }
             }
-            if Sys.open == 1 && Sys.audio-on : PanelRow {
+            if Sys.panel == 1 && Sys.audio-on : PanelRow {
                 label: "Mute";
                 name: "mute";
                 value: Vm.system.muted ? "on" : "off";
@@ -376,7 +665,7 @@ export component SystemSheet inherits Rectangle {
                 clicked => { Sys.row = 1; Sys.activate(); }
                 VerticalLayout { alignment: center; Switch { on: Vm.system.muted; } }
             }
-            if Sys.open == 1 && Sys.audio-on : VerticalLayout {
+            if Sys.panel == 1 && Sys.audio-on : VerticalLayout {
                 spacing: 6 * Look.px;
                 for out[i] in Vm.system.outputs : PanelRow {
                     label: out.description;
@@ -388,8 +677,28 @@ export component SystemSheet inherits Rectangle {
                 }
             }
 
+            // Drives: one row per drive, its actions as round buttons.
+            if Sys.panel == 3 && Vm.system.drives.length == 0 && !Vm.system.drives-listing && !Vm.system.drives-loading : Text {
+                text: "No drives";
+                font-size: 17 * Look.tpx;
+                color: Look.text3;
+                width: parent.width;
+            }
+            if Sys.panel == 3 : VerticalLayout {
+                spacing: 6 * Look.px;
+                for drive[i] in Vm.system.drives : DriveRow {
+                    // The rows come in a step after another, at most a few steps.
+                    r := Reveal { order: Math.min(i, Motion.stagger-cap); }
+                    opacity: r.fade;
+                    drive: drive;
+                    focused: Sys.row == i;
+                    button: Sys.row == i ? Sys.button : -1;
+                    pressed(k) => { Sys.row = i; Sys.button = k; Sys.activate(); }
+                }
+            }
+
             // Bluetooth.
-            if Sys.open == 2 && Sys.bluetooth-on : PanelRow {
+            if Sys.panel == 2 && Sys.bluetooth-on : PanelRow {
                 label: "Bluetooth";
                 name: "bluetooth-power";
                 value: Vm.system.bluetooth-on ? "on" : "off";
@@ -397,14 +706,14 @@ export component SystemSheet inherits Rectangle {
                 clicked => { Sys.row = 0; Sys.activate(); }
                 VerticalLayout { alignment: center; Switch { on: Vm.system.bluetooth-on; } }
             }
-            if Sys.open == 2 && Sys.bluetooth-on && Vm.system.bluetooth-on : PanelRow {
+            if Sys.panel == 2 && Sys.bluetooth-on && Vm.system.bluetooth-on : PanelRow {
                 label: "Pair a device";
                 detail: "Put it in pairing mode first";
                 name: "bluetooth-scan";
                 focused: Sys.row == 1;
                 clicked => { Sys.row = 1; Sys.activate(); }
             }
-            if Sys.open == 2 && Sys.bluetooth-on && Vm.system.bluetooth-on : VerticalLayout {
+            if Sys.panel == 2 && Sys.bluetooth-on && Vm.system.bluetooth-on : VerticalLayout {
                 spacing: 6 * Look.px;
                 for device[i] in Vm.system.devices : PanelRow {
                     label: device.name;

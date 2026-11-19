@@ -49,9 +49,9 @@ export global Nav {
 
     out property <int> tabs: 2;
     // The screen buttons, the network, sound and Bluetooth icons when Marah Launcher is the whole screen
-    // (`Sys`), and Settings last.
+    // (`Sys`), the drives' icon wherever drives can be managed, and Settings last.
     out property <int> buttons: 5 + root.statuses;
-    out property <int> statuses: Vm.system.whole-screen ? 3 : 0;
+    out property <int> statuses: (Vm.system.whole-screen ? 3 : 0) + (Vm.system.drives-available || Vm.system.drives-loading ? 1 : 0);
     // The shown game is the one running.
     out property <bool> playing: Games.has-game && Vm.has-running && Vm.running.key == Games.games[Games.shown].key;
     // The buttons under the game: Resume, Stop and Game Hub while it runs; Play (when it can
@@ -96,7 +96,8 @@ export global Nav {
         } else if (index == 1) {
             root.open-library();
         } else if (button >= 4 && button < 4 + root.statuses) {
-            Sys.show(button - 4);
+            // On a desktop the drives' icon is the only machine icon.
+            Sys.show(Vm.system.whole-screen ? button - 4 : 3);
         } else {
             Host.play-sound("select");
             Commands.navigate(button == 0 ? "catalog"

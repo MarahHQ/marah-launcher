@@ -17,18 +17,21 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
 use futures::future::BoxFuture;
-use launcher_core::{Clock, Core};
+use launcher_core::{Area, Change, Clock, Core, Timed};
 use launcher_ui_api::ThemeError;
 use slint_interpreter::ComponentHandle;
+use tokio::sync::broadcast::error::TryRecvError;
 
 use crate::host::{ThemeHost, TrailerRequest, TrailerStatus, UiRequest};
 use crate::images::ImageKey;
 use crate::input::PadButton;
 use crate::loader::{ImageLoader, Pixels};
 
-/// The least time between two renders: a frame at 120 Hz. A burst of images or core changes
-/// renders once a frame, so the frames between keep their time for animations.
-pub const RENDER_GAP: Duration = Duration::from_millis(8);
+/// The least time from the end of a render to the start of the next: a frame at 60 Hz. A burst
+/// of images or core changes renders once a frame, so the frames between keep their time for
+/// input and animations. A render that took longer keeps the next one off as long as it took,
+/// so renders take at most half of the UI thread's time.
+pub const RENDER_GAP: Duration = Duration::from_millis(16);
 
 /// How long images that come in wait to show together. Covers arrive one by one while the
 /// player scrolls; each showing on its own would take the UI thread's time from the scroll.
@@ -116,11 +119,21 @@ pub struct AppShell {
     images: Arc<ImageLoader>,
     loaded: (Sender<Loaded>, Receiver<Loaded>),
     renders: Coalescer,
+    /// The core's changes, by area, since the last render: a render builds again only the
+    /// parts of the view they move.
+    changes: tokio::sync::broadcast::Receiver<Change>,
+    /// A change came that names no area (an event of the core's other than a change, or a
+    /// test's): the next render builds the whole view.
+    unnamed: bool,
+    /// The images wait for the first frame: see [`AppShell::wait_for_first_frame`].
+    images_wait: bool,
     tick: TickPolicy,
     dev: bool,
     monitors: Monitors,
     /// How many times the shell rendered.
     rendered: u64,
+    /// How long the shell's work on the UI thread took.
+    timings: ShellTimings,
     /// Where Log out is: `Closing` while the core closes what runs, `Left` once the shell told
     /// the session and quit.
     log_out: LogOutStep,
@@ -153,6 +166,7 @@ impl AppShell {
         };
         let ui = ThemeHost::new(core.clone(), sink).await;
         let flag = options.monitor.map(|name| (name, core.prefs().monitor));
+        let changes = core.changes();
         Self {
             ui,
             core,
@@ -162,10 +176,14 @@ impl AppShell {
             images: Arc::new(ImageLoader::new(options.thumbs)),
             loaded: channel(),
             renders: Coalescer::default(),
+            changes,
+            unnamed: false,
+            images_wait: false,
             tick: TickPolicy::default(),
             dev: options.dev,
             monitors: Monitors { flag, ..Monitors::default() },
             rendered: 0,
+            timings: ShellTimings::default(),
             log_out: LogOutStep::NotAsked,
         }
     }
@@ -180,9 +198,20 @@ impl AppShell {
         self.rendered
     }
 
+    /// How long the shell's work on the UI thread took so far.
+    pub fn timings(&self) -> ShellTimings {
+        self.timings
+    }
+
     /// Does what waits on the UI thread: the theme's requests, the images that came in, and a
     /// render whose time came.
     pub fn poll(&mut self) {
+        let started = Instant::now();
+        self.poll_untimed();
+        add(&mut self.timings.polls, started.elapsed());
+    }
+
+    fn poll_untimed(&mut self) {
         let requests = std::mem::take(&mut *self.requests.borrow_mut());
         for request in requests {
             if let Err(error) = self.on_request(request) {
@@ -193,7 +222,11 @@ impl AppShell {
         let now = self.clock.now();
         while let Some(due) = self.renders.due(now) {
             match due {
-                Due::Render => self.render_logged(),
+                Due::Render => {
+                    if let Err(error) = self.render_changes() {
+                        tracing::error!(%error, "render failed");
+                    }
+                }
                 Due::Images => self.show_images_logged(),
             }
         }
@@ -207,7 +240,7 @@ impl AppShell {
     pub fn flush(&mut self) -> Result<(), ThemeError> {
         self.take_loaded();
         match self.renders.take() {
-            Some(Due::Render) => self.render(),
+            Some(Due::Render) => self.render_changes(),
             Some(Due::Images) => self.show_images(),
             None => Ok(()),
         }
@@ -249,9 +282,19 @@ impl AppShell {
         Ok(())
     }
 
-    /// The core sent an event: every event means the view may have changed, so it asks for a
-    /// render, at most once each [`RENDER_GAP`].
+    /// The view may have changed, in no area the shell knows: it asks for a render of the
+    /// whole view, at most once each [`RENDER_GAP`].
     pub fn on_core_changed(&mut self) {
+        self.unnamed = true;
+        self.ask_render();
+    }
+
+    /// The core sent events: every event means the view may have changed, so it asks for a
+    /// render, at most once each [`RENDER_GAP`]. When `only_changes`, each event was a change of
+    /// the state ([`launcher_api::Event::StateChanged`]), which names its area, and the render
+    /// builds only what the areas that changed move; else the whole view.
+    pub fn on_core_events(&mut self, only_changes: bool) {
+        self.unnamed |= !only_changes;
         self.ask_render();
     }
 
@@ -286,6 +329,12 @@ impl AppShell {
     /// the window's size, the clock's minute or the trailer changed, while the boot screen
     /// waits for Home's art, and every 15 s while a game runs.
     pub fn on_tick(&mut self) {
+        let started = Instant::now();
+        self.tick_untimed();
+        add(&mut self.timings.ticks, started.elapsed());
+    }
+
+    fn tick_untimed(&mut self) {
         if self.dev {
             match self.ui.reload_if_changed() {
                 Ok(true) => tracing::info!("theme reloaded"),
@@ -341,15 +390,65 @@ impl AppShell {
 
     /// Shows the current state now, and starts loading the images it needs.
     pub fn render(&mut self) -> Result<(), ThemeError> {
-        self.renders.rendered(self.clock.now());
+        self.changed_areas();
+        self.unnamed = false;
+        self.render_with(|ui| ui.render())
+    }
+
+    /// Shows the current state now, building again only what the changes since the last
+    /// render move, and starts loading the images it needs.
+    fn render_changes(&mut self) -> Result<(), ThemeError> {
+        let areas = self.changed_areas();
+        if std::mem::take(&mut self.unnamed) {
+            return self.render_with(|ui| ui.render());
+        }
+        self.render_with(|ui| ui.render_after(&areas))
+    }
+
+    fn render_with(&mut self, show: impl FnOnce(&mut ThemeHost) -> Result<(), ThemeError>) -> Result<(), ThemeError> {
+        let _span = tracing::debug_span!("render", n = self.rendered + 1).entered();
+        let started = Instant::now();
+        let start = self.clock.now();
         self.rendered += 1;
-        let shown = self.ui.render();
+        let shown = show(&mut self.ui);
         self.load_wanted();
+        let end = self.clock.now();
+        self.renders.rendered(end, end - start);
+        add(&mut self.timings.renders, started.elapsed());
         shown
+    }
+
+    /// The areas that changed since the last call, each once. A reader that fell behind lost
+    /// some: the next render builds the whole view.
+    fn changed_areas(&mut self) -> Vec<Area> {
+        let mut areas = Vec::new();
+        loop {
+            match self.changes.try_recv() {
+                Ok(change) if !areas.contains(&change.area) => areas.push(change.area),
+                Ok(_) => {}
+                Err(TryRecvError::Lagged(_)) => self.unnamed = true,
+                Err(TryRecvError::Empty | TryRecvError::Closed) => return areas,
+            }
+        }
+    }
+
+    /// The images the renders ask for don't load until [`AppShell::first_frame_shown`]: the
+    /// first frame doesn't share the machine with them.
+    pub fn wait_for_first_frame(&mut self) {
+        self.images_wait = true;
+    }
+
+    /// The first frame shows: the images the last render asked for start loading.
+    pub fn first_frame_shown(&mut self) {
+        self.images_wait = false;
+        self.load_wanted();
     }
 
     /// Starts loading the images the last render asked for and doesn't have. A render does it.
     pub fn load_wanted(&mut self) {
+        if self.images_wait {
+            return;
+        }
         let still = self.ui.still_wanted();
         for key in self.ui.wanted_images() {
             let (core, loader, still, loaded) =
@@ -373,10 +472,14 @@ impl AppShell {
 
     /// Shows the images that came in, with the view already bound: nothing in the core changed.
     fn show_images(&mut self) -> Result<(), ThemeError> {
-        self.renders.rendered(self.clock.now());
+        let started = Instant::now();
+        let start = self.clock.now();
         self.rendered += 1;
         let shown = self.ui.render_images();
         self.load_wanted();
+        let end = self.clock.now();
+        self.renders.rendered(end, end - start);
+        add(&mut self.timings.images, started.elapsed());
         shown
     }
 
@@ -448,6 +551,26 @@ impl AppShell {
     }
 }
 
+/// How long the shell's work on the UI thread took: each a count, a total and the longest.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ShellTimings {
+    /// The renders that asked the core for a new view. Images shown with the view already
+    /// bound aren't counted.
+    pub renders: Timed,
+    /// The images shown with the view already bound.
+    pub images: Timed,
+    /// [`AppShell::poll`], whole: the requests, the images and the renders due.
+    pub polls: Timed,
+    /// [`AppShell::on_tick`], whole.
+    pub ticks: Timed,
+}
+
+fn add(timed: &mut Timed, took: Duration) {
+    timed.count += 1;
+    timed.total += took;
+    timed.worst = timed.worst.max(took);
+}
+
 /// Where the window is, and what Settings lists.
 #[derive(Default)]
 struct Monitors {
@@ -469,11 +592,14 @@ enum Due {
 }
 
 /// When renders run: once however many changes or images arrive before. A render runs at once,
-/// unless the last one was less than [`RENDER_GAP`] ago. Images that came in show after
-/// [`IMAGES_GAP`], unless a render waiting shows them first.
+/// unless the last one ended less than [`RENDER_GAP`] ago, or less than it took. Images that
+/// came in show after [`IMAGES_GAP`], unless a render waiting shows them first.
 #[derive(Default)]
 struct Coalescer {
+    /// When the last render ended.
     last: Option<Instant>,
+    /// How long after it the next may start: [`RENDER_GAP`], or the time it took.
+    gap: Duration,
     render_at: Option<Instant>,
     images_at: Option<Instant>,
 }
@@ -484,7 +610,7 @@ impl Coalescer {
         if self.render_at.is_some() {
             return None;
         }
-        let at = self.last.map_or(now, |last| (last + RENDER_GAP).max(now));
+        let at = self.last.map_or(now, |last| (last + self.gap).max(now));
         self.render_at = Some(at);
         Some(at - now)
     }
@@ -529,9 +655,11 @@ impl Coalescer {
         self.render_at.into_iter().chain(self.images_at).min()
     }
 
-    /// A render ran at `now`: it showed what a render or images waiting would have.
-    fn rendered(&mut self, now: Instant) {
+    /// A render that took `took` ended at `now`: it showed what a render or images waiting
+    /// would have.
+    fn rendered(&mut self, now: Instant, took: Duration) {
         self.last = Some(now);
+        self.gap = RENDER_GAP.max(took);
         self.render_at = None;
         self.images_at = None;
     }
@@ -624,7 +752,7 @@ mod tests {
     fn a_burst_of_changes_renders_once_a_frame() {
         let start = Instant::now();
         let mut renders = Coalescer::default();
-        renders.rendered(start);
+        renders.rendered(start, Duration::ZERO);
         assert_eq!(renders.ask_render(start), Some(RENDER_GAP), "the last render was just now");
         for _ in 0..9 {
             assert_eq!(renders.ask_render(start + MS), None, "asked already");
@@ -635,12 +763,25 @@ mod tests {
     }
 
     #[test]
+    fn a_long_render_keeps_the_next_one_off_as_long_as_it_took() {
+        let start = Instant::now();
+        let mut renders = Coalescer::default();
+        let took = 3 * RENDER_GAP;
+        renders.rendered(start + took, took);
+        assert_eq!(renders.ask_render(start + took), Some(took), "from its end, as long as it took");
+        assert_eq!(renders.due(start + took + RENDER_GAP), None);
+        assert_eq!(renders.due(start + 2 * took), Some(Due::Render));
+        renders.rendered(start + 2 * took, Duration::ZERO);
+        assert_eq!(renders.ask_render(start + 2 * took), Some(RENDER_GAP), "a quick one: a frame");
+    }
+
+    #[test]
     fn a_change_long_after_the_last_render_renders_at_once() {
         let start = Instant::now();
         let mut renders = Coalescer::default();
         assert_eq!(renders.ask_render(start), Some(Duration::ZERO), "no render yet");
         assert_eq!(renders.due(start), Some(Due::Render));
-        renders.rendered(start);
+        renders.rendered(start, Duration::ZERO);
         let later = start + Duration::from_secs(1);
         assert_eq!(renders.ask_render(later), Some(Duration::ZERO));
         assert_eq!(renders.due(later), Some(Due::Render));
@@ -655,13 +796,13 @@ mod tests {
         assert_eq!(renders.due(start + 99 * MS), None);
         assert_eq!(renders.due(start + IMAGES_GAP), Some(Due::Images));
 
-        renders.rendered(start + IMAGES_GAP);
+        renders.rendered(start + IMAGES_GAP, Duration::ZERO);
         renders.ask_images(start + IMAGES_GAP);
         let late = start + 2 * IMAGES_GAP;
         renders.ask_render(late - MS);
         assert_eq!(renders.next(), Some(late - MS));
         assert_eq!(renders.due(late), Some(Due::Render));
-        renders.rendered(late);
+        renders.rendered(late, Duration::ZERO);
         assert_eq!(renders.due(late), None, "the render showed the images");
         assert_eq!(renders.next(), None);
     }
@@ -670,9 +811,9 @@ mod tests {
     fn a_render_now_takes_the_place_of_one_waiting() {
         let start = Instant::now();
         let mut renders = Coalescer::default();
-        renders.rendered(start);
+        renders.rendered(start, Duration::ZERO);
         renders.ask_render(start);
-        renders.rendered(start + MS);
+        renders.rendered(start + MS, Duration::ZERO);
         assert_eq!(renders.due(start + RENDER_GAP), None);
         assert_eq!(renders.next(), None);
     }
@@ -681,7 +822,7 @@ mod tests {
     fn what_waits_can_be_taken_before_its_time() {
         let start = Instant::now();
         let mut renders = Coalescer::default();
-        renders.rendered(start);
+        renders.rendered(start, Duration::ZERO);
         renders.ask_images(start);
         assert_eq!(renders.take(), Some(Due::Images));
         renders.ask_images(start);

@@ -45,12 +45,13 @@ pub const KIT_DIR: &str = "kit";
 /// `kit/<name>.slint`. A theme that ships a file at the same path replaces the kit's. Kit files
 /// import the host's files as `../types.slint` and each other by bare name.
 pub const KIT: &[(&str, &str)] = &[
-    ("backup-browser.slint", include_str!("../kit/backup-browser.slint")),
     ("button.slint", include_str!("../kit/button.slint")),
     ("closing.slint", include_str!("../kit/closing.slint")),
     ("commands.slint", include_str!("../kit/commands.slint")),
     ("cover-wall.slint", include_str!("../kit/cover-wall.slint")),
     ("downloads.slint", include_str!("../kit/downloads.slint")),
+    ("folder-browser.slint", include_str!("../kit/folder-browser.slint")),
+    ("folder-list.slint", include_str!("../kit/folder-list.slint")),
     ("game-detail.slint", include_str!("../kit/game-detail.slint")),
     ("game-menu.slint", include_str!("../kit/game-menu.slint")),
     ("game-settings.slint", include_str!("../kit/game-settings.slint")),
@@ -62,7 +63,9 @@ pub const KIT: &[(&str, &str)] = &[
     ("keyboard.slint", include_str!("../kit/keyboard.slint")),
     ("lingering.slint", include_str!("../kit/lingering.slint")),
     ("list-item.slint", include_str!("../kit/list-item.slint")),
+    ("loading.slint", include_str!("../kit/loading.slint")),
     ("look.slint", include_str!("../kit/look.slint")),
+    ("motion.slint", include_str!("../kit/motion.slint")),
     ("notices.slint", include_str!("../kit/notices.slint")),
     ("origin.slint", include_str!("../kit/origin.slint")),
     ("plugin-list.slint", include_str!("../kit/plugin-list.slint")),

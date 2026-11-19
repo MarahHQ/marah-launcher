@@ -64,9 +64,9 @@ crates/testkit/src/fakes.rs
 crates/testkit/src/host.rs
 crates/testkit/src/system.rs
 crates/ui-api/contract/types.slint
-crates/ui-api/kit/backup-browser.slint
 crates/ui-api/kit/closing.slint
 crates/ui-api/kit/commands.slint
+crates/ui-api/kit/folder-browser.slint
 crates/ui-api/kit/game-menu.slint
 crates/ui-api/kit/install-os.slint
 crates/ui-api/kit/power-menu.slint

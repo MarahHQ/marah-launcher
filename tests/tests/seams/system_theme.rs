@@ -360,9 +360,11 @@ fn the_keys_reach_the_icons_at_the_end_of_the_top_bar_and_move_between_panels() 
     let mut host = shown(&system, WHOLE_SCREEN);
     use slint::platform::Key;
     host.navigate(Key::UpArrow);
-    // Left of the first item is the last, Settings: the bar goes round. Left again is Bluetooth.
-    host.navigate(Key::LeftArrow);
-    host.navigate(Key::LeftArrow);
+    // Left of the first item is the last, Settings: the bar goes round. Left again is the drives'
+    // icon, and once more Bluetooth.
+    for _ in 0..3 {
+        host.navigate(Key::LeftArrow);
+    }
     host.navigate(Key::Return);
     assert_eq!(host.value("system-panel"), "bluetooth");
     host.navigate(Key::LeftArrow);
@@ -376,18 +378,21 @@ fn l1_and_r1_reach_every_item_of_the_top_bar_again_and_again_round_the_ends() {
     let system = machine();
     let mut host = shown(&system, WHOLE_SCREEN);
     use slint::platform::Key;
-    // Without a catalog the bar has nine stops: Home, Library, three screen buttons, the three
-    // icons and Settings. R1 seven times from Home is Bluetooth, the one before Settings.
+    // Without a catalog the bar has ten stops: Home, Library, three screen buttons, the four
+    // icons (the drives' last) and Settings. R1 seven times from Home is Bluetooth.
     for _ in 0..7 {
         host.navigate(Key::Tab);
     }
     host.navigate(Key::Return);
     assert_eq!(host.value("system-panel"), "bluetooth");
     host.navigate(Key::Escape);
-    // One more is Settings, the last, and L1 goes back to Bluetooth. Once round, still there.
+    // Two more are the drives' icon and Settings, the last; L1 twice goes back to Bluetooth.
+    // Once round, still there.
+    host.navigate(Key::Tab);
     host.navigate(Key::Tab);
     host.navigate(Key::Backtab);
-    for _ in 0..9 {
+    host.navigate(Key::Backtab);
+    for _ in 0..10 {
         host.navigate(Key::Backtab);
     }
     host.navigate(Key::Return);
@@ -404,21 +409,21 @@ fn as_the_whole_screen_settings_is_the_last_icon_in_the_top_bar_and_the_keys_rea
         host.ui.switch(&id(theme)).unwrap();
         host.dispatch(Command::Navigate(launcher_core::Route::Home));
         host.settle();
-        for icon in ["Themes", "status:network", "status:sound", "status:bluetooth", "battery"] {
+        for icon in ["Themes", "status:network", "status:sound", "status:bluetooth", "status:drives", "battery"] {
             assert!(x(&host, "Settings") > x(&host, icon), "{theme}: Settings is after {icon}");
         }
         // L1 from Home goes round to the top bar's last item: Settings.
         host.navigate(Key::Backtab);
         host.navigate(Key::Return);
         assert_eq!(host.core().view().screen, ScreenId::Settings, "{theme}: the last item opens Settings");
-        // From Home again, two steps back: the Bluetooth icon, the one before it.
+        // From Home again, two steps back: the drives' icon, the one before it.
         host.dispatch(Command::Navigate(launcher_core::Route::Home));
         host.settle();
         host.navigate(Key::Backtab);
         host.navigate(Key::Backtab);
         host.navigate(Key::Return);
         host.settle();
-        assert_eq!(host.value("system-panel"), "bluetooth", "{theme}: the one before is Bluetooth");
+        assert_eq!(host.value("system-panel"), "drives", "{theme}: the one before is the drives' icon");
         host.navigate(Key::Escape);
     }
 }
@@ -436,5 +441,331 @@ fn as_the_whole_screen_the_top_bar_ends_with_the_clock_settings_then_the_machine
     let from_the_end = ["clock", "Settings", "status:bluetooth", "status:sound", "status:network", "Themes"];
     for pair in from_the_end.windows(2) {
         assert!(x(pair[0]) > x(pair[1]), "{} {} after {} {}", pair[0], x(pair[0]), pair[1], x(pair[1]));
+    }
+}
+
+/// A USB stick, plugged in and mounted, and a drive inside the PC that isn't mounted.
+fn with_drives(system: &FakeSystem, media: &std::path::Path) {
+    let stick = media.join("STICK");
+    std::fs::create_dir_all(&stick).unwrap();
+    system.with(|m| {
+        m.mount_at = Some(media.to_path_buf());
+        m.drives = vec![
+            launcher_api::SystemDrive {
+                device: "/dev/sda1".into(),
+                disk: "/dev/sda".into(),
+                uuid: "1A2B-3C4D".into(),
+                label: "STICK".into(),
+                size: 64_000_000_000,
+                filesystem: "exfat".into(),
+                usb: true,
+                mount: Some(stick),
+                free: Some(40_000_000_000),
+                ..launcher_api::SystemDrive::default()
+            },
+            launcher_api::SystemDrive {
+                device: "/dev/nvme0n1p4".into(),
+                disk: "/dev/nvme0n1".into(),
+                uuid: "5A1C".into(),
+                label: "Games disk".into(),
+                size: 500_000_000_000,
+                filesystem: "ntfs".into(),
+                ..launcher_api::SystemDrive::default()
+            },
+        ];
+    });
+}
+
+/// The drives' icon shows wherever drives can be managed, after Bluetooth, with or without a
+/// USB drive; the keys reach it before Settings, and its panel lists every drive and mounts,
+/// ejects and opens them.
+#[test]
+fn the_drives_icon_and_its_panel_list_every_drive_in_every_theme() {
+    use slint::platform::Key;
+    let media = tempfile::tempdir().unwrap();
+    let system = machine();
+    let mut host = shown(&system, WHOLE_SCREEN);
+    host.dispatch(Command::Drive(launcher_core::DriveCmd::Refresh));
+    host.settle();
+    for theme in ["classic", "default"] {
+        host.ui.switch(&id(theme)).unwrap();
+        host.dispatch(Command::Navigate(launcher_core::Route::Home));
+        host.settle();
+        assert_eq!(host.count("status:drives"), 1, "{theme}: no drive yet, and the icon is there");
+    }
+    // A start with the drives there: a drive plugged in while it runs would be mounted at once.
+    with_drives(&system, media.path());
+    let mut host = shown(&system, WHOLE_SCREEN);
+    host.dispatch(Command::Drive(launcher_core::DriveCmd::Refresh));
+    refreshed(&mut host);
+    for theme in ["classic", "default"] {
+        host.ui.switch(&id(theme)).unwrap();
+        host.dispatch(Command::Navigate(launcher_core::Route::Home));
+        host.settle();
+        let x = |label: &str| host.first(label).absolute_position().x;
+        assert!(x("status:drives") > x("status:bluetooth") && x("Settings") > x("status:drives"), "{theme}");
+
+        // L1 twice from Home: Settings, then the drives' icon before it.
+        host.navigate(Key::Backtab);
+        host.navigate(Key::Backtab);
+        host.navigate(Key::Return);
+        host.settle();
+        assert_eq!(host.value("system-panel"), "drives", "{theme}: the keys reach the drives' icon");
+        // One row per drive, each with its buttons; the first button of the first drive has the
+        // focus, and Right moves to the next button.
+        assert_eq!(host.values("drive"), ["STICK", "Games disk"], "{theme}: one row per drive");
+        assert_eq!(host.values("open"), ["STICK"], "{theme}");
+        assert_eq!(host.values("use-for-games"), ["STICK"], "{theme}");
+        assert_eq!(host.values("eject"), ["STICK"], "{theme}");
+        assert_eq!(host.values("mount"), ["Games disk"], "{theme}");
+        assert_eq!(host.count("unmount"), 0, "{theme}");
+        assert_eq!(host.focused("open"), ["STICK"], "{theme}: the first button has the focus");
+        host.navigate(Key::RightArrow);
+        assert_eq!(host.focused("use-for-games"), ["STICK"], "{theme}: Right moves to the next button");
+        host.navigate(Key::Escape);
+    }
+
+    // The keys: Down to the drive inside the PC, Enter on its Mount.
+    host.dispatch(Command::Navigate(launcher_core::Route::Home));
+    host.settle();
+    host.press_first("status:drives");
+    host.navigate(Key::DownArrow);
+    assert_eq!(host.focused("mount"), ["Games disk"], "Down moves to the next drive, on its first button");
+    host.navigate(Key::Return);
+    host.settle();
+    assert_eq!(system.read(|m| m.drive_actions.clone()), ["mount /dev/nvme0n1p4"]);
+    // The mouse: a click on the stick's Use for games adds it to the game folders.
+    host.press_first("use-for-games");
+    host.settle();
+    let games = host.core().kernel().config().get(&["app", "folders", "games"]);
+    assert!(games.to_string().contains("STICK"), "{games}");
+    // The pad: right twice to Eject on the stick, and ✕. The stick goes; the icon stays.
+    host.navigate(Key::Escape);
+    host.press_first("status:drives");
+    host.pad(launcher_ui_host::PadButton::Right);
+    assert_eq!(host.focused("use-for-games"), ["STICK"]);
+    host.pad(launcher_ui_host::PadButton::Right);
+    assert_eq!(host.focused("eject"), ["STICK"], "Eject is the last button");
+    host.pad(launcher_ui_host::PadButton::South);
+    host.settle();
+    refreshed(&mut host);
+    assert_eq!(system.read(|m| m.drive_actions.clone()), ["mount /dev/nvme0n1p4", "eject /dev/sda"]);
+    assert_eq!(host.count("status:drives"), 1, "the drive inside the PC is still there");
+    assert_eq!(host.values("drive"), ["Games disk"]);
+}
+
+/// On a desktop the drives' icon is the only machine icon: the keys reach it, and its panel opens.
+#[test]
+fn on_a_desktop_the_drives_icon_is_there_and_opens_its_panel() {
+    use slint::platform::Key;
+    let media = tempfile::tempdir().unwrap();
+    let system = machine();
+    with_drives(&system, media.path());
+    let mut host = shown(&system, Place::default());
+    host.dispatch(Command::Drive(launcher_core::DriveCmd::Refresh));
+    refreshed(&mut host);
+    for theme in ["classic", "default"] {
+        host.ui.switch(&id(theme)).unwrap();
+        host.dispatch(Command::Navigate(launcher_core::Route::Home));
+        host.settle();
+        assert_eq!(host.count("status:drives"), 1, "{theme}");
+        assert_eq!(host.count("status:network") + host.count("status:bluetooth"), 0, "{theme}");
+        host.navigate(Key::Backtab);
+        host.navigate(Key::Backtab);
+        host.navigate(Key::Return);
+        host.settle();
+        assert_eq!(host.value("system-panel"), "drives", "{theme}: the keys reach it");
+        host.navigate(Key::LeftArrow);
+        assert_eq!(host.value("system-panel"), "drives", "{theme}: no other panel beside it");
+        host.navigate(Key::Escape);
+    }
+}
+
+/// Opened from a Settings row, a panel opens next to the row: under it, its far edges lined up,
+/// and never over it. Esc closes it and the keys are on the row again; the page scrolling under
+/// it closes it.
+#[test]
+fn a_panel_opened_from_a_settings_row_opens_next_to_the_row_in_every_theme() {
+    use slint::platform::Key;
+    let system = machine();
+    let mut host = shown(&system, WHOLE_SCREEN);
+    for theme in ["classic", "default"] {
+        host.ui.switch(&id(theme)).unwrap();
+        host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+        host.settle();
+        host.settings_tab("System");
+        host.navigate(Key::RightArrow);
+        host.navigate(Key::DownArrow);
+        host.navigate(Key::Return);
+        assert_eq!(host.value("system-panel"), "sound", "{theme}");
+        let (row, panel) = (host.first("system-sound"), host.first("system-panel"));
+        let (r, p) = (row.absolute_position(), panel.absolute_position());
+        let (rs, ps) = (row.size(), panel.size());
+        let apart = p.y >= r.y + rs.height || p.y + ps.height <= r.y;
+        assert!(apart, "{theme}: the panel doesn't cover its row: row {r:?} {rs:?}, panel {p:?} {ps:?}");
+        assert!(((p.x + ps.width) - (r.x + rs.width)).abs() < 1.0, "{theme}: the far edges line up");
+        assert!(p.y > 0.0 && p.y + ps.height <= 900.0, "{theme}: inside the window");
+
+        host.navigate(Key::Escape);
+        assert_eq!(host.count("system-panel"), 0, "{theme}");
+        assert!(host.lit("system-sound"), "{theme}: the keys are on the row again");
+        host.navigate(Key::Return);
+        assert_eq!(host.value("system-panel"), "sound", "{theme}: the row opens it again");
+        host.wheel("settings-page", 3);
+        assert_eq!(host.count("system-panel"), 0, "{theme}: the page scrolled under it: it closed");
+    }
+}
+
+/// The machine `system` with every part's first read taking 30 seconds on the fake clock, at
+/// `place` in `theme`: no read ends until the test moves the clock.
+fn reading(system: &FakeSystem, place: Place, theme: &str) -> Composed {
+    let slow = ["network.unavailable", "bluetooth.unavailable", "audio.unavailable", "power.unavailable"];
+    let slow = slow.into_iter().chain(["drives.unavailable", "drives"]);
+    system.with(|m| m.slow = slow.map(|r| (r, std::time::Duration::from_secs(30))).collect());
+    let plugin = system.plugin();
+    let mut host = composed(|h| {
+        let h = h.place(place).call_timeout(std::time::Duration::from_secs(120)).plugin(plugin);
+        h.plugin(FakeCatalog::new("emu-a").system("PS4").games(["Alpha"]).build())
+    });
+    host.ui.start().unwrap();
+    host.ui.switch(&id(theme)).unwrap();
+    host.resize(1600.0, 900.0);
+    host.settle();
+    host
+}
+
+/// Before its first read each part is loading: no reason shows, every icon is in place with
+/// "loading" as its value, and it opens its panel on a loading row. When the reads end each
+/// shows its state, and the bar hasn't moved.
+#[test]
+fn each_status_icon_is_in_place_and_loading_until_its_part_is_read() {
+    for theme in ["classic", "default"] {
+        loading_until_read(theme);
+    }
+}
+
+fn loading_until_read(theme: &str) {
+    use slint::platform::Key;
+    let system = machine();
+    let mut host = reading(&system, WHOLE_SCREEN, theme);
+    let vm = host.core().view().system;
+    assert!(vm.network_loading && vm.audio_loading && vm.bluetooth_loading && vm.power_loading, "{vm:?}");
+    assert!(vm.drives_loading && vm.drives_listing, "{vm:?}");
+    assert!(vm.network_reason.is_empty() && vm.drives_reason.is_empty(), "no reason before the read");
+    for label in ["status:network", "status:sound", "status:bluetooth", "status:drives", "battery"] {
+        assert_eq!(host.value(label), "loading", "{label}");
+    }
+    let settings = host.first("Settings").absolute_position().x;
+
+    // The mouse: a click opens the panel at once, on its loading row, before its reads end.
+    host.first("status:drives").invoke_accessible_default_action();
+    host.settle();
+    assert_eq!(host.value("system-panel"), "drives");
+    assert_eq!(host.values("loading"), ["Reading drives…"]);
+    assert_eq!(host.count("drive"), 0);
+    // The keys: Escape closes it as an empty panel closes; from Settings, the drives' icon has
+    // the focus and says "Checking…" under it; Enter opens the panel again.
+    host.send_key(Key::Escape);
+    host.settle();
+    host.send_key(Key::Backtab);
+    host.send_key(Key::Backtab);
+    host.settle();
+    assert_eq!(host.count("status-checking"), 1, "the drives' icon has the keys' focus");
+    host.send_key(Key::Return);
+    host.settle();
+    assert_eq!(host.value("system-panel"), "drives", "Enter opens it");
+    assert_eq!(host.values("loading"), ["Reading drives…"]);
+
+    // The reads end: what the clicks and keys asked for runs, as the moving clock lets it.
+    host.pump();
+    host.advance(std::time::Duration::from_secs(31));
+    host.settle();
+    let vm = host.core().view().system;
+    assert!(!vm.network_loading && !vm.drives_loading && !vm.drives_listing && vm.drives_available, "{vm:?}");
+    assert_eq!(host.count("loading"), 0, "the panel fills in");
+    assert_eq!(host.values("drive").len(), 0, "no drive here");
+    assert_eq!(host.value("status:network"), "wired");
+    assert_eq!(host.value("battery"), "18");
+    assert_eq!(host.count("loading-line"), 0, "nothing loads");
+    assert_eq!(host.first("Settings").absolute_position().x, settings, "the bar didn't move");
+}
+
+/// A part read slowly holds none of the others: the network still loads while the drives' icon
+/// is ready.
+#[test]
+fn a_slow_network_read_leaves_the_drives_icon_ready() {
+    let system = machine();
+    system.with(|m| m.slow = vec![("network.unavailable", std::time::Duration::from_secs(30))]);
+    let plugin = system.plugin();
+    let mut host = composed(|h| h.place(WHOLE_SCREEN).call_timeout(std::time::Duration::from_secs(120)).plugin(plugin));
+    host.ui.start().unwrap();
+    host.run_until_idle();
+    host.shell.render().unwrap();
+    host.settle();
+    assert_eq!(host.value("status:network"), "loading");
+    assert_ne!(host.value("status:drives"), "loading");
+    assert_ne!(host.value("status:sound"), "loading");
+}
+
+/// Drives that turn out not to be managed here: the drives' icon loads, then fades out and its
+/// place closes.
+#[test]
+fn the_drives_icon_goes_when_drives_turn_out_unavailable() {
+    for theme in ["classic", "default"] {
+        let system = machine();
+        system.with(|m| m.unavailable.push(("drives", "No udisks here".into())));
+        let mut host = reading(&system, WHOLE_SCREEN, theme);
+        assert_eq!(host.value("status:drives"), "loading", "{theme}");
+        host.advance(std::time::Duration::from_secs(31));
+        host.settle();
+        assert_eq!(host.count("status:drives"), 0, "{theme}: it went");
+    }
+}
+
+/// With Animations off the loading line stands still, as a dotted line; with them on it moves.
+#[test]
+fn with_animations_off_the_loading_line_stands_still() {
+    for theme in ["classic", "default"] {
+        let system = machine();
+        let mut host = reading(&system, WHOLE_SCREEN, theme);
+        assert!(
+            host.values("loading-line").iter().all(|v| v == "moving"),
+            "{theme}: {:?}",
+            host.values("loading-line")
+        );
+        host.dispatch(Command::Pref(launcher_core::Pref::Animations, serde_json::json!(false)));
+        host.settle();
+        let lines = host.values("loading-line");
+        assert_eq!(lines.len(), 5, "{theme}: the four icons and the battery: {lines:?}");
+        assert!(lines.iter().all(|v| v == "still"), "{theme}: {lines:?}");
+    }
+}
+
+/// Settings → System while the parts are read: each row says "loading", not a state it doesn't
+/// know yet, and no reason shows.
+#[test]
+fn the_system_rows_say_they_are_loading() {
+    let system = machine();
+    let mut host = reading(&system, WHOLE_SCREEN, "classic");
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    host.settings_tab("System");
+    for label in ["system-internet", "system-sound", "system-bluetooth"] {
+        assert_eq!(host.value(label), "loading", "{label}");
+    }
+}
+
+/// A loading icon takes the pad's ✕, in both themes: it opens its panel.
+#[test]
+fn a_loading_icon_takes_the_pad() {
+    use slint::platform::Key;
+    for theme in ["classic", "default"] {
+        let mut host = reading(&machine(), WHOLE_SCREEN, theme);
+        assert_eq!(host.value("status:drives"), "loading", "{theme}");
+        host.send_key(Key::Backtab);
+        host.send_key(Key::Backtab);
+        host.settle();
+        host.pad(launcher_ui_host::PadButton::South);
+        assert_eq!(host.value("system-panel"), "drives", "{theme}: ✕ opens it");
     }
 }

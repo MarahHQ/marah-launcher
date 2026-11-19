@@ -28,20 +28,8 @@ impl Hardware for SystemHardware {
         specs
     }
 
-    fn free_bytes(&self, path: &std::path::Path) -> Option<u64> {
-        crate::disk::free_bytes(path)
-    }
-
     fn computer_name(&self) -> String {
         computer_name()
-    }
-
-    fn disk_bytes(&self, path: &std::path::Path) -> Option<u64> {
-        crate::disk::disk_bytes(path)
-    }
-
-    fn disk_id(&self, path: &std::path::Path) -> Option<u64> {
-        crate::disk::disk_id(path)
     }
 
     fn controllers(&self) -> Vec<launcher_api::Controller> {

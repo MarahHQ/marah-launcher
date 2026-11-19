@@ -4,7 +4,7 @@
 //! unavailable. The state is read again every few seconds and after each action, and long work
 //! (joining a network, scanning, pairing, installing) runs as a job the view model lists.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -65,6 +65,9 @@ pub enum JobKind {
     ScanBluetooth,
     Pair,
     InstallOs,
+    Mount,
+    Unmount,
+    Eject,
 }
 
 impl JobKind {
@@ -74,6 +77,9 @@ impl JobKind {
             JobKind::ScanBluetooth => "scan",
             JobKind::Pair => "pair",
             JobKind::InstallOs => "install",
+            JobKind::Mount => "mount",
+            JobKind::Unmount => "unmount",
+            JobKind::Eject => "eject",
         }
     }
 }
@@ -91,6 +97,8 @@ pub struct JobState {
     pub kind: JobKind,
     /// What it works on: the network's name, the device's address, the disk.
     pub target: String,
+    /// The drive it works on, by its id, for a mount, an unmount or an eject; empty otherwise.
+    pub drive: String,
     pub phase: JobPhase,
     pub percent: Option<u8>,
     pub text: String,
@@ -111,6 +119,8 @@ pub struct SystemState {
     pub disks: Vec<InstallDisk>,
     /// Each capability a system plugin provides: `None` when it works, else why not.
     pub capabilities: BTreeMap<Capability, Option<String>>,
+    /// Each capability whose first read ended, provided or not: the others are still loading.
+    pub read: BTreeSet<Capability>,
     pub jobs: Vec<JobState>,
     pub(crate) next_job: u64,
     /// The lowest level a low battery notice warned of since the PC last charged.
@@ -146,7 +156,10 @@ fn low_battery(warned: Option<u8>, battery: Option<Battery>) -> (Option<u8>, Opt
 }
 
 /// The first active system plugin that provides a capability, and that capability.
-async fn provider<T: ?Sized>(core: &Core, pick: impl Fn(&Provided) -> Option<Arc<T>>) -> Option<(PluginId, Arc<T>)> {
+pub(crate) async fn provider<T: ?Sized>(
+    core: &Core,
+    pick: impl Fn(&Provided) -> Option<Arc<T>>,
+) -> Option<(PluginId, Arc<T>)> {
     let kernel = core.kernel();
     for plugin in kernel.of_kind(PluginKind::System) {
         if let Ok(provided) = kernel.provided(&plugin).await
@@ -222,7 +235,7 @@ impl SystemJob for HostJob {
 }
 
 /// A new running job, and the handle its plugin reports through.
-fn start_job(core: &Core, kind: JobKind, target: &str) -> (u64, Arc<dyn SystemJob>) {
+pub(crate) fn start_job(core: &Core, kind: JobKind, target: &str) -> (u64, Arc<dyn SystemJob>) {
     let cancel = Arc::new(AtomicBool::new(false));
     let id = {
         let mut state = core.state();
@@ -232,6 +245,7 @@ fn start_job(core: &Core, kind: JobKind, target: &str) -> (u64, Arc<dyn SystemJo
             id,
             kind,
             target: target.to_owned(),
+            drive: String::new(),
             phase: JobPhase::Running,
             percent: None,
             text: String::new(),
@@ -257,88 +271,224 @@ pub(crate) async fn adopt_vpn(core: &Core) {
     }
 }
 
-/// Reads every system capability again.
+/// Reads every system capability again, all at once. Each part tells the view as soon as it is
+/// read, so a slow one (a network tool that hangs) holds none of the others.
 pub(crate) async fn refresh(core: &Core) {
-    adopt_vpn(core).await;
-    let mut found = SystemState::default();
-    if let Some((plugin, network)) = provider(core, |p| p.network.clone()).await {
-        let reason =
-            core.kernel().guard(&plugin, "network.unavailable", async { Ok(network.unavailable().await) }).await;
-        let reason = reason.unwrap_or(None);
-        if reason.is_none() {
-            found.network = core.kernel().guard(&plugin, "network.status", network.status()).await.ok();
-            found.wifi = core.kernel().guard(&plugin, "network.wifi", network.wifi(false)).await.unwrap_or_default();
-        }
-        found.capabilities.insert(Capability::Network, reason);
-    }
-    if let Some((plugin, bluetooth)) = provider(core, |p| p.bluetooth.clone()).await {
-        let reason =
-            core.kernel().guard(&plugin, "bluetooth.unavailable", async { Ok(bluetooth.unavailable().await) }).await;
-        let reason = reason.unwrap_or(None);
-        if reason.is_none() {
-            found.bluetooth_on =
-                core.kernel().guard(&plugin, "bluetooth.powered", bluetooth.powered()).await.unwrap_or(false);
-            found.devices =
-                core.kernel().guard(&plugin, "bluetooth.devices", bluetooth.devices()).await.unwrap_or_default();
-        }
-        found.capabilities.insert(Capability::Bluetooth, reason);
-    }
-    if let Some((plugin, audio)) = provider(core, |p| p.audio.clone()).await {
-        let reason = core.kernel().guard(&plugin, "audio.unavailable", async { Ok(audio.unavailable().await) }).await;
-        let reason = reason.unwrap_or(None);
-        if reason.is_none() {
-            found.outputs = core.kernel().guard(&plugin, "audio.outputs", audio.outputs()).await.unwrap_or_default();
-            found.level = core.kernel().guard(&plugin, "audio.level", audio.level()).await.ok();
-        }
-        found.capabilities.insert(Capability::Audio, reason);
-    }
-    if let Some((plugin, power)) = provider(core, |p| p.power.clone()).await {
-        let reason = core.kernel().guard(&plugin, "power.unavailable", async { Ok(power.unavailable().await) }).await;
-        let reason = reason.unwrap_or(None);
-        found.battery = core.kernel().guard(&plugin, "power.battery", power.battery()).await.ok().flatten();
-        found.capabilities.insert(Capability::Power, reason);
-    }
-    if let Some((plugin, updates)) = provider(core, |p| p.os_updates.clone()).await {
-        found.os_update = core.kernel().guard(&plugin, "os_updates.status", updates.status()).await.ok();
-        found.capabilities.insert(Capability::OsUpdates, None);
-    }
-    if core.kernel().host().place.stick
-        && let Some((plugin, install)) = provider(core, |p| p.os_install.clone()).await
-    {
-        found.disks = core.kernel().guard(&plugin, "os_install.disks", install.disks()).await.unwrap_or_default();
-        found.capabilities.insert(Capability::OsInstall, None);
-    }
-    let battery_notice = {
-        let mut state = core.state();
-        let system = &mut state.system;
-        // A scan found more networks than the plain read: keep them until the next scan.
-        if found.wifi.is_empty() {
-            found.wifi = std::mem::take(&mut system.wifi);
-        }
-        found.jobs = std::mem::take(&mut system.jobs);
-        found.next_job = system.next_job;
-        let notice;
-        (found.battery_warned, notice) = low_battery(system.battery_warned, found.battery);
-        *system = found;
-        notice
-    };
-    // Before the change: a notice tells only the core's readers, and the change tells the app.
-    if let Some(text) = battery_notice {
-        core.notices().info(text.to_owned());
-    }
-    core.changed(Area::System);
+    futures::join!(
+        adopt_vpn(core),
+        read_network(core),
+        read_bluetooth(core),
+        read_audio(core),
+        read_power(core),
+        read_os_updates(core),
+        read_os_install(core),
+        read_drives(core),
+    );
 }
 
-/// Reads the state again every [`REFRESH_EVERY`], while some system plugin is on.
+/// Keeps what one part read. `reason` is `None` when no plugin provides `capability`, else why it
+/// can't be used (`Some(None)` when it can). `write` puts the part's state in and says whether
+/// it changed. Says whether the view must hear of it: the part changed, or this was its first
+/// read.
+fn publish(
+    core: &Core,
+    capability: Capability,
+    reason: Option<Option<String>>,
+    write: impl FnOnce(&mut SystemState) -> bool,
+) -> bool {
+    let mut state = core.state();
+    let system = &mut state.system;
+    let first = system.read.insert(capability);
+    let before = system.capabilities.get(&capability).cloned();
+    match reason {
+        Some(why) => system.capabilities.insert(capability, why),
+        None => system.capabilities.remove(&capability),
+    };
+    let wrote = write(system);
+    first || wrote || system.capabilities.get(&capability) != before.as_ref()
+}
+
+/// Sets `field` to `value`, and says whether it changed.
+fn set<T: PartialEq>(field: &mut T, value: T) -> bool {
+    let changed = *field != value;
+    *field = value;
+    changed
+}
+
+/// Tells the view of a part that changed.
+fn tell(core: &Core, changed: bool) {
+    if changed {
+        core.changed(Area::System);
+    }
+}
+
+async fn read_network(core: &Core) {
+    let (reason, status, wifi) = match provider(core, |p| p.network.clone()).await {
+        None => (None, None, Vec::new()),
+        Some((plugin, network)) => {
+            let kernel = core.kernel();
+            let reason = kernel.guard(&plugin, "network.unavailable", async { Ok(network.unavailable().await) }).await;
+            let reason = reason.unwrap_or(None);
+            if reason.is_none() {
+                let (status, wifi) = futures::join!(
+                    kernel.guard(&plugin, "network.status", network.status()),
+                    kernel.guard(&plugin, "network.wifi", network.wifi(false)),
+                );
+                (Some(reason), status.ok(), wifi.unwrap_or_default())
+            } else {
+                (Some(reason), None, Vec::new())
+            }
+        }
+    };
+    let changed = publish(core, Capability::Network, reason, |system| {
+        // A scan found more networks than the plain read: keep them until the next scan.
+        let more = !wifi.is_empty() && set(&mut system.wifi, wifi);
+        set(&mut system.network, status) | more
+    });
+    tell(core, changed);
+}
+
+async fn read_bluetooth(core: &Core) {
+    let (reason, on, devices) = match provider(core, |p| p.bluetooth.clone()).await {
+        None => (None, false, Vec::new()),
+        Some((plugin, bluetooth)) => {
+            let kernel = core.kernel();
+            let reason =
+                kernel.guard(&plugin, "bluetooth.unavailable", async { Ok(bluetooth.unavailable().await) }).await;
+            let reason = reason.unwrap_or(None);
+            if reason.is_none() {
+                let (on, devices) = futures::join!(
+                    kernel.guard(&plugin, "bluetooth.powered", bluetooth.powered()),
+                    kernel.guard(&plugin, "bluetooth.devices", bluetooth.devices()),
+                );
+                (Some(reason), on.unwrap_or(false), devices.unwrap_or_default())
+            } else {
+                (Some(reason), false, Vec::new())
+            }
+        }
+    };
+    let changed = publish(core, Capability::Bluetooth, reason, |system| {
+        set(&mut system.bluetooth_on, on) | set(&mut system.devices, devices)
+    });
+    tell(core, changed);
+}
+
+async fn read_audio(core: &Core) {
+    let (reason, outputs, level) = match provider(core, |p| p.audio.clone()).await {
+        None => (None, Vec::new(), None),
+        Some((plugin, audio)) => {
+            let kernel = core.kernel();
+            let reason = kernel.guard(&plugin, "audio.unavailable", async { Ok(audio.unavailable().await) }).await;
+            let reason = reason.unwrap_or(None);
+            if reason.is_none() {
+                let (outputs, level) = futures::join!(
+                    kernel.guard(&plugin, "audio.outputs", audio.outputs()),
+                    kernel.guard(&plugin, "audio.level", audio.level()),
+                );
+                (Some(reason), outputs.unwrap_or_default(), level.ok())
+            } else {
+                (Some(reason), Vec::new(), None)
+            }
+        }
+    };
+    let changed = publish(core, Capability::Audio, reason, |system| {
+        set(&mut system.outputs, outputs) | set(&mut system.level, level)
+    });
+    tell(core, changed);
+}
+
+async fn read_power(core: &Core) {
+    let (reason, battery) = match provider(core, |p| p.power.clone()).await {
+        None => (None, None),
+        Some((plugin, power)) => {
+            let kernel = core.kernel();
+            let (reason, battery) = futures::join!(
+                kernel.guard(&plugin, "power.unavailable", async { Ok(power.unavailable().await) }),
+                kernel.guard(&plugin, "power.battery", power.battery()),
+            );
+            (Some(reason.unwrap_or(None)), battery.ok().flatten())
+        }
+    };
+    let mut notice = None;
+    let changed = publish(core, Capability::Power, reason, |system| {
+        (system.battery_warned, notice) = low_battery(system.battery_warned, battery);
+        set(&mut system.battery, battery)
+    });
+    // Before the change: a notice tells only the core's readers, and the change tells the app.
+    if let Some(text) = notice {
+        core.notices().info(text.to_owned());
+    }
+    tell(core, changed);
+}
+
+async fn read_os_updates(core: &Core) {
+    let (reason, status) = match provider(core, |p| p.os_updates.clone()).await {
+        None => (None, None),
+        Some((plugin, updates)) => {
+            (Some(None), core.kernel().guard(&plugin, "os_updates.status", updates.status()).await.ok())
+        }
+    };
+    let changed = publish(core, Capability::OsUpdates, reason, |system| set(&mut system.os_update, status));
+    tell(core, changed);
+}
+
+async fn read_os_install(core: &Core) {
+    let found = match core.kernel().host().place.stick {
+        true => provider(core, |p| p.os_install.clone()).await,
+        false => None,
+    };
+    let (reason, disks) = match found {
+        None => (None, Vec::new()),
+        Some((plugin, install)) => {
+            (Some(None), core.kernel().guard(&plugin, "os_install.disks", install.disks()).await.unwrap_or_default())
+        }
+    };
+    let changed = publish(core, Capability::OsInstall, reason, |system| set(&mut system.disks, disks));
+    tell(core, changed);
+}
+
+/// Only whether drives can be managed here: the drives themselves come from
+/// [`crate::drives::refresh`], which takes longer.
+async fn read_drives(core: &Core) {
+    let reason = match provider(core, |p| p.drives.clone()).await {
+        None => None,
+        Some((plugin, drives)) => {
+            let reason = core.kernel().guard(&plugin, "drives.unavailable", async { Ok(drives.unavailable().await) });
+            Some(reason.await.unwrap_or(None))
+        }
+    };
+    let changed = publish(core, Capability::Drives, reason, |_| false);
+    tell(core, changed);
+}
+
+/// Reads the state again every [`REFRESH_EVERY`]: each part on its own, so a slow part makes
+/// none of the others wait, now or at the next tick.
 pub(crate) fn schedule_refresh(core: &Core) {
+    every_tick(core, |core| async move { adopt_vpn(&core).await });
+    every_tick(core, |core| async move { read_network(&core).await });
+    every_tick(core, |core| async move { read_bluetooth(&core).await });
+    every_tick(core, |core| async move { read_audio(&core).await });
+    every_tick(core, |core| async move { read_power(&core).await });
+    every_tick(core, |core| async move { read_os_updates(&core).await });
+    every_tick(core, |core| async move { read_os_install(&core).await });
+    every_tick(core, |core| async move { read_drives(&core).await });
+    every_tick(core, |core| async move { crate::drives::refresh(&core).await });
+    every_tick(core, |core| async move { crate::disks::refresh(&core).await });
+    every_tick(core, |core| async move { crate::snapshot::refresh_files(&core).await });
+}
+
+/// Runs `read` now, then again [`REFRESH_EVERY`] after each one ends, while the core lives.
+fn every_tick<F, R>(core: &Core, read: F)
+where
+    F: Fn(Core) -> R + Send + 'static,
+    R: std::future::Future<Output = ()> + Send,
+{
     let weak = Arc::downgrade(&core.inner);
     tokio::spawn(async move {
         loop {
             let Some(inner) = weak.upgrade() else { return };
             let core = Core { inner };
-            if !core.kernel().of_kind(PluginKind::System).is_empty() {
-                refresh(&core).await;
-            }
+            read(core.clone()).await;
             let wait = core.ports().clock.sleep(REFRESH_EVERY);
             drop(core);
             wait.await;

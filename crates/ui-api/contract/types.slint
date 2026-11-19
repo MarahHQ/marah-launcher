@@ -357,7 +357,12 @@ export struct ThemeChoice { id: string, name: string, current: bool }
 // `text` is the folders joined with the system's path separator.
 // title: what to call it ("" for its name); help: a line about it, or "".
 // shown: `text` (or the default) as Settings shows it, with the home folder as ~.
-export struct Folder { name: string, title: string, help: string, text: string, shown: string, default: string, requested-by: string, write: bool }
+// list: each folder it means, with a full path for the commands AddFolder and RemoveFolder, as
+// Settings shows it (`shown`), the free space on its drive ("120.5 GB free"; "Not there" while
+// its drive is out; "" when the system doesn't say), and whether it is there. scanning: it was
+// just added, or its drive came back, and its games are being looked for: say "Scanning…".
+export struct FolderPath { path: string, shown: string, free: string, there: bool, scanning: bool }
+export struct Folder { name: string, title: string, help: string, text: string, list: [FolderPath], shown: string, default: string, requested-by: string, write: bool }
 
 // system: the id of the system it plays ("PS5"), what LibrarySystem takes; "" for none.
 // system-name: its full name ("PlayStation 5"); "" for none.
@@ -449,29 +454,36 @@ export struct VpnSettings { problem: string, only: bool, finds: bool, can-import
 // before-restore: the backup a restore made of what was there before.
 export struct BackupFile { file: string, date: string, size: string, items: string, before-restore: bool }
 
-// Settings → Backup. folder: the backup folder, with the home folder as `~`. running: a backup
+// Settings → Backup. folder: the backup folder, with the home folder as `~`; free: the free
+// space on its drive ("120.5 GB free"), "" when the system doesn't say. running: a backup
 // or a restore runs (restoring: a restore), `progress` from 0 to 1. status: what the last one
 // did, or why it failed (failed). restart: a restore finished, and Marah Launcher starts again to finish
 // it. backups: newest first.
-// "Restore from another folder", a sheet over everything while open. shown: the folder, with
-// the home folder as `~`. parent: its parent's full path, empty at the top. crumbs: the folder's
-// path, one part each, from `~` or the top (the last is the folder). places: where it goes, each
-// with a full path for the command Backup Browse; kind: home | downloads | desktop | documents |
-// backups | drive | recent; detail: a drive's size, a recent folder's path. entries: the folders
-// with backups, the other folders, then the backups newest first, each with a full path for
-// Backup Browse or Backup RestoreFile; only those whose name holds `filter`. A folder's detail:
-// "2 backups", "empty", "can't be read", or empty. A backup's computer: the computer that made
-// it, empty when it doesn't say; newer: a newer Marah Launcher made it and this one doesn't restore it.
-// hidden: hidden folders are listed. place: the index in places of the folder shown, -1 when
-// it is no place.
+
+// The folder browser (`Vm.browser`), a sheet over everything while open. purpose: restore
+// ("Restore from another folder") | pick (a folder for the named folder `folder`, whose title is
+// `folder-title`, such as "Game folders"; `folder` is "backup" for the backup folder). title:
+// the sheet's title, such as "Choose the backup folder". shown: the folder, with the home
+// folder as `~`. parent: its parent's full path, empty at the top. crumbs: the folder's path,
+// one part each, from `~` or the top (the last is the folder). places: where it goes, each with
+// a full path for the command Browse Go; kind: home | downloads | desktop | documents | backups
+// | drive | recent; detail: a drive's size, a recent folder's path. A drive's `drive` is its id,
+// for Browse Mount; one that isn't `mounted` has no path; `usb`: one the player can take out.
+// entries: for a restore the folders with backups, the other folders, then the backups newest first, each with a full path for Browse
+// Go or Backup RestoreFile; for a pick the folders only; only those whose name holds `filter`.
+// A folder's detail: "2 backups" (a restore), "empty", "can't be read", or empty. A backup's
+// computer: the computer that made it, empty when it doesn't say; newer: a newer Marah Launcher
+// made it and this one doesn't restore it. hidden: hidden folders are listed. place: the index
+// in places of the folder shown, -1 when it is no place. places-loading: the drives are being
+// read for the places: show a short loading row with them.
 export struct BrowseCrumb { name: string, path: string }
-export struct BrowsePlace { name: string, path: string, kind: string, detail: string }
+export struct BrowsePlace { name: string, path: string, kind: string, detail: string, drive: string, mounted: bool, usb: bool }
 export struct BrowseEntry { name: string, path: string, folder: bool, detail: string, date: string, size: string, items: string, computer: string, newer: bool }
-export struct BackupBrowser { open: bool, shown: string, parent: string, crumbs: [BrowseCrumb], places: [BrowsePlace], place: int, entries: [BrowseEntry], hidden: bool, filter: string }
+export struct FolderBrowser { open: bool, purpose: string, folder: string, folder-title: string, title: string, shown: string, parent: string, crumbs: [BrowseCrumb], places: [BrowsePlace], places-loading: bool, place: int, entries: [BrowseEntry], hidden: bool, filter: string }
 
 // holds: what a backup holds on this computer now. large: the large items a backup takes only
 // when asked, empty when no plugin has one. default-folder: the folder when none is chosen.
-export struct Backup { folder: string, running: bool, restoring: bool, progress: float, status: string, failed: bool, restart: bool, backups: [BackupFile], holds: string, large: string, default-folder: string, browser: BackupBrowser }
+export struct Backup { folder: string, free: string, running: bool, restoring: bool, progress: float, status: string, failed: bool, restart: bool, backups: [BackupFile], holds: string, large: string, default-folder: string }
 
 // The launcher's own update. state: off | idle | checking | current | available |
 // downloading | ready | installed | system | failed. installed: the package manager put it in,
@@ -480,12 +492,27 @@ export struct Backup { folder: string, running: bool, restoring: bool, progress:
 // manager, now) | system (Marah OS's update).
 export struct LauncherUpdate { state: string, current: string, version: string, text: string, method: string }
 
+// One drive of the Drives panel, every one there is: its `name`, its `detail` ("64.0 GB · 40.0
+// GB free · exfat"), kind: internal | usb | card, how full it is (`used`, 0 to 1, or -1 when the
+// system doesn't say), and actions: open | use | mount | unmount | eject, its buttons in order,
+// with its id for the commands Drive Mount, Unmount and Eject, and its `path` for open (the
+// folder browser) and use (AddFolder games). busy: the action that runs on it now, "" while
+// none does.
+export struct DriveItem { drive: string, name: string, detail: string, path: string, kind: string, used: float, actions: [string], busy: string }
+
 // The machine's settings, from the system plugins (see `SystemVm` in launcher-ui-api). A part
 // whose `*-available` is false shows its `*-reason` instead of its controls. whole-screen:
 // Marah Launcher is the whole screen (the Marah Launcher session, Marah OS): show the network, sound and
 // Bluetooth controls and Settings → System then. connection: none | wired | wifi. bars: 0-4.
 // os-update: "" (not Marah OS) | current | checking | staged | failed. A job's kind: join |
-// scan | pair | install; state: running | done | failed; percent: 0-100, or -1 when unknown.
+// scan | pair | install | mount | unmount | eject; state: running | done | failed; percent:
+// 0-100, or -1 when unknown. drives: the Drives panel's drives (see `DriveItem`).
+// drives-available: drives can be mounted here, else drives-reason says why: show the drives'
+// icon while they can, on the whole screen and on a desktop. Loading: a part whose
+// `*-loading` is true isn't read yet (network, audio, bluetooth, power, drives): it is neither
+// available nor unavailable and its reason is empty: show its icon in its loading look, and its
+// panel a loading row. drives-listing: the drives' first read isn't over: the Drives panel shows
+// a loading row, not "No drives".
 export struct WifiItem { ssid: string, bars: int, secured: bool, saved: bool, active: bool }
 export struct AudioOutputItem { name: string, description: string, current: bool }
 export struct BluetoothItem { address: string, name: string, paired: bool, connected: bool }
@@ -493,21 +520,23 @@ export struct DiskItem { path: string, size: string, windows: bool, usb: bool, m
 export struct SystemJobItem { id: int, kind: string, target: string, state: string, percent: int, text: string, mok: bool, nvidia-later: bool }
 export struct System {
     whole-screen: bool, own-os: bool, stick: bool,
-    network-available: bool, network-reason: string, connection: string, network-name: string, signal-bars: int,
+    network-available: bool, network-loading: bool, network-reason: string, connection: string, network-name: string, signal-bars: int,
     wifi: [WifiItem],
-    audio-available: bool, audio-reason: string, volume: int, muted: bool, outputs: [AudioOutputItem],
-    bluetooth-available: bool, bluetooth-reason: string, bluetooth-on: bool, connected-devices: int,
+    audio-available: bool, audio-loading: bool, audio-reason: string, volume: int, muted: bool, outputs: [AudioOutputItem],
+    bluetooth-available: bool, bluetooth-loading: bool, bluetooth-reason: string, bluetooth-on: bool, connected-devices: int,
     devices: [BluetoothItem],
-    power-available: bool, power-reason: string, battery-shown: bool, battery-percent: int, battery-charging: bool,
+    power-available: bool, power-loading: bool, power-reason: string, battery-shown: bool, battery-percent: int, battery-charging: bool,
     os-update: string, os-update-text: string,
     disks: [DiskItem], jobs: [SystemJobItem],
+    drives-available: bool, drives-loading: bool, drives-listing: bool, drives-reason: string, drives: [DriveItem],
 }
 
 // The trailer playing in the window: `position` and `duration` in seconds.
 // A short message for the player. kind: info | success | error. art: the art of the game it
 // is about, or empty. opens: what clicking it opens (the command Notice Open), for example
-// "Open Downloads"; empty for nothing.
-export struct Notice { id: int, text: string, kind: string, art: image, opens: string }
+// "Open Downloads"; empty for nothing. drive: the id of the drive a "Drive found" notice is
+// about: clicking it opens the Drives panel instead; empty for the other notices.
+export struct Notice { id: int, text: string, kind: string, art: image, opens: string, drive: string }
 
 export struct Trailer { playing: bool, loading: bool, position: float, duration: float }
 
@@ -618,6 +647,8 @@ export global Vm {
     in-out property <[string]> notices;
     // The notices, newest last: at most 3, as a new one drops the oldest.
     in-out property <[Notice]> notice-cards;
+    // The folder browser, over everything while it is open.
+    in-out property <FolderBrowser> browser;
     // "How far did it get?" for a game that just closed: its title. Answer with the command
     // ReportResult: ingame, menus, boots, nothing, or null for Not now.
     in-out property <bool> has-result-prompt;

@@ -121,3 +121,19 @@ async fn a_game_file_on_disk_is_never_written_over() {
     assert_eq!(std::fs::read_to_string(alpha.join("launcher_game.json")).unwrap(), own);
     assert!(!alpha.join("launcher_art").exists());
 }
+
+/// A build of the view reads nothing from the disk: the games' folders, their logs and the host
+/// folders are read ahead, so a slow drive can't hold the screen. Opening a game reads its
+/// folder before its details show.
+#[tokio::test]
+async fn a_build_of_the_view_reads_nothing_from_the_disk() {
+    let (t, _dir) = games(false).await;
+    t.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
+    let alpha: launcher_api::GameKey = "emu-a:G0".parse().unwrap();
+    t.core.dispatch(Command::OpenGame(alpha)).await.unwrap();
+    // The core's disk reads panic if a build makes one.
+    let view = launcher_core::no_disk_reads(|| t.core.view());
+    assert!(view.detail.expect("the Game Hub of Alpha").has_folder, "its folder, read ahead");
+    let games = view.settings.folders.into_iter().find(|f| f.name == "games").expect("the games folder");
+    assert!(!games.list.is_empty(), "the games folder's folders, read ahead");
+}

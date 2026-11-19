@@ -290,7 +290,7 @@ async fn a_plugin_that_isn_t_system_can_t_declare_system_capabilities() {
         ))
     };
     let mut fake = FakeHost::new();
-    let system = ["network", "vpn", "bluetooth", "audio", "power", "os_updates", "os_install"];
+    let system = ["network", "vpn", "bluetooth", "audio", "power", "os_updates", "os_install", "drives"];
     for (i, capability) in system.iter().enumerate() {
         fake = fake.plugin(plugin(&format!("emu-{i}"), "emulator", capability));
         fake = fake.plugin(plugin(&format!("svc-{i}"), "service", capability));
@@ -344,4 +344,23 @@ fn the_built_in_plugins_and_themes_accept_this_host() {
             );
         }
     }
+}
+
+/// The first frame doesn't share the machine with its reads: a core started for an app holds
+/// the network, sound, Bluetooth, power and drive reads until the app says its first frame shows.
+/// The view is there before any of them begins, let alone ends.
+#[tokio::test]
+async fn the_first_frame_shows_before_any_read_of_the_machine() {
+    let system = launcher_testkit::FakeSystem::new();
+    let host = FakeHost::new().plugin(system.plugin()).boot().await;
+    let core = launcher_core::Core::start_after_first_frame(host.kernel.clone()).await;
+    host.clock.advance(std::time::Duration::from_secs(30)).await;
+    let first = core.view();
+    assert!(first.system.audio_loading && first.system.drives_listing, "the first frame: still loading");
+    assert_eq!(system.read(|m| m.calls.len()), 0, "no read of the machine before the first frame");
+
+    core.first_frame_shown();
+    launcher_testkit::until(&core, launcher_core::Area::System, |core| core.view().system.audio_available).await;
+    let read: Vec<&str> = system.read(|m| m.calls.iter().map(|(method, ..)| *method).collect());
+    assert!(read.contains(&"level") && read.contains(&"drives"), "the machine is read once it shows: {read:?}");
 }

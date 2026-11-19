@@ -347,6 +347,17 @@ impl ThemeHost {
         self.show(view)
     }
 
+    /// Shows the current state after changes in `areas` only since the last render: the core
+    /// builds again only the parts they move ([`Core::view_after`]). Before any render, or
+    /// with no area named, as [`ThemeHost::render`].
+    pub fn render_after(&mut self, areas: &[launcher_core::Area]) -> Result<(), ThemeError> {
+        let view = match self.last_view.take() {
+            Some(previous) if !areas.is_empty() => self.core.view_after(previous, areas),
+            _ => self.core.view(),
+        };
+        self.show(view)
+    }
+
     /// Shows the images that came in since the last render, with the view it bound: nothing
     /// in the core changed, so the core isn't asked for a new one. Before any render, renders.
     pub fn render_images(&mut self) -> Result<(), ThemeError> {

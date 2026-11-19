@@ -400,9 +400,6 @@ pub struct Specs {
 /// thread, once a run.
 pub trait Hardware: Send + Sync {
     fn specs(&self) -> Specs;
-    /// The free bytes on the disk that holds `path`, which must exist; `None` when the system
-    /// doesn't say. Quick: one system call.
-    fn free_bytes(&self, path: &std::path::Path) -> Option<u64>;
     /// The game controllers connected now ([`launcher_api::Controllers`]). It may take a second:
     /// call it off the async threads. None by default.
     fn controllers(&self) -> Vec<launcher_api::Controller> {
@@ -413,16 +410,6 @@ pub trait Hardware: Send + Sync {
     fn computer_name(&self) -> String {
         String::new()
     }
-    /// The size in bytes of the disk that holds `path`, which must exist; `None` when the
-    /// system doesn't say. Quick: one system call.
-    fn disk_bytes(&self, _path: &std::path::Path) -> Option<u64> {
-        None
-    }
-    /// Which disk holds `path`, which must exist: two paths with the same id share their free
-    /// space. `None` when the system doesn't say. Quick: one system call.
-    fn disk_id(&self, _path: &std::path::Path) -> Option<u64> {
-        None
-    }
 }
 
 /// A computer the launcher can't look at. The default until the app plugs in a real one.
@@ -432,7 +419,29 @@ impl Hardware for NoHardware {
     fn specs(&self) -> Specs {
         Specs::default()
     }
+}
 
+/// The drives' quick system calls on a path, which must exist: the free space and the size of
+/// the drive that holds it, and which drive that is. Each is one system call. The drives module
+/// ([`crate::drives`]) asks them; the app plugs in the real ones.
+pub trait DriveSpace: Send + Sync {
+    /// The free bytes on the drive that holds `path`; `None` when the system doesn't say.
+    fn free_bytes(&self, path: &std::path::Path) -> Option<u64>;
+    /// The size in bytes of the drive that holds `path`; `None` when the system doesn't say.
+    fn size_bytes(&self, _path: &std::path::Path) -> Option<u64> {
+        None
+    }
+    /// Which drive holds `path`: two paths with the same id share their free space. `None` when
+    /// the system doesn't say.
+    fn drive_id(&self, _path: &std::path::Path) -> Option<u64> {
+        None
+    }
+}
+
+/// Drives that say nothing. The default until the app plugs in real ones.
+pub struct NoDriveSpace;
+
+impl DriveSpace for NoDriveSpace {
     fn free_bytes(&self, _: &std::path::Path) -> Option<u64> {
         None
     }
@@ -799,6 +808,7 @@ pub(crate) struct Ports {
     pub login_session: Arc<dyn LoginSession>,
     pub opener: Arc<dyn Opener>,
     pub hardware: Arc<dyn Hardware>,
+    pub drives: Arc<dyn DriveSpace>,
     pub torrents: Arc<dyn Torrents>,
     pub archives: Arc<dyn Archives>,
     pub clock: Arc<dyn Clock>,
@@ -812,7 +822,7 @@ impl Ports {
     pub fn torrents(&self) -> crate::torrents::TorrentPorts {
         crate::torrents::TorrentPorts {
             torrents: self.torrents.clone(),
-            hardware: self.hardware.clone(),
+            drives: self.drives.clone(),
             clock: self.clock.clone(),
         }
     }
@@ -826,7 +836,7 @@ impl Ports {
     ) -> crate::game_installs::InstallPorts {
         crate::game_installs::InstallPorts {
             archives: self.archives.clone(),
-            hardware: self.hardware.clone(),
+            drives: self.drives.clone(),
             clock: self.clock.clone(),
             downloads,
             call_timeout,

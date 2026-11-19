@@ -21,7 +21,8 @@ in the `[os]` section of `brand.toml`.
 | The NVIDIA edition | `nvidia/` (OS) | The image, with NVIDIA's driver. |
 | The USB stick | `live/`, `build-iso.sh` (OS) | The image started live from a stick, with an installer. |
 | The session script | `packaging/linux/marah-session` | Runs the launcher as the whole screen. In the launcher's rpm. |
-| The system plugin | `plugins/system/host/` | Runs the system's tools for Settings → System. |
+| The system plugin | `plugins/system/host/` | Runs the system's tools for Settings → System and the Drives panel. The image needs `udisks2` for the drives. |
+| The drives' polkit rule | `packaging/linux/drives.rules`, installed as `/usr/share/polkit-1/rules.d/50-marah-launcher-drives.rules` | Lets a member of `wheel` or `sudo`, in an active session at the PC's own screen, mount a drive inside the PC without a password (`org.freedesktop.udisks2.filesystem-mount-system`). In the launcher's packages. |
 | `Place` | `crates/core/src/system.rs` | Tells the launcher where it runs. |
 
 ## Where the launcher runs

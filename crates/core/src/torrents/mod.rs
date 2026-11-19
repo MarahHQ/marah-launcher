@@ -52,7 +52,7 @@ pub(crate) use self::records::Records;
 use crate::changes::{Area, Notifier};
 use crate::room::{Need, Room};
 use crate::vpn::VpnRule;
-use crate::{Clock, CoreError, CoreResult, Hardware, TorrentFile, Torrents};
+use crate::{Clock, CoreError, CoreResult, DriveSpace, TorrentFile, Torrents};
 
 /// How many files a download shows; the count says how many there are.
 const SHOWN_FILES: usize = 100;
@@ -297,7 +297,7 @@ pub(crate) type EventSink = Arc<dyn Fn(TorrentEvent) + Send + Sync>;
 pub(crate) struct TorrentPorts {
     pub torrents: Arc<dyn Torrents>,
     /// For the free space before a download starts.
-    pub hardware: Arc<dyn Hardware>,
+    pub drives: Arc<dyn DriveSpace>,
     pub clock: Arc<dyn Clock>,
 }
 
@@ -601,7 +601,7 @@ impl TorrentsSubsystem {
         let needed = job.total.saturating_sub(job.done);
         if !seeding
             && let Some(error) =
-                Room::read(self.inner.ports.hardware.as_ref(), &job.folder, None).short(Need::Download, needed)
+                Room::read(self.inner.ports.drives.as_ref(), &job.folder, None).short(Need::Download, needed)
         {
             self.update(id, |job| {
                 job.state = TorrentState::Failed;

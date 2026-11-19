@@ -138,11 +138,13 @@ pub enum Capability {
     OsUpdates,
     /// See [`crate::OsInstall`].
     OsInstall,
+    /// See [`crate::DriveSettings`]. Not `storage`: that is a plugin's own data folder.
+    Drives,
 }
 
 impl Capability {
     /// The capabilities only a system plugin provides.
-    pub const SYSTEM: [Capability; 7] = [
+    pub const SYSTEM: [Capability; 8] = [
         Capability::Network,
         Capability::Vpn,
         Capability::Bluetooth,
@@ -150,6 +152,7 @@ impl Capability {
         Capability::Power,
         Capability::OsUpdates,
         Capability::OsInstall,
+        Capability::Drives,
     ];
 }
 
@@ -276,13 +279,13 @@ pub const SHARED_FOLDERS: [SharedFolder; 2] = [
         name: GAMES_FOLDER,
         default: GAMES_DEFAULT,
         title: "Game folders",
-        help: "Games from any console. Installs go to PS5 or PS4 inside the first folder. Separate folders with ;",
+        help: "Games from any console. Installs go to PS5 or PS4 inside the first folder.",
     },
     SharedFolder {
         name: PACKAGES_FOLDER,
         default: PACKAGES_DEFAULT,
         title: "Packages to install",
-        help: "Game packages (.pkg) and disc images in a console's folder, for example PS5 or PS4, can be installed. Separate folders with ;",
+        help: "Game packages (.pkg) and disc images in a console's folder, for example PS5 or PS4, can be installed.",
     },
 ];
 

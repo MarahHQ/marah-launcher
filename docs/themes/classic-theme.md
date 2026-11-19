@@ -71,12 +71,12 @@ From `theme.toml`:
 | `version` | `0.3.0` |
 | `host_api` | `^0.3` |
 | `activation` | `eager` |
-| `ui_api` | `^0.5.1` |
+| `ui_api` | `^0.6` |
 | `input` | `["gamepad", "pointer"]` |
 | `navigation` | `focus` |
 | breakpoints | `compact` (`max_width = 900`), then `regular` |
 | fonts | the six font files above |
-| images | `logo` |
+| images | `logo`, `logo-mark` |
 | sounds | `move`, `select`, `back`, `error`, `start` |
 
 It has no `fallback` key.
@@ -177,7 +177,7 @@ the pad's buttons; with a keyboard, the keys. The face buttons are drawn as path
 `PadArrows`), because no font the theme ships has them.
 
 The hints hide over the Library's and the Catalog's cards (they would cover the titles), while
-a trailer plays with its controls hidden, over the backup browser, over the splash's keys, and
+a trailer plays with its controls hidden, over the folder browser, over the splash's keys, and
 over the closing screen.
 
 ### Sounds
@@ -242,7 +242,7 @@ last move: the kit's `ShellKeys` timer calls `Games.send`.
   card the player was on (`Origin`): the cover grows from the card's place.
 - **Downloads** (`screens/downloads.slint`): the kit's `DownloadsPage`.
 - **Settings** (`screens/settings.slint`): the kit's `SettingsPage`, one page of sections with a
-  rail of their icons. Its `logo` is the theme's emblem.
+  rail of their icons. Its `logo` is the theme's mark (`Assets.logo-mark`).
 - **Emulators** and **Themes** (`screens/emulators.slint`, `screens/themes.slint`): the kit's
   `PluginListSheet`, with these titles and lines:
   - "Emulators", "Open one to turn it on or off, install it and change its settings".
@@ -298,7 +298,8 @@ game yet" or "No games here".
 
 On the reading side: the "Home" and "Library" tabs. On the far side: the running game, the
 active download, the screen buttons (Search, Downloads, Emulators, Themes), the network, sound
-and Bluetooth icons when the launcher is the whole screen, the battery when the PC has one,
+and Bluetooth icons when the launcher is the whole screen, the drives' icon wherever drives can
+be managed, the battery when the PC has one,
 Settings, and the clock. Search shows only when there is a Catalog.
 
 ## Accessible labels

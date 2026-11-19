@@ -48,11 +48,24 @@ async fn boot(platform: Platform) -> Pc {
 
 /// `test` with a games folder and a packages folder.
 async fn with_folders(test: TestCore) -> Pc {
+    with_folders_holding(test, &[]).await
+}
+
+/// `test` with a games folder that holds `files` under `PC/` when the launcher first reads it,
+/// and a packages folder.
+async fn with_folders_holding(test: TestCore, files: &[(&str, &[u8])]) -> Pc {
     let games = tempfile::tempdir().unwrap();
+    for (name, bytes) in files {
+        let path = games.path().join("PC").join(name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, bytes).unwrap();
+    }
     let packages = tempfile::tempdir().unwrap();
     for (name, dir) in [("games", games.path()), ("packages", packages.path())] {
         test.core.dispatch(Command::SetFolders { name: name.into(), paths: vec![dir.into()] }).await.unwrap();
     }
+    // The new folders' own scans end before the test puts games in them.
+    test.scans_done().await;
     Pc { test, games, packages }
 }
 
@@ -789,7 +802,6 @@ async fn a_dashed_folder_name_loses_its_dashes_and_its_version() {
 /// product's old names, moves to the names that don't change: its title, starts and cover stay.
 #[tokio::test]
 async fn a_game_file_under_the_old_names_moves_to_the_new_ones() {
-    let p = boot(Platform::Linux).await;
     let old = format!(
         r#"{{"format": 1, "title": "World of Goo", "art": {{"cover": "{art}/cover.png"}},
             "starts": [{{"kind": "script", "path": "data/noarch/start.sh"}}]}}"#,
@@ -797,11 +809,12 @@ async fn a_game_file_under_the_old_names_moves_to_the_new_ones() {
     );
     let cover = format!("goo/{}/cover.png", launcher_api::brand::FILES_WAS_ART_FOLDER);
     let file = format!("goo/{}", launcher_api::brand::FILES_WAS_GAME_FILE);
-    p.copy_in(&[
-        ("goo/data/noarch/start.sh", b"#!/bin/sh\n"),
-        (file.as_str(), old.as_bytes()),
-        (cover.as_str(), b"png"),
-    ]);
+    // The files are there when the launcher first reads the folder: the folder's own scan, as it
+    // is added, moves them.
+    let files: [(&str, &[u8]); 3] =
+        [("goo/data/noarch/start.sh", b"#!/bin/sh\n"), (file.as_str(), old.as_bytes()), (cover.as_str(), b"png")];
+    let test = FakeHost::new().platform(Some(Platform::Linux)).built_in(PluginBox::code(PcPlugin)).boot_core().await;
+    let p = with_folders_holding(test, &files).await;
     p.test.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
 
     assert_eq!(p.titles(), [("World of Goo".to_owned(), "PC".to_owned())], "the old file's title");

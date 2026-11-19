@@ -3,6 +3,7 @@ import { Commands } from "commands.slint";
 import { Tokens } from "../tokens.slint";
 import { Look } from "look.slint";
 import { Prefs, Row, Value, Editor, FolderRow } from "settings-rows.slint";
+import { FolderList } from "folder-list.slint";
 import { LauncherRows, DownloadsRows, SystemRows, BackupRows, PowerRows } from "settings-layout.slint";
 import { Sys } from "system-panel.slint";
 import { Setup } from "install-os.slint";
@@ -22,6 +23,7 @@ export component GamesSection inherits VerticalLayout {
             folder: folder;
             section: 1;
             index: i;
+            at: i;
             first: i == 0;
             reveal(y, h) => { root.reveal(y, h); }
         }
@@ -395,8 +397,6 @@ export component DownloadsSection inherits VerticalLayout {
 
 // What this computer has, and how each emulator's games run on it. It only shows.
 export component PcSection inherits VerticalLayout {
-    // The theme's logo, for the About card.
-    in property <image> logo;
     callback reveal(length, length);
 
         // What this computer has, then how each emulator's games run on it. The rows
@@ -450,7 +450,6 @@ export component PcSection inherits VerticalLayout {
             accessible-role: text;
             accessible-label: "pc-verdict";
             accessible-value: run.emulator + ": " + run.headline + (run.why != "" ? " · " + run.why : "");
-            // The last row brings the About card under it into view too.
 
             Value {
                 text: run.headline;
@@ -458,35 +457,6 @@ export component PcSection inherits VerticalLayout {
             }
         }
 
-        Rectangle { height: 24 * Look.px; }
-        Rectangle {
-            border-radius: 14 * Look.px;
-            background: Tokens.color-tint.with-alpha(0.043);
-            HorizontalLayout {
-                padding: 18 * Look.px;
-                spacing: 16 * Look.px;
-                Image { source: root.logo; width: 60 * Look.px; height: 60 * Look.px; image-fit: contain; }
-                VerticalLayout {
-                    alignment: center;
-                    spacing: 4 * Look.px;
-                    horizontal-stretch: 1;
-                    Text { text: Brand.name; font-size: 19 * Look.tpx; font-weight: 600; color: Tokens.color-text; }
-                    Text { text: Vm.plugins.length + (Vm.plugins.length == 1 ? " plugin · " : " plugins · ") + Vm.emulators.length + (Vm.emulators.length == 1 ? " emulator" : " emulators"); font-size: 15 * Look.tpx; color: Look.text3; }
-                    Text { text: "Games from every emulator, in one place"; font-size: 15 * Look.tpx; color: Look.text3; }
-                    Text { text: "Free software under the GNU GPL, version 3 or later"; font-size: 15 * Look.tpx; color: Look.text3; }
-                }
-            }
-        }
-        // Made with Slint, which the launcher uses under its GPL option. Its logo for a dark
-        // background, as every theme's Settings is dark.
-        Rectangle { height: 12 * Look.px; }
-        HorizontalLayout {
-            alignment: center;
-            AboutSlint {
-                init => { Palette.color-scheme = ColorScheme.dark; }
-                height: 110 * Look.px;
-            }
-        }
 }
 
 // When Marah Launcher is the whole screen: the machine's settings. Internet, Sound and Bluetooth open their panels, as their icons in the top bar do.
@@ -497,55 +467,72 @@ export component SystemSection inherits VerticalLayout {
         // Bluetooth open their panels, as their icons in the top bar do.
         Row {
             label: "Internet";
+            machine: "network";
             hint: Vm.system.network-available ? "" : Vm.system.network-reason;
             focused: Prefs.is(5, 0);
             first: true;
             accessible-role: button;
             accessible-label: "system-internet";
-            accessible-value: Vm.system.connection;
-            accessible-action-default => { Sys.show(0); }
+            accessible-value: Vm.system.network-loading ? "loading" : Vm.system.connection;
+            accessible-action-default => { self.open-panel(); }
             reveal(y, h) => { root.reveal(y, h); }
-            clicked => { Prefs.section = 5; Prefs.row = 0; Sys.show(0); }
+            clicked => { Prefs.section = 5; Prefs.row = 0; self.open-panel(); }
+            // The panel opens next to this row, and closes when the page scrolls under it.
+            function open-panel() { Sys.show-from(0, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
+            property <length> place: self.absolute-position.y;
+            changed place => { if (Sys.anchored && Sys.open == 0) { Sys.close(); } }
             property <int> seen: Prefs.serial;
-            changed seen => { if (self.focused && Prefs.pending == 0) { Sys.show(0); } }
+            changed seen => { if (self.focused && Prefs.pending == 0) { self.open-panel(); } }
             Value {
                 kind: "choice";
                 focused: parent.focused;
-                text: Vm.system.connection == "wifi" ? "Wi-Fi · " + Vm.system.network-name
+                // While the network is read for the first time: "Checking…", not a state.
+                text: Vm.system.network-loading ? "Checking…"
+                    : Vm.system.connection == "wifi" ? "Wi-Fi · " + Vm.system.network-name
                     : Vm.system.connection == "wired" ? "Cable" : "Not connected";
             }
         }
         Row {
             label: "Sound";
+            machine: "sound";
             hint: Vm.system.audio-available ? "" : Vm.system.audio-reason;
             focused: Prefs.is(5, 1);
             accessible-role: button;
             accessible-label: "system-sound";
-            accessible-value: Vm.system.muted ? "muted" : Vm.system.volume;
-            accessible-action-default => { Sys.show(1); }
+            accessible-value: Vm.system.audio-loading ? "loading" : Vm.system.muted ? "muted" : Vm.system.volume;
+            accessible-action-default => { self.open-panel(); }
             reveal(y, h) => { root.reveal(y, h); }
-            clicked => { Prefs.section = 5; Prefs.row = 1; Sys.show(1); }
+            clicked => { Prefs.section = 5; Prefs.row = 1; self.open-panel(); }
+            // The panel opens next to this row, and closes when the page scrolls under it.
+            function open-panel() { Sys.show-from(1, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
+            property <length> place: self.absolute-position.y;
+            changed place => { if (Sys.anchored && Sys.open == 1) { Sys.close(); } }
             property <int> seen: Prefs.serial;
-            changed seen => { if (self.focused && Prefs.pending == 0) { Sys.show(1); } }
-            Value { kind: "choice"; focused: parent.focused; text: Vm.system.muted ? "Muted" : Vm.system.volume + "%"; }
+            changed seen => { if (self.focused && Prefs.pending == 0) { self.open-panel(); } }
+            Value { kind: "choice"; focused: parent.focused; text: Vm.system.audio-loading ? "Checking…" : Vm.system.muted ? "Muted" : Vm.system.volume + "%"; }
         }
         Row {
             label: "Bluetooth";
+            machine: "bluetooth";
             hint: Vm.system.bluetooth-available ? "Controllers and headsets" : Vm.system.bluetooth-reason;
             focused: Prefs.is(5, 2);
             last: SystemRows.count == 3;
             accessible-role: button;
             accessible-label: "system-bluetooth";
-            accessible-value: Vm.system.bluetooth-on ? "on" : "off";
-            accessible-action-default => { Sys.show(2); }
+            accessible-value: Vm.system.bluetooth-loading ? "loading" : Vm.system.bluetooth-on ? "on" : "off";
+            accessible-action-default => { self.open-panel(); }
             reveal(y, h) => { root.reveal(y, h); }
-            clicked => { Prefs.section = 5; Prefs.row = 2; Sys.show(2); }
+            clicked => { Prefs.section = 5; Prefs.row = 2; self.open-panel(); }
+            // The panel opens next to this row, and closes when the page scrolls under it.
+            function open-panel() { Sys.show-from(2, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
+            property <length> place: self.absolute-position.y;
+            changed place => { if (Sys.anchored && Sys.open == 2) { Sys.close(); } }
             property <int> seen: Prefs.serial;
-            changed seen => { if (self.focused && Prefs.pending == 0) { Sys.show(2); } }
+            changed seen => { if (self.focused && Prefs.pending == 0) { self.open-panel(); } }
             Value {
                 kind: "choice";
                 focused: parent.focused;
-                text: !Vm.system.bluetooth-on ? "Off" : Vm.system.connected-devices + " connected";
+                text: Vm.system.bluetooth-loading ? "Checking…" : !Vm.system.bluetooth-on ? "Off" : Vm.system.connected-devices + " connected";
             }
         }
         if SystemRows.os >= 0 : Row {
@@ -589,7 +576,7 @@ export component SystemSection inherits VerticalLayout {
 // Settings → Backup: one file with the settings and what each emulator names (its keys,
 // firmware and saves), in the backup folder, and each backup there. A backup's row is a menu:
 // Left and Right choose Restore, Delete or Cancel, and Restore and Delete ask again. "Restore
-// from another folder" opens the backup browser, a sheet over everything (backup-browser.slint).
+// from another folder" opens the folder browser, a sheet over everything (folder-browser.slint).
 export component BackupSection inherits VerticalLayout {
     callback reveal(length, length);
     // "Include large items" holds for the next backup only: it is no setting.
@@ -638,11 +625,13 @@ export component BackupSection inherits VerticalLayout {
         }
         Value { kind: "toggle"; on: root.large; }
     }
+    // As a folder row: Enter opens its list, to choose a folder in the folder browser, type a
+    // path, or go back to the default folder.
     folder := Row {
         property <bool> typing: Prefs.editing && self.focused;
         label: "Backup folder";
-        detail: Vm.backup.folder;
-        hint: "Type a folder · empty goes back to " + Vm.backup.default-folder;
+        detail: Vm.backup.free != "" ? Vm.backup.folder + " · " + Vm.backup.free : Vm.backup.folder;
+        hint: "Where backups go · the default is " + Vm.backup.default-folder;
         focused: Prefs.is(Prefs.backup-section, BackupRows.folder);
         accessible-role: button;
         accessible-label: "backup-folder";
@@ -653,10 +642,17 @@ export component BackupSection inherits VerticalLayout {
         property <int> seen: Prefs.serial;
         changed seen => { if (self.focused && Prefs.pending == 0 && !Prefs.editing) { self.open(); } }
         function open() {
-            Prefs.edit-text = Vm.backup.folder;
-            Prefs.editing = true;
+            FolderList.show-backup();
         }
-        if !folder.typing : Value { kind: "action"; text: "Change"; tone: 3; }
+        // "Type a path" in the list: this row takes it.
+        property <int> asked: FolderList.asks-path;
+        changed asked => {
+            if (self.focused && FolderList.backup) {
+                Prefs.edit-text = Vm.backup.folder;
+                Prefs.editing = true;
+            }
+        }
+        // "Type a path" in the list types here.
         if folder.typing : Editor { horizontal-stretch: 2; done(text) => { Commands.set-backup-folder(text); } }
     }
     Row {
@@ -706,7 +702,7 @@ export component BackupSection inherits VerticalLayout {
         accessible-description: self.armed ? "armed:" + self.names[self.choice] : self.choice >= 0 ? "menu:" + self.names[self.choice] : "";
         accessible-action-default => { self.act(0); }
         changed focused => { if (!self.focused) { self.choice = -1; self.armed = false; } }
-        reveal(y, h) => { root.reveal(y, h + (self.last ? 180 * Look.px : 0)); }
+        reveal(y, h) => { root.reveal(y, h + (self.last ? 300 * Look.px : 0)); }
         clicked => { Prefs.section = Prefs.backup-section; Prefs.row = BackupRows.first-backup + i; self.act(0); }
         property <int> seen: Prefs.serial;
         changed seen => { if (self.focused) { self.act(Prefs.pending); } }
@@ -733,6 +729,45 @@ export component BackupSection inherits VerticalLayout {
     }
 }
 
+// What the launcher is, and Made with Slint: the last thing on Settings' page, under Power's rows.
+// It only shows. Power's last row brings it into view.
+export component AboutCard inherits VerticalLayout {
+    // The theme's logo.
+    in property <image> logo;
+        Rectangle { height: 24 * Look.px; }
+        Rectangle {
+            accessible-role: text;
+            accessible-label: "about";
+            accessible-value: Brand.name;
+            border-radius: 14 * Look.px;
+            background: Tokens.color-tint.with-alpha(0.043);
+            HorizontalLayout {
+                padding: 18 * Look.px;
+                spacing: 16 * Look.px;
+                Image { source: root.logo; width: 60 * Look.px; height: 60 * Look.px; image-fit: contain; }
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 4 * Look.px;
+                    horizontal-stretch: 1;
+                    Text { text: Brand.name; font-size: 19 * Look.tpx; font-weight: 600; color: Tokens.color-text; }
+                    Text { text: Vm.plugins.length + (Vm.plugins.length == 1 ? " plugin · " : " plugins · ") + Vm.emulators.length + (Vm.emulators.length == 1 ? " emulator" : " emulators"); font-size: 15 * Look.tpx; color: Look.text3; }
+                    Text { text: "Games from every emulator, in one place"; font-size: 15 * Look.tpx; color: Look.text3; }
+                    Text { text: "Free software under the GNU GPL, version 3 or later"; font-size: 15 * Look.tpx; color: Look.text3; }
+                }
+            }
+        }
+        // Made with Slint, which the launcher uses under its GPL option. Its logo for a dark
+        // background, as every theme's Settings is dark.
+        Rectangle { height: 12 * Look.px; }
+        HorizontalLayout {
+            alignment: center;
+            AboutSlint {
+                init => { Palette.color-scheme = ColorScheme.dark; }
+                height: 110 * Look.px;
+            }
+        }
+}
+
 // Leaving Marah Launcher, and the machine's power. Log out, Restart and Shut down ask again: the first press arms them, the second acts.
 export component PowerSection inherits VerticalLayout {
     callback reveal(length, length);
@@ -749,7 +784,7 @@ export component PowerSection inherits VerticalLayout {
             accessible-role: button;
             accessible-label: Vm.system.whole-screen ? "restart-marah-launcher" : "quit";
             accessible-action-default => { Host.quit(); }
-            reveal(y, h) => { root.reveal(y, h); }
+            reveal(y, h) => { root.reveal(y, h + (self.last ? 300 * Look.px : 0)); }
             clicked => { Prefs.section = Prefs.power-section; Prefs.row = 0; Host.quit(); }
             property <int> seen: Prefs.serial;
             changed seen => { if (self.focused && Prefs.pending == 0) { Host.quit(); } }
@@ -768,7 +803,7 @@ export component PowerSection inherits VerticalLayout {
             accessible-value: self.armed ? "armed" : "";
             accessible-action-default => { self.act(); }
             changed focused => { if (!self.focused) { self.armed = false; } }
-            reveal(y, h) => { root.reveal(y, h + (self.last ? 180 * Look.px : 0)); }
+            reveal(y, h) => { root.reveal(y, h + (self.last ? 300 * Look.px : 0)); }
             clicked => { Prefs.section = Prefs.power-section; Prefs.row = PowerRows.logout; self.act(); }
             property <int> seen: Prefs.serial;
             changed seen => { if (self.focused && Prefs.pending == 0) { self.act(); } }
@@ -791,7 +826,7 @@ export component PowerSection inherits VerticalLayout {
             accessible-value: self.armed ? "armed" : "";
             accessible-action-default => { self.act(); }
             changed focused => { if (!self.focused) { self.armed = false; } }
-            reveal(y, h) => { root.reveal(y, h + (self.last ? 180 * Look.px : 0)); }
+            reveal(y, h) => { root.reveal(y, h + (self.last ? 300 * Look.px : 0)); }
             clicked => { Prefs.section = Prefs.power-section; Prefs.row = PowerRows.restart + i; self.act(); }
             property <int> seen: Prefs.serial;
             changed seen => { if (self.focused && Prefs.pending == 0) { self.act(); } }

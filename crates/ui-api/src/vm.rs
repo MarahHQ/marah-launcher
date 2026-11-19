@@ -869,6 +869,9 @@ pub struct SettingsVm {
 pub struct BackupVm {
     /// The backup folder, with the home folder as `~`.
     pub folder: String,
+    /// The free space on its drive, such as "120.5 GB free". Empty when the folder isn't there
+    /// or the system doesn't say.
+    pub free: String,
     /// A backup or a restore runs.
     pub running: bool,
     /// The job running is a restore.
@@ -891,29 +894,39 @@ pub struct BackupVm {
     pub large: String,
     /// The backup folder when the player chose none, with the home folder as `~`.
     pub default_folder: String,
-    /// "Restore from another folder".
-    pub browser: BackupBrowserVm,
 }
 
-/// "Restore from another folder": a folder's folders and backups, and the places to go to.
+/// The folder browser: a folder's folders (and for a restore its backups), and the places to go
+/// to. It is open for a restore ("Restore from another folder") or to pick a folder.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct BackupBrowserVm {
+pub struct FolderBrowserVm {
     pub open: bool,
+    /// `restore` or `pick`.
+    pub purpose: String,
+    /// For a pick: the name of the folder the pick goes to (`games`), and its title ("Game
+    /// folders"). Empty for a restore.
+    pub folder: String,
+    pub folder_title: String,
+    /// What the sheet is for, as its title: "Restore a backup", "Add to Game folders", "Choose
+    /// the backup folder".
+    pub title: String,
     /// The folder shown, with the home folder as `~`.
     pub shown: String,
-    /// Its parent, a full path for Backup Browse. Empty at the top.
+    /// Its parent, a full path for Browse Go. Empty at the top.
     pub parent: String,
     /// The folder's path, one part each from `~` or the top; the last is the folder.
     pub crumbs: Vec<BrowseCrumbVm>,
     pub places: Vec<BrowsePlaceVm>,
+    /// The drives are being read for the places: the drives in `places` may change.
+    pub places_loading: bool,
     /// The index in `places` of the place that is the folder shown; -1 when none is.
     pub place: i32,
     /// The folders with backups, the other folders, then the backups newest first: those whose
-    /// name holds `filter`.
+    /// name holds `filter`. For a pick, the folders only.
     pub entries: Vec<BrowseEntryVm>,
-    /// Hidden folders are listed (Backup ShowHidden).
+    /// Hidden folders are listed (Browse ShowHidden).
     pub hidden: bool,
-    /// The text that filters the entries (Backup Filter). Empty for all.
+    /// The text that filters the entries (Browse Filter). Empty for all.
     pub filter: String,
 }
 
@@ -921,7 +934,7 @@ pub struct BackupBrowserVm {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct BrowseCrumbVm {
     pub name: String,
-    /// A full path, for Backup Browse.
+    /// A full path, for Browse Go.
     pub path: String,
 }
 
@@ -929,12 +942,19 @@ pub struct BrowseCrumbVm {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct BrowsePlaceVm {
     pub name: String,
-    /// A full path, for Backup Browse.
+    /// A full path, for Browse Go. Empty for a drive that isn't mounted.
     pub path: String,
     /// home | downloads | desktop | documents | backups | drive | recent.
     pub kind: String,
     /// A drive's size, such as "32.0 GB"; a recent folder's path. Empty for the others.
     pub detail: String,
+    /// A drive's id, for Browse Mount. Empty for the other places.
+    pub drive: String,
+    /// A drive is mounted; true for the other places.
+    pub mounted: bool,
+    /// A drive the player can take out, such as a USB stick: its icon. False for a drive inside
+    /// the PC and for the other places.
+    pub usb: bool,
 }
 
 /// A folder, or a backup, in the browser's folder.
@@ -942,7 +962,7 @@ pub struct BrowsePlaceVm {
 pub struct BrowseEntryVm {
     /// The folder's or the file's name.
     pub name: String,
-    /// A full path: for Backup Browse (a folder) or Backup RestoreFile (a backup).
+    /// A full path: for Browse Go (a folder) or Backup RestoreFile (a backup).
     pub path: String,
     pub folder: bool,
     /// A folder's: "2 backups", "empty", "can't be read", or empty. Empty for a backup.
@@ -1018,6 +1038,8 @@ pub struct FolderVm {
     pub paths: Vec<String>,
     /// `paths` joined with "; ", for a text field.
     pub text: String,
+    /// Each of `paths`, with the free space on its drive.
+    pub list: Vec<FolderPathVm>,
     /// What to show: `text`, or the default when it is empty, with the home folder as `~`.
     pub shown: String,
     /// The plugins' default, if any. Empty when there is none.
@@ -1029,6 +1051,22 @@ pub struct FolderVm {
     pub requested_by_text: String,
     /// Some plugin may write to it.
     pub write: bool,
+}
+
+/// One folder a named host folder means.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct FolderPathVm {
+    /// A full path, for the commands AddFolder and RemoveFolder.
+    pub path: String,
+    /// As Settings shows it, with the home folder as `~`.
+    pub shown: String,
+    /// The free space on its drive, such as "120.5 GB free"; "Not there" when the folder isn't
+    /// there (its drive is out), empty when the system doesn't say.
+    pub free: String,
+    /// The folder is there.
+    pub there: bool,
+    /// It was just added, or its drive came back: its games are being looked for.
+    pub scanning: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1232,6 +1270,8 @@ pub struct AppView {
     pub notices: Vec<String>,
     /// The notices the theme shows, newest last. The core keeps at most `MAX_NOTICES`.
     pub notice_cards: Vec<NoticeVm>,
+    /// The folder browser, over everything while it is open.
+    pub browser: FolderBrowserVm,
     /// A game was started whose emulator isn't installed: the player is asked first.
     #[serde(serialize_with = "mark::has")]
     pub install_prompt: Option<InstallPromptVm>,
@@ -1306,7 +1346,8 @@ pub struct ReportPreviewVm {
 }
 
 /// The machine's settings, from the system plugins. A part whose `*_available` is false shows
-/// its `*_reason` instead of its controls.
+/// its `*_reason` instead of its controls. A part whose `*_loading` is true isn't read yet:
+/// it is neither available nor unavailable, and its reason is empty.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SystemVm {
     /// Marah Launcher is the whole screen (the Marah Launcher session, Marah OS): the theme shows the network,
@@ -1317,6 +1358,8 @@ pub struct SystemVm {
     pub stick: bool,
 
     pub network_available: bool,
+    /// The first read of the part isn't over.
+    pub network_loading: bool,
     pub network_reason: String,
     /// none | wired | wifi
     pub connection: String,
@@ -1327,6 +1370,8 @@ pub struct SystemVm {
     pub wifi: Vec<WifiVm>,
 
     pub audio_available: bool,
+    /// The first read of the part isn't over.
+    pub audio_loading: bool,
     pub audio_reason: String,
     /// 0 to 100.
     pub volume: i32,
@@ -1334,6 +1379,8 @@ pub struct SystemVm {
     pub outputs: Vec<AudioOutputVm>,
 
     pub bluetooth_available: bool,
+    /// The first read of the part isn't over.
+    pub bluetooth_loading: bool,
     pub bluetooth_reason: String,
     pub bluetooth_on: bool,
     /// How many devices are connected.
@@ -1342,6 +1389,8 @@ pub struct SystemVm {
 
     /// Restart and shut down.
     pub power_available: bool,
+    /// The first read of the power and the battery isn't over.
+    pub power_loading: bool,
     pub power_reason: String,
     pub battery_shown: bool,
     pub battery_percent: i32,
@@ -1356,6 +1405,37 @@ pub struct SystemVm {
     pub disks: Vec<InstallDiskVm>,
     /// Long work going on, and work that just ended.
     pub jobs: Vec<SystemJobVm>,
+
+    /// Drives can be mounted, unmounted and ejected here.
+    pub drives_available: bool,
+    /// It isn't known yet whether drives can be managed here.
+    pub drives_loading: bool,
+    /// The first read of the drives isn't over: the list isn't known yet.
+    pub drives_listing: bool,
+    pub drives_reason: String,
+    /// The Drives panel's drives: every drive, inside the PC or plugged in, mounted or not.
+    pub drives: Vec<DriveItemVm>,
+}
+
+/// One drive of the Drives panel, with its actions as buttons.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct DriveItemVm {
+    /// The drive's id, for the commands Drive Mount, Unmount and Eject.
+    pub drive: String,
+    /// The drive's name, and what it is: "64.0 GB · 40.0 GB free · exfat", or "Not mounted".
+    pub name: String,
+    pub detail: String,
+    /// Where it is mounted, for Open and Use for games. Empty while it isn't.
+    pub path: String,
+    /// internal | usb | card
+    pub kind: String,
+    /// How full it is, from 0 to 1; -1 when the system doesn't say, such as while it isn't
+    /// mounted.
+    pub used: f32,
+    /// Its buttons, in order: open | use | mount | unmount | eject
+    pub actions: Vec<String>,
+    /// The action running on it now, one of `actions`; empty while none runs.
+    pub busy: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1397,7 +1477,7 @@ pub struct InstallDiskVm {
 pub struct SystemJobVm {
     /// Names it for cancelling.
     pub id: i32,
-    /// join | scan | pair | install
+    /// join | scan | pair | install | mount | unmount | eject
     pub kind: String,
     /// The network's name, the device's address, the disk.
     pub target: String,
@@ -1449,6 +1529,9 @@ pub struct NoticeVm {
     pub art: Option<ImageRef>,
     /// What clicking the notice opens, for example "Open Downloads". Empty for nothing.
     pub opens: String,
+    /// The drive the notice is about, by its id: clicking it opens the Drives panel, not
+    /// Notice Open. Empty for the other notices.
+    pub drive: String,
 }
 
 /// A plugin's question at the start, with its two buttons: `Commands.answer-question`.

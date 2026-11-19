@@ -37,7 +37,7 @@ pub use fakes::{
     FIRST_PID, FakeHttp, FakeLoginSession, FakeOpener, FakeProcessTree, FakeSpawner, FakeWindows, Gate, Shown, Signal,
     SpawnedProcess,
 };
-pub use host::{FakeHost, TestCore, TestHost, until};
+pub use host::{FakeHost, TestCore, TestHost, no_drive_calls, until};
 pub use network::FakeNetwork;
 pub use platform::{FakePlatform, PlatformCall};
 pub use spans::SpanRecorder;

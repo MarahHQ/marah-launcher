@@ -136,6 +136,22 @@ pub enum Command {
         #[serde(deserialize_with = "crate::typed_text::folder_list")]
         paths: Vec<std::path::PathBuf>,
     },
+    /// Adds a folder to the folders a named host folder means: to the player's, or to the
+    /// default ones when the player chose none. One that is there already isn't added again.
+    AddFolder {
+        name: String,
+        #[serde(deserialize_with = "crate::typed_text::path")]
+        path: std::path::PathBuf,
+    },
+    /// Takes a folder out of the folders a named host folder means. The folder and its files
+    /// stay. With none left, the plugins' default comes back.
+    RemoveFolder {
+        name: String,
+        path: std::path::PathBuf,
+    },
+    /// The folder browser: open it to restore a backup or to pick a folder, move it, mount a
+    /// drive from it, use the folder it shows.
+    Browse(crate::BrowseCmd),
     /// Sets one of the player's preferences: sounds, full screen, size, the monitor and so
     /// on. [`Pref`] says what values each takes; a size outside its range goes to its nearest
     /// end, and a value of the wrong type is refused.
@@ -203,6 +219,8 @@ pub enum Command {
     Vpn(crate::VpnCmd),
     /// Something the player asked of the machine: Wi-Fi, Bluetooth, sound, power, Marah OS.
     System(crate::system::SystemCommand),
+    /// The drives: mount, unmount or eject one.
+    Drive(crate::DriveCmd),
     /// The player agreed to install the emulator a game needs: install it, then play.
     ConfirmInstall,
     /// The player said "not now" to that.
@@ -220,6 +238,7 @@ pub(crate) fn resolve_game_folder(
     game: &GameKey,
     folder: &launcher_api::HostPath,
 ) -> Option<std::path::PathBuf> {
+    crate::snapshot::disk_read();
     kernel.host_folders(&game.plugin)?.resolve(folder).ok().filter(|p| p.is_dir())
 }
 
@@ -245,9 +264,30 @@ pub(crate) struct Inner {
     pub launcher_update: crate::launcher_update::LauncherUpdateSubsystem,
     pub vpn: crate::vpn::VpnSubsystem,
     pub backup: crate::backup::BackupSubsystem,
+    /// The drives: which there are, their room, and mounting them.
+    pub drives: crate::drives::Drives,
+    /// The folder browser, while it is open.
+    pub browsing: crate::browser::Browsing,
     /// Held while the catalogs are read: see [`crate::catalog_reads::refresh_releases`].
     pub reading_catalogs: tokio::sync::Mutex<()>,
+    /// The library's scans: one at a time (`library_reads::refresh_library`).
+    pub scans: crate::library_reads::Scans,
+    /// How long the reads for a render take, and the UI thread's waits for the state lock.
+    pub timings: crate::timings::Timings,
+    /// How many reads of the files the view needs were started ([`crate::snapshot::refresh_files`]).
+    pub files_reads: std::sync::atomic::AtomicU64,
+    /// How many reads of every game's files were started: they alone read the host folders.
+    pub folder_reads: std::sync::atomic::AtomicU64,
+    /// The machine's reads started: see [`Core::first_frame_shown`].
+    pub machine_read: std::sync::atomic::AtomicBool,
+    /// The turns of the reads that go through many files or ask the drives (a scan's listing,
+    /// the free space, the drives' list, the files the view needs): [`DISK_TURNS`] at a time,
+    /// so they don't all take the disk and the blocking threads at the start.
+    pub disk_turns: tokio::sync::Semaphore,
 }
+
+/// How many reads that go through many files or ask the drives run at once.
+pub(crate) const DISK_TURNS: usize = 2;
 
 /// The app. Cheap to clone; every clone is the same app.
 #[derive(Clone)]
@@ -258,6 +298,16 @@ pub struct Core {
 impl Core {
     /// Starts the app on a booted kernel and resumes installs a crash interrupted.
     pub async fn start(kernel: Kernel) -> Core {
+        let core = Self::start_after_first_frame(kernel).await;
+        core.first_frame_shown();
+        core
+    }
+
+    /// As [`Core::start`], with the machine's reads held (the network, the sound, Bluetooth, the
+    /// power, the system updates, the drives, the disks' room and the files the view needs)
+    /// until the app says its first frame shows ([`Core::first_frame_shown`]): the first frame
+    /// doesn't wait for them.
+    pub async fn start_after_first_frame(kernel: Kernel) -> Core {
         // The settings of a restore go back before anything reads them.
         crate::backup::apply_pending(kernel.config(), &kernel.host().data_dir);
         let theme = Pref::Theme.load(kernel.config()).as_str().and_then(|s| PluginId::new(s).ok());
@@ -369,8 +419,15 @@ impl Core {
                 kernel.host().data_dir.clone(),
                 Notifier::new(changes.clone(), kernel.events().clone()),
             );
+            let drives = crate::drives::Drives::new(
+                ports.drives.clone(),
+                Arc::new(crate::drives::MountFolders::here(kernel.host().home.as_deref())),
+            );
+            let browsing = crate::browser::Browsing::new(Notifier::new(changes.clone(), kernel.events().clone()));
             Inner {
                 backup,
+                drives,
+                browsing,
                 preferences,
                 kernel,
                 ports,
@@ -386,6 +443,12 @@ impl Core {
                 launcher_update,
                 vpn,
                 reading_catalogs: tokio::sync::Mutex::new(()),
+                scans: Default::default(),
+                timings: Default::default(),
+                files_reads: Default::default(),
+                folder_reads: Default::default(),
+                machine_read: Default::default(),
+                disk_turns: tokio::sync::Semaphore::new(DISK_TURNS),
             }
         });
         let core = Core { inner };
@@ -396,7 +459,7 @@ impl Core {
         crate::emulator_builds::resume_installs(&core).await;
         crate::plugin_downloads::resume_downloads(&core);
         crate::emulator_builds::schedule_update_checks(&core);
-        crate::system::schedule_refresh(&core);
+        crate::snapshot::watch_files(&core);
         crate::hardware::check_hardware(&core);
         crate::catalog_reads::watch_catalogs(&core);
         crate::catalog_reads::watch_store_installs(&core);
@@ -472,6 +535,16 @@ impl Core {
         &self.inner.backup
     }
 
+    /// The drives.
+    pub(crate) fn drives(&self) -> &crate::drives::Drives {
+        &self.inner.drives
+    }
+
+    /// The folder browser.
+    pub(crate) fn browsing(&self) -> &crate::browser::Browsing {
+        &self.inner.browsing
+    }
+
     /// The launcher's own update.
     pub(crate) fn launcher_update(&self) -> &crate::launcher_update::LauncherUpdateSubsystem {
         &self.inner.launcher_update
@@ -483,7 +556,30 @@ impl Core {
     }
 
     pub(crate) fn state(&self) -> MutexGuard<'_, AppState> {
-        self.inner.state.lock().unwrap_or_else(|p| p.into_inner())
+        match self.inner.state.try_lock() {
+            Ok(state) => state,
+            Err(std::sync::TryLockError::Poisoned(p)) => p.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                let started = std::time::Instant::now();
+                let state = self.inner.state.lock().unwrap_or_else(|p| p.into_inner());
+                if self.inner.timings.on_ui_thread() {
+                    self.inner.timings.ui_lock_waits.add(started.elapsed());
+                }
+                state
+            }
+        }
+    }
+
+    /// Marks the calling thread as the UI's: its waits for the state lock are counted in
+    /// [`Core::timings`].
+    pub fn mark_ui_thread(&self) {
+        let _ = self.inner.timings.ui_thread.set(std::thread::current().id());
+    }
+
+    /// How long the reads for a render took since the core started, and how long the UI thread
+    /// waited for the state lock.
+    pub fn timings(&self) -> crate::CoreTimings {
+        self.inner.timings.read()
     }
 
     /// Each change of the state, by its area, from now on. The app renders on
@@ -509,13 +605,17 @@ impl Core {
     /// subsystems are read before that state, as the core never holds its lock while it takes a
     /// subsystem's.
     pub(crate) fn snapshot(&self) -> Snapshot<'_> {
+        self.inner.timings.snapshots.time(|| self.read_snapshot())
+    }
+
+    fn read_snapshot(&self) -> Snapshot<'_> {
         let kernel = self.kernel();
         let library = self.library().snapshot();
         let torrents = self.torrents().snapshot();
         let builds = self.builds().snapshot();
         let state = self.state().clone();
         let detail_game = crate::snapshot::detail_game(&state);
-        let files = crate::snapshot::files(kernel, &library, &torrents, detail_game.as_ref());
+        let files = state.files.clone();
         Snapshot {
             plugins: crate::snapshot::Plugins::new(kernel),
             installs: self.installs().snapshot(),
@@ -525,6 +625,9 @@ impl Core {
             notices: self.notices().snapshot(),
             launcher_update: self.launcher_update().snapshot(),
             backup: self.backup().snapshot(),
+            browser: self.browsing().snapshot(),
+            drives: self.drives().known(),
+            drives_listed: self.drives().listed(),
             backup_folder: crate::backups::folder(self).ok(),
             vpn: self.vpn().snapshot(),
             downloads: self.inner.downloads.jobs(),
@@ -544,7 +647,20 @@ impl Core {
     /// The view models for the current state. A read: it changes nothing. Off the Catalog, its
     /// grid stands as [`Core::keep_catalog_grid`] kept it.
     pub fn view(&self) -> AppView {
-        view::build(&self.snapshot())
+        let _span = tracing::debug_span!("view_build").entered();
+        self.inner.timings.game_lists.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.inner.timings.views.time(|| view::build(&self.snapshot()))
+    }
+
+    /// The view models for the current state, after changes in `areas` only since `previous`
+    /// was built: its game lists stand when none of the areas moves them, and the rest is built
+    /// again. With a change in any other area, as [`Core::view`].
+    pub fn view_after(&self, previous: AppView, areas: &[Area]) -> AppView {
+        if areas.iter().copied().any(view::moves_game_lists) {
+            return self.view();
+        }
+        let _span = tracing::debug_span!("view_build", partial = true).entered();
+        self.inner.timings.views.time(|| view::build_with(&self.snapshot(), Some(view::GameLists::of(previous))))
     }
 
     /// Keeps the Catalog's grid as it is built now, to stand on the other screens: the Catalog
@@ -659,7 +775,10 @@ impl Core {
             Command::RunAction { plugin, action, game, args } => {
                 plugin_settings::run_action(self, &plugin, &action, game, args).await
             }
-            Command::SetFolders { name, paths } => plugin_settings::set_folders(self, &name, &paths),
+            Command::SetFolders { name, paths } => plugin_settings::set_folders(self, &name, &paths).await,
+            Command::AddFolder { name, path } => plugin_settings::add_folder(self, &name, &path).await,
+            Command::RemoveFolder { name, path } => plugin_settings::remove_folder(self, &name, &path).await,
+            Command::Browse(command) => crate::browser::handle(self, command).await,
             Command::SetPluginEnabled { plugin, enabled } => {
                 plugin_settings::set_plugin_enabled(self, &plugin, enabled).await
             }
@@ -670,6 +789,7 @@ impl Core {
             Command::GameInstall(command) => release_downloads::game_install(self, command).await,
             Command::Vpn(command) => self.vpn().handle(command).await,
             Command::System(command) => crate::system::run(self, command).await,
+            Command::Drive(command) => crate::drives::handle(self, command).await,
             Command::Notice(crate::NoticeCmd::Open(id)) => navigation::open_notice(self, id).await,
             Command::Notice(command) => self.notices().handle(command),
             Command::LauncherUpdate(crate::LauncherUpdateCmd::Check) => {
@@ -727,6 +847,27 @@ impl Core {
     /// The emulator's log of the game's last run. `None` before it ran.
     pub fn game_log(&self, game: &GameKey) -> Option<std::path::PathBuf> {
         Some(crate::sessions::log_path(&self.inner.kernel.host().data_dir, game)).filter(|p| p.is_file())
+    }
+
+    /// The app's first frame shows: the machine's reads start, then run on the system's tick.
+    /// Once; [`Core::start`] does it at once. Call it inside the async runtime.
+    pub fn first_frame_shown(&self) {
+        if !self.inner.machine_read.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            crate::system::schedule_refresh(self);
+        }
+    }
+
+    /// A turn of the reads that go through many files or ask the drives: see
+    /// [`Inner::disk_turns`]. The read holds it while it runs, and leaves it when it ends or
+    /// its caller stops waiting.
+    pub(crate) async fn disk_turn(&self) -> Option<tokio::sync::SemaphorePermit<'_>> {
+        self.inner.disk_turns.acquire().await.ok()
+    }
+
+    /// Looks for games in every game folder in the background, as at the start: the library
+    /// stands as it is meanwhile, and a scan already due takes this one with it.
+    pub fn scan_soon(&self) {
+        crate::library_reads::scan_soon(self, Vec::new());
     }
 
     /// The first library load of the run, with the store's art and details, is done.

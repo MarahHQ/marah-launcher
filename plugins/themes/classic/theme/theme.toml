@@ -9,7 +9,7 @@ activation = "eager"
 # The built-in Classic theme: a hero and a row of game tiles on Home, on the theme contract.
 # Every value is laid out on a 1920×1080 canvas and scaled to the window.
 [theme]
-ui_api = "^0.5.1"
+ui_api = "^0.6"
 input = ["gamepad", "pointer"]
 navigation = "focus"
 
@@ -33,6 +33,9 @@ fonts = [
 [theme.assets.images]
 # The Marah Launcher emblem (assets/logo.svg in the repository, drawn at 512 px).
 logo = "images/logo.png"
+# The mark alone, the gamepad (assets/logo-mark-static.svg, drawn at 512 px): the loading
+# screen and Settings.
+logo-mark = "images/logo-mark.png"
 
 # select, back, error and start are made by scripts/make-sounds.py.
 [theme.assets.sounds]
@@ -65,9 +68,9 @@ color-tint = "#ffffff"
 color-shade = "#000000"
 font-family = "Inter"
 font-size-m = 19
-motion-fast = 160
-motion-normal = 260
-motion-slow = 420
+motion-fast = 90
+motion-normal = 150
+motion-slow = 220
 layout-direction = "ltr"
 
 # Hidden for now: the right-to-left layout is not finished, so Settings does not offer it.

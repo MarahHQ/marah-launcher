@@ -4,10 +4,12 @@ import { Tokens } from "../tokens.slint";
 import { Look } from "../kit/look.slint";
 import { Nav } from "nav.slint";
 import { Icon } from "../kit/icon.slint";
-import { NetIcon, SoundIcon, BluetoothIcon, BatteryIcon, Sys } from "../kit/system-panel.slint";
+import { NetIcon, SoundIcon, BluetoothIcon, StorageIcon, BatteryIcon, Sys } from "../kit/system-panel.slint";
 import { SystemChips } from "chip-row.slint";
 import { Hint } from "../kit/shell.slint";
 import { Reveal } from "../kit/reveal.slint";
+import { StatusSlot, StatusLoading, LoadingLine } from "../kit/loading.slint";
+import { Leaving, Motion } from "../kit/motion.slint";
 import { Games } from "../kit/games.slint";
 
 // The top bar. In place of Home and Library tabs, it has one button back to the list of
@@ -72,6 +74,10 @@ component StatusButton inherits Rectangle {
     in property <string> value;
     in property <bool> focused;
     in property <bool> current;
+    // Its part isn't read yet: the icon dims, a thin line sweeps under it, and "Checking…"
+    // shows on hover or key focus. It can still be focused and clicked: its panel says what
+    // it reads.
+    in property <bool> loading;
     callback clicked();
     width: 52 * Look.px;
     height: 52 * Look.px;
@@ -79,10 +85,15 @@ component StatusButton inherits Rectangle {
     background: root.focused ? #ffffff : root.current ? #ffffff24 : ta.has-hover ? #ffffff14 : transparent;
     accessible-role: button;
     accessible-label: root.label;
-    accessible-value: root.value;
+    accessible-value: root.loading ? "loading" : root.value;
     accessible-action-default => { root.clicked(); }
     animate background { duration: Tokens.motion-fast; }
-    @children
+    Rectangle {
+        opacity: root.loading ? 0.45 : 1;
+        animate opacity { duration: Motion.focus; easing: Motion.enter; }
+        @children
+    }
+    if root.loading : StatusLoading { focused: root.focused; hovered: ta.has-hover; }
     ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
 
@@ -113,6 +124,20 @@ export component TopBar inherits Rectangle {
     height: 104 * Look.px;
 
     property <int> download: Vm.downloads.length > 0 ? 0 : -1;
+    // The drives' icon went: the keys stay on the bar.
+    property <int> items: Nav.tabs + Nav.buttons;
+    changed items => { if (Nav.tab >= root.items) { Nav.tab = root.items - 1; } }
+    // The game folders are being scanned (at the start, or for a folder or a drive that came):
+    // a quiet line along the bar's foot. It only shows; the games stand as they are meanwhile.
+    if Vm.home.loading : LoadingLine {
+        name: "library-scanning";
+        x: 96 * Look.px;
+        y: root.height - 3 * Look.px;
+        width: root.width - 2 * 96 * Look.px;
+    }
+    // The drives' icon and the battery stay while they fade out and their places close.
+    drives-place := Leaving { open: Vm.system.drives-available || Vm.system.drives-loading; time: Motion.sheet-out; }
+    battery-place := Leaving { open: Vm.system.battery-shown || Vm.system.power-loading; time: Motion.sheet-out; }
 
     // Back to the list of systems while a system's games show, then the Library's systems (or
     // the Catalog's), in one row on the reading side, up to the far side's buttons. Right to
@@ -225,39 +250,81 @@ export component TopBar inherits Rectangle {
             focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 1 + i;
             clicked => { Commands.navigate(b.screen); }
         }
-        // The machine, when Marah Launcher is the whole screen: each icon opens its panel (`Sys`).
-        if Vm.system.whole-screen : StatusButton {
-            label: "status:network";
-            value: Vm.system.connection == "wifi" ? "wifi " + Vm.system.signal-bars : Vm.system.connection;
-            current: Sys.open == 0;
-            focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 4;
-            clicked => { if (Sys.open == 0) { Sys.close(); } else { Sys.show(0); } }
-            NetIcon { tint: parent.focused ? Look.ink : Tokens.color-text; }
-        }
-        if Vm.system.whole-screen : StatusButton {
-            label: "status:sound";
-            value: Vm.system.muted ? "muted" : Vm.system.volume;
-            current: Sys.open == 1;
-            focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 5;
-            clicked => { if (Sys.open == 1) { Sys.close(); } else { Sys.show(1); } }
-            SoundIcon { color: parent.focused ? Look.ink : Tokens.color-text; }
-        }
-        if Vm.system.whole-screen : StatusButton {
-            label: "status:bluetooth";
-            value: !Vm.system.bluetooth-on ? "off" : "on " + Vm.system.connected-devices;
-            current: Sys.open == 2;
-            focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 6;
-            clicked => { if (Sys.open == 2) { Sys.close(); } else { Sys.show(2); } }
-            BluetoothIcon { color: parent.focused ? Look.ink : Tokens.color-text; }
-        }
-        if Vm.system.battery-shown : BatteryIcon {}
-        // Settings is always the last icon, after the machine's.
-        RoundButton {
-            icon: "gear";
-            label: "Settings";
-            current: Vm.screen == "settings";
-            focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 4 + Nav.statuses;
-            clicked => { Commands.navigate("settings"); }
+        // The machine's icons and Settings, with no spacing of their own: each icon's place
+        // holds the gap after it, so a place that closes closes its gap with it.
+        HorizontalLayout {
+            spacing: 0;
+            // The machine, when Marah Launcher is the whole screen: each icon opens its panel
+            // (`Sys`). Each is in place from the first frame, in its loading look until its part
+            // is read.
+            if Vm.system.whole-screen : StatusSlot {
+                item-width: 52 * Look.px;
+                gap: 22 * Look.px;
+                StatusButton {
+                    label: "status:network";
+                    loading: Vm.system.network-loading;
+                    value: Vm.system.connection == "wifi" ? "wifi " + Vm.system.signal-bars : Vm.system.connection;
+                    current: Sys.open == 0;
+                    focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 4;
+                    clicked => { if (Sys.open == 0) { Sys.close(); } else { Sys.show(0); } }
+                    NetIcon { tint: parent.focused ? Look.ink : Tokens.color-text; }
+                }
+            }
+            if Vm.system.whole-screen : StatusSlot {
+                item-width: 52 * Look.px;
+                gap: 22 * Look.px;
+                StatusButton {
+                    label: "status:sound";
+                    loading: Vm.system.audio-loading;
+                    value: Vm.system.muted ? "muted" : Vm.system.volume;
+                    current: Sys.open == 1;
+                    focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 5;
+                    clicked => { if (Sys.open == 1) { Sys.close(); } else { Sys.show(1); } }
+                    SoundIcon { color: parent.focused ? Look.ink : Tokens.color-text; }
+                }
+            }
+            if Vm.system.whole-screen : StatusSlot {
+                item-width: 52 * Look.px;
+                gap: 22 * Look.px;
+                StatusButton {
+                    label: "status:bluetooth";
+                    loading: Vm.system.bluetooth-loading;
+                    value: !Vm.system.bluetooth-on ? "off" : "on " + Vm.system.connected-devices;
+                    current: Sys.open == 2;
+                    focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 6;
+                    clicked => { if (Sys.open == 2) { Sys.close(); } else { Sys.show(2); } }
+                    BluetoothIcon { color: parent.focused ? Look.ink : Tokens.color-text; }
+                }
+            }
+            // Wherever drives can be managed: its panel mounts, opens, uses and ejects every
+            // drive. Where they can't, the icon fades out and its place closes.
+            if drives-place.shown : StatusSlot {
+                open: drives-place.open;
+                item-width: 52 * Look.px;
+                gap: 22 * Look.px;
+                StatusButton {
+                    label: "status:drives";
+                    loading: Vm.system.drives-loading;
+                    current: Sys.open == 3;
+                    focused: drives-place.open && root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 4 + Nav.statuses - 1;
+                    clicked => { if (Sys.open == 3) { Sys.close(); } else { Sys.show(3); } }
+                    StorageIcon { color: parent.focused ? Look.ink : Tokens.color-text; }
+                }
+            }
+            if battery-place.shown : StatusSlot {
+                open: battery-place.open;
+                item-width: battery.width;
+                gap: 22 * Look.px;
+                battery := BatteryIcon {}
+            }
+            // Settings is always the last icon, after the machine's.
+            RoundButton {
+                icon: "gear";
+                label: "Settings";
+                current: Vm.screen == "settings";
+                focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 4 + Nav.statuses;
+                clicked => { Commands.navigate("settings"); }
+            }
         }
         // The clock, at the end of the bar.
         if Vm.clock != "" : Text {

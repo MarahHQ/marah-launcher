@@ -23,8 +23,9 @@ export component Reveal {
     in property <easing> move-easing: Look.enter-easing;
     in property <duration> fade-time: Look.fade-time;
     in property <easing> fade-easing: Look.fade-easing;
-    // It is in, or on its way in: past its first frame and open.
-    out property <bool> in-view: root.entered && root.open;
+    // It is in, or on its way in: past its first frame and open. With Animations off it is in
+    // at once: there is no move to work out a start for.
+    out property <bool> in-view: (root.entered || !Look.motion-on) && root.open;
     out property <float> move: root.in-view ? 1 : 0;
     out property <float> fade: root.in-view ? 1 : 0;
     animate move { duration: root.move-time; easing: root.move-easing; delay: root.delay + root.order * Look.stagger; }

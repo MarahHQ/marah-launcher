@@ -196,6 +196,18 @@ mod tests {
         assert!(!read.iter().chain(&after(&run.args, "--bind", 2)).any(|p| p[0].starts_with("/home")), "{read:?}");
     }
 
+    /// A game on a drive UDisks mounted: bwrap makes the folders above it in its own `/run`.
+    #[test]
+    fn a_game_on_a_mounted_drive_is_bound_at_its_own_path_after_the_system_s_run_folders() {
+        let game = [PathBuf::from("/run/media/player/STICK/Games/PC/Game")];
+        let run = wrap(command(), Path::new("/usr/bin/bwrap"), &[], &game, None, &desktop());
+        assert_eq!(after(&run.args, "--bind", 2), [pair("/run/media/player/STICK/Games/PC/Game")]);
+        let bound = run.args.iter().position(|a| a == "--bind").unwrap();
+        let system_run = |a: &String| a.starts_with("/run/") && !a.starts_with("/run/media") && a != NO_BUS;
+        let last_run = run.args.iter().rposition(system_run).unwrap();
+        assert!(last_run < bound, "nothing of /run goes on top of the game: {:?}", run.args);
+    }
+
     #[test]
     fn its_home_and_runtime_folder_are_empty_and_have_only_the_display_and_sound() {
         let run = wrapped();

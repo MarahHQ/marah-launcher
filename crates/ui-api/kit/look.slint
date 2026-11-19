@@ -38,7 +38,7 @@ export global Look {
     out property <color> band-clear: Tokens.color-bg.with-alpha(0);
     // Animations on: the motion tokens aren't 0.
     out property <bool> motion-on: Tokens.motion-normal > 0;
-    out property <duration> move: root.motion-on ? 240ms : 0ms;
+    out property <duration> move: root.motion-on ? 150ms : 0ms;
     // The kinds of motion, each a time and an easing from the motion tokens, so a theme retunes
     // a kind in one place and Animations off stops them all. `enter`: something moves in, as
     // a sheet from the edge. `fade`: something shows or goes in place. What leaves runs its way in
@@ -46,12 +46,13 @@ export global Look {
     // `emphasis`: the focus lands, as a card that grows. `stagger`: between one row and the
     // next as a list comes in.
     out property <duration> enter-time: Tokens.motion-slow;
-    out property <easing> enter-easing: ease-out-expo;
+    // A strong ease-out: quick to start, soft to land, no overshoot.
+    out property <easing> enter-easing: cubic-bezier(0.2, 0, 0, 1);
     out property <duration> fade-time: Tokens.motion-normal;
     out property <easing> fade-easing: ease-out-quad;
     out property <duration> emphasis-time: Tokens.motion-fast;
-    out property <easing> emphasis-easing: ease-out-back;
-    out property <duration> stagger: root.motion-on ? 30ms : 0ms;
+    out property <easing> emphasis-easing: cubic-bezier(0.2, 0, 0, 1);
+    out property <duration> stagger: root.motion-on ? 12ms : 0ms;
     // Seconds since the app started, for what moves on its own (a turning ring, a drifting wall
     // of covers). It stands still with Animations off: read it, never `animation-tick()`.
     out property <float> clock: root.motion-on ? animation-tick() / 1ms / 1000 : 0;

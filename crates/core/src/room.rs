@@ -12,23 +12,8 @@
 
 use std::path::Path;
 
-use crate::Hardware;
-
-/// The free bytes on the disk that holds `folder`, which may not be there yet: the disk of the
-/// nearest folder above it. `None` when the system doesn't say.
-pub(crate) fn free_at(hardware: &dyn Hardware, folder: &Path) -> Option<u64> {
-    hardware.free_bytes(nearest(folder)?)
-}
-
-/// Which disk holds `folder`, which may not be there yet. `None` when the system doesn't say.
-fn disk_at(hardware: &dyn Hardware, folder: &Path) -> Option<u64> {
-    hardware.disk_id(nearest(folder)?)
-}
-
-/// The nearest folder at or above `folder` that is there.
-fn nearest(folder: &Path) -> Option<&Path> {
-    folder.ancestors().find(|p| p.is_dir())
-}
+use crate::DriveSpace;
+use crate::drives::{free, same_drive};
 
 /// `1.5 GB`, for the free space.
 pub(crate) fn gigabytes(bytes: u64) -> String {
@@ -60,13 +45,11 @@ pub(crate) struct Room {
 impl Room {
     /// Reads the drives of `download` and of `games`, the game folder when there is one. Either
     /// may not be there yet.
-    pub fn read(hardware: &dyn Hardware, download: &Path, games: Option<&Path>) -> Room {
-        let one_drive =
-            games.is_some_and(|games| disk_at(hardware, games).is_some_and(|d| disk_at(hardware, download) == Some(d)));
+    pub fn read(drives: &dyn DriveSpace, download: &Path, games: Option<&Path>) -> Room {
         Room {
-            download: free_at(hardware, download),
-            games: games.and_then(|games| free_at(hardware, games)),
-            one_drive,
+            download: free(drives, download),
+            games: games.and_then(|games| free(drives, games)),
+            one_drive: games.is_some_and(|games| same_drive(drives, games, download)),
         }
     }
 
@@ -113,20 +96,16 @@ mod tests {
 
     use super::*;
 
-    /// Disks by the folder they hold, each with its free bytes; a disk's id is its place in the
+    /// Drives by the folder they hold, each with its free bytes; a drive's id is its place in the
     /// list.
     struct Drives(Vec<(PathBuf, u64)>);
 
-    impl Hardware for Drives {
-        fn specs(&self) -> crate::Specs {
-            crate::Specs::default()
-        }
-
+    impl DriveSpace for Drives {
         fn free_bytes(&self, path: &Path) -> Option<u64> {
             self.0.iter().find(|(disk, _)| path.starts_with(disk)).map(|(_, free)| *free)
         }
 
-        fn disk_id(&self, path: &Path) -> Option<u64> {
+        fn drive_id(&self, path: &Path) -> Option<u64> {
             self.0.iter().position(|(disk, _)| path.starts_with(disk)).map(|at| at as u64)
         }
     }
@@ -144,8 +123,8 @@ mod tests {
     #[test]
     fn on_two_drives_the_install_needs_room_for_the_checked_bytes_once() {
         let (_home, downloads, games) = folders();
-        let hardware = Drives(vec![(downloads.clone(), 10 * GB), (games.clone(), 3 * GB)]);
-        let room = Room::read(&hardware, &downloads, Some(&games));
+        let drives = Drives(vec![(downloads.clone(), 10 * GB), (games.clone(), 3 * GB)]);
+        let room = Room::read(&drives, &downloads, Some(&games));
         assert_eq!(room.short(Need::DownloadAndInstall, 3 * GB), None);
         assert_eq!(
             room.short(Need::DownloadAndInstall, 4 * GB).as_deref(),
@@ -157,8 +136,8 @@ mod tests {
     #[test]
     fn on_one_drive_the_download_and_the_install_need_room_together() {
         let (home, downloads, games) = folders();
-        let hardware = Drives(vec![(home.path().to_owned(), 5 * GB)]);
-        let room = Room::read(&hardware, &downloads, Some(&games));
+        let drives = Drives(vec![(home.path().to_owned(), 5 * GB)]);
+        let room = Room::read(&drives, &downloads, Some(&games));
         assert_eq!(room.short(Need::DownloadAndInstall, 2 * GB), None, "4 GB of 5");
         assert_eq!(
             room.short(Need::DownloadAndInstall, 3 * GB).as_deref(),
@@ -171,10 +150,10 @@ mod tests {
     #[test]
     fn a_folder_that_is_not_there_yet_is_on_the_drive_of_the_folder_above() {
         let (home, downloads, _) = folders();
-        let hardware = Drives(vec![(downloads.clone(), GB), (home.path().to_owned(), 8 * GB)]);
+        let drives = Drives(vec![(downloads.clone(), GB), (home.path().to_owned(), 8 * GB)]);
         let not_yet = downloads.join("PS5/torrent-1");
-        assert_eq!(free_at(&hardware, &not_yet), Some(GB));
-        let room = Room::read(&hardware, &not_yet, Some(&home.path().join("Games/PS5")));
+        assert_eq!(free(&drives, &not_yet), Some(GB));
+        let room = Room::read(&drives, &not_yet, Some(&home.path().join("Games/PS5")));
         assert_eq!(room.download_free(), Some(GB));
         assert_eq!(room.games_free(), Some(8 * GB));
         assert_eq!(
@@ -186,7 +165,7 @@ mod tests {
     #[test]
     fn a_drive_the_system_says_nothing_about_has_room() {
         let (_home, downloads, games) = folders();
-        let room = Room::read(&crate::NoHardware, &downloads, Some(&games));
+        let room = Room::read(&crate::NoDriveSpace, &downloads, Some(&games));
         assert_eq!(room, Room::default());
         for need in [Need::Download, Need::Install, Need::DownloadAndInstall] {
             assert_eq!(room.short(need, u64::MAX), None, "{need:?}");
@@ -196,10 +175,7 @@ mod tests {
     #[test]
     fn drives_without_an_id_are_not_one_drive() {
         struct NoIds;
-        impl Hardware for NoIds {
-            fn specs(&self) -> crate::Specs {
-                crate::Specs::default()
-            }
+        impl DriveSpace for NoIds {
             fn free_bytes(&self, _: &Path) -> Option<u64> {
                 Some(5 * GB)
             }

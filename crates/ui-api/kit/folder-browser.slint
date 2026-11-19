@@ -3,16 +3,21 @@ import { Commands } from "commands.slint";
 import { Tokens } from "../tokens.slint";
 import { Look } from "look.slint";
 import { Reveal } from "reveal.slint";
+import { Sheet, Motion } from "motion.slint";
 import { Icon } from "icon.slint";
 import { Osk } from "keyboard.slint";
 import { Brand } from "../brand.slint";
+import { LoadingRow } from "loading.slint";
 
-// "Restore from another folder": a sheet over everything while `Vm.backup.browser.open`. The
-// places on one side, the folder's folders and backups in the middle, and what the focused one
-// is on the other side. Each shell shows it and sends it the keys first (`Browser.key`).
+// The folder browser: a sheet over everything while `Vm.browser.open`. The places on one side,
+// the folder's folders (and for a restore its backups) in the middle, and what the focused one
+// is on the other side. Each shell shows it and sends it the keys first (`Browser.key`). It is
+// open for one purpose (`Vm.browser.purpose`): to restore a backup ("Restore from another
+// folder"), or to pick a folder, with "Use this folder" for the folder shown.
 //
 // Keys: Up and Down move in a pane; Left and Right, or L1 and R1, go between the places and the
-// files. ✕ (Enter) opens a place or a folder, and asks to restore a backup; △ (/) asks too.
+// files. ✕ (Enter) opens a place or a folder (a drive that isn't mounted mounts first), and asks
+// to restore a backup; △ (/) asks too, and for a pick uses the folder shown.
 // ○ (Escape) clears the typed text first, then goes up a folder (the places: closes; the top:
 // closes). □ (Insert) or Ctrl+H shows the hidden folders, or not. Letters type into the text
 // that filters the files, Backspace takes the last one back. A restore asks once, in a dialog.
@@ -20,7 +25,8 @@ import { Brand } from "../brand.slint";
 // For a moment after a click opens a folder, clicks wait: the second click of a double click
 // would open a row of the new folder.
 export global Browser {
-    out property <bool> open: Vm.backup.browser.open;
+    out property <bool> open: Vm.browser.open;
+    out property <bool> picking: Vm.browser.purpose == "pick";
     // 0: the places; 1: the files.
     in-out property <int> pane: 1;
     in-out property <int> at-place;
@@ -34,8 +40,8 @@ export global Browser {
     in-out property <string> typed;
     // A click just opened something: the next clicks wait a moment (`clicked`).
     in-out property <bool> resting;
-    out property <int> places: Vm.backup.browser.places.length;
-    out property <int> entries: Vm.backup.browser.entries.length;
+    out property <int> places: Vm.browser.places.length;
+    out property <int> entries: Vm.browser.entries.length;
 
     // The browser opened, or its folder changed: the focus goes to the files' first row, and
     // in the places to the folder's place when it is one.
@@ -45,22 +51,33 @@ export global Browser {
         root.confirm = -1;
         root.typed = "";
         // The place the folder is, else the one the focus was on.
-        root.at-place = Vm.backup.browser.place >= 0 ? Vm.backup.browser.place
+        root.at-place = Vm.browser.place >= 0 ? Vm.browser.place
             : Math.min(root.at-place, Math.max(root.places - 1, 0));
     }
     public function close() {
         root.confirm = -1;
-        Commands.close-backup-browser();
+        Commands.close-browser();
         Host.play-sound("back");
     }
+    // A place opens; a drive that isn't mounted mounts first.
     public function go(i: int) {
         root.at-place = i;
-        Commands.browse-backups(Vm.backup.browser.places[i].path);
+        if (Vm.browser.places[i].mounted) {
+            Commands.browse-to(Vm.browser.places[i].path);
+        } else {
+            Commands.browse-mount(Vm.browser.places[i].drive);
+        }
+        Host.play-sound("select");
+    }
+    // A pick: the folder shown goes to the list, and the browser closes.
+    public function use() {
+        if (!root.picking) { return; }
+        Commands.use-folder();
         Host.play-sound("select");
     }
     public function up() {
-        if (Vm.backup.browser.parent == "") { root.close(); return; }
-        Commands.browse-backups(Vm.backup.browser.parent);
+        if (Vm.browser.parent == "") { root.close(); return; }
+        Commands.browse-to(Vm.browser.parent);
         Host.play-sound("back");
     }
     // A folder opens; a backup asks to restore.
@@ -68,8 +85,8 @@ export global Browser {
         root.pane = 1;
         root.at-entry = i;
         if (i < 0 || i >= root.entries) { return; }
-        if (Vm.backup.browser.entries[i].folder) {
-            Commands.browse-backups(Vm.backup.browser.entries[i].path);
+        if (Vm.browser.entries[i].folder) {
+            Commands.browse-to(Vm.browser.entries[i].path);
             Host.play-sound("select");
         } else {
             root.ask(i);
@@ -77,8 +94,8 @@ export global Browser {
     }
     // The dialog for the backup `i`. A backup a newer Marah Launcher made can't be restored.
     public function ask(i: int) {
-        if (i < 0 || i >= root.entries || Vm.backup.browser.entries[i].folder) { return; }
-        if (Vm.backup.browser.entries[i].newer || Vm.backup.running) { Host.play-sound("back"); return; }
+        if (i < 0 || i >= root.entries || Vm.browser.entries[i].folder) { return; }
+        if (Vm.browser.entries[i].newer || Vm.backup.running) { Host.play-sound("back"); return; }
         root.confirm = i;
         root.choice = 0;
         Host.play-sound("select");
@@ -87,21 +104,22 @@ export global Browser {
         let i = root.confirm;
         root.confirm = -1;
         if (restore && i >= 0 && i < root.entries) {
-            Commands.restore-backup-file(Vm.backup.browser.entries[i].path);
+            Commands.restore-backup-file(Vm.browser.entries[i].path);
             Host.play-sound("select");
         } else {
             Host.play-sound("back");
         }
     }
     // The icon of a place, by its kind.
-    public pure function place-icon(kind: string) -> string {
+    public pure function place-icon(kind: string, usb: bool) -> string {
         kind == "home" ? "home" : kind == "downloads" ? "download" : kind == "desktop" ? "desktop"
-            : kind == "documents" ? "document" : kind == "backups" ? "star" : kind == "drive" ? "usb" : "clock"
+            : kind == "documents" ? "document" : kind == "backups" ? "star"
+            : kind == "drive" ? (usb ? "usb" : "disk") : "clock"
     }
     function find(text: string) {
         root.typed = text;
         root.at-entry = 0;
-        Commands.filter-backups(text);
+        Commands.filter-folders(text);
     }
     // A click on the place `place`, or on the file `entry`: it acts as Enter does there.
     public function clicked(place: int, entry: int) {
@@ -110,7 +128,7 @@ export global Browser {
         if (place >= 0) { root.pane = 0; root.go(place); } else { root.open-entry(entry); }
     }
     public function toggle-hidden() {
-        Commands.show-hidden-backups(!Vm.backup.browser.hidden);
+        Commands.show-hidden-folders(!Vm.browser.hidden);
         Host.play-sound("move");
     }
     function step(delta: int) {
@@ -163,7 +181,7 @@ export global Browser {
                 root.open-entry(root.at-entry);
             }
         } else if (text == "/") {
-            if (root.pane == 1) { root.ask(root.at-entry); }
+            if (root.picking) { root.use(); } else if (root.pane == 1) { root.ask(root.at-entry); }
         } else if (text == Key.Escape) {
             if (root.typed != "") {
                 root.find("");
@@ -204,8 +222,11 @@ component BrowserRow inherits Rectangle {
     height: 56 * Look.px;
     border-radius: 12 * Look.px;
     background: root.lit ? Tokens.color-focus : root.marked ? Look.fill-lit : touch.has-hover ? Look.fill : transparent;
-    animate background { duration: Look.timed(120ms); }
+    animate background { duration: Motion.focus; easing: Motion.enter; }
+    transform-scale: touch.pressed ? 0.97 : 1;
+    animate transform-scale { duration: Motion.press; }
     touch := TouchArea {
+        mouse-cursor: pointer;
         clicked => { root.picked(); }
     }
     HorizontalLayout {
@@ -296,11 +317,14 @@ component SheetButton inherits Rectangle {
     width: Math.max(120 * Look.px, label.preferred-width + 36 * Look.px);
     border-radius: 22 * Look.px;
     background: root.lit ? (root.danger ? Tokens.color-danger : Tokens.color-focus) : touch.has-hover ? Look.fill-lit : Look.fill;
+    animate background { duration: Motion.press; }
+    transform-scale: touch.pressed ? 0.97 : 1;
+    animate transform-scale { duration: Motion.press; }
     accessible-role: button;
     accessible-label: root.name;
     accessible-item-selected: root.lit;
     accessible-action-default => { root.clicked(); }
-    touch := TouchArea { clicked => { root.clicked(); } }
+    touch := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
     label := Text {
         text: root.text;
         font-size: 17 * Look.tpx;
@@ -309,13 +333,14 @@ component SheetButton inherits Rectangle {
     }
 }
 
-export component BackupBrowser inherits Rectangle {
-    reveal := Reveal { }
+export component FolderBrowser inherits Rectangle {
+    // False while it fades out: it takes no key or click then (`Sheet`).
+    in property <bool> open: true;
     // The clicks wait this long after one that opened something.
     Timer { interval: 400ms; running: Browser.resting; triggered => { Browser.resting = false; } }
     init => { Browser.resting = false; Browser.arrived(); }
     // The folder changed, or the filter: the focus goes back to the first row.
-    property <string> shown: Vm.backup.browser.shown;
+    property <string> shown: Vm.browser.shown;
     changed shown => { Browser.arrived(); }
     // The focused row stays in view.
     property <int> focus-entry: Browser.at-entry;
@@ -329,30 +354,24 @@ export component BackupBrowser inherits Rectangle {
         Math.min(0, top < -y ? -top : top + 2 * root.row-pitch > height - y ? height - top - 2 * root.row-pitch : y)
     }
     // The folder shown, as a full path.
-    property <string> here: Vm.backup.browser.crumbs[Vm.backup.browser.crumbs.length - 1].path;
+    property <string> here: Vm.browser.crumbs[Vm.browser.crumbs.length - 1].path;
     // The focused file; an empty one when there is none.
-    property <BrowseEntry> entry: Vm.backup.browser.entries[Browser.at-entry];
+    property <BrowseEntry> entry: Vm.browser.entries[Browser.at-entry];
 
     accessible-role: groupbox;
-    accessible-label: "backup-browser";
-    accessible-value: Vm.backup.browser.shown;
-    background: reveal.in-view ? Tokens.color-overlay.with-alpha(0.8) : Tokens.color-overlay.with-alpha(0);
-    animate background { duration: Tokens.motion-normal; }
-    TouchArea {}
+    accessible-label: "folder-browser";
+    accessible-value: Vm.browser.shown;
+    property <length> card-width: Math.min(root.width - 96 * Look.px, 1400 * Look.px);
 
-    card := Rectangle {
-        width: Math.min(root.width - 96 * Look.px, 1400 * Look.px);
-        height: Math.min(root.height - 96 * Look.px, 860 * Look.px);
-        x: (root.width - self.width) / 2;
-        y: (root.height - self.height) / 2 + (1 - reveal.move) * 24 * Look.px;
-        opacity: reveal.fade;
-        border-radius: 22 * Look.px;
-        background: @linear-gradient(180deg, Tokens.color-surface 0%, Tokens.color-panel 100%);
-        border-width: 1px;
-        border-color: Look.line;
-        drop-shadow-blur: 48 * Look.px;
-        drop-shadow-color: Tokens.color-shade.with-alpha(0.6);
-        clip: true;
+    // A click outside the sheet closes it, as Back does: a pick then picks nothing. A click
+    // inside it, off its rows and buttons, does nothing.
+    Sheet {
+        width: parent.width;
+        height: parent.height;
+        open: root.open;
+        card-width: root.card-width;
+        card-height: Math.min(root.height - 96 * Look.px, 860 * Look.px);
+        outside => { Browser.close(); }
 
         VerticalLayout {
             // The title, the path and Close.
@@ -365,7 +384,10 @@ export component BackupBrowser inherits Rectangle {
                     spacing: 6 * Look.px;
                     horizontal-stretch: 1;
                     Text {
-                        text: "Restore a backup";
+                        accessible-role: text;
+                        accessible-label: "browser-title";
+                        accessible-value: self.text;
+                        text: Vm.browser.title;
                         font-size: 26 * Look.tpx;
                         font-weight: 700;
                         color: Tokens.color-text;
@@ -374,19 +396,19 @@ export component BackupBrowser inherits Rectangle {
                     HorizontalLayout {
                         spacing: 6 * Look.px;
                         alignment: Look.rtl ? end : start;
-                        for crumb[i] in Vm.backup.browser.crumbs : HorizontalLayout {
+                        for crumb[i] in Vm.browser.crumbs : HorizontalLayout {
                             spacing: 6 * Look.px;
                             if i > 0 : Text { text: "›"; font-size: 17 * Look.tpx; color: Look.text3; vertical-alignment: center; }
                             Text {
                                 text: crumb.name;
                                 font-size: 17 * Look.tpx;
-                                color: i == Vm.backup.browser.crumbs.length - 1 ? Tokens.color-text : Tokens.color-text-muted;
+                                color: i == Vm.browser.crumbs.length - 1 ? Tokens.color-text : Tokens.color-text-muted;
                                 vertical-alignment: center;
                                 accessible-role: button;
                                 accessible-label: "browser-crumb";
                                 accessible-value: crumb.name;
-                                accessible-action-default => { Commands.browse-backups(crumb.path); }
-                                TouchArea { clicked => { Commands.browse-backups(crumb.path); } }
+                                accessible-action-default => { Commands.browse-to(crumb.path); }
+                                TouchArea { mouse-cursor: pointer; clicked => { Commands.browse-to(crumb.path); } }
                             }
                         }
                     }
@@ -413,10 +435,19 @@ export component BackupBrowser inherits Rectangle {
                 VerticalLayout {
                     alignment: center;
                     SheetButton {
-                        text: Vm.backup.browser.hidden ? "Hide hidden" : "Show hidden";
+                        text: Vm.browser.hidden ? "Hide hidden" : "Show hidden";
                         name: "browser-hidden";
-                        lit: Vm.backup.browser.hidden;
+                        lit: Vm.browser.hidden;
                         clicked => { Browser.toggle-hidden(); }
+                    }
+                }
+                if Browser.picking : VerticalLayout {
+                    alignment: center;
+                    SheetButton {
+                        text: "Use this folder";
+                        name: "browser-use";
+                        lit: true;
+                        clicked => { Browser.use(); }
                     }
                 }
                 VerticalLayout {
@@ -434,7 +465,7 @@ export component BackupBrowser inherits Rectangle {
                 vertical-stretch: 1;
                 // The places.
                 Rectangle {
-                    width: Math.max(260 * Look.px, card.width * 0.24);
+                    width: Math.max(260 * Look.px, root.card-width * 0.24);
                     places := Flickable {
                         width: parent.width;
                         height: parent.height;
@@ -443,9 +474,9 @@ export component BackupBrowser inherits Rectangle {
                         place-list := VerticalLayout {
                             padding: 12 * Look.px;
                             spacing: 4 * Look.px;
-                            for place[i] in Vm.backup.browser.places : VerticalLayout {
+                            for place[i] in Vm.browser.places : VerticalLayout {
                                 // RECENT over the first recent folder.
-                                if place.kind == "recent" && (i == 0 || Vm.backup.browser.places[i - 1].kind != "recent") : Text {
+                                if place.kind == "recent" && (i == 0 || Vm.browser.places[i - 1].kind != "recent") : Text {
                                     text: "RECENT";
                                     height: 32 * Look.px;
                                     vertical-alignment: bottom;
@@ -456,9 +487,9 @@ export component BackupBrowser inherits Rectangle {
                                     horizontal-alignment: Look.rtl ? right : left;
                                 }
                                 BrowserRow {
-                                    icon: Browser.place-icon(place.kind);
+                                    icon: Browser.place-icon(place.kind, place.usb);
                                     name: place.name;
-                                    detail: place.kind == "drive" ? place.detail : "";
+                                    detail: place.kind != "drive" ? "" : place.mounted ? place.detail : "Mount";
                                     lit: Browser.pane == 0 && Browser.at-place == i;
                                     marked: Browser.pane != 0 && place.path == root.here;
                                     accessible-role: list-item;
@@ -469,6 +500,8 @@ export component BackupBrowser inherits Rectangle {
                                     picked => { Browser.clicked(i, -1); }
                                 }
                             }
+                            // The drives are read for the places: they come under this row.
+                            if Vm.browser.places-loading : LoadingRow { what: "Reading drives…"; }
                         }
                     }
                 }
@@ -485,7 +518,10 @@ export component BackupBrowser inherits Rectangle {
                         file-list := VerticalLayout {
                             padding: 12 * Look.px;
                             spacing: 4 * Look.px;
-                            for entry[i] in Vm.backup.browser.entries : BrowserRow {
+                            for entry[i] in Vm.browser.entries : BrowserRow {
+                                // The rows come in a step after another, at most a few steps.
+                                r := Reveal { order: Math.min(i, Motion.stagger-cap); }
+                                opacity: r.fade;
                                 icon: entry.folder ? "folder" : "archive";
                                 name: entry.folder ? entry.name : entry.date;
                                 detail: entry.folder ? entry.detail : entry.newer ? "Newer " + Brand.name : entry.size;
@@ -505,8 +541,8 @@ export component BackupBrowser inherits Rectangle {
                     if Browser.entries == 0 : Text {
                         width: parent.width;
                         height: parent.height;
-                        text: Vm.backup.browser.filter != "" ? "Nothing here holds “" + Vm.backup.browser.filter + "”"
-                            : "No backups here";
+                        text: Vm.browser.filter != "" ? "Nothing here holds “" + Vm.browser.filter + "”"
+                            : Browser.picking ? "No folders here" : "No backups here";
                         font-size: 19 * Look.tpx;
                         color: Look.text3;
                         horizontal-alignment: center;
@@ -519,7 +555,7 @@ export component BackupBrowser inherits Rectangle {
 
                 // What the focused row is.
                 Rectangle {
-                    width: Math.max(300 * Look.px, card.width * 0.26);
+                    width: Math.max(300 * Look.px, root.card-width * 0.26);
                     VerticalLayout {
                         width: parent.width;
                         height: parent.height;
@@ -527,11 +563,15 @@ export component BackupBrowser inherits Rectangle {
                         spacing: 16 * Look.px;
                         if Browser.pane == 0 && Browser.places > 0 : VerticalLayout {
                             spacing: 16 * Look.px;
-                            Fact { name: "Place"; value: Vm.backup.browser.places[Browser.at-place].name; }
-                            Fact { name: "Folder"; value: Vm.backup.browser.places[Browser.at-place].path; }
-                            if Vm.backup.browser.places[Browser.at-place].detail != "" : Fact {
-                                name: Vm.backup.browser.places[Browser.at-place].kind == "drive" ? "Size" : "Shown as";
-                                value: Vm.backup.browser.places[Browser.at-place].detail;
+                            Fact { name: "Place"; value: Vm.browser.places[Browser.at-place].name; }
+                            Fact {
+                                name: "Folder";
+                                value: Vm.browser.places[Browser.at-place].mounted ? Vm.browser.places[Browser.at-place].path
+                                    : "Not mounted: Enter mounts it";
+                            }
+                            if Vm.browser.places[Browser.at-place].detail != "" : Fact {
+                                name: Vm.browser.places[Browser.at-place].kind == "drive" ? "Size" : "Shown as";
+                                value: Vm.browser.places[Browser.at-place].detail;
                             }
                         }
                         if Browser.pane == 1 && Browser.entries > 0 && root.entry.folder : VerticalLayout {
@@ -573,7 +613,7 @@ export component BackupBrowser inherits Rectangle {
                 padding-left: 24 * Look.px;
                 padding-right: 24 * Look.px;
                 spacing: 24 * Look.px;
-                if Vm.backup.failed && Vm.backup.status != "" : Text {
+                if !Browser.picking && Vm.backup.failed && Vm.backup.status != "" : Text {
                     text: Vm.backup.status;
                     font-size: 16 * Look.tpx;
                     color: Tokens.color-danger;
@@ -585,11 +625,13 @@ export component BackupBrowser inherits Rectangle {
                 if Browser.pane == 0 || Browser.entries > 0 : KeyHint {
                     pad: "✕";
                     key: "Enter";
-                    label: Browser.pane == 0 ? "Go" : root.entry.folder ? "Open" : root.entry.newer ? "Can't restore" : "Restore";
+                    label: Browser.pane == 0 ? (Vm.browser.places[Browser.at-place].mounted ? "Go" : "Mount")
+                        : root.entry.folder ? "Open" : root.entry.newer ? "Can't restore" : "Restore";
                 }
-                KeyHint { pad: "○"; key: "Esc"; label: Browser.typed != "" ? "Clear" : Browser.pane == 0 || Vm.backup.browser.parent == "" ? "Close" : "Up a folder"; }
+                if Browser.picking : KeyHint { pad: "△"; key: "/"; label: "Use this folder"; }
+                KeyHint { pad: "○"; key: "Esc"; label: Browser.typed != "" ? "Clear" : Browser.pane == 0 || Vm.browser.parent == "" ? "Close" : "Up a folder"; }
                 KeyHint { pad: "L1  R1"; key: "← →"; label: "Places / Files"; }
-                KeyHint { pad: "□"; key: "Ctrl+H"; label: Vm.backup.browser.hidden ? "Hide hidden" : "Show hidden"; }
+                KeyHint { pad: "□"; key: "Ctrl+H"; label: Vm.browser.hidden ? "Hide hidden" : "Show hidden"; }
                 Rectangle { horizontal-stretch: 1; }
                 if Vm.input-mode != "gamepad" : Text {
                     text: "Type to find";
@@ -605,7 +647,7 @@ export component BackupBrowser inherits Rectangle {
     if Browser.confirm >= 0 && Browser.confirm < Browser.entries : dialog := Rectangle {
         background: Tokens.color-overlay.with-alpha(0.6);
         TouchArea { clicked => { Browser.answer(false); } }
-        property <BrowseEntry> asked: Vm.backup.browser.entries[Browser.confirm];
+        property <BrowseEntry> asked: Vm.browser.entries[Browser.confirm];
         Rectangle {
             width: Math.min(root.width - 96 * Look.px, 640 * Look.px);
             height: ask.preferred-height;

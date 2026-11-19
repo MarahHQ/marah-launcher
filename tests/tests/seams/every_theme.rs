@@ -235,11 +235,8 @@ fn settings_opens_on_its_first_row_after_another_screen_in_every_theme() {
         let mut host = in_theme(theme, two_emulators);
         host.dispatch(Command::Navigate(Route::Settings));
         host.settle();
-        // The Games tab: its game folders, then Rescan.
-        let first = match host.core().view().settings.folders.first() {
-            Some(folder) => format!("folder:{}", folder.name),
-            None => "rescan".to_owned(),
-        };
+        // The Launcher tab, the first: Full screen.
+        let first = "fullscreen".to_owned();
         assert!(host.lit(&first), "{theme}: Settings opens on {first}");
 
         host.navigate(Key::DownArrow);
@@ -291,8 +288,8 @@ fn the_backup_tab_backs_up_and_lists_the_file_in_every_theme() {
         host.settle();
         assert_eq!(host.count("backup"), 1, "{theme}: the new backup is listed");
         host.press_first("backup-browse");
-        assert_eq!(host.count("backup-browser"), 1, "{theme}: Restore from another folder opens the browser");
-        assert_eq!(host.value("backup-browser"), backups.path().display().to_string(), "{theme}: at the backup folder");
+        assert_eq!(host.count("folder-browser"), 1, "{theme}: Restore from another folder opens the browser");
+        assert_eq!(host.value("folder-browser"), backups.path().display().to_string(), "{theme}: at the backup folder");
     }
 }
 
@@ -306,7 +303,12 @@ fn a_settings_text_box_opens_the_on_screen_keyboard_and_circle_closes_it_in_ever
         host.navigate(Key::RightArrow);
         assert_eq!(host.count("folder:games"), 1, "{theme}");
         host.pad(PadButton::South);
-        assert_eq!(host.count("osk"), 1, "{theme}: the text box opened the keyboard");
+        assert_eq!(host.count("folder-list"), 1, "{theme}: the folder's list opened");
+        for _ in 0..host.values("folder-path").len() + 1 {
+            host.pad(PadButton::Down);
+        }
+        host.pad(PadButton::South);
+        assert_eq!(host.count("osk"), 1, "{theme}: Type a path opened the keyboard");
         host.pad(PadButton::East);
         assert_eq!(host.count("osk"), 0, "{theme}: Circle closed it");
     }
@@ -339,7 +341,7 @@ fn the_backup_browser_s_keys_move_open_and_go_up_in_every_theme() {
     for theme in THEMES {
         let backups = tempfile::tempdir().unwrap();
         let mut host = browsing(theme, backups.path());
-        assert_eq!(host.count("backup-browser"), 1, "{theme}: over everything");
+        assert_eq!(host.count("folder-browser"), 1, "{theme}: over everything");
         assert_eq!(host.values("browser-folder"), ["old-pc", "photos"], "{theme}: the folder with a backup first");
         assert_eq!(host.focused("browser-folder"), ["old-pc"], "{theme}");
         assert_eq!(host.description("browser-folder"), "1 backup", "{theme}");
@@ -348,12 +350,12 @@ fn the_backup_browser_s_keys_move_open_and_go_up_in_every_theme() {
         assert_eq!(host.focused("browser-folder"), ["photos"], "{theme}");
         host.navigate(Key::UpArrow);
         host.navigate(Key::Return);
-        assert!(host.value("backup-browser").ends_with("old-pc"), "{theme}: Enter opens the folder");
+        assert!(host.value("folder-browser").ends_with("old-pc"), "{theme}: Enter opens the folder");
         assert_eq!(host.count("browser-backup"), 1, "{theme}");
         assert_eq!(host.values("browser-crumb").last().map(String::as_str), Some("old-pc"), "{theme}");
 
         host.navigate(Key::Escape);
-        assert_eq!(host.value("backup-browser"), backups.path().display().to_string(), "{theme}: ○ goes up a folder");
+        assert_eq!(host.value("folder-browser"), backups.path().display().to_string(), "{theme}: ○ goes up a folder");
 
         // The places: Left goes there, Enter goes to one, ○ there closes.
         host.navigate(Key::LeftArrow);
@@ -363,8 +365,8 @@ fn the_backup_browser_s_keys_move_open_and_go_up_in_every_theme() {
         assert_eq!(host.focused("browser-folder").len(), 1, "{theme}: back in the files");
         host.navigate(Key::LeftArrow);
         host.navigate(Key::Escape);
-        assert_eq!(host.count("backup-browser"), 0, "{theme}: closed");
-        assert!(!host.core().view().settings.backup.browser.open, "{theme}");
+        assert_eq!(host.count("folder-browser"), 0, "{theme}: closed");
+        assert!(!host.core().view().browser.open, "{theme}");
     }
 }
 
@@ -384,7 +386,7 @@ fn typing_filters_the_backup_browser_and_escape_clears_it_first_in_every_theme()
         host.navigate(Key::Escape);
         assert_eq!(host.count("browser-filter"), 0, "{theme}: ○ clears the text first");
         assert_eq!(host.count("browser-folder"), 2, "{theme}");
-        assert_eq!(host.count("backup-browser"), 1, "{theme}: and stays open");
+        assert_eq!(host.count("folder-browser"), 1, "{theme}: and stays open");
     }
 }
 
@@ -401,7 +403,7 @@ fn a_restore_from_the_backup_browser_asks_once_then_restores_in_every_theme() {
         assert_eq!(host.count("browser-confirm"), 1, "{theme}: △ asks first");
         host.navigate(Key::Escape);
         assert_eq!(host.count("browser-confirm"), 0, "{theme}");
-        assert_eq!(host.count("backup-browser"), 1, "{theme}: the browser stays");
+        assert_eq!(host.count("folder-browser"), 1, "{theme}: the browser stays");
 
         // Enter asks too; Right goes to Cancel, Enter on it says no.
         host.navigate(Key::Return);
@@ -417,7 +419,7 @@ fn a_restore_from_the_backup_browser_asks_once_then_restores_in_every_theme() {
         host.navigate(Key::Return);
         host.until(launcher_core::Area::Backup, |core| core.view().settings.backup.restart);
         host.settle();
-        assert_eq!(host.count("backup-browser"), 0, "{theme}: a restore closes the browser");
+        assert_eq!(host.count("folder-browser"), 0, "{theme}: a restore closes the browser");
     }
 }
 
@@ -428,7 +430,7 @@ fn one_click_opens_and_a_double_click_opens_only_one_folder_in_every_theme() {
         let mut host = browsing(theme, backups.path());
         // One click on a folder opens it.
         host.click("browser-folder");
-        assert!(host.value("backup-browser").ends_with("old-pc"), "{theme}: one click opens");
+        assert!(host.value("folder-browser").ends_with("old-pc"), "{theme}: one click opens");
         host.wait(std::time::Duration::from_millis(500));
         // One click on a backup asks to restore it.
         host.click("browser-backup");
@@ -450,11 +452,11 @@ fn one_click_opens_and_a_double_click_opens_only_one_folder_in_every_theme() {
             host.pump();
         }
         host.settle();
-        assert!(host.value("backup-browser").ends_with("old-pc"), "{theme}");
+        assert!(host.value("folder-browser").ends_with("old-pc"), "{theme}");
         assert_eq!(host.count("browser-confirm"), 0, "{theme}: the second click waited");
         host.wait(std::time::Duration::from_millis(500));
         host.press_first("browser-close");
-        assert_eq!(host.count("backup-browser"), 0, "{theme}");
+        assert_eq!(host.count("folder-browser"), 0, "{theme}");
     }
 }
 
@@ -605,5 +607,262 @@ fn a_plugin_s_question_shows_over_the_boot_screen_and_the_keys_answer_it() {
         assert_eq!(*work.answers.lock().unwrap(), [answer], "{theme}");
         assert!(host.values("question").is_empty(), "{theme}: the question is gone");
         assert!(host.core().view().question.is_none(), "{theme}: asked once a run");
+    }
+}
+
+/// Settings → Game folders: the folder's row opens its list, "Add folder" opens the folder browser
+/// to pick one, and △ uses the folder shown: it joins the list.
+#[test]
+fn add_folder_picks_a_folder_in_the_browser_in_every_theme() {
+    for theme in THEMES {
+        let picked = tempfile::tempdir().unwrap();
+        let mut host = in_theme(theme, |h| h.built_in(launcher_api::PluginBox::code(emu_kyty::KytyPlugin)));
+        host.dispatch(Command::Navigate(Route::Settings));
+        host.settle();
+        host.settings_tab("Games");
+        host.navigate(Key::RightArrow);
+        host.pad(PadButton::South);
+        assert_eq!(host.count("folder-list"), 1, "{theme}");
+        for _ in 0..host.values("folder-path").len() {
+            host.pad(PadButton::Down);
+        }
+        assert_eq!(host.focused("folder-add").len(), 1, "{theme}: Add folder");
+        host.pad(PadButton::South);
+        host.settle();
+        assert_eq!(host.count("folder-list"), 0, "{theme}: the list closed");
+        assert_eq!(host.count("folder-browser"), 1, "{theme}: the browser opened");
+        assert_eq!(host.count("browser-use"), 1, "{theme}: Use this folder shows when it picks");
+
+        host.dispatch(Command::Browse(launcher_core::BrowseCmd::Go(picked.path().into())));
+        host.settle();
+        text(&mut host, "/");
+        host.settle();
+        assert_eq!(host.count("folder-browser"), 0, "{theme}: △ used the folder");
+        let games = host.core().kernel().config().get(&["app", "folders", "games"]);
+        assert!(games.as_array().unwrap().iter().any(|p| p == picked.path().to_str().unwrap()), "{theme}: {games}");
+    }
+}
+
+/// Settings → Backup → Backup folder: its row opens the folder's list, as a game folder's does.
+/// "Choose a folder" opens the folder browser, △ uses the folder shown; "Use the default folder"
+/// goes back to it; "Type a path" opens the row's text box. With the pad, the mouse and the keys.
+#[test]
+fn the_backup_folder_is_chosen_like_a_game_folder_in_every_theme() {
+    for theme in THEMES {
+        let (backups, chosen) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let mut host = in_theme(theme, two_emulators);
+        let folder = serde_json::json!(backups.path().display().to_string());
+        host.dispatch(Command::Pref(launcher_core::Pref::BackupFolder, folder));
+        host.dispatch(Command::Navigate(Route::Settings));
+        host.settle();
+        host.settings_tab("Backup");
+        host.settle();
+        // The mouse: a click on the row opens the list.
+        host.press_first("backup-folder");
+        assert_eq!(host.value("folder-list"), "backup", "{theme}: the backup folder's list");
+        assert_eq!(host.count("folder-path") + host.count("folder-add"), 0, "{theme}: one folder, not a list");
+        // The pad: ✕ on "Choose a folder" opens the browser at the backup folder.
+        host.pad(PadButton::South);
+        assert_eq!(host.count("folder-browser"), 1, "{theme}: Choose a folder opens the browser");
+        assert_eq!(host.value("folder-browser"), backups.path().display().to_string(), "{theme}");
+        host.dispatch(Command::Browse(launcher_core::BrowseCmd::Go(chosen.path().into())));
+        host.settle();
+        // The keys: / (△) uses the folder shown.
+        text(&mut host, "/");
+        host.settle();
+        assert_eq!(host.count("folder-browser"), 0, "{theme}: △ used the folder");
+        let saved = host.core().kernel().config().get(&["app", "backup_folder"]);
+        assert_eq!(saved, serde_json::json!(chosen.path().display().to_string()), "{theme}");
+
+        // The list again: down twice to "Use the default folder", and ✕.
+        host.press_first("backup-folder");
+        host.pad(PadButton::Down);
+        host.pad(PadButton::Down);
+        assert_eq!(host.focused("backup-default").len(), 1, "{theme}");
+        host.pad(PadButton::South);
+        host.settle();
+        assert!(host.core().kernel().config().get(&["app", "backup_folder"]).is_null(), "{theme}: the default again");
+
+        // "Type a path": the row's text box, with the folder in it.
+        host.press_first("backup-folder");
+        host.navigate(Key::DownArrow);
+        host.navigate(Key::Return);
+        assert_eq!(host.count("folder-list"), 0, "{theme}");
+        assert_eq!(host.count("editor"), 1, "{theme}: Type a path opens the row's text box");
+        host.navigate(Key::Escape);
+    }
+}
+
+/// The About card and Made with Slint are the last thing on Settings' page, under Power's rows,
+/// on a desktop and on the whole screen. The keys reach the end, and the rail lights Power there.
+#[test]
+fn the_about_card_comes_last_on_settings_in_every_theme() {
+    for place in [
+        launcher_core::system::Place::default(),
+        launcher_core::system::Place { whole_screen: true, ..Default::default() },
+    ] {
+        for theme in THEMES {
+            let mut host = in_theme(theme, |h| h.place(place));
+            host.dispatch(Command::Navigate(Route::Settings));
+            host.settle();
+            host.settings_tab("Power");
+            let y = |host: &Composed, label: &str| host.first(label).absolute_position().y;
+            let quit = if place.whole_screen { "restart-marah-launcher" } else { "quit" };
+            assert!(y(&host, "about") > y(&host, quit), "{theme}: the card is under Power's first row");
+            // Down to Power's last row: the card comes into view, and the rail lights Power.
+            for _ in 0..4 {
+                host.navigate(Key::DownArrow);
+            }
+            let window = host.instance().window();
+            let height = window.size().height as f32 / window.scale_factor();
+            let card = host.first("about");
+            assert!(
+                card.absolute_position().y + card.size().height <= height + 1.0,
+                "{theme}: the end of the page shows the card"
+            );
+            let lit =
+                i_slint_backend_testing::ElementHandle::find_by_accessible_label(host.instance(), "settings-tab:Power")
+                    .any(|e| e.accessible_checked() == Some(true));
+            assert!(lit, "{theme}: the rail lights Power at the end");
+        }
+    }
+}
+
+/// A click outside a sheet closes it, as Back does; a click inside it, off its rows and buttons,
+/// does nothing. The folder browser (a pick picks nothing then), a folder's list, the Drives
+/// panel.
+#[test]
+fn a_click_outside_a_sheet_closes_it_and_one_inside_does_not_in_every_theme() {
+    for theme in THEMES {
+        let mut host = in_theme(theme, |h| h.built_in(launcher_api::PluginBox::code(emu_kyty::KytyPlugin)));
+        let before = host.core().kernel().config().get(&["app", "folders", "games"]);
+        host.dispatch(Command::Browse(launcher_core::BrowseCmd::Open {
+            at: None,
+            purpose: launcher_core::BrowsePurpose::Pick("games".into()),
+        }));
+        host.settle();
+        assert_eq!(host.count("folder-browser"), 1, "{theme}");
+        host.click("browser-title");
+        assert_eq!(host.count("folder-browser"), 1, "{theme}: a click inside keeps it");
+        host.click_at(4.0, 4.0);
+        assert_eq!(host.count("folder-browser"), 0, "{theme}: a click outside closes it");
+        assert_eq!(host.core().kernel().config().get(&["app", "folders", "games"]), before, "{theme}: nothing picked");
+
+        host.dispatch(Command::Navigate(Route::Settings));
+        host.settle();
+        host.settings_tab("Games");
+        host.navigate(Key::RightArrow);
+        host.navigate(Key::Return);
+        assert_eq!(host.count("folder-list"), 1, "{theme}");
+        host.click("folder-list-title");
+        assert_eq!(host.count("folder-list"), 1, "{theme}: a click inside keeps the list");
+        host.click_at(4.0, 4.0);
+        assert_eq!(host.count("folder-list"), 0, "{theme}: a click outside closes the list");
+    }
+}
+
+/// A drive button's name shows on key focus or on hover, not all the time: the Drives panel
+/// opened with the mouse shows none; Right shows the next button's.
+#[test]
+fn a_drive_button_s_name_shows_on_key_focus_not_all_the_time_in_every_theme() {
+    let media = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(media.path().join("STICK")).unwrap();
+    let system = launcher_testkit::FakeSystem::new();
+    system.with(|m| {
+        m.drives = vec![launcher_api::SystemDrive {
+            device: "/dev/sda1".into(),
+            disk: "/dev/sda".into(),
+            uuid: "1A2B-3C4D".into(),
+            label: "STICK".into(),
+            size: 64_000_000_000,
+            filesystem: "exfat".into(),
+            usb: true,
+            mount: Some(media.path().join("STICK")),
+            free: Some(40_000_000_000),
+            ..launcher_api::SystemDrive::default()
+        }];
+    });
+    for theme in THEMES {
+        let plugin = system.plugin();
+        let mut host = in_theme(theme, |h| h.plugin(plugin));
+        host.dispatch(Command::Drive(launcher_core::DriveCmd::Refresh));
+        host.dispatch(Command::System(launcher_core::system::SystemCommand::Refresh));
+        host.settle();
+        host.click("status:drives");
+        assert_eq!(host.value("system-panel"), "drives", "{theme}");
+        assert_eq!(host.count("drive-button-label"), 0, "{theme}: opened with the mouse, no name shows");
+        host.navigate(Key::RightArrow);
+        assert_eq!(host.values("drive-button-label"), ["Use for games"], "{theme}: Right shows the next button's name");
+        host.navigate(Key::Escape);
+        // A click outside the panel closes it; one inside, on a drive's row, keeps it.
+        host.click("status:drives");
+        host.click("drive");
+        assert_eq!(host.count("system-panel"), 1, "{theme}: a click inside keeps it");
+        host.click_at(4.0, 300.0);
+        assert_eq!(host.count("system-panel"), 0, "{theme}: a click outside closes it");
+    }
+}
+
+/// Animations off (the motion tokens at 0): a sheet is in place at its first frame, with no
+/// time for it to move.
+#[test]
+fn with_animations_off_a_sheet_is_in_place_at_once_in_every_theme() {
+    for theme in THEMES {
+        let mut host = in_theme(theme, |h| h.built_in(launcher_api::PluginBox::code(emu_kyty::KytyPlugin)));
+        host.dispatch(Command::Pref(launcher_core::Pref::Animations, false.into()));
+        host.settle();
+        host.dispatch(Command::Browse(launcher_core::BrowseCmd::Open {
+            at: None,
+            purpose: launcher_core::BrowsePurpose::Pick("games".into()),
+        }));
+        let first = host.first("browser-title").absolute_position().y;
+        host.wait(std::time::Duration::from_secs(1));
+        assert_eq!(host.first("browser-title").absolute_position().y, first, "{theme}: it didn't move");
+        host.dispatch(Command::Browse(launcher_core::BrowseCmd::Close));
+        assert_eq!(host.count("folder-browser"), 0, "{theme}: gone at once too");
+    }
+}
+
+/// A sheet opened with the keys takes keys at once, while it still moves in.
+#[test]
+fn a_sheet_opened_with_the_keys_takes_keys_at_once_in_every_theme() {
+    use slint::platform::WindowEvent;
+    for theme in THEMES {
+        let mut host = in_theme(theme, |h| h.built_in(launcher_api::PluginBox::code(emu_kyty::KytyPlugin)));
+        host.dispatch(Command::Navigate(Route::Settings));
+        host.settle();
+        host.settings_tab("Games");
+        host.navigate(Key::RightArrow);
+        let paths = host.core().view().settings.folders[0].list.len();
+        let press = |host: &Composed, key: Key| {
+            let text: slint::SharedString = key.into();
+            host.instance().window().dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
+            host.instance().window().dispatch_event(WindowEvent::KeyReleased { text });
+        };
+        // No time passes between the keys: the list is still on its way in.
+        press(&host, Key::Return);
+        for _ in 0..paths {
+            press(&host, Key::DownArrow);
+        }
+        assert_eq!(host.focused("folder-add").len(), 1, "{theme}: the keys moved in the list at once");
+        press(&host, Key::Escape);
+    }
+}
+
+/// The boot screen draws the logo mark, the gamepad alone, in every theme: the theme's
+/// `logo-mark` image, which isn't its full logo.
+#[test]
+fn the_boot_screen_draws_the_logo_mark_in_every_theme() {
+    for theme in THEMES {
+        let work = std::sync::Arc::new(Asker::default());
+        let host = in_theme(theme, |h| two_emulators(h).plugin(asker(work.clone())));
+        assert!(!host.core().view().boot.ready, "{theme}: the boot screen shows");
+        assert_eq!(host.count("logo-mark"), 1, "{theme}");
+        let image = |name: &str| match host.instance().get_global_property("Assets", name) {
+            Ok(slint_interpreter::Value::Image(image)) => image.to_rgba8().expect("pixels").as_bytes().to_vec(),
+            other => panic!("{theme}: no image {name}: {other:?}"),
+        };
+        let (mark, logo) = (image("logo-mark"), image("logo"));
+        assert!(!mark.is_empty() && mark != logo, "{theme}: the mark is its own image");
     }
 }

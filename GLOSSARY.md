@@ -28,11 +28,6 @@ _Avoid_: section, domain
 it), `config.json` and `items/…` (`backup/archive.rs`). `BackupCmd::BackUp` makes one. A backup
 made by a newer version of the launcher is listed but not restored.
 
-**Backup browser** (`backup::Browser`, `kit/backup-browser.slint`): the sheet that "Restore from
-another folder" opens over every screen. It shows the places, the folders and backups of one
-folder, and the details of the focused backup. The core holds its state; the kit draws it.
-_Avoid_: file picker, file dialog
-
 **Backup folder** (`Pref::BackupFolder`): the folder Settings → Backup writes backups to and
 lists them from: `app.backup_folder`, else `~/Marah Launcher Backups`.
 
@@ -71,7 +66,7 @@ _Avoid_: feature, extension point
 one place that says what a forum's topics are for: the console, the system and Wine packing.
 
 **Change**: the core's note that its state in one area changed. The core and its tests read changes; the
-app renders on any of them.
+app renders on any of them, and builds again only the parts of the view the areas move.
 _Avoid_: update, state event
 
 **Clock**: the time the core runs on: what time it is, and its waits. The app's clock is real time.
@@ -99,6 +94,18 @@ Both are saved in the plugin's `versions.json`.
 for each download the room where its files go and where its game installs, read ahead so the
 view doesn't ask the disk. The core reads them again when a Game Hub or Downloads
 opens, the catalogs are read, a folder changes, and a download starts or ends.
+
+**Drive** (`drives::Drive`): a USB stick, a disk, or a part of a disk with a file system, mounted
+or not, as the drives module lists it. Its id is its file system's UUID when it has one. A drive
+the player can take out is `usb`.
+_Avoid_: disk (`Disks` is the download folders' room), volume, storage (a plugin's data folder)
+
+**Drive adapter** (`drives::Adapter`): where the drives' list and actions come from: the mount
+folders (`MountFolders`) on every system, or a system plugin's `drives` capability
+(`PluginDrives`, UDisks on Linux).
+
+**Drive space** (`DriveSpace`): the port of the drives' quick system calls on a path: the free
+space and the size of the drive that holds it, and which drive that is.
 
 **Download and install** (`InstallAfter`, `TorrentCmd::Begin`): the download sheet's first
 button. The checked files download, and the game installs by itself into the game folder once
@@ -148,6 +155,17 @@ run when the current build changes.
 module: a plugin read whose answer goes to a subsystem, an install that downloads and then
 posts a notice. The core routes a command to a flow when no one subsystem owns it.
 _Avoid_: handler, service
+
+**Folder browser** (`browser::Browser`, `kit/folder-browser.slint`): the sheet over every
+screen that goes through the folders of this PC and its drives, for a purpose: "Restore from
+another folder", or picking a folder for a host folder ("Add folder"). It shows the places, the
+folders (and for a restore the backups) of one folder, and the details of the focused row. The
+core holds its state; the kit draws it.
+_Avoid_: backup browser (its old name), file picker, file dialog
+
+**Folder list** (`kit/folder-list.slint`): a host folder's folders, as a folder row in Settings or
+on a plugin's page opens them: each with the free space on its drive and Remove, then Add folder
+and Type a path.
 
 **Format reader**: the code that lists and streams one archive format's entries: `zip`, `tar`,
 `sevenz-rust2`, libarchive, or `unar`. It decides nothing about safety; the archive plan does.
@@ -278,9 +296,9 @@ console. It also picks the release an offer's card shows.
 download, and what the core does next: unpause, stop, finished or stopped. They exist once, in
 the core; the adapter and the fake decide nothing.
 
-**Place** (`BrowsePlace`, `PlaceKind`): a folder the backup browser lists on its side to go to:
-Home, Downloads, Desktop, Documents, the backup folder, a drive, or a recent folder. Not
-`Place` in `system.rs`, which says where the launcher runs.
+**Place** (`BrowsePlace`, `PlaceKind`): a folder the folder browser lists on its side to go to:
+Home, Downloads, Desktop, Documents, the backup folder, a drive (mounted or not), or a recent
+folder. Not `Place` in `system.rs`, which says where the launcher runs.
 
 **Platform** (`Platform`, launcher-ui-host): the app shell's port: running work off the UI thread,
 waking the shell, opening links and paths, quitting, the lines the launcher's login session reads, sounds,
@@ -312,10 +330,11 @@ and the fake `FakeProcessTree`.
 **Purpose** (`Purpose`, launcher-core `folders.rs`): what a console's folder is for, `Download` or
 `Install`. It picks the grant the folder lies in (`packages` or `games`), the key of the last
 pick, and the words of an error. `HostFolders::place` takes it with a console.
-_Avoid_: place (a place is the backup browser's), kind (a plugin's kind is something else)
+Not the folder browser's purpose (`browser::Purpose`): `Restore`, or `Pick` a folder.
+_Avoid_: place (a place is the folder browser's), kind (a plugin's kind is something else)
 
 **Recent folder** (`PlaceKind::Recent`): a folder a restore came from, kept as a place in the
-backup browser. The core keeps the last five in `app.backup_recent` (`Pref::BackupRecent`).
+folder browser. The core keeps the last five in `app.backup_recent` (`Pref::BackupRecent`).
 
 **Recent search** (`Pref::RecentSearches`): a search the player made, kept when they press
 Done or Enter, or open a game from the keyboard's picks. The core keeps the last eight,

@@ -66,6 +66,15 @@ pub(crate) struct AppState {
     pub grid_columns: HashMap<Grid, usize>,
     /// Where the catalogs' downloads go, and the free space there.
     pub disks: crate::disks::Disks,
+    /// What the view reads from the disk, read ahead ([`crate::snapshot::refresh_files`]).
+    pub files: crate::snapshot::Files,
+    /// The read the games' folders and logs are from: an older read that ends later doesn't
+    /// replace them.
+    pub files_read: u64,
+    /// The read of every game the host folders and the install folders are from.
+    pub folders_read: u64,
+    /// The game folders a scan runs for now: added or back, their games not read yet.
+    pub scanning: std::collections::BTreeSet<std::path::PathBuf>,
 }
 
 impl AppState {
@@ -90,6 +99,10 @@ impl AppState {
             catalog_reads: 0,
             grid_columns: HashMap::new(),
             disks: Default::default(),
+            files: Default::default(),
+            files_read: 0,
+            folders_read: 0,
+            scanning: Default::default(),
         }
     }
 

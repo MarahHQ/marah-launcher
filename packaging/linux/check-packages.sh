@@ -35,6 +35,7 @@ want=(
     usr/share/marah-launcher/session.conf
     usr/share/applications/marah-launcher.desktop
     usr/share/wayland-sessions/marah-launcher.desktop
+    usr/share/polkit-1/rules.d/50-marah-launcher-drives.rules
     usr/share/icons/hicolor/512x512/apps/marah-launcher.png
 )
 # What Marah Launcher loads by name, and what old Linux games' launchers need, which each package must

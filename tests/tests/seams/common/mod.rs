@@ -199,8 +199,8 @@ impl Composed {
     pub fn run_work(&mut self) {
         let errors = self.rt.block_on(self.platform.run_work());
         assert!(errors.is_empty(), "a command failed: {errors:?}");
-        while let Some(Some(_)) = self.events.next().now_or_never() {
-            self.shell.on_core_changed();
+        while let Some(Some(event)) = self.events.next().now_or_never() {
+            self.shell.on_core_events(event == Event::StateChanged);
         }
     }
 
@@ -395,7 +395,7 @@ pub fn write_raw_theme(parent: &Path, theme_id: &str, theme_section: &str, files
         dir.join("theme.toml"),
         format!(
             "id = \"{theme_id}\"\nkind = \"theme\"\nname = \"{theme_id}\"\nversion = \"1.0.0\"\nhost_api = \"^0.3\"\n\
-             capabilities = [\"theme\"]\n[runtime]\ntype = \"data\"\n[theme]\nui_api = \"^0.5\"\n{theme_section}\n"
+             capabilities = [\"theme\"]\n[runtime]\ntype = \"data\"\n[theme]\nui_api = \"^0.6\"\n{theme_section}\n"
         ),
     )
     .unwrap();

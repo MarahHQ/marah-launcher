@@ -11,7 +11,8 @@ use std::path::PathBuf;
 use launcher_api::{BackupItem, BackupPlace, Capability, PluginId};
 use serde::{Deserialize, Serialize};
 
-use crate::backup::{BrowsePlace, ItemKey, PlaceKind, RestorePlan, Source};
+use crate::backup::{ItemKey, RestorePlan, Source};
+use crate::browser::{BrowseCmd, Purpose};
 use crate::{Core, CoreError, CoreResult, DirStorage, Pref};
 
 /// The backup folder when the player chose none, in the home folder.
@@ -25,23 +26,22 @@ pub enum BackupCmd {
     /// Reads the backup folder's list again.
     Refresh,
     /// Backs up now; `large` takes in the items a plugin marks large.
-    BackUp {
-        large: bool,
-    },
+    BackUp { large: bool },
     /// Puts the backup with this file name, in the backup folder, back.
     Restore(String),
     /// Puts the backup at this path back: one the browser found in another folder.
     RestoreFile(PathBuf),
     /// Deletes the backup with this file name from the backup folder.
     Delete(String),
-    /// Opens the browser at this folder, or moves it there. With none, it opens at the last
-    /// folder a restore came from, else at the backup folder.
+    /// Opens the folder browser for a restore at this folder, or moves it there. With none, it
+    /// opens at the last folder a restore came from, else at the backup folder. As
+    /// [`BrowseCmd::Open`] with [`Purpose::Restore`].
     Browse(Option<PathBuf>),
+    /// As [`BrowseCmd::Close`].
     CloseBrowser,
-    /// Lists the browser's hidden folders, or not.
+    /// As [`BrowseCmd::ShowHidden`].
     ShowHidden(bool),
-    /// Shows only the browser's entries whose name holds this text, in any case; all for empty
-    /// text.
+    /// As [`BrowseCmd::Filter`].
     Filter(String),
 }
 
@@ -97,33 +97,16 @@ pub(crate) async fn handle(core: &Core, command: BackupCmd) -> CoreResult<()> {
             let file = in_folder(&file)?;
             core.backup().delete(&folder(core)?, &file).await
         }
-        BackupCmd::Browse(at) => {
-            let places = places(core);
-            let at = match at {
-                Some(at) => at,
-                None => recent(core)
-                    .into_iter()
-                    .next()
-                    .or_else(|| folder(core).ok().filter(|f| f.is_dir()))
-                    .or_else(|| places.first().map(|p| p.path.clone()))
-                    .ok_or_else(|| CoreError::Invalid("no folder to start from".into()))?,
-            };
-            if !at.is_absolute() || !at.is_dir() {
-                return Err(CoreError::Invalid(format!("{} isn't a folder", at.display())));
-            }
-            core.backup().browse(at, places).await
-        }
-        BackupCmd::CloseBrowser => {
-            core.backup().close_browser();
-            Ok(())
-        }
-        BackupCmd::ShowHidden(hidden) => core.backup().show_hidden(hidden).await,
-        BackupCmd::Filter(text) => core.backup().filter(text),
+        // The folder browser's, kept for themes that send them here.
+        BackupCmd::Browse(at) => crate::browser::open(core, at, Purpose::Restore).await,
+        BackupCmd::CloseBrowser => crate::browser::handle(core, BrowseCmd::Close).await,
+        BackupCmd::ShowHidden(hidden) => crate::browser::handle(core, BrowseCmd::ShowHidden(hidden)).await,
+        BackupCmd::Filter(text) => crate::browser::handle(core, BrowseCmd::Filter(text)).await,
     }
 }
 
 /// The folders restores came from that are still there, newest first.
-fn recent(core: &Core) -> Vec<PathBuf> {
+pub(crate) fn recent(core: &Core) -> Vec<PathBuf> {
     saved_recent(core).into_iter().map(PathBuf::from).filter(|p| p.is_absolute() && p.is_dir()).collect()
 }
 
@@ -162,95 +145,24 @@ fn in_folder(file: &str) -> CoreResult<String> {
 /// Puts the backup at `path` back into this computer's places.
 async fn restore(core: &Core, path: PathBuf) -> CoreResult<()> {
     ready(core)?;
+    core.browsing().close();
     let found = items(core, true).await;
     let targets = found.iter().map(|i| (i.source.key.clone(), i.source.path.clone())).collect();
-    let hardware = core.ports().hardware.clone();
+    let drives = core.ports().drives.clone();
     let plan = RestorePlan {
         targets,
         current: found.into_iter().map(|i| i.source).collect(),
         now: crate::sessions::now_secs(),
-        computer: hardware.computer_name(),
-        free: std::sync::Arc::new(move |at: &std::path::Path| crate::room::free_at(hardware.as_ref(), at)),
+        computer: core.ports().hardware.computer_name(),
+        free: std::sync::Arc::new(move |at: &std::path::Path| crate::drives::free(drives.as_ref(), at)),
     };
     core.backup().restore(&path, &folder(core)?, plan).await
-}
-
-/// Where the browser can go: Home, the Downloads, Desktop and Documents folders that are there,
-/// the backup folder, each drive that is there, then the folders restores came from that no
-/// other place is.
-fn places(core: &Core) -> Vec<BrowsePlace> {
-    let mut out = Vec::new();
-    let mut add = |name: String, path: PathBuf, kind: PlaceKind, detail: String| {
-        out.push(BrowsePlace { name, path, kind, detail });
-    };
-    let home = core.kernel().host().home.clone();
-    if let Some(home) = &home {
-        add("Home".into(), home.clone(), PlaceKind::Home, String::new());
-        for (name, kind) in
-            [("Downloads", PlaceKind::Downloads), ("Desktop", PlaceKind::Desktop), ("Documents", PlaceKind::Documents)]
-        {
-            let path = home.join(name);
-            if path.is_dir() {
-                add(name.into(), path, kind, String::new());
-            }
-        }
-    }
-    if let Ok(folder) = folder(core)
-        && folder.is_dir()
-    {
-        add("Backup folder".into(), folder, PlaceKind::Backups, String::new());
-    }
-    let hardware = core.ports().hardware.clone();
-    for drive in drives(home.as_deref()) {
-        let name =
-            drive.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| drive.display().to_string());
-        let size = hardware.disk_bytes(&drive).map(disk_text).unwrap_or_default();
-        add(name, drive, PlaceKind::Drive, size);
-    }
-    for path in recent(core) {
-        if out.iter().any(|p| p.path == path) {
-            continue;
-        }
-        let name =
-            path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.display().to_string());
-        let shown = crate::display::short_home(&path.display().to_string(), home.as_deref().and_then(|h| h.to_str()));
-        out.push(BrowsePlace { name, path, kind: PlaceKind::Recent, detail: shown });
-    }
-    out
-}
-
-/// A drive's size: `1.6 TB` from 1000 GB up, else as other sizes (`32.0 GB`).
-fn disk_text(bytes: u64) -> String {
-    if bytes >= 1_000_000_000_000 { format!("{:.1} TB", bytes as f64 / 1e12) } else { crate::display::size_text(bytes) }
-}
-
-/// The drives that are there: USB sticks and other disks the system mounted.
-fn drives(home: Option<&std::path::Path>) -> Vec<PathBuf> {
-    let children = |dir: PathBuf| -> Vec<PathBuf> {
-        let Ok(read) = std::fs::read_dir(&dir) else { return Vec::new() };
-        let mut found: Vec<PathBuf> = read.filter_map(Result::ok).map(|e| e.path()).filter(|p| p.is_dir()).collect();
-        found.sort();
-        found
-    };
-    if cfg!(target_os = "windows") {
-        return ('C'..='Z').map(|d| PathBuf::from(format!("{d}:\\"))).filter(|p| p.is_dir()).collect();
-    }
-    if cfg!(target_os = "macos") {
-        return children(PathBuf::from("/Volumes"));
-    }
-    let user = home.and_then(|h| h.file_name()).map(|n| n.to_owned());
-    let mut out = Vec::new();
-    if let Some(user) = user {
-        out.extend(children(PathBuf::from("/run/media").join(&user)));
-        out.extend(children(PathBuf::from("/media").join(&user)));
-    }
-    out.extend(children(PathBuf::from("/mnt")));
-    out
 }
 
 /// Sets the backup folder, then reads the list there.
 pub(crate) async fn set_folder(core: &Core, value: serde_json::Value) -> CoreResult<()> {
     core.preferences().set(Pref::BackupFolder, value).await?;
+    crate::disks::refresh(core).await;
     list(core).await;
     Ok(())
 }
@@ -349,14 +261,5 @@ fn place(core: &Core, plugin: &PluginId, item: &BackupItem) -> CoreResult<PathBu
             let folders = kernel.host_folders(plugin).ok_or_else(|| CoreError::UnknownPlugin(plugin.clone()))?;
             folders.resolve(path).map_err(refused)
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn a_drive_of_a_thousand_gb_or_more_says_tb() {
-        assert_eq!(super::disk_text(1_645_500_000_000), "1.6 TB");
-        assert_eq!(super::disk_text(32_000_000_000), "32.0 GB");
     }
 }

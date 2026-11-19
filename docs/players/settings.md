@@ -8,7 +8,10 @@ screen and the power menu.
 ![Settings](../screenshots/settings.jpg)
 
 Settings saves each change at once. It is one page: every section is under its own heading,
-with a column of their icons on the left that lights the section you are in.
+with a column of their icons on the left that lights the section you are in. The sections go
+in four groups: the launcher itself (Launcher, Updates, Backup), playing (Games, Downloads), the
+machine (System, when the launcher is the whole screen, and This PC), and Power last. Settings
+opens on Launcher.
 
 - Up and Down move through the rows, from one section into the next.
 - L1 and R1 jump to the section before or after.
@@ -30,17 +33,6 @@ with a column of their icons on the left that lights the section you are in.
 | Start at login | The launcher opens when you log in. Only in an installed build. |
 | Screen | The monitor the launcher fills. Only with two monitors or more. |
 
-## Games
-
-| Setting | What it does |
-| --- | --- |
-| Game folders | Where your games are, `~/Games` by default. Installs go into the console's folder inside the first one. |
-| Packages to install | Where the emulators look for packages and disc images to install, `~/Downloads` by default. |
-| Rescan game folders | Looks for games again. |
-| Send ratings | Sends your results ("how far did it get") to the community compatibility lists. See [Playing](playing.md#send-your-ratings). |
-
-Separate several folders with `;`. Start a path with `~` for your home folder.
-
 ## Updates
 
 | Setting | What it does |
@@ -55,6 +47,30 @@ The AppImage downloads only the parts of the new version that changed, and takes
 the AppImage you run. The update shows how much it downloads, for example "12.0 MB of 119.0 MB".
 When that can't work, it downloads the whole file.
 
+## Backup
+
+See [Backup and restore](backup.md).
+
+## Games
+
+| Setting | What it does |
+| --- | --- |
+| Game folders | Where your games are, `~/Games` by default. Installs go into the console's folder inside the first one. ✕ opens the list of folders. |
+| Packages to install | Where the emulators look for packages and disc images to install, `~/Downloads` by default. |
+| Rescan game folders | Looks for games again. The launcher also looks on its own: at the start, when you add a folder, and when a drive with a game folder comes back. |
+| Send ratings | Sends your results ("how far did it get") to the community compatibility lists. See [Playing](playing.md#send-your-ratings). |
+
+✕ on a folder setting opens its list. Each folder shows the free space on its drive, or "Not
+there" while its drive is out. A folder you just added says "Scanning…" until the launcher has
+looked through it; a notice then says how many games it found. Its games show with no Rescan,
+and the games of a folder you take out leave the Library.
+
+- **Remove** takes a folder out of the list. The folder and its files stay.
+- **Add folder** opens the folder browser. Go to a folder, on this PC or on a drive, then choose
+  **Use this folder** (△). A drive that isn't mounted shows "Mount" in the browser's places:
+  choose it to mount the drive and open it.
+- **Type a path** adds a folder by its path. Start a path with `~` for your home folder.
+
 ## Downloads
 
 | Setting | What it does |
@@ -63,11 +79,6 @@ When that can't work, it downloads the whole file.
 | Your VPN | The VPN to use. |
 | Add a VPN | Adds a VPN, where the system can do it. |
 | Keep sharing finished downloads | Other players download from you, at most 128 KB/s. See [Sharing](downloads.md#sharing). |
-
-## This PC
-
-Your processor, memory and graphics, and how each emulator's games should run on this PC. It
-only shows information.
 
 ## System
 
@@ -78,9 +89,10 @@ Marah Launcher session on the login screen, or on Marah OS.
 - On Marah OS, **Marah OS updates** shows the system's update.
 - On the Marah OS USB stick, **Install Marah OS on this PC** starts the install.
 
-## Backup
+## This PC
 
-See [Backup and restore](backup.md).
+Your processor, memory and graphics, and how each emulator's games should run on this PC. It
+only shows information.
 
 ## Power
 
@@ -95,6 +107,9 @@ row reads **Restart Marah Launcher**, and the session starts the launcher again.
   closing. A game that won't close is ended after a few seconds.
 
 The power menu (hold the PS button, or Ctrl+P) has the same items, from any screen.
+
+At the end of the page, under Power, the About card says what the launcher is: its plugins and
+emulators, and its license. Made with Slint is under it.
 
 ## Themes
 

@@ -11,6 +11,7 @@ use launcher_ui_api::*;
 use serde_json::Value;
 
 use crate::app::{Grid, Route};
+use crate::changes::Area;
 use crate::game_installs::InstallsSnapshot;
 use crate::grid_query::{GridData, GridGames, GridQuery};
 use crate::library::{Entry, LibrarySnapshot, PluginImage, image_ref};
@@ -363,6 +364,7 @@ fn notice_opens(plugins: &Plugins, notice: &crate::notices::Notice) -> String {
             format!("Open {}", plugins.manifest(plugin).map(|m| m.name.clone()).unwrap_or_default())
         }
         Some(Route::Settings) => "Open Settings".into(),
+        _ if notice.drive.is_some() => "Open or use for games".into(),
         _ => String::new(),
     }
 }
@@ -380,11 +382,41 @@ fn notice_vm(s: &Snapshot, notice: &crate::notices::Notice) -> NoticeVm {
         kind: notice.kind,
         art: notice_art(&s.library, notice),
         opens: notice_opens(&s.plugins, notice),
+        drive: notice.drive.clone().unwrap_or_default(),
     }
+}
+
+/// The parts of the view that list games: the dearest to build, over thousands of games.
+pub(crate) struct GameLists {
+    pub home: HomeVm,
+    pub detail: Option<GameDetailVm>,
+    pub catalog: CatalogVm,
+    pub downloads: DownloadsVm,
+}
+
+impl GameLists {
+    /// The game lists of `view`.
+    pub fn of(view: AppView) -> Self {
+        GameLists { home: view.home, detail: view.detail, catalog: view.catalog, downloads: view.downloads }
+    }
+}
+
+/// Whether a change in `area` can change the game lists ([`GameLists`]). The other areas reach
+/// only the machine's settings, the notices, the launcher's update, the backups and the folder
+/// browser, so a change there builds the rest of the view and keeps the lists as they were.
+pub(crate) fn moves_game_lists(area: Area) -> bool {
+    !matches!(area, Area::System | Area::Notices | Area::LauncherUpdate | Area::Backup | Area::Browser)
 }
 
 /// The view models for the snapshot `s`.
 pub(crate) fn build(s: &Snapshot) -> AppView {
+    build_with(s, None)
+}
+
+/// The view models for the snapshot `s`, with `lists` as its game lists when given: they stand
+/// for the snapshot's own when no change since they were built moves them
+/// ([`moves_game_lists`]).
+pub(crate) fn build_with(s: &Snapshot, lists: Option<GameLists>) -> AppView {
     let state = &s.state;
     let route = state.stack.route().clone();
     let (screen, game) = match &route {
@@ -399,8 +431,18 @@ pub(crate) fn build(s: &Snapshot) -> AppView {
         Route::Plugin(_) => (ScreenId::Plugin, None),
         Route::GameSettings(g) => (ScreenId::GameSettings, Some(g.clone())),
     };
-    let owned = s.ownership();
-    let data = s.grid_data(&owned);
+    let lists = lists.unwrap_or_else(|| {
+        let owned = s.ownership();
+        let data = s.grid_data(&owned);
+        GameLists {
+            home: home_vm(s, &data),
+            // The detail page of the game the player last opened stays available under
+            // overlays. With no detail page open, the selected game's details, once loaded.
+            detail: s.detail_game.as_ref().and_then(|key| detail_vm(s, &owned, key)),
+            catalog: catalog_vm(s, &data, route == Route::Catalog),
+            downloads: downloads_vm(s, &owned),
+        }
+    });
     let notices = &s.notices;
     let mut view = AppView {
         screen,
@@ -412,12 +454,10 @@ pub(crate) fn build(s: &Snapshot) -> AppView {
             crate::stack::Move::None => "",
         }
         .into(),
-        home: home_vm(s, &data),
-        // The detail page of the game the player last opened stays available under overlays.
-        // With no detail page open, the selected game's details, once loaded.
-        detail: s.detail_game.as_ref().and_then(|key| detail_vm(s, &owned, key)),
-        catalog: catalog_vm(s, &data, route == Route::Catalog),
-        downloads: downloads_vm(s, &owned),
+        home: lists.home,
+        detail: lists.detail,
+        catalog: lists.catalog,
+        downloads: lists.downloads,
         settings: settings_vm(s),
         emulators: emulators_vm(s),
         plugin_page: match &route {
@@ -427,6 +467,7 @@ pub(crate) fn build(s: &Snapshot) -> AppView {
         running: running_vm(s),
         notices: notices.iter().map(|n| n.message.clone()).collect(),
         notice_cards: notices.iter().map(|n| notice_vm(s, n)).collect(),
+        browser: browser_vm(s),
         question: state.startup.question.as_ref().map(|(_, q)| QuestionVm {
             title: q.title.clone(),
             text: q.text.clone(),
@@ -720,7 +761,7 @@ fn detail_vm(s: &Snapshot, owned: &Ownership, key: &GameKey) -> Option<GameDetai
         pc_warning,
         your_result: your_result.map(CompatLevel::as_str).unwrap_or_default().to_owned(),
         has_folder: s.files.game_folders.contains(key),
-        has_log: s.files.has_log,
+        has_log: s.files.logs.contains(key),
         hidden: library.hidden(key),
         compat_page: community.and_then(|c| c.page.clone()).unwrap_or_default(),
         trailer_url: meta.map(|(_, m)| m.trailer.clone()).unwrap_or_default(),
@@ -1162,12 +1203,75 @@ fn job_text(job: &crate::system::JobState) -> launcher_ui_api::SystemJobVm {
     vm
 }
 
+/// The Drives panel's drives, each with its buttons: Open, Use for games, then Eject (a drive the player can take out) or Unmount, while it is
+/// mounted; Mount while it isn't. Mount, Eject and Unmount only where drives can be mounted
+/// (`can_act`).
+fn drive_items(s: &Snapshot, can_act: bool) -> Vec<launcher_ui_api::DriveItemVm> {
+    use crate::system::{JobKind, JobPhase};
+    let mut items = Vec::new();
+    for drive in &s.drives {
+        let mut detail: Vec<String> = Vec::new();
+        detail.extend(drive.size.map(crate::browser::drive_size_text));
+        match &drive.mount {
+            Some(_) => detail.extend(drive.free.map(|f| format!("{} free", crate::browser::drive_size_text(f)))),
+            None => detail.push("Not mounted".into()),
+        }
+        if !drive.filesystem.is_empty() {
+            detail.push(drive.filesystem.clone());
+        }
+        let mut actions: Vec<&str> = Vec::new();
+        match &drive.mount {
+            None if can_act => actions.push("mount"),
+            None => {}
+            Some(_) => {
+                actions.push("open");
+                actions.push("use");
+                if can_act {
+                    actions.push(if drive.usb { "eject" } else { "unmount" });
+                }
+            }
+        }
+        // A mount, unmount or eject job runs on the drive: its job names the drive.
+        let busy = s.state.system.jobs.iter().find(|j| j.phase == JobPhase::Running && j.drive == drive.id);
+        let busy = match busy.map(|j| j.kind) {
+            Some(JobKind::Mount) => "mount",
+            Some(JobKind::Unmount) => "unmount",
+            Some(JobKind::Eject) => "eject",
+            _ => "",
+        };
+        let used = match (drive.mount.as_ref(), drive.size, drive.free) {
+            (Some(_), Some(size), Some(free)) if size > 0 => (size.saturating_sub(free) as f64 / size as f64) as f32,
+            _ => -1.0,
+        };
+        let kind = if drive.device.starts_with("/dev/mmcblk") {
+            "card"
+        } else if drive.usb {
+            "usb"
+        } else {
+            "internal"
+        };
+        items.push(launcher_ui_api::DriveItemVm {
+            drive: drive.id.clone(),
+            name: drive.label.clone(),
+            detail: detail.join(" · "),
+            path: drive.mount.as_ref().map(|m| m.display().to_string()).unwrap_or_default(),
+            kind: kind.into(),
+            used,
+            actions: actions.into_iter().map(str::to_owned).collect(),
+            busy: busy.into(),
+        });
+    }
+    items
+}
+
 fn system_vm(s: &Snapshot) -> launcher_ui_api::SystemVm {
     use launcher_api::{Capability, Connection, OsUpdate};
     use launcher_ui_api::{AudioOutputVm, BluetoothDeviceVm, InstallDiskVm, SystemJobVm, WifiVm};
     let system = &s.state.system;
     let place = s.plugins.host().place;
-    let reason = |c: Capability| system.unavailable(c);
+    // Not read yet: neither available nor unavailable, with no reason.
+    let loading = |c: Capability| !system.read.contains(&c);
+    let reason = |c: Capability| if loading(c) { Some(String::new()) } else { system.unavailable(c) };
     let network = system.network.clone().unwrap_or_default();
     let (os_update, os_update_text) = match &system.os_update {
         None => (String::new(), String::new()),
@@ -1184,6 +1288,7 @@ fn system_vm(s: &Snapshot) -> launcher_ui_api::SystemVm {
         own_os: place.own_os,
         stick: place.stick,
         network_available: reason(Capability::Network).is_none(),
+        network_loading: loading(Capability::Network),
         network_reason: reason(Capability::Network).unwrap_or_default(),
         connection: match network.connection {
             Connection::None => "none",
@@ -1205,6 +1310,7 @@ fn system_vm(s: &Snapshot) -> launcher_ui_api::SystemVm {
             })
             .collect(),
         audio_available: reason(Capability::Audio).is_none(),
+        audio_loading: loading(Capability::Audio),
         audio_reason: reason(Capability::Audio).unwrap_or_default(),
         volume: level.volume as i32,
         muted: level.muted,
@@ -1214,6 +1320,7 @@ fn system_vm(s: &Snapshot) -> launcher_ui_api::SystemVm {
             .map(|o| AudioOutputVm { name: o.name.clone(), description: o.description.clone(), current: o.current })
             .collect(),
         bluetooth_available: reason(Capability::Bluetooth).is_none(),
+        bluetooth_loading: loading(Capability::Bluetooth),
         bluetooth_reason: reason(Capability::Bluetooth).unwrap_or_default(),
         bluetooth_on: system.bluetooth_on,
         connected_devices: system.devices.iter().filter(|d| d.connected).count() as i32,
@@ -1228,6 +1335,7 @@ fn system_vm(s: &Snapshot) -> launcher_ui_api::SystemVm {
             })
             .collect(),
         power_available: reason(Capability::Power).is_none(),
+        power_loading: loading(Capability::Power),
         power_reason: reason(Capability::Power).unwrap_or_default(),
         battery_shown: system.battery.is_some(),
         battery_percent: system.battery.map_or(0, |b| b.percent as i32),
@@ -1245,6 +1353,15 @@ fn system_vm(s: &Snapshot) -> launcher_ui_api::SystemVm {
                 model: d.model.clone(),
             })
             .collect(),
+        drives_available: reason(Capability::Drives).is_none(),
+        drives_loading: loading(Capability::Drives),
+        drives_listing: !s.drives_listed,
+        drives_reason: match system.capabilities.get(&Capability::Drives) {
+            _ if loading(Capability::Drives) => String::new(),
+            Some(why) => why.clone().unwrap_or_default(),
+            None => crate::drives::CANT_ACT.into(),
+        },
+        drives: drive_items(s, reason(Capability::Drives).is_none()),
         jobs: system
             .jobs
             .iter()
@@ -1382,6 +1499,12 @@ fn backup_vm(s: &Snapshot) -> launcher_ui_api::BackupVm {
         s.backup_folder.as_ref().map(|f| crate::display::short_home(&f.display().to_string(), home.as_deref()));
     let job = backup.job.as_ref();
     launcher_ui_api::BackupVm {
+        free: s
+            .state
+            .disks
+            .backup_free
+            .map(|b| format!("{} free", crate::browser::drive_size_text(b)))
+            .unwrap_or_default(),
         folder: folder.unwrap_or_default(),
         running: job.is_some(),
         restoring: job.is_some_and(|j| j.restoring),
@@ -1414,18 +1537,40 @@ fn backup_vm(s: &Snapshot) -> launcher_ui_api::BackupVm {
                 )
             })
             .unwrap_or_default(),
-        browser: backup.browser.as_deref().map(|b| browser_vm(b, home.as_deref())).unwrap_or_default(),
     }
 }
 
-fn browser_vm(browser: &crate::backup::Browser, home: Option<&str>) -> launcher_ui_api::BackupBrowserVm {
+/// The folder browser, while it is open.
+fn browser_vm(s: &Snapshot) -> launcher_ui_api::FolderBrowserVm {
+    let Some(browser) = s.browser.as_deref() else { return Default::default() };
+    let home = s.plugins.host().home.as_deref().map(|h| h.display().to_string());
+    let home = home.as_deref();
     let full = |p: &std::path::Path| p.display().to_string();
-    launcher_ui_api::BackupBrowserVm {
+    let (purpose, folder) = match &browser.purpose {
+        crate::browser::Purpose::Restore => ("restore", String::new()),
+        crate::browser::Purpose::Pick(name) => ("pick", name.clone()),
+        crate::browser::Purpose::BackupFolder => ("pick", "backup".to_owned()),
+    };
+    let folder_title = match &browser.purpose {
+        crate::browser::Purpose::BackupFolder => "Backup folder".to_owned(),
+        _ => launcher_api::shared_folder(&folder).map(|f| f.title.to_owned()).unwrap_or_else(|| folder.clone()),
+    };
+    let title = match &browser.purpose {
+        crate::browser::Purpose::Restore => "Restore a backup".to_owned(),
+        crate::browser::Purpose::Pick(_) => format!("Add to {folder_title}"),
+        crate::browser::Purpose::BackupFolder => "Choose the backup folder".to_owned(),
+    };
+    launcher_ui_api::FolderBrowserVm {
         open: true,
+        purpose: purpose.into(),
+        folder,
+        folder_title,
+        title,
         shown: crate::display::short_home(&full(&browser.at), home),
         parent: browser.at.parent().map(full).unwrap_or_default(),
         crumbs: crumbs(&browser.at, home),
         place: browser.places.iter().position(|p| p.path == browser.at).map_or(-1, |i| i as i32),
+        places_loading: browser.places_loading,
         places: browser
             .places
             .iter()
@@ -1434,6 +1579,9 @@ fn browser_vm(browser: &crate::backup::Browser, home: Option<&str>) -> launcher_
                 path: full(&p.path),
                 kind: p.kind.as_str().to_owned(),
                 detail: p.detail.clone(),
+                drive: p.drive.clone().unwrap_or_default(),
+                mounted: !p.path.as_os_str().is_empty(),
+                usb: p.usb,
             })
             .collect(),
         entries: browser
@@ -1519,6 +1667,7 @@ fn folders_vm(s: &Snapshot) -> Vec<FolderVm> {
                     title: String::new(),
                     help: String::new(),
                     text: paths.join("; "),
+                    list: roots.iter().map(|p| folder_path_vm(s, p)).collect(),
                     shown: String::new(),
                     paths,
                     default: String::new(),
@@ -1560,6 +1709,24 @@ fn folders_vm(s: &Snapshot) -> Vec<FolderVm> {
             f
         })
         .collect()
+}
+
+/// One folder of a named host folder, with the free space on its drive.
+fn folder_path_vm(s: &Snapshot, path: &std::path::Path) -> launcher_ui_api::FolderPathVm {
+    let home = s.plugins.host().home.as_deref().map(|h| h.display().to_string());
+    let there = s.state.disks.roots_free.contains_key(path);
+    let free = match s.state.disks.roots_free.get(path) {
+        Some(Some(bytes)) => format!("{} free", crate::browser::drive_size_text(*bytes)),
+        Some(None) => String::new(),
+        None => "Not there".into(),
+    };
+    launcher_ui_api::FolderPathVm {
+        path: path.display().to_string(),
+        shown: crate::display::short_home(&path.display().to_string(), home.as_deref()),
+        free,
+        there,
+        scanning: s.state.scanning.contains(path),
+    }
 }
 
 fn emulators_vm(s: &Snapshot) -> EmulatorsVm {

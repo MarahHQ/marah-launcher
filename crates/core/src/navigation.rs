@@ -35,7 +35,7 @@ pub(crate) async fn navigate(core: &Core, route: Route) -> CoreResult<()> {
         Route::GameDetail(game) => return open_game(core, game.clone()).await,
         Route::Emulators => crate::emulator_builds::refresh_emulators(core).await,
         // A download's sheet shows the free space where it goes and where it installs.
-        Route::Downloads => crate::disks::refresh(core),
+        Route::Downloads => crate::disks::refresh(core).await,
         Route::Plugin(plugin) => {
             let manifest = core.kernel().manifest(plugin)?;
             // A service's blocks show on its page too.
@@ -101,7 +101,7 @@ pub(crate) async fn open_game(core: &Core, game: GameKey) -> CoreResult<()> {
         core.vpn().refresh().await;
     }
     crate::library_reads::load_detail(core, &game).await?;
-    crate::disks::refresh(core);
+    crate::disks::refresh(core).await;
     open(core, Route::GameDetail(game));
     Ok(())
 }

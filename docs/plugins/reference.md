@@ -62,7 +62,7 @@ kind = "emulator"
 name = "PS5"
 emulator = "KytyPS5"
 version = "0.1.0"
-host_api = "^0.3.4"
+host_api = "^0.3.5"
 platforms = ["linux", "macos", "windows"]
 console = "PS5"
 capabilities = ["catalog", "downloader", "installer", "configurator", "launcher", "compatibility", "slots", "game_installer", "backup"]
@@ -114,7 +114,7 @@ cover = "cover.jpg"
 | `name` | yes | What the player sees: in the plugin lists, on the plugin page, and where a sentence means the console. An emulator names its console: `PS5`. |
 | `emulator` | no | For an emulator, the name of the program it installs and runs, such as `KytyPS5`. Sentences about the program use it. Leave it out when the program has no name of its own: `name` is used. |
 | `version` | yes | The plugin's semver version. |
-| `host_api` | yes | A semver range of the API versions the plugin works with, such as `^0.3`. The host refuses the plugin when the range doesn't include `API_VERSION`, now `0.3.4`. |
+| `host_api` | yes | A semver range of the API versions the plugin works with, such as `^0.3`. The host refuses the plugin when the range doesn't include `API_VERSION`, now `0.3.5`. |
 | `platforms` | no | `linux`, `macos`, `windows`. Empty means every system. |
 | `console` | no | For an emulator, the console it plays: ASCII letters, digits and `-`, kept in uppercase (`ps5` and `PS5` are one console). The host gives the emulator that console's releases. Not the systems the plugin runs on. |
 | `capabilities` | no | The capabilities `init` provides, in snake case. See [Capabilities](#capabilities). |
@@ -373,7 +373,7 @@ for each one in `Provided`.
 | `backup` | `backup` | `Backup` | `backup.rs` |
 | `startup` | `startup` | `StartupWork` | `startup.rs` |
 | `theme` | none | `ThemePlugin` | `plugin.rs` |
-| `network`, `vpn`, `bluetooth`, `audio`, `power`, `os_updates`, `os_install` | the same names | `NetworkSettings`, `VpnSettings`, `BluetoothSettings`, `AudioSettings`, `PowerSettings`, `OsUpdates`, `OsInstall` | `system.rs` |
+| `network`, `vpn`, `bluetooth`, `audio`, `power`, `os_updates`, `os_install`, `drives` | the same names | `NetworkSettings`, `VpnSettings`, `BluetoothSettings`, `AudioSettings`, `PowerSettings`, `OsUpdates`, `OsInstall`, `DriveSettings` | `system.rs` |
 
 ### Catalog
 
@@ -576,12 +576,30 @@ its releases. The host shows them in Downloads. Default: none.
 
 ### System capabilities
 
-`network`, `vpn`, `bluetooth`, `audio`, `power`, `os_updates` and `os_install` are for system
-plugins only. The host uses the first active system plugin that provides each one, and shows a
+`network`, `vpn`, `bluetooth`, `audio`, `power`, `os_updates`, `os_install` and `drives` are
+for system plugins only. The host uses the first active system plugin that provides each one, and shows a
 capability that no plugin provides as unavailable. Quick calls answer within the call timeout.
 Long work, such as joining a network, a Bluetooth scan, pairing or installing the OS, starts in
 the background and reports through the `SystemJob` the host passes in: `progress`, `done`,
 `failed` and `cancelled`.
+
+`DriveSettings` (`drives`, API 0.3.5) lists the drives and mounts, unmounts and ejects them. The
+capability is `drives`, not `storage`: storage is a plugin's own data folder.
+
+- `drives()` returns each drive with a file system as a `SystemDrive`: its device
+  (`/dev/sdb1`), its whole disk (`/dev/sdb`), its UUID, label, model, size, file system, whether
+  the player can take it out (`usb`), where it is mounted, its free space, and `system` for a
+  drive the system mounted for itself (`/`, `/home`, swap). The host never offers to unmount a
+  `system` drive, and lists only the others.
+- `mount`, `unmount` and `eject` start in the background and end through the job. A mount's
+  `done` text is the folder the drive is mounted at. `eject` takes the whole disk: it unmounts
+  each part, then powers the disk off.
+- `unavailable()` says why drives can't be mounted here. While it says something, the host lists
+  the drives in the folders the system mounts them in, and can't mount one.
+
+The built-in This PC plugin provides it on Linux with UDisks: `lsblk --json --list -b` for the
+list, `udisksctl mount|unmount|power-off -b <device> --no-user-interaction` for the actions.
+`udisksctl` runs as the player, not through `polkit`: the UDisks service asks polkit itself.
 
 `VpnSettings` has three plain functions with default bodies that say what this system can do:
 `problem`, `finds_vpns` and `can_import`. Its errors are `PluginError`s. The host shows their
@@ -838,7 +856,7 @@ Each one is a working example. The capabilities are the ones in each `plugin.tom
 | Steam | `plugins/emulators/steam` | `emu-steam` | Linux | `catalog`, `launcher`, `slots`, `releases`, `metadata` |
 | Game Catalog | `plugins/services/release-catalog` | `release-catalog` | Linux, macOS, Windows | `releases`, `configurator`, `slots` |
 | PlayStation Store | `plugins/services/playstation-store` | `playstation-store` | Linux, macOS, Windows | `metadata` |
-| This PC | `plugins/system/host` | `system` | Linux, macOS, Windows | `network`, `vpn`, `bluetooth`, `audio`, `power`, `os_updates`, `os_install` |
+| This PC | `plugins/system/host` | `system` | Linux, macOS, Windows | `network`, `vpn`, `bluetooth`, `audio`, `power`, `os_updates`, `os_install`, `drives` |
 
 Notes on each:
 

@@ -72,9 +72,9 @@ pub const TOKENS: &[TokenDef] = &[
     t("color-shade", Color, "color", "#000000"),
     t("font-family", Text, "typography", "Inter"),
     t("font-size-m", Length, "typography", "19"),
-    t("motion-fast", Duration, "motion", "160"),
-    t("motion-normal", Duration, "motion", "260"),
-    t("motion-slow", Duration, "motion", "420"),
+    t("motion-fast", Duration, "motion", "90"),
+    t("motion-normal", Duration, "motion", "150"),
+    t("motion-slow", Duration, "motion", "220"),
     // "ltr" or "rtl": which side a theme puts its leading edge on.
     t("layout-direction", Text, "layout", "ltr"),
 ];

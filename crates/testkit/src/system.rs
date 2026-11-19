@@ -1,5 +1,5 @@
 //! [`FakeSystem`]: a system plugin the test controls. It has a machine's network, Wi-Fi, Bluetooth,
-//! sound, power and battery, and Marah OS's updates and installer, as plain state the test sets
+//! sound, power and battery, drives, and Marah OS's updates and installer, as plain state the test sets
 //! and reads. Its long work (joining, scanning, pairing, installing) ends when the test says, or
 //! at once.
 
@@ -8,9 +8,9 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use launcher_api::{
-    AudioLevel, AudioOutput, AudioSettings, Battery, BluetoothDevice, BluetoothSettings, InstallDisk, Installed,
-    NetworkSettings, NetworkStatus, OsInstall, OsUpdate, OsUpdates, PluginError, PluginResult, PowerSettings, Provided,
-    SystemJob, Vpn, VpnSettings, WifiNetwork,
+    AudioLevel, AudioOutput, AudioSettings, Battery, BluetoothDevice, BluetoothSettings, DriveSettings, InstallDisk,
+    Installed, NetworkSettings, NetworkStatus, OsInstall, OsUpdate, OsUpdates, PluginError, PluginResult,
+    PowerSettings, Provided, SystemDrive, SystemJob, Vpn, VpnSettings, WifiNetwork,
 };
 
 use crate::StubPlugin;
@@ -46,12 +46,28 @@ pub struct FakeMachine {
     pub installed_on: Vec<PathBuf>,
     pub partition_choices: usize,
     pub vpns: Vec<Vpn>,
+    /// The drives, as the system lists them.
+    pub drives: Vec<SystemDrive>,
+    /// Where a mount puts a drive: a folder named by its label in here, which the mount makes.
+    /// Without it, `/media/fake/<label>`, which isn't made.
+    pub mount_at: Option<PathBuf>,
+    /// Mounting these devices fails with the reason.
+    pub mount_refusals: Vec<(String, String)>,
+    /// What was asked of the drives: `mount /dev/sda1`, `unmount …`, `eject /dev/sda`.
+    pub drive_actions: Vec<String>,
+    /// How many times the core asked why drives can't be managed here.
+    pub drive_reason_reads: usize,
     /// Why a capability is unavailable, by its name ("network", "bluetooth", "audio", "power").
     pub unavailable: Vec<(&'static str, String)>,
     /// Calls that never answer, by method name ("status", "devices", …).
     pub hangs: Vec<&'static str>,
     /// Calls that panic, by method name.
     pub panics: Vec<&'static str>,
+    /// Calls that take this long on the fake clock, by method name ("status",
+    /// "drives.unavailable", …).
+    pub slow: Vec<(&'static str, std::time::Duration)>,
+    /// Each read the core made, by method name, with when it began and ended on the fake clock.
+    pub calls: Vec<(&'static str, tokio::time::Instant, tokio::time::Instant)>,
     /// Long work held until the test calls [`FakeSystem::finish_jobs`].
     pub hold_jobs: bool,
     held: Vec<(Arc<dyn SystemJob>, Result<String, String>)>,
@@ -92,7 +108,7 @@ impl FakeSystem {
 
     /// The plugin, `fake-system`, providing every system capability.
     pub fn plugin(&self) -> StubPlugin {
-        self.plugin_with(&["network", "vpn", "bluetooth", "audio", "power", "os_updates", "os_install"])
+        self.plugin_with(&["network", "vpn", "bluetooth", "audio", "power", "os_updates", "os_install", "drives"])
     }
 
     /// The plugin, providing only `capabilities` (as the manifest names them).
@@ -115,20 +131,29 @@ impl FakeSystem {
                 power: has("power").then(|| me.clone() as Arc<dyn PowerSettings>),
                 os_updates: has("os_updates").then(|| me.clone() as Arc<dyn OsUpdates>),
                 os_install: has("os_install").then(|| me.clone() as Arc<dyn OsInstall>),
+                drives: has("drives").then(|| me.clone() as Arc<dyn DriveSettings>),
                 ..Provided::default()
             })
         })
     }
 
     /// Hangs or panics when the test said so for `method`.
+    /// Hangs, panics or takes long when the test said so for `method`, and keeps when it began
+    /// and ended.
     async fn call(&self, method: &'static str) {
+        let began = tokio::time::Instant::now();
         let (hang, panic) = self.read(|m| (m.hangs.contains(&method), m.panics.contains(&method)));
+        let slow = self.read(|m| m.slow.iter().find(|(name, _)| *name == method).map(|(_, time)| *time));
         if panic {
             panic!("the fake system's {method} panicked on purpose");
         }
         if hang {
             tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
         }
+        if let Some(time) = slow {
+            tokio::time::sleep(time).await;
+        }
+        self.with(|m| m.calls.push((method, began, tokio::time::Instant::now())));
     }
 
     fn unavailable(&self, capability: &str) -> Option<String> {
@@ -153,6 +178,7 @@ impl FakeSystem {
 #[async_trait]
 impl NetworkSettings for FakeSystem {
     async fn unavailable(&self) -> Option<String> {
+        self.call("network.unavailable").await;
         FakeSystem::unavailable(self, "network")
     }
 
@@ -205,6 +231,7 @@ impl VpnSettings for FakeSystem {
 #[async_trait]
 impl BluetoothSettings for FakeSystem {
     async fn unavailable(&self) -> Option<String> {
+        self.call("bluetooth.unavailable").await;
         FakeSystem::unavailable(self, "bluetooth")
     }
 
@@ -271,6 +298,7 @@ impl BluetoothSettings for FakeSystem {
 #[async_trait]
 impl AudioSettings for FakeSystem {
     async fn unavailable(&self) -> Option<String> {
+        self.call("audio.unavailable").await;
         FakeSystem::unavailable(self, "audio")
     }
 
@@ -306,6 +334,7 @@ impl AudioSettings for FakeSystem {
 #[async_trait]
 impl PowerSettings for FakeSystem {
     async fn unavailable(&self) -> Option<String> {
+        self.call("power.unavailable").await;
         FakeSystem::unavailable(self, "power")
     }
 
@@ -359,6 +388,67 @@ impl OsInstall for FakeSystem {
 
     async fn choose_partitions(&self) -> PluginResult<()> {
         self.with(|m| m.partition_choices += 1);
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl DriveSettings for FakeSystem {
+    async fn unavailable(&self) -> Option<String> {
+        self.with(|m| m.drive_reason_reads += 1);
+        self.call("drives.unavailable").await;
+        FakeSystem::unavailable(self, "drives")
+    }
+
+    async fn drives(&self) -> PluginResult<Vec<SystemDrive>> {
+        self.call("drives").await;
+        Ok(self.read(|m| m.drives.clone()))
+    }
+
+    async fn mount(&self, device: &str, job: Arc<dyn SystemJob>) -> PluginResult<()> {
+        self.call("mount").await;
+        let refused = self.read(|m| m.mount_refusals.iter().find(|(d, _)| d == device).map(|(_, why)| why.clone()));
+        self.with(|m| m.drive_actions.push(format!("mount {device}")));
+        if let Some(why) = refused {
+            self.end(job, Err(why));
+            return Ok(());
+        }
+        let label = self.read(|m| m.drives.iter().find(|d| d.device == device).map(|d| d.label.clone()));
+        let label = label.ok_or_else(|| PluginError::NotFound(format!("no drive {device}")))?;
+        let at = match self.read(|m| m.mount_at.clone()) {
+            Some(root) => {
+                let at = root.join(&label);
+                std::fs::create_dir_all(&at).map_err(|e| PluginError::Storage(e.to_string()))?;
+                at
+            }
+            None => PathBuf::from("/media/fake").join(&label),
+        };
+        self.with(|m| {
+            for drive in m.drives.iter_mut().filter(|d| d.device == device) {
+                drive.mount = Some(at.clone());
+            }
+        });
+        self.end(job, Ok(at.display().to_string()));
+        Ok(())
+    }
+
+    async fn unmount(&self, device: &str, job: Arc<dyn SystemJob>) -> PluginResult<()> {
+        self.with(|m| {
+            m.drive_actions.push(format!("unmount {device}"));
+            for drive in m.drives.iter_mut().filter(|d| d.device == device) {
+                drive.mount = None;
+            }
+        });
+        self.end(job, Ok("Unmounted".into()));
+        Ok(())
+    }
+
+    async fn eject(&self, disk: &str, job: Arc<dyn SystemJob>) -> PluginResult<()> {
+        self.with(|m| {
+            m.drive_actions.push(format!("eject {disk}"));
+            m.drives.retain(|d| d.disk != disk);
+        });
+        self.end(job, Ok("You can take it out now".into()));
         Ok(())
     }
 }

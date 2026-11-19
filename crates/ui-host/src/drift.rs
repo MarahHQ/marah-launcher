@@ -210,6 +210,7 @@ fn folder() -> FolderVm {
         help: s(),
         paths: vec![s()],
         text: s(),
+        list: vec![FolderPathVm::default()],
         shown: s(),
         default: s(),
         requested_by: vec![s()],
@@ -414,16 +415,7 @@ fn full_view() -> AppView {
             theme_options: vec![field()],
             folders: vec![folder()],
             vpn: VpnSettingsVm { vpns: vec![VpnVm::default()], ..VpnSettingsVm::default() },
-            backup: BackupVm {
-                backups: vec![BackupFileVm::default()],
-                browser: BackupBrowserVm {
-                    crumbs: vec![BrowseCrumbVm::default()],
-                    places: vec![BrowsePlaceVm::default()],
-                    entries: vec![BrowseEntryVm::default()],
-                    ..BackupBrowserVm::default()
-                },
-                ..BackupVm::default()
-            },
+            backup: BackupVm { backups: vec![BackupFileVm::default()], ..BackupVm::default() },
             ..SettingsVm::default()
         },
         emulators: EmulatorsVm {
@@ -460,7 +452,20 @@ fn full_view() -> AppView {
             keymap: vec![KeyBinding { button: s(), keys: s() }],
         }),
         notices: vec![s()],
-        notice_cards: vec![NoticeVm { id: 1, text: s(), kind: NoticeKind::Info, art: Some(image()), opens: s() }],
+        notice_cards: vec![NoticeVm {
+            id: 1,
+            text: s(),
+            kind: NoticeKind::Info,
+            art: Some(image()),
+            opens: s(),
+            drive: s(),
+        }],
+        browser: FolderBrowserVm {
+            crumbs: vec![BrowseCrumbVm::default()],
+            places: vec![BrowsePlaceVm::default()],
+            entries: vec![BrowseEntryVm::default()],
+            ..FolderBrowserVm::default()
+        },
         install_prompt: Some(InstallPromptVm {
             plugin: id(),
             emulator: s(),
@@ -508,6 +513,7 @@ fn full_view() -> AppView {
                 mok: true,
                 nvidia_later: true,
             }],
+            drives: vec![DriveItemVm { actions: vec![s()], ..DriveItemVm::default() }],
             ..SystemVm::default()
         },
     }

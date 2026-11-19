@@ -1,6 +1,7 @@
-//! The core's change signal: which part of the state changed. It is for the core and its
-//! tests. The app renders on [`launcher_api::Event::StateChanged`], which the same change
-//! publishes, and plugins never see it.
+//! The core's change signal: which part of the state changed. It is for the core, its tests
+//! and the app shell, which builds again only the parts of the view the areas move. The app
+//! renders on [`launcher_api::Event::StateChanged`], which the same change publishes, and
+//! plugins never see it.
 
 use launcher_api::Event;
 use tokio::sync::broadcast;
@@ -39,6 +40,10 @@ pub enum Area {
     LauncherUpdate,
     /// Settings → Backup: the backups and the job in progress.
     Backup,
+    /// The folder browser.
+    Browser,
+    /// What the view reads from the disk: the games' folders and logs, and the host folders.
+    Files,
 }
 
 /// The core's state in `area` changed.

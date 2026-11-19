@@ -172,7 +172,10 @@ pub(crate) async fn set_plugin_enabled(core: &Core, plugin: &PluginId, enabled: 
     Ok(())
 }
 
-pub(crate) fn set_folders(core: &Core, name: &str, paths: &[std::path::PathBuf]) -> CoreResult<()> {
+/// The shared folder of the games: Settings → Games → Game folders.
+pub(crate) const GAMES: &str = "games";
+
+pub(crate) async fn set_folders(core: &Core, name: &str, paths: &[std::path::PathBuf]) -> CoreResult<()> {
     if !launcher_api::PathGrant::valid_name(name) {
         return Err(CoreError::Invalid(format!("{name:?} is not a folder name")));
     }
@@ -190,6 +193,7 @@ pub(crate) fn set_folders(core: &Core, name: &str, paths: &[std::path::PathBuf])
         return Err(CoreError::Invalid(format!("{} is not a full path", relative.display())));
     }
     let config = core.kernel().config();
+    let before = folder_roots(core, name);
     let saved = if paths.is_empty() {
         config.remove(&["app", "folders", name])
     } else {
@@ -197,9 +201,54 @@ pub(crate) fn set_folders(core: &Core, name: &str, paths: &[std::path::PathBuf])
         config.set(&["app", "folders", name], Value::Array(list))
     };
     saved.map_err(|e| CoreError::Io(e.to_string()))?;
-    crate::disks::refresh(core);
+    core.library().move_folders(name, &before, &folder_roots(core, name));
+    crate::drives::remember_folders(core, &paths);
+    crate::disks::refresh(core).await;
+    // The games come from a game folder that came, and go with one that went, with no Rescan.
+    // Before the first read of the library, that read takes them.
+    let came: Vec<std::path::PathBuf> = paths.iter().filter(|p| !before.contains(p)).cloned().collect();
+    let changed = !came.is_empty() || before.iter().any(|p| !paths.contains(p));
+    if name == GAMES && changed && core.library().booted() {
+        crate::library_reads::scan(core, came).await;
+    }
+    // Settings shows the folders from the files read ahead: they are read before it hears.
+    crate::snapshot::refresh_files(core).await;
     core.changed(Area::Settings);
     Ok(())
+}
+
+/// The folders the named host folder means now: the player's, or the default ones, as the first
+/// plugin that asks for it sees them. Empty when no plugin asks for it.
+pub(crate) fn folder_roots(core: &Core, name: &str) -> Vec<std::path::PathBuf> {
+    let kernel = core.kernel();
+    let host = kernel.host();
+    kernel
+        .order()
+        .iter()
+        .filter_map(|id| kernel.manifest(id).ok())
+        .find_map(|m| m.permissions.folder(name).cloned())
+        .map(|grant| crate::folders::roots(kernel.config(), host.home.as_deref(), host.platform, &grant))
+        .unwrap_or_default()
+}
+
+/// Adds `path` to the folders `name` means. One that is there already isn't added again.
+pub(crate) async fn add_folder(core: &Core, name: &str, path: &std::path::Path) -> CoreResult<()> {
+    let mut paths = folder_roots(core, name);
+    if !paths.iter().any(|p| p == path) {
+        paths.push(path.to_path_buf());
+    }
+    set_folders(core, name, &paths).await
+}
+
+/// Takes `path` out of the folders `name` means. Its files stay.
+pub(crate) async fn remove_folder(core: &Core, name: &str, path: &std::path::Path) -> CoreResult<()> {
+    let mut paths = folder_roots(core, name);
+    let before = paths.len();
+    paths.retain(|p| p != path);
+    if paths.len() == before {
+        return Err(CoreError::Invalid(format!("{} isn't one of the folders", path.display())));
+    }
+    set_folders(core, name, &paths).await
 }
 
 pub(crate) fn set_theme_option(core: &Core, key: String, value: String) -> CoreResult<()> {

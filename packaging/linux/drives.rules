@@ -1,0 +1,16 @@
+// Lets the player at the screen mount a drive inside the PC (a second disk, a Windows part)
+// without a password, from the launcher's Drives panel. UDisks already lets them mount a USB
+// drive; a drive inside the PC needs the administrator by default.
+//
+// It allows only the action "mount a file system on a system device", only from a session that
+// is local (at this PC's own screen, not over the network) and active (the one on the screen
+// now), and only for a member of the administrators' group: `wheel` on Fedora and Arch, `sudo`
+// on Debian and Ubuntu. Polkit can't tell the launcher's session from a desktop's: the rule
+// holds in both.
+polkit.addRule(function (action, subject) {
+    if (action.id == "org.freedesktop.udisks2.filesystem-mount-system" &&
+        subject.local && subject.active &&
+        (subject.isInGroup("wheel") || subject.isInGroup("sudo"))) {
+        return polkit.Result.YES;
+    }
+});

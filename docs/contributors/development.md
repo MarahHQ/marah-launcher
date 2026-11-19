@@ -214,7 +214,7 @@ some of them (see [releasing.md](releasing.md)).
 | `MARAH_REAL_RELEASES=1` | `cargo test -p launcher-app real -- --nocapture`: downloads and installs the newest KytyPS5 and shadPS4 releases | The network and hundreds of megabytes. Anonymous GitHub API calls can hit the rate limit. |
 | `MARAH_REAL_ARCHIVES=<folder>` | `cargo test -p launcher-tests --test seams real_archives::`: unpacks real release archives through the plugins | The archives. A missing one is skipped. |
 | `MARAH_CATALOG_FILES=<file>[:<file>…]` | `cargo test -p release-catalog catalog_files -- --nocapture`: reads catalog files and prints what each holds | Catalog files |
-| `MARAH_TIMING=1` | `cargo test -p launcher-tests --test seams timing:: -- --nocapture`: times the Catalog view with the bundled catalogs | |
+| `MARAH_TIMING=1` | `cargo test -p launcher-tests --test seams timing:: -- --nocapture`: times the Catalog view with the bundled catalogs, and the renders of the first 10 s of a start with 500 games | |
 | `MARAH_COMPARE_OUT=<folder>` | `cargo test -p launcher-tests --test seams compare::`: renders the screens on a real library into that folder, with no theme saved (so the fallback theme) | A KytyPS5 library in `MARAH_COMPARE_GAMES` (default `~/Games`). Optional: `MARAH_COMPARE_BUILDS`, `MARAH_COMPARE_WEB`. |
 | `PS4_TEST_PKG=<file>` | `cargo test --release -p emu-shadps4 real_ps4_package -- --ignored --nocapture`: lists a real PS4 package | A PS4 package |
 | `PS5_TEST_PKG=<file>` | `cargo test -p emulator-kit real_package -- --ignored`: lists a real PS5 package and decodes its largest file. `PS5_TEST_FULL=1` decodes every file. | A PS5 package |

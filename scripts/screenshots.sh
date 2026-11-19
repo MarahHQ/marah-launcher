@@ -14,7 +14,7 @@
 #
 # The pictures:
 #   home.jpg  library.jpg  detail.jpg (Game Hub)  catalog.jpg  downloads.jpg
-#   settings.jpg  backup.jpg (Settings → Backup)  backup-browser.jpg
+#   settings.jpg  backup.jpg (Settings → Backup)  folder-browser.jpg
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -81,12 +81,13 @@ press Tab Return
 sleep 2
 shoot catalog
 press Escape Escape
-# Settings is the top bar's last item: Search, Downloads, Emulators, Themes, Settings.
-press Tab Tab Tab Tab Tab Return
+# Settings is the top bar's last item, after the screen buttons and the machine's icons (the
+# drives' icon where UDisks is installed): Shift+Tab (L1) on Home goes round to it.
+press shift+Tab Return
 shoot settings
-# Up from the first row to the rail of sections, down it to Backup (Games, Downloads, Launcher,
-# Updates, Backup: no System section in a window), and Right into its rows.
-press Up Down Down Down Down Right
+# Up from the first row to the rail of sections, down it to Backup (Launcher, Updates, Backup),
+# and Right into its rows.
+press Up Down Down Right
 shoot backup
 # Down to "Restore from another folder": below Back up now, Include large items and the
 # backup folder. Enter opens the browser.
@@ -95,7 +96,7 @@ press Down Down Down Return
 # which opens: no folder of yours shows in the picture.
 press Left Down Down Down Down Return
 sleep 1
-shoot backup-browser
+shoot folder-browser
 # The places, where Escape closes it.
 press Left Escape
 

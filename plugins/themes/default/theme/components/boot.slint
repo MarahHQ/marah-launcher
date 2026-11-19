@@ -64,8 +64,10 @@ export component BootScreen inherits Rectangle {
         spacing: 0;
         HorizontalLayout {
             alignment: center;
+            // The mark, square, a little larger than the emblem was: the gamepad fills less of
+            // its square than the emblem's rounded square did.
             Rectangle {
-                width: 132 * Look.px;
+                width: 148 * Look.px;
                 height: self.width;
                 Rectangle {
                     x: -40 * Look.px;
@@ -75,7 +77,7 @@ export component BootScreen inherits Rectangle {
                     background: @radial-gradient(circle, #3d8bff66 0%, #3d8bff00 68%);
                     opacity: 0.28;
                 }
-                Image { source: Assets.logo; width: parent.width; height: parent.height; image-fit: contain; }
+                Image { source: Assets.logo-mark; width: parent.width; height: parent.height; image-fit: contain; accessible-role: image; accessible-label: root.shown ? "logo-mark" : ""; }
             }
         }
         Rectangle { height: 24 * Look.px; }

@@ -33,15 +33,89 @@ pub(crate) fn installed_offers<'a>(
     crate::ownership::Ownership::over(library, &snapshot, &torrents.jobs, &installs).installed_offers(offers)
 }
 
+/// The library's scans, one at a time: a scan asked for while one runs waits, and the scans
+/// asked for meanwhile all wait for one pass, which starts after them.
+#[derive(Default)]
+pub(crate) struct Scans {
+    one: tokio::sync::Mutex<()>,
+    /// How many scans were asked for, and how many of those a pass that ended covered.
+    asked: std::sync::atomic::AtomicU64,
+    covered: std::sync::atomic::AtomicU64,
+}
+
+/// Reads the library again: every game folder, with the stores. A scan asked for while another
+/// runs waits for one more pass, shared with every scan asked for meanwhile: two quick adds make
+/// at most one more pass, not two at once.
 pub(crate) async fn refresh_library(core: &Core) -> CoreResult<()> {
+    use std::sync::atomic::Ordering::SeqCst;
+    let scans = &core.inner.scans;
+    let mine = scans.asked.fetch_add(1, SeqCst) + 1;
+    let _one = scans.one.lock().await;
+    if scans.covered.load(SeqCst) >= mine {
+        return Ok(());
+    }
+    let covers = scans.asked.load(SeqCst);
+    let read = read_library(core).await;
+    scans.covered.fetch_max(covers, SeqCst);
+    read
+}
+
+/// [`scan`] in the background.
+pub(crate) fn scan_soon(core: &Core, folders: Vec<std::path::PathBuf>) {
+    let core = core.clone();
+    tokio::spawn(async move { scan(&core, folders).await });
+}
+
+/// Scans (see [`refresh_library`]) for the game folders `folders` that came (added, or their
+/// drive back), or for every folder when it is empty. Each of `folders` says "Scanning…" until
+/// the scan ends; then a notice says how many games came. A command that waits for it holds no
+/// input: the app runs each command on its own.
+pub(crate) async fn scan(core: &Core, folders: Vec<std::path::PathBuf>) {
+    if !folders.is_empty() {
+        core.state().scanning.extend(folders.iter().cloned());
+        core.changed(Area::Settings);
+    }
+    let before: std::collections::HashSet<GameKey> =
+        core.library().snapshot().library().map(|e| e.key.clone()).collect();
+    if let Err(e) = refresh_library(core).await {
+        tracing::warn!(error = %e, "the game folders weren't scanned");
+    }
+    if folders.is_empty() {
+        return;
+    }
+    {
+        let mut state = core.state();
+        for folder in &folders {
+            state.scanning.remove(folder);
+        }
+    }
+    let came = core.library().snapshot().library().filter(|e| !before.contains(&e.key)).count();
+    if came > 0 {
+        let s = if came == 1 { "" } else { "s" };
+        core.notices().info(format!("{came} game{s} found"));
+        core.changed(Area::Notices);
+    }
+    core.changed(Area::Settings);
+}
+
+async fn read_library(core: &Core) -> CoreResult<()> {
     core.library().start_loading();
+    // The first read of a run: the game folders' drives mount before the games are read.
+    if !core.library().booted() {
+        crate::drives::mount_game_drives(core).await;
+    }
     let kernel = core.kernel();
     move_old_names(core).await;
     let mut library = Vec::new();
     let mut badges = HashMap::new();
     for (plugin, provided) in core.providers(Capability::Catalog).await {
         let catalog = provided.catalog.expect("declared and checked at init");
-        let page = match kernel.guard(&plugin, "catalog.list", catalog.list(PageRequest::ALL)).await {
+        let listed = {
+            // The plugin goes through its game folders.
+            let _turn = core.disk_turn().await;
+            kernel.guard(&plugin, "catalog.list", catalog.list(PageRequest::ALL)).await
+        };
+        let page = match listed {
             Ok(page) => page,
             Err(e) => {
                 core.notices().problem(e.to_string());
@@ -62,6 +136,8 @@ pub(crate) async fn refresh_library(core: &Core) -> CoreResult<()> {
             library.push(Entry { key, summary });
         }
     }
+    let away = crate::drives::away_games(core, &library).await;
+    library.extend(away);
     crate::library::sort_by_title(&mut library);
     // The home screen shows the selected game with its details. With no selection, or one
     // that is gone, the first game is selected, so the first screen is a whole one. The
@@ -254,7 +330,9 @@ pub(crate) async fn load_detail(core: &Core, game: &GameKey) -> CoreResult<()> {
     detail.settings = game_settings(core, &plugin, &provided, game).await;
     crate::emulator_builds::refresh_emulator(core, &plugin).await;
     let folder = detail.details.folder.clone();
+    crate::snapshot::read_game_files(core, game, folder.clone()).await;
     core.library().set_detail(game, detail, badges);
+    crate::snapshot::drop_older_reads(core);
     if let Some(folder) = folder {
         crate::game_files::found_folder(core, game, &folder).await;
     }

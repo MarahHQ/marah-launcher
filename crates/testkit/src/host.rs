@@ -281,20 +281,16 @@ impl FakeHost {
             .network(Arc::new(self.network.clone()))
             .archives(Arc::new(self.archives.clone()))
             .clock(Arc::new(self.clock.clone()));
-        if self.hardware.is_some()
-            || self.free_space.is_some()
-            || !self.disks.is_empty()
-            || !self.computer.is_empty()
-            || !self.controllers.is_empty()
-        {
+        if self.hardware.is_some() || !self.computer.is_empty() || !self.controllers.is_empty() {
             let hardware = FixedHardware {
                 specs: self.hardware.unwrap_or_default(),
-                free_space: self.free_space,
-                disks: self.disks,
                 controllers: self.controllers,
                 computer: self.computer,
             };
             builder = builder.hardware(Arc::new(hardware));
+        }
+        if self.free_space.is_some() || !self.disks.is_empty() {
+            builder = builder.drives(Arc::new(FixedDrives { free_space: self.free_space, disks: self.disks }));
         }
         for (plugin, third_party) in self.plugins {
             builder = if third_party { builder.third_party(plugin) } else { builder.plugin(plugin) };
@@ -358,6 +354,16 @@ impl TestCore {
     /// Returns once `done` holds: see [`until`].
     pub async fn until(&self, area: Area, done: impl FnMut(&Core) -> bool) {
         until(&self.core, area, done).await;
+    }
+
+    /// Returns once no game folder is being scanned: a folder added starts a scan of its own,
+    /// which a test that writes games into the folder next waits for.
+    pub async fn scans_done(&self) {
+        let done = |core: &Core| {
+            let view = core.view();
+            !view.home.loading && view.settings.folders.iter().all(|f| f.list.iter().all(|p| !p.scanning))
+        };
+        until(&self.core, Area::Settings, done).await;
     }
 
     /// Moves the fake clock `step` at a time until `done`, at most `steps` times: for what no
@@ -431,28 +437,61 @@ impl TestHost {
     }
 }
 
-/// A computer with these specs, this much free space on each disk, the disks of their own, and
-/// this name.
+/// A computer with these specs, these controllers, and this name.
 struct FixedHardware {
     specs: launcher_core::Specs,
-    free_space: Option<u64>,
-    disks: Vec<(PathBuf, u64)>,
     controllers: Vec<launcher_api::Controller>,
     computer: String,
+}
+
+/// Drives with this much free space each, and the drives of their own.
+struct FixedDrives {
+    free_space: Option<u64>,
+    disks: Vec<(PathBuf, u64)>,
+}
+
+thread_local! {
+    /// The drives may not be asked on this thread now: see [`no_drive_calls`].
+    static NO_DRIVE_CALLS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Runs `work`, and panics if the drives of a [`FakeHost::free_space`] or [`FakeHost::disk`]
+/// are asked anything on this thread meanwhile: for what must only read what was read ahead,
+/// such as a build of the view. Reads on other threads (the core's blocking reads) go on.
+pub fn no_drive_calls<T>(work: impl FnOnce() -> T) -> T {
+    struct Allow;
+    impl Drop for Allow {
+        fn drop(&mut self) {
+            NO_DRIVE_CALLS.set(false);
+        }
+    }
+    NO_DRIVE_CALLS.set(true);
+    let _allow = Allow;
+    work()
+}
+
+impl FixedDrives {
+    fn asked(&self) {
+        assert!(!NO_DRIVE_CALLS.get(), "the drives were asked where only what was read ahead may be read");
+    }
+}
+
+impl launcher_core::DriveSpace for FixedDrives {
+    fn free_bytes(&self, path: &std::path::Path) -> Option<u64> {
+        self.asked();
+        self.disks.iter().find(|(disk, _)| path.starts_with(disk)).map(|(_, free)| *free).or(self.free_space)
+    }
+
+    /// A drive of its own is its place in the list; every other drive doesn't say.
+    fn drive_id(&self, path: &std::path::Path) -> Option<u64> {
+        self.asked();
+        self.disks.iter().position(|(disk, _)| path.starts_with(disk)).map(|at| at as u64)
+    }
 }
 
 impl launcher_core::Hardware for FixedHardware {
     fn specs(&self) -> launcher_core::Specs {
         self.specs.clone()
-    }
-
-    fn free_bytes(&self, path: &std::path::Path) -> Option<u64> {
-        self.disks.iter().find(|(disk, _)| path.starts_with(disk)).map(|(_, free)| *free).or(self.free_space)
-    }
-
-    /// A disk of its own is its place in the list; every other disk doesn't say.
-    fn disk_id(&self, path: &std::path::Path) -> Option<u64> {
-        self.disks.iter().position(|(disk, _)| path.starts_with(disk)).map(|at| at as u64)
     }
 
     fn controllers(&self) -> Vec<launcher_api::Controller> {

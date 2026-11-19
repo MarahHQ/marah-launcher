@@ -32,8 +32,18 @@ Without libmpv, it opens them in the browser.
 **A backup or a restore doesn't start.** The message says why. See
 [Restore](backup.md#restore).
 
-**A backup in the backup browser can't be restored.** A newer version of the launcher made it.
-Update the launcher first. See [The backup browser](backup.md#the-backup-browser).
+**A backup in the folder browser can't be restored.** A newer version of the launcher made it.
+Update the launcher first. See [The folder browser](backup.md#the-folder-browser).
+
+**The Drives panel says "Mounting needs UDisks", or a drive doesn't mount.** Install the
+`udisks2` package; the launcher's packages recommend it. Without it, the launcher lists only the
+drives the system mounted already. A drive inside the PC needs the administrator to mount: the
+launcher's package lets a member of the `wheel` or `sudo` group mount it at the PC's own
+screen. For other players, the message says "Not authorized"; mount the drive another way, or
+add the player to that group.
+
+**A drive doesn't eject.** The message says why: close the game that runs from it, or wait for
+the download or the install that writes to it.
 
 **Everything is too small or too big on the TV.** Change Settings → Launcher → **Size of
 everything**. `MARAH_SCALE=<0.8 to 1.4>` sets it for one run.

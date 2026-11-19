@@ -13,8 +13,8 @@ Settings → Backup has these rows:
 | --- | --- |
 | Back up now | Writes a backup to the backup folder. |
 | Include large items | Adds the large items to the next backup only. It shows when a plugin has large items. |
-| Backup folder | Where backups go: `~/Marah Launcher Backups` until you type another. Empty text goes back to it. |
-| Restore from another folder | Opens the backup browser, to restore a backup from a USB stick, another drive or another folder. |
+| Backup folder | Where backups go, with the free space on its drive: `~/Marah Launcher Backups` until you choose another. ✕ opens its list: **Choose a folder** (the folder browser, then **Use this folder**), **Type a path**, or **Use the default folder**. |
+| Restore from another folder | Opens the folder browser, to restore a backup from a USB stick, another drive or another folder. |
 | Restart Marah Launcher | Shows after a restore. It finishes the restore. |
 | A backup | One row for each backup in the backup folder, newest first. |
 
@@ -57,17 +57,20 @@ starts during one. When one can't start, the message says why:
 - "Wait for the game install to finish"
 - "A backup or a restore is already running"
 
-## The backup browser
+## The folder browser
 
-![The backup browser](../screenshots/backup-browser.jpg)
+![The folder browser](../screenshots/folder-browser.jpg)
 
-**Restore from another folder** opens the backup browser over the whole screen. It opens at the
-last folder you restored from, or else at the backup folder.
+**Restore from another folder** opens the folder browser over the whole screen. It opens at the
+last folder you restored from, or else at the backup folder. It is the same folder browser that
+**Add folder** opens in Settings → Games, there to pick a folder (see
+[Settings](settings.md#games)).
 
 It has three panes:
 
 - **Places**: Home, Downloads, Desktop and Documents when they exist, the backup folder, each
-  drive with its size, and under RECENT the last 5 folders you restored from.
+  drive with its size, and under RECENT the last 5 folders you restored from. A drive that isn't
+  mounted says "Mount": ✕ mounts it and opens it.
 - **Files**: the folders and backups in the folder you are in. A folder says what it holds, such
   as "2 backups", "empty" or "can't be read".
 - **Details**: what the focused row is. For a backup: when it was made, the computer that made

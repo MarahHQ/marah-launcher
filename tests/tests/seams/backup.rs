@@ -294,19 +294,19 @@ async fn the_browser_shows_folders_and_backups_and_restores_one_from_another_fol
 
     let b = Pc::new(backups.path()).await;
     b.run(BackupCmd::Browse(Some(elsewhere.path().into()))).await.unwrap();
-    let browser = view(&b).browser;
-    assert!(browser.open);
-    let names: Vec<(&str, bool)> = browser.entries.iter().map(|e| (e.name.as_str(), e.folder)).collect();
+    let shown = browser(&b);
+    assert!(shown.open);
+    let names: Vec<(&str, bool)> = shown.entries.iter().map(|e| (e.name.as_str(), e.folder)).collect();
     assert_eq!(names.len(), 2, "{names:?}");
     assert_eq!(names[0], ("old-pc", true), "folders first, no hidden ones");
     assert!(!names[1].1 && names[1].0.starts_with("marah-backup-"), "then backups, no other files: {names:?}");
-    assert_eq!(browser.parent, elsewhere.path().parent().unwrap().display().to_string());
-    assert!(browser.places.iter().any(|p| p.name == "Backup folder"), "{:?}", browser.places);
+    assert_eq!(shown.parent, elsewhere.path().parent().unwrap().display().to_string());
+    assert!(shown.places.iter().any(|p| p.name == "Backup folder"), "{:?}", shown.places);
 
-    let path = std::path::PathBuf::from(&browser.entries[1].path);
+    let path = std::path::PathBuf::from(&shown.entries[1].path);
     b.run(BackupCmd::RestoreFile(path)).await.unwrap();
     assert_eq!(std::fs::read(b.saves.path().join("GAME/slot.dat")).unwrap(), b"from the stick");
-    assert!(!view(&b).browser.open, "a restore closes the browser");
+    assert!(!browser(&b).open, "a restore closes the browser");
     assert!(
         files(backups.path()).iter().any(|f| f.contains("-before-restore")),
         "the backup of what was here is in b's backup folder"
@@ -335,11 +335,11 @@ async fn the_tab_says_what_a_backup_holds_here_and_which_items_are_large() {
     assert_eq!(tab.large, "", "no large items: no switch");
 }
 
-fn browser(pc: &Pc) -> launcher_ui_api::BackupBrowserVm {
-    view(pc).browser
+fn browser(pc: &Pc) -> launcher_ui_api::FolderBrowserVm {
+    pc.test.core.view().browser
 }
 
-fn names(browser: &launcher_ui_api::BackupBrowserVm) -> Vec<String> {
+fn names(browser: &launcher_ui_api::FolderBrowserVm) -> Vec<String> {
     browser.entries.iter().map(|e| e.name.clone()).collect()
 }
 

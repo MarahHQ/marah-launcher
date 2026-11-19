@@ -5,6 +5,7 @@ import { Tokens } from "../tokens.slint";
 import { Look } from "look.slint";
 import { BackButton } from "widgets.slint";
 import { Icon } from "icon.slint";
+import { Motion } from "motion.slint";
 import { Prefs, RailTab } from "settings-rows.slint";
 
 // Each section's name and icon, by its number, on the sheet on screen (see `Prefs`).
@@ -26,7 +27,7 @@ export global Sections {
             : Prefs.page ? (i <= 1 ? "power" : i <= Prefs.panels + 1 ? "gear"
                 : Prefs.about && i == Prefs.about-section ? "info" : "folder")
             : i == 0 ? "gear" : i == 1 ? "gamepad" : i == 2 ? "refresh"
-            : i == 3 ? "download" : i == 4 ? "desktop" : i == 5 && Vm.system.whole-screen ? "wifi-4"
+            : i == 3 ? "download" : i == 4 ? "desktop" : i == 5 && Vm.system.whole-screen ? "sliders"
             : i == Prefs.backup-section ? "archive" : "power"
     }
 }
@@ -51,6 +52,7 @@ component Rail inherits VerticalLayout {
     spacing: 10 * Look.px;
     alignment: start;
     for i in Prefs.tab-count : RailTab {
+        lit-here: false;
         section: Prefs.first-section(i);
         text: Sections.name(self.section);
         icon: Sections.icon(self.section);
@@ -163,6 +165,22 @@ export component SettingsFrame inherits SheetFrame {
     property <length> near: Prefs.rail ? root.rail-width + 24 * Look.px : 56 * Look.px;
     // `parent` here is this sheet, as wide as the window, not its panel: from right to left the
     // rail goes at the panel's own far edge.
+    // The lit square of the section in use, and the focus ring on the rail: one square that moves
+    // to the section, under the rail's icons.
+    if Prefs.rail : Rectangle {
+        property <int> tab: Prefs.tab-of(Prefs.seen >= 0 ? Prefs.seen : Prefs.section);
+        // Where the rail's tabs are: 32 px in from the rail's near edge.
+        x: Look.rtl ? Math.min(root.width, root.panel-width) - 104 * Look.px + 16 * Look.px : 32 * Look.px;
+        y: 128 * Look.px + self.tab * 66 * Look.px;
+        width: 56 * Look.px;
+        height: 56 * Look.px;
+        border-radius: 14 * Look.px;
+        background: Tokens.color-tint.with-alpha(0.149);
+        border-width: Prefs.tabs ? 3 * Look.px : 0;
+        border-color: Tokens.color-tint;
+        animate y { duration: Motion.focus; easing: Motion.enter; }
+        animate border-width { duration: Motion.focus; }
+    }
     if Prefs.rail : Rail {
         x: Look.rtl ? Math.min(root.width, root.panel-width) - self.width : 0;
         y: 0;

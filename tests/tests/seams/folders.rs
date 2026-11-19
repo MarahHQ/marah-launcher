@@ -415,7 +415,10 @@ async fn settings_show_a_folder_in_the_home_folder_with_a_tilde() {
     let home = tempfile::tempdir().unwrap();
     let (t, _folders) = boot(FakeHost::new().home(home.path())).await;
     let big = full_path("/Volumes/Big/Games");
-    map(&t, "games", &[&home.path().join("Games"), Path::new(&big)]);
+    // Through the core, as Settings sets them: the view shows the folders read ahead, and the
+    // command reads them before it ends. `map` writes the setting behind the core's back.
+    let paths = vec![home.path().join("Games"), big.clone().into()];
+    t.core.dispatch(launcher_core::Command::SetFolders { name: "games".into(), paths }).await.unwrap();
 
     let games = t.core.view().settings.folders.into_iter().find(|f| f.name == "games").unwrap();
     assert_eq!(games.shown, format!("{}; {big}", native("~/Games")));

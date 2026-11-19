@@ -114,6 +114,18 @@ pub trait ThemeDriver {
         self.settle();
     }
 
+    /// A mouse click at `x`, `y` in the window's logical pixels: for a place no element is
+    /// labelled, such as the wash around a sheet.
+    fn click_at(&mut self, x: f32, y: f32) {
+        let position = slint::LogicalPosition::new(x, y);
+        let window = self.shown().window();
+        window.dispatch_event(WindowEvent::PointerMoved { position });
+        window.dispatch_event(WindowEvent::PointerPressed { position, button: PointerEventButton::Left });
+        window.dispatch_event(WindowEvent::PointerReleased { position, button: PointerEventButton::Left });
+        self.carry_out();
+        self.settle();
+    }
+
     /// The mouse wheel over the middle of the first element labelled `label`, by `notches`:
     /// a positive count turns it toward the player, so the page under it goes down.
     fn wheel(&mut self, label: &str, notches: i32) {

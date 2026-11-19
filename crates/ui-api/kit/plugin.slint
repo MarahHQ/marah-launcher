@@ -213,6 +213,8 @@ export component PluginPage inherits SettingsFrame {
             folder: folder;
             section: 2;
             index: panelrows.after + 1 + k;
+            at: k;
+            on-page: true;
             first: panelrows.after < 0 && k == 0;
             last: panelrows.after == panel.fields.length - 1 && k == panelrows.held - 1;
             reveal(y, h) => { root.reveal(y, h); }
@@ -239,6 +241,8 @@ export component PluginPage inherits SettingsFrame {
             folder: folder;
             section: Prefs.panels + 2;
             index: i;
+            at: i;
+            on-page: true;
             first: i == 0;
             last: i == Vm.plugin-page.folders.length - 1;
             reveal(y, h) => { root.reveal(y, h); }

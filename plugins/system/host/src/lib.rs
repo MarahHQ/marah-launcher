@@ -1,7 +1,7 @@
 //! The built-in system plugin: the machine's own settings through the system's own tools.
 //!
 //! - Linux ([`linux`]): network and Wi-Fi, VPNs, Bluetooth, sound, restart and shut down, the
-//!   battery, and on Marah OS its updates and its USB stick's installer.
+//!   battery, drives (UDisks), and on Marah OS its updates and its USB stick's installer.
 //! - macOS: VPNs (every network with an address) and the battery (`pmset`).
 //! - Windows: the battery isn't read yet; VPNs say why they can't work there.
 
@@ -46,7 +46,8 @@ impl CodePlugin for HostSystem {
                 audio: Some(linux.clone()),
                 power: Some(linux.clone()),
                 os_updates: Some(linux.clone()),
-                os_install: Some(linux),
+                os_install: Some(linux.clone()),
+                drives: Some(linux),
                 ..Provided::default()
             })
         }

@@ -11,6 +11,10 @@ trap 'rm -rf "$work"' EXIT
 render() { rsvg-convert -w "$1" -h "$1" assets/logo-static.svg -o "$2"; }
 
 render 512 assets/marah-launcher.png
+# The built-in themes' mark (the loading screen, Settings): the gamepad alone, without its animation.
+for theme in classic default; do
+    rsvg-convert -w 512 -h 512 assets/logo-mark-static.svg -o "plugins/themes/$theme/theme/images/logo-mark.png"
+done
 
 # Windows: an .ico holding PNGs of each size.
 for size in 16 24 32 48 64 128 256; do render "$size" "$work/ico-$size.png"; done

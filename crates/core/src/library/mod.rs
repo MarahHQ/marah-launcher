@@ -201,6 +201,14 @@ impl LibrarySnapshot {
         }
     }
 
+    /// Every game the library keeps a record of, in no order, with its details once they are in.
+    pub fn records(&self) -> impl Iterator<Item = (&GameKey, Option<&Detail>)> {
+        self.games.iter().map(|(key, record)| match &record.detail {
+            DetailState::Read(detail) => (key, Some(detail.as_ref())),
+            _ => (key, None),
+        })
+    }
+
     pub fn badges(&self, key: &GameKey) -> &[SlotItem] {
         self.games.get(key).map_or(&[], |r| &r.badges)
     }
@@ -378,6 +386,13 @@ impl LibrarySubsystem {
     fn change<R>(&self, area: Area, change: impl FnOnce(&mut State) -> R) -> R {
         let out = change(&mut self.state());
         self.inner.notifier.changed(area);
+        out
+    }
+
+    /// As [`Self::change`], with only the core's readers told: the caller tells the app.
+    fn change_quietly<R>(&self, area: Area, change: impl FnOnce(&mut State) -> R) -> R {
+        let out = change(&mut self.state());
+        self.inner.notifier.noted(area);
         out
     }
 
@@ -565,6 +580,23 @@ impl LibrarySubsystem {
         self.inner.records.keep_folder(key, folder);
     }
 
+    /// The folders of host folder `name` changed from `before` to `after`: each game folder kept
+    /// in one of them follows its folder to its new place in the list, and one in a folder taken
+    /// out of the list is forgotten. A kept folder names its folder by its place in the list.
+    pub fn move_folders(&self, name: &str, before: &[std::path::PathBuf], after: &[std::path::PathBuf]) {
+        for (game, kept) in self.inner.records.game_folders() {
+            if kept.folder != name {
+                continue;
+            }
+            let Some(path) = before.get(kept.root as usize) else { continue };
+            match after.iter().position(|p| p == path) {
+                Some(at) if at as u32 == kept.root => {}
+                Some(at) => self.inner.records.keep_folder(&game, &HostPath { root: at as u32, ..kept }),
+                None => self.inner.records.forget_folder(&game),
+            }
+        }
+    }
+
     /// The boot's count of the store's descriptions, or `None` for none.
     pub fn set_describing(&self, describing: Option<(usize, usize)>) {
         self.change(Area::Library, |s| s.describing = describing);
@@ -587,6 +619,8 @@ impl LibrarySubsystem {
 
     /// The catalogs as just read, their buttons, and the offers grouped from them, with the
     /// offer each installed game is. Returns how many releases are new since the last read.
+    /// The app isn't told: the caller keeps the Catalog's grid first (see
+    /// `catalog_reads::refresh_releases`), then tells it.
     pub fn set_catalogs(
         &self,
         copies: Vec<CatalogCopy>,
@@ -594,7 +628,7 @@ impl LibrarySubsystem {
         offers: Vec<Offer>,
         installed: Vec<InstalledOffer>,
     ) -> usize {
-        let (added, keep) = self.change(Area::Catalogs, |s| {
+        let (added, keep) = self.change_quietly(Area::Catalogs, |s| {
             let added = crate::releases::added_releases(&s.catalogs, &copies);
             s.catalogs = Arc::new(copies);
             s.catalogs_read = true;

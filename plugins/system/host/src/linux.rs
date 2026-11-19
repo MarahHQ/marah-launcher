@@ -1,5 +1,6 @@
 //! Linux: NetworkManager (`nmcli`), BlueZ (`bluetoothctl`), PipeWire's PulseAudio server
-//! (`pactl`), systemd (`systemctl`), the kernel's power supply folder, and on Marah OS
+//! (`pactl`), systemd (`systemctl`), the kernel's power supply folder, UDisks (`udisksctl`, with
+//! `lsblk` for the list), and on Marah OS
 //! `rpm-ostree` and the USB stick's installer. Every program runs through the host's
 //! [`Programs`], so the manifest's `permissions.process` decides what may run.
 
@@ -8,9 +9,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use launcher_api::{
-    AudioLevel, AudioOutput, AudioSettings, Battery, BluetoothDevice, BluetoothSettings, Connection, InstallDisk,
-    Location, NetworkSettings, NetworkStatus, OsInstall, OsUpdate, OsUpdates, PluginError, PluginResult, PowerSettings,
-    Programs, SystemJob, WifiNetwork,
+    AudioLevel, AudioOutput, AudioSettings, Battery, BluetoothDevice, BluetoothSettings, Connection, DriveSettings,
+    InstallDisk, Location, NetworkSettings, NetworkStatus, OsInstall, OsUpdate, OsUpdates, PluginError, PluginResult,
+    PowerSettings, Programs, SystemDrive, SystemJob, WifiNetwork,
 };
 
 use crate::parse;
@@ -137,8 +138,10 @@ impl NetworkSettings for Linux {
     async fn wifi(&self, rescan: bool) -> PluginResult<Vec<WifiNetwork>> {
         let rescan = if rescan { "yes" } else { "no" };
         let args = ["-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi", "list", "--rescan", rescan];
-        let list = parse::wifi(&self.run("nmcli", &args).await?);
-        let saved = parse::saved_wifi(&self.run("nmcli", &["-t", "-f", "NAME,TYPE", "connection", "show"]).await?);
+        // The list and the saved networks don't need each other: both are read at once.
+        let (list, saved) =
+            tokio::join!(self.run("nmcli", &args), self.run("nmcli", &["-t", "-f", "NAME,TYPE", "connection", "show"]));
+        let (list, saved) = (parse::wifi(&list?), parse::saved_wifi(&saved?));
         Ok(list
             .into_iter()
             .map(|w| WifiNetwork {
@@ -184,8 +187,13 @@ impl BluetoothSettings for Linux {
         if let Some(missing) = self.missing("bluetoothctl", "BlueZ").await {
             return Some(missing);
         }
-        let adapter = std::fs::read_dir(&self.bluetooth_class)
-            .is_ok_and(|d| d.flatten().any(|e| e.file_name().to_string_lossy().starts_with("hci")));
+        let class = self.bluetooth_class.clone();
+        // A read of /sys: on a blocking thread, not on the async workers.
+        let adapter = tokio::task::spawn_blocking(move || {
+            std::fs::read_dir(&class)
+                .is_ok_and(|d| d.flatten().any(|e| e.file_name().to_string_lossy().starts_with("hci")))
+        });
+        let adapter = adapter.await.unwrap_or(false);
         (!adapter).then(|| "This PC has no Bluetooth adapter".into())
     }
 
@@ -198,10 +206,12 @@ impl BluetoothSettings for Linux {
     }
 
     async fn devices(&self) -> PluginResult<Vec<BluetoothDevice>> {
-        let all = self.run("bluetoothctl", &["devices"]).await?;
-        let paired = self.run("bluetoothctl", &["devices", "Paired"]).await?;
-        let connected = self.run("bluetoothctl", &["devices", "Connected"]).await?;
-        Ok(parse::bluetooth(&all, &paired, &connected))
+        let (all, paired, connected) = tokio::join!(
+            self.run("bluetoothctl", &["devices"]),
+            self.run("bluetoothctl", &["devices", "Paired"]),
+            self.run("bluetoothctl", &["devices", "Connected"]),
+        );
+        Ok(parse::bluetooth(&all?, &paired?, &connected?))
     }
 
     async fn scan(&self, seconds: u32, job: Arc<dyn SystemJob>) -> PluginResult<()> {
@@ -264,9 +274,9 @@ impl AudioSettings for Linux {
     }
 
     async fn outputs(&self) -> PluginResult<Vec<AudioOutput>> {
-        let sinks = self.run("pactl", &["-f", "json", "list", "sinks"]).await?;
-        let default = self.run("pactl", &["get-default-sink"]).await?;
-        Ok(parse::outputs(&sinks, &default))
+        let (sinks, default) =
+            tokio::join!(self.run("pactl", &["-f", "json", "list", "sinks"]), self.run("pactl", &["get-default-sink"]));
+        Ok(parse::outputs(&sinks?, &default?))
     }
 
     async fn set_output(&self, name: &str) -> PluginResult<()> {
@@ -274,9 +284,11 @@ impl AudioSettings for Linux {
     }
 
     async fn level(&self) -> PluginResult<AudioLevel> {
-        let volume = self.run("pactl", &["get-sink-volume", "@DEFAULT_SINK@"]).await?;
-        let mute = self.run("pactl", &["get-sink-mute", "@DEFAULT_SINK@"]).await?;
-        Ok(parse::level(&volume, &mute))
+        let (volume, mute) = tokio::join!(
+            self.run("pactl", &["get-sink-volume", "@DEFAULT_SINK@"]),
+            self.run("pactl", &["get-sink-mute", "@DEFAULT_SINK@"]),
+        );
+        Ok(parse::level(&volume?, &mute?))
     }
 
     async fn set_volume(&self, volume: u8) -> PluginResult<()> {
@@ -305,14 +317,17 @@ impl PowerSettings for Linux {
     }
 
     async fn battery(&self) -> PluginResult<Option<Battery>> {
-        Ok(parse::battery(&self.power_supply))
+        // Reads of /sys: on a blocking thread, not on the async workers.
+        let supply = self.power_supply.clone();
+        let battery = tokio::task::spawn_blocking(move || parse::battery(&supply)).await;
+        battery.map_err(|e| PluginError::Storage(format!("the battery wasn't read: {e}")))
     }
 }
 
 #[launcher_api::async_trait]
 impl OsUpdates for Linux {
     async fn status(&self) -> PluginResult<OsUpdate> {
-        if !Path::new(MARAH_OS).exists() {
+        if !tokio::fs::try_exists(MARAH_OS).await.unwrap_or(false) {
             return Err(PluginError::NotFound(format!("this isn't {}", launcher_api::brand::PRODUCT_OS_NAME)));
         }
         let json = self.run("rpm-ostree", &["status", "--json"]).await?;
@@ -331,7 +346,7 @@ impl OsUpdates for Linux {
 #[launcher_api::async_trait]
 impl OsInstall for Linux {
     async fn disks(&self) -> PluginResult<Vec<InstallDisk>> {
-        if !Path::new(INSTALLER).exists() {
+        if !tokio::fs::try_exists(INSTALLER).await.unwrap_or(false) {
             return Ok(Vec::new());
         }
         // The stick has the installer on its PATH as marah-os-install (docs/contributors/os-contract.md).
@@ -375,6 +390,81 @@ impl OsInstall for Linux {
     }
 }
 
+/// The columns `lsblk` lists, as [`parse::drives`] reads them.
+const LSBLK_COLUMNS: &str =
+    "NAME,PKNAME,PATH,TYPE,SIZE,FSTYPE,PARTTYPE,LABEL,UUID,MOUNTPOINTS,FSAVAIL,TRAN,HOTPLUG,RM,MODEL";
+
+impl Linux {
+    /// Runs `udisksctl <action> -b <device>` for a job, without asking for a password: UDisks asks
+    /// polkit itself, and the session has no one to type it. Every line it printed, or why it
+    /// failed.
+    async fn udisks(&self, action: &str, device: &str, job: &Arc<dyn SystemJob>) -> Result<String, String> {
+        let printed = std::sync::Mutex::new(String::new());
+        let each = |line: &str| {
+            let mut printed = printed.lock().expect("not poisoned");
+            printed.push_str(line);
+            printed.push('\n');
+        };
+        let args = [action, "-b", device, "--no-user-interaction"];
+        let (code, last) = self.stream("udisksctl", &args, false, job, each).await.map_err(failed)?;
+        if code == 0 { Ok(printed.into_inner().expect("not poisoned")) } else { Err(parse::udisks_error(&last)) }
+    }
+}
+
+#[launcher_api::async_trait]
+impl DriveSettings for Linux {
+    async fn unavailable(&self) -> Option<String> {
+        match self.missing("udisksctl", "UDisks").await {
+            Some(missing) => Some(missing),
+            None => self.missing("lsblk", "util-linux").await,
+        }
+    }
+
+    async fn drives(&self) -> PluginResult<Vec<SystemDrive>> {
+        Ok(parse::drives(&self.run("lsblk", &["--json", "--list", "-b", "-o", LSBLK_COLUMNS]).await?))
+    }
+
+    async fn mount(&self, device: &str, job: Arc<dyn SystemJob>) -> PluginResult<()> {
+        job.progress(None, "Mounting");
+        let (me, device, handle) = (self.clone(), device.to_owned(), job.clone());
+        Linux::background(job, async move {
+            let reply = me.udisks("mount", &device, &handle).await?;
+            // lsblk says where first: the reply's words may change from one UDisks to the next.
+            let listed = me.drives().await.ok().and_then(|list| list.into_iter().find(|d| d.device == device)?.mount);
+            let at = listed.or_else(|| parse::mounted_at(&reply));
+            at.map(|at| at.display().to_string()).ok_or_else(|| "UDisks mounted the drive but didn't say where".into())
+        });
+        Ok(())
+    }
+
+    async fn unmount(&self, device: &str, job: Arc<dyn SystemJob>) -> PluginResult<()> {
+        job.progress(None, "Writing what is left to the drive");
+        let (me, device, handle) = (self.clone(), device.to_owned(), job.clone());
+        Linux::background(job, async move {
+            me.udisks("unmount", &device, &handle).await?;
+            Ok("Unmounted".into())
+        });
+        Ok(())
+    }
+
+    async fn eject(&self, disk: &str, job: Arc<dyn SystemJob>) -> PluginResult<()> {
+        job.progress(None, "Writing what is left to the drive");
+        let parts: Vec<SystemDrive> = self.drives().await?.into_iter().filter(|d| d.disk == disk).collect();
+        if parts.iter().any(|d| d.system) {
+            return Err(PluginError::InvalidInput("the system runs from this drive".into()));
+        }
+        let (me, disk, handle) = (self.clone(), disk.to_owned(), job.clone());
+        Linux::background(job, async move {
+            for part in parts.iter().filter(|d| d.mount.is_some()) {
+                me.udisks("unmount", &part.device, &handle).await?;
+            }
+            me.udisks("power-off", &disk, &handle).await?;
+            Ok("You can take it out now".into())
+        });
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -408,6 +498,7 @@ mod tests {
             AudioSettings::unavailable(&linux).await.as_deref(),
             Some("PipeWire's sound tools (pactl) isn't installed")
         );
+        assert_eq!(DriveSettings::unavailable(&linux).await.as_deref(), Some("UDisks (udisksctl) isn't installed"));
         assert!(NetworkSettings::status(&linux).await.is_err());
     }
 }

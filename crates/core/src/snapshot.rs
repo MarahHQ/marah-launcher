@@ -2,17 +2,24 @@
 //! core's own state, and what the view needs from the plugins, the config and the disk.
 //! [`Core::snapshot`] does every read; [`crate::view::build`] then works on the [`Snapshot`] alone, with
 //! no lock and no I/O.
+//!
+//! What the view needs from the disk is read ahead, off the UI thread ([`refresh_files`]): a
+//! render reads none of it, so a slow or sleeping drive can't hold the screen.
 
+use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 use launcher_api::{Capability, GameKey, PluginId, PluginKind, PluginManifest};
 use launcher_ui_api::GameSystemVm;
 use serde_json::Value;
 
+use crate::Core;
 use crate::app::AppState;
+use crate::changes::Area;
 use crate::folders::Purpose;
 use crate::game_installs::InstallsSnapshot;
 use crate::grid_query::GridData;
@@ -38,6 +45,12 @@ pub(crate) struct Snapshot<'a> {
     pub notices: Arc<Vec<Notice>>,
     pub launcher_update: LauncherUpdateSnapshot,
     pub backup: crate::backup::BackupSnapshot,
+    /// The folder browser, while it is open.
+    pub browser: Option<std::sync::Arc<crate::browser::Browser>>,
+    /// The drives, as last read.
+    pub drives: Vec<crate::drives::Drive>,
+    /// A read of the drives ended: before, their list is still loading.
+    pub drives_listed: bool,
     /// Settings → Backup's folder; `None` with no home folder and none chosen.
     pub backup_folder: Option<std::path::PathBuf>,
     pub vpn: VpnSnapshot,
@@ -110,19 +123,18 @@ impl Snapshot<'_> {
     }
 }
 
-/// What the view reads from the disk, read with the snapshot.
-#[derive(Default)]
+/// What the view reads from the disk, read ahead: see [`refresh_files`].
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct Files {
-    /// The games whose folder is there: the Library's games with their details in, and the
-    /// game of the Game Hub.
-    pub game_folders: HashSet<GameKey>,
-    /// The Game Hub's game has a log of its last run.
-    pub has_log: bool,
-    /// Where each downloading emulator installs games, for the downloads' cards.
-    pub install_folders: HashMap<PluginId, PathBuf>,
+    /// The games whose folder is there, of every game with its details in.
+    pub game_folders: Arc<HashSet<GameKey>>,
+    /// The games with a log of their last run.
+    pub logs: Arc<HashSet<GameKey>>,
+    /// Where each emulator installs games, for the downloads' cards.
+    pub install_folders: Arc<HashMap<PluginId, PathBuf>>,
     /// The host folders' paths, by the folder's name, as the first plugin that asks for each
     /// sees them.
-    pub roots: HashMap<String, Vec<PathBuf>>,
+    pub roots: Arc<HashMap<String, Vec<PathBuf>>>,
 }
 
 /// The loaded plugins: their manifests, which are on, and how each is.
@@ -216,37 +228,178 @@ pub(crate) fn detail_game(state: &AppState) -> Option<GameKey> {
     state.stack.detail_game().cloned()
 }
 
-/// What the view reads from the disk: the games' folders, the Game Hub game's log, the
-/// downloads' install folders and the host folders.
-pub(crate) fn files(
-    kernel: &Kernel,
-    library: &LibrarySnapshot,
-    torrents: &TorrentsSnapshot,
-    detail: Option<&GameKey>,
-) -> Files {
-    let folder_there = |key: &GameKey| {
-        let folder = library.detail(key).and_then(|d| d.details.folder.as_ref());
-        folder.is_some_and(|f| crate::app::resolve_game_folder(kernel, key, f).is_some())
-    };
-    let games = library.library().map(|e| &e.key).chain(detail);
+/// What the view reads from the disk: each game's folder and log, each emulator's install
+/// folder and the host folders.
+pub(crate) fn read_files(kernel: &Kernel, library: &LibrarySnapshot) -> Files {
+    disk_read();
     let host = kernel.host();
+    let mut game_folders = HashSet::new();
+    let mut logs = HashSet::new();
+    for (key, detail) in library.records() {
+        let folder = detail.and_then(|d| d.details.folder.as_ref());
+        if folder.is_some_and(|f| crate::app::resolve_game_folder(kernel, key, f).is_some()) {
+            game_folders.insert(key.clone());
+        }
+        if crate::sessions::log_path(&host.data_dir, key).is_file() {
+            logs.insert(key.clone());
+        }
+    }
     let mut roots = HashMap::new();
-    for manifest in kernel.order().iter().filter_map(|id| kernel.manifest(id).ok()) {
+    let mut install_folders = HashMap::new();
+    for (id, manifest) in kernel.order().iter().filter_map(|id| Some((id, kernel.manifest(id).ok()?))) {
         for grant in &manifest.permissions.filesystem {
             roots
                 .entry(grant.folder.clone())
                 .or_insert_with(|| crate::folders::roots(kernel.config(), host.home.as_deref(), host.platform, grant));
         }
+        if manifest.kind == PluginKind::Emulator
+            && let Some(folders) = kernel.host_folders(id)
+        {
+            let console = crate::release_downloads::console_of(kernel, id);
+            if let Ok((_, path)) = folders.place(Purpose::Install, &console, None) {
+                install_folders.insert(id.clone(), path);
+            }
+        }
     }
-    let install_folder = |emulator: &PluginId| {
-        let console = crate::release_downloads::console_of(kernel, emulator);
-        let (_, path) = kernel.host_folders(emulator)?.place(Purpose::Install, &console, None).ok()?;
-        Some((emulator.clone(), path))
-    };
     Files {
-        game_folders: games.filter(|key| folder_there(key)).cloned().collect(),
-        has_log: detail.is_some_and(|key| crate::sessions::log_path(&host.data_dir, key).is_file()),
-        install_folders: torrents.jobs.values().filter_map(|j| install_folder(&j.emulator)).collect(),
-        roots,
+        game_folders: Arc::new(game_folders),
+        logs: Arc::new(logs),
+        install_folders: Arc::new(install_folders),
+        roots: Arc::new(roots),
     }
+}
+
+/// Reads what the view needs from the disk again, on a blocking thread, and keeps it. Says so,
+/// as a change in [`Area::Files`], when it changed. It runs when the library or the folders
+/// change, a drive comes or goes, a game ends, and on the system's 5 s tick
+/// ([`watch_files`]); a command that changes a game's folder awaits it before its own notice.
+pub(crate) async fn refresh_files(core: &Core) {
+    let _turn = core.disk_turn().await;
+    let reader = core.clone();
+    // A drive that stopped answering holds that thread, not the caller; the read stores what it
+    // read whenever it ends, unless a later read stored first.
+    let read = tokio::task::spawn_blocking(move || {
+        let read = reader.inner.files_reads.fetch_add(1, Ordering::SeqCst) + 1;
+        let folders_read = reader.inner.folder_reads.fetch_add(1, Ordering::SeqCst) + 1;
+        let files = reader.inner.timings.files.time(|| read_files(reader.kernel(), &reader.library().snapshot()));
+        let changed = {
+            let mut state = reader.state();
+            let mut changed = false;
+            // The host folders and the install folders: only a read of every game reads them, so
+            // the newest of those stands, whatever a read of one game did meanwhile.
+            if folders_read > state.folders_read {
+                state.folders_read = folders_read;
+                let stored = &mut state.files;
+                changed |= stored.roots != files.roots || stored.install_folders != files.install_folders;
+                (stored.roots, stored.install_folders) = (files.roots, files.install_folders);
+            }
+            // Each game's folder and log: a read of one game that began since has newer ones.
+            if read > state.files_read {
+                state.files_read = read;
+                let stored = &mut state.files;
+                changed |= stored.game_folders != files.game_folders || stored.logs != files.logs;
+                (stored.game_folders, stored.logs) = (files.game_folders, files.logs);
+            }
+            changed
+        };
+        if changed {
+            reader.changed(Area::Files);
+        }
+    });
+    if tokio::time::timeout(crate::drives::SPACE_READ_LIMIT, read).await.is_err() {
+        tracing::warn!("the game folders weren't read in time: the view shows them as they were");
+    }
+}
+
+/// Reads one game's folder and log ahead, before its details go in, so the view shows them with
+/// the details. The games' folders and logs of a read of every game that began before this one
+/// are dropped when it ends; the caller calls [`drop_older_reads`] once the details are in, for
+/// the reads that began meanwhile.
+pub(crate) async fn read_game_files(core: &Core, game: &GameKey, folder: Option<launcher_api::HostPath>) {
+    let (reader, game) = (core.clone(), game.clone());
+    let read = tokio::task::spawn_blocking(move || {
+        let kernel = reader.kernel();
+        let there = folder.is_some_and(|f| crate::app::resolve_game_folder(kernel, &game, &f).is_some());
+        let log = crate::sessions::log_path(&kernel.host().data_dir, &game).is_file();
+        let read = reader.inner.files_reads.fetch_add(1, Ordering::SeqCst) + 1;
+        let mut state = reader.state();
+        state.files_read = state.files_read.max(read);
+        let files = &mut state.files;
+        for (set, on) in [(&mut files.game_folders, there), (&mut files.logs, log)] {
+            if set.contains(&game) != on {
+                let set = Arc::make_mut(set);
+                if on {
+                    set.insert(game.clone())
+                } else {
+                    set.remove(&game)
+                };
+            }
+        }
+    });
+    if tokio::time::timeout(crate::drives::SPACE_READ_LIMIT, read).await.is_err() {
+        tracing::warn!("a game's folder wasn't read in time");
+    }
+}
+
+/// The games' folders and logs of a read of every game that began before now are dropped when
+/// it ends: it read the library before a change the files already have.
+pub(crate) fn drop_older_reads(core: &Core) {
+    let read = core.inner.files_reads.fetch_add(1, Ordering::SeqCst) + 1;
+    let mut state = core.state();
+    state.files_read = state.files_read.max(read);
+}
+
+/// Reads the files again ([`refresh_files`]) after each change that can move them: one read at
+/// a time, and one more for every change that came meanwhile, however many.
+pub(crate) fn watch_files(core: &Core) {
+    use tokio::sync::broadcast::error::{RecvError, TryRecvError};
+    let weak = Arc::downgrade(&core.inner);
+    let mut changes = core.changes();
+    let moves =
+        |area: Area| matches!(area, Area::Library | Area::Sessions | Area::Settings | Area::Plugins | Area::System);
+    tokio::spawn(async move {
+        loop {
+            match changes.recv().await {
+                Ok(change) if !moves(change.area) => continue,
+                Ok(_) | Err(RecvError::Lagged(_)) => {}
+                Err(RecvError::Closed) => return,
+            }
+            // The rest of the burst: this read covers it.
+            loop {
+                match changes.try_recv() {
+                    Ok(_) | Err(TryRecvError::Lagged(_)) => continue,
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Closed) => return,
+                }
+            }
+            let Some(inner) = weak.upgrade() else { return };
+            refresh_files(&Core { inner }).await;
+        }
+    });
+}
+
+thread_local! {
+    /// The disk may not be read on this thread now: see [`no_disk_reads`].
+    static NO_DISK_READS: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Runs `work`, and panics if it reads what the view reads from the disk on this thread
+/// meanwhile: the games' folders and logs, and the host folders. For a test of what must read
+/// only what was read ahead, such as a build of the view. It guards the core's reads that
+/// call `disk_read`, not every file call.
+pub fn no_disk_reads<T>(work: impl FnOnce() -> T) -> T {
+    struct Allow;
+    impl Drop for Allow {
+        fn drop(&mut self) {
+            NO_DISK_READS.set(false);
+        }
+    }
+    NO_DISK_READS.set(true);
+    let _allow = Allow;
+    work()
+}
+
+/// Each read of the disk the view's data needs calls this first.
+pub(crate) fn disk_read() {
+    assert!(!NO_DISK_READS.get(), "the disk was read where only what was read ahead may be read");
 }

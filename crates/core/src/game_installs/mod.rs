@@ -45,7 +45,7 @@ use crate::archives::UnpackPhase;
 use crate::changes::{Area, Notifier};
 use crate::folders::HostFolders;
 use crate::torrents::{HandOff, TorrentJob, TorrentState};
-use crate::{Archives, Clock, CoreError, CoreResult, Hardware};
+use crate::{Archives, Clock, CoreError, CoreResult, DriveSpace};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum GamePhase {
@@ -181,7 +181,7 @@ impl TorrentDownloads for crate::torrents::TorrentsSubsystem {
 pub(crate) struct InstallPorts {
     pub archives: Arc<dyn Archives>,
     /// For the free space an unpack has.
-    pub hardware: Arc<dyn Hardware>,
+    pub drives: Arc<dyn DriveSpace>,
     pub clock: Arc<dyn Clock>,
     pub downloads: Arc<dyn TorrentDownloads>,
     /// The longest a plugin's `begin` may take.
