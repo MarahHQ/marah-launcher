@@ -7,7 +7,9 @@
 //!
 //! - Linux (`linux.rs`): network and Wi-Fi, VPNs, Bluetooth, sound, restart and shut down, the
 //!   battery, drives (UDisks), and on Marah OS its updates and its USB stick's installer.
-//! - macOS (`macos.rs`): VPNs (every network with an address) and the battery (`pmset`).
+//! - macOS (`macos.rs`): the tools macOS ships for the network and its saved Wi-Fi networks,
+//!   VPNs, the paired Bluetooth devices, the volume, restart and shut down, the battery, and
+//!   the external drives (`diskutil`). What they print becomes the areas' data in `macmap.rs`.
 //! - Windows (`windows.rs`): Windows' own calls for the network and Wi-Fi, Bluetooth, sound, the
 //!   battery and the drives, and `shutdown` for restart and shut down. VPNs say why they can't
 //!   work there. What the calls return becomes the areas' data in `winmap.rs`.
@@ -19,10 +21,10 @@ mod os;
 #[cfg(unix)]
 mod unix;
 
-// Mostly the Linux tools' output; macOS reads only pmset's. The tests run everywhere.
+// Mostly the Linux tools' output; macOS reads pmset's and its error lines. The tests run everywhere.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod parse;
-// macOS runs only pmset, and Windows only shutdown. The tests run everywhere.
+// Windows runs only shutdown, and nothing outside Linux runs as the administrator. The tests run everywhere.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod tools;
 // Linux reads the VPN interfaces. The tests run everywhere.
