@@ -26,6 +26,7 @@ import { Closing } from "kit/closing.slint";
 import { Lingering } from "kit/lingering.slint";
 import { GameMenu } from "kit/game-menu.slint";
 import { PowerMenu } from "kit/power-menu.slint";
+import { PowerAsk } from "kit/power-ask.slint";
 import { Browser } from "kit/folder-browser.slint";
 import { Leaving, Motion } from "kit/motion.slint";
 import { Viewer } from "kit/shot-viewer.slint";
@@ -204,7 +205,7 @@ export component Shell inherits Window {
         && (Vm.screen == "game-detail" || (Games.library && Games.has-detail));
     property <bool> trailer-key: root.game-keys && Vm.detail.trailer-url != "";
     property <bool> overlay: Vm.has-install-prompt || Vm.has-question || GameMenu.open || Vm.has-trailer || Viewer.open || Nav.sort-open
-        || Osk.open || PowerMenu.open;
+        || Osk.open || PowerMenu.open || PowerAsk.asking != "";
     // The PS or Xbox button, held: the host counts it up.
     property <int> power-asks: Vm.power-menu;
     changed power-asks => { PowerMenu.show(); }

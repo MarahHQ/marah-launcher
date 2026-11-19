@@ -71,6 +71,7 @@ pub const KIT: &[(&str, &str)] = &[
     ("plugin-list.slint", include_str!("../kit/plugin-list.slint")),
     ("plugin.slint", include_str!("../kit/plugin.slint")),
     ("pop.slint", include_str!("../kit/pop.slint")),
+    ("power-ask.slint", include_str!("../kit/power-ask.slint")),
     ("power-menu.slint", include_str!("../kit/power-menu.slint")),
     ("progress-bar.slint", include_str!("../kit/progress-bar.slint")),
     ("question-prompt.slint", include_str!("../kit/question-prompt.slint")),

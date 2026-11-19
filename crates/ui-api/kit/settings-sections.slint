@@ -6,6 +6,7 @@ import { Prefs, Row, Value, Editor, FolderRow } from "settings-rows.slint";
 import { FolderList } from "folder-list.slint";
 import { LauncherRows, DownloadsRows, SystemRows, BackupRows, PowerRows } from "settings-layout.slint";
 import { Sys } from "system-panel.slint";
+import { PowerAsk } from "power-ask.slint";
 import { Setup } from "install-os.slint";
 import { Brand } from "../brand.slint";
 import { AboutSlint, Palette } from "std-widgets.slint";
@@ -739,7 +740,10 @@ export component AboutCard inherits VerticalLayout {
         }
 }
 
-// Leaving Marah Launcher, and the machine's power. Log out, Restart and Shut down ask again: the first press arms them, the second acts.
+// Leaving Marah Launcher, and the machine's power. Log out asks again: the first press arms it, the
+// second acts. Restart and Shut down show wherever the power area allows them. As the whole screen
+// they ask the same way; on a desktop, where they close every app on the PC, they ask in a dialog
+// with the focus on Cancel (`PowerAsk`).
 export component PowerSection inherits VerticalLayout {
     callback reveal(length, length);
 
@@ -785,10 +789,10 @@ export component PowerSection inherits VerticalLayout {
             }
             Value { text: parent.armed ? "Press again to log out" : ""; tone: 2; }
         }
-        for power[i] in Vm.system.whole-screen && Sys.power-on ? ["Restart", "Shut down"] : [] : Row {
+        for power[i] in Sys.power-on ? ["Restart", "Shut down"] : [] : Row {
             property <bool> armed;
             label: power;
-            hint: "Press twice";
+            hint: Vm.system.whole-screen ? "Press twice" : "Closes every app on this PC";
             focused: Prefs.is(Prefs.power-section, PowerRows.restart + i);
             last: i == 1;
             danger: self.armed;
@@ -802,6 +806,7 @@ export component PowerSection inherits VerticalLayout {
             property <int> seen: Prefs.serial;
             changed seen => { if (self.focused && Prefs.pending == 0) { self.act(); } }
             function act() {
+                if (!Vm.system.whole-screen) { PowerAsk.ask(i == 0 ? "restart" : "shut-down"); return; }
                 if (!self.armed) { self.armed = true; return; }
                 self.armed = false;
                 if (i == 0) { Commands.restart-pc(); } else { Commands.shut-down-pc(); }

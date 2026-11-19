@@ -1,7 +1,8 @@
 //! Seam 3: the themes' machine settings, over a fake system plugin. The top bar's network, sound,
 //! Bluetooth and drives icons and their panels, and Settings → System, show wherever Marah Launcher
 //! runs, on a desktop too: each by its area's state. The battery shows wherever the PC has one. On
-//! Marah OS's USB stick, the Welcome and Install screens.
+//! a desktop Restart and Shut down ask in a dialog; as the whole screen they ask by a second press.
+//! On Marah OS's USB stick, the Welcome and Install screens.
 
 use std::path::PathBuf;
 
@@ -300,16 +301,95 @@ fn ctrl_p_opens_the_power_menu_and_shut_down_asks_again_first() {
 }
 
 #[test]
-fn on_a_desktop_the_power_menu_only_quits_and_escape_closes_it() {
+fn on_a_desktop_the_power_menu_quits_restarts_and_shuts_down_and_escape_closes_it() {
     let system = machine();
     let mut host = shown(&system, Place::default());
     ctrl_p(&mut host);
-    assert_eq!(power_items(&host), ["Quit Marah Launcher"]);
+    assert_eq!(power_items(&host), ["Quit Marah Launcher", "Restart", "Shut down"], "a desktop: no Log out");
     host.navigate(slint::platform::Key::Escape);
     assert!(power_items(&host).is_empty(), "closed");
     ctrl_p(&mut host);
     power_item(&mut host, "Quit Marah Launcher");
     assert!(host.requests.borrow().contains(&launcher_ui_host::UiRequest::Quit));
+}
+
+/// The confirmation dialog's state: what it asks about ("restart" or "shut-down"), or nothing.
+fn asking(host: &Composed) -> Option<String> {
+    (host.count("power-confirm") > 0).then(|| host.value("power-confirm"))
+}
+
+/// On a desktop, Restart and Shut down act on the whole PC: they ask in a dialog with the focus
+/// on Cancel. Enter on Cancel, Esc, the pad's Back and a click outside cancel; the other choice
+/// acts. In every theme.
+#[test]
+fn on_a_desktop_restart_asks_in_a_dialog_with_the_focus_on_cancel() {
+    use slint::platform::Key;
+    for theme in ["classic", "default"] {
+        let system = machine();
+        let mut host = shown(&system, Place::default());
+        host.ui.switch(&id(theme)).unwrap();
+        // The pointer reaches the screens once the boot screen is gone.
+        host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
+        host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+        host.settle();
+        host.settings_tab("Power");
+
+        host.press_first("system-restart");
+        assert_eq!(asking(&host).as_deref(), Some("restart"), "{theme}: the first press asks in a dialog");
+        assert_eq!(host.focused("power-confirm-choice"), ["Cancel"], "{theme}: the focus starts on Cancel");
+        host.navigate(Key::Return);
+        assert_eq!(asking(&host), None, "{theme}: Enter on Cancel closes it");
+        assert_eq!(system.read(|m| m.restarts), 0, "{theme}");
+
+        host.press_first("system-restart");
+        host.navigate(Key::Escape);
+        assert_eq!(asking(&host), None, "{theme}: Esc cancels");
+        host.press_first("system-restart");
+        host.pad(launcher_ui_host::PadButton::East);
+        assert_eq!(asking(&host), None, "{theme}: the pad's Back cancels");
+
+        host.press_first("system-restart");
+        host.click("power-confirm-title");
+        assert_eq!(asking(&host).as_deref(), Some("restart"), "{theme}: a click inside keeps it");
+        host.click_at(4.0, 4.0);
+        assert_eq!(asking(&host), None, "{theme}: a click outside cancels");
+        assert_eq!(system.read(|m| m.restarts), 0, "{theme}: nothing restarted");
+
+        host.press_first("system-restart");
+        host.navigate(Key::DownArrow);
+        assert_eq!(host.focused("power-confirm-choice"), ["Restart"], "{theme}");
+        host.navigate(Key::UpArrow);
+        assert_eq!(host.focused("power-confirm-choice"), ["Cancel"], "{theme}: Up goes back");
+        host.navigate(Key::DownArrow);
+        host.pad(launcher_ui_host::PadButton::South);
+        host.pump();
+        host.settle();
+        assert_eq!(system.read(|m| m.restarts), 1, "{theme}: the pad's ✕ on the other choice restarts");
+    }
+}
+
+/// From the power menu on a desktop, Shut down asks in the same dialog; a click on its choice acts.
+#[test]
+fn on_a_desktop_shut_down_from_the_power_menu_asks_in_the_dialog() {
+    let system = machine();
+    let mut host = shown(&system, Place::default());
+    // The pointer reaches the screens once the boot screen is gone.
+    host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
+    host.settle();
+    ctrl_p(&mut host);
+    power_item(&mut host, "Shut down");
+    assert!(power_items(&host).is_empty(), "the power menu gives way to the dialog");
+    assert_eq!(asking(&host).as_deref(), Some("shut-down"));
+    assert_eq!(host.focused("power-confirm-choice"), ["Cancel"]);
+    assert_eq!(system.read(|m| m.shutdowns), 0, "the first press only asks");
+    let yes = i_slint_backend_testing::ElementHandle::find_by_accessible_label(host.instance(), "power-confirm-choice")
+        .find(|e| e.accessible_value().is_some_and(|v| v == "Shut down"))
+        .expect("Shut down in the dialog");
+    let (at, size) = (yes.absolute_position(), yes.size());
+    host.click_at(at.x + size.width / 2.0, at.y + size.height / 2.0);
+    host.pump();
+    host.settle();
+    assert_eq!(system.read(|m| m.shutdowns), 1);
 }
 
 #[test]

@@ -33,8 +33,9 @@ import { NetIcon, SoundIcon, BluetoothIcon } from "system-panel.slint";
 //       "Restart Marah Launcher" after a restore, then one row per backup, which restores it
 //   7   POWER, the last tab: "Quit Marah Launcher" ("Restart Marah Launcher" when Marah Launcher is
 //       the whole screen: the session starts it again), then Log out (the Marah Launcher session on
-//       a desktop), Restart and Shut down, which ask again before they act. Under its rows, the
-//       last thing on the page: the About card and Made with Slint
+//       a desktop), Restart and Shut down where the power area allows them. They ask before they
+//       act: in a dialog on a desktop (`PowerAsk`), by a second press as the whole screen. Under
+//       its rows, the last thing on the page: the About card and Made with Slint
 // On a theme's page:
 //   0   "Use this theme"
 //   1   its options, when it is the one in use

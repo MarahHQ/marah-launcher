@@ -9,6 +9,7 @@ import { PluginList } from "plugin-list.slint";
 import { Closing, ClosingScreen } from "closing.slint";
 import { GameMenu, GameMenuSheet } from "game-menu.slint";
 import { PowerMenu, PowerMenuSheet } from "power-menu.slint";
+import { PowerAsk, PowerAskSheet } from "power-ask.slint";
 import { Browser, FolderBrowser } from "folder-browser.slint";
 import { FolderList, FolderListSheet } from "folder-list.slint";
 import { Leaving, Motion } from "motion.slint";
@@ -191,6 +192,12 @@ export component ShellKeys inherits FocusScope {
         Osk.pad = Vm.pad-key;
         // The launcher is going: nothing more to do.
         if (Closing.shows) { return accept; }
+        // Restart or Shut down asks on a desktop: over everything, the folder sheets too.
+        // A held Enter doesn't repeat: it would pick before the player sees the dialog.
+        if (PowerAsk.asking != "") {
+            if (!(event.repeat && event.text == Key.Return)) { PowerAsk.key(event.text); }
+            return accept;
+        }
         // The folder browser: a sheet over everything, with keys of its own,
         // whichever screen behind has the focus. The power menu still opens over it.
         if (Browser.open && !PowerMenu.open && !(event.modifiers.control && (event.text == "p" || event.text == "P"))) {
@@ -302,7 +309,8 @@ export component ShellKeys inherits FocusScope {
 
 // What opens over the screens, each while it is open, the later over the earlier: the install
 // prompt, the screenshot viewer, a trailer, the game menu, the result prompt, Send ratings, the
-// folder browser, Install OS, the power menu, and the closing screen over everything. Put it over
+// folder browser, Install OS, the power menu, the dialog before Restart or Shut down on a desktop,
+// and the closing screen over everything. Put it over
 // your screens, the size of the window. `ShellKeys` sends each one its keys.
 export component Overlays inherits Rectangle {
     // The theme's emblem, for the closing screen's steps about no game.
@@ -320,6 +328,8 @@ export component Overlays inherits Rectangle {
     if browsing.shown : FolderBrowser { width: parent.width; height: parent.height; open: Browser.open; }
     if Setup.shown : InstallOs { width: parent.width; height: parent.height; }
     if PowerMenu.open : PowerMenuSheet { width: parent.width; height: parent.height; }
+    asking := Leaving { open: PowerAsk.asking != ""; time: Motion.sheet-out; }
+    if asking.shown : PowerAskSheet { width: parent.width; height: parent.height; open: PowerAsk.asking != ""; }
     // Log out, Restart or Shut down closing what runs: over everything.
     if Closing.shows : ClosingScreen { width: parent.width; height: parent.height; logo: root.logo; }
 }
