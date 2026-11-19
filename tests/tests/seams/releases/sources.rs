@@ -121,6 +121,21 @@ async fn a_read_with_a_stale_sources_copy_answers_at_once_from_it_and_the_fetch_
 }
 
 #[tokio::test]
+async fn one_read_of_the_page_fetches_the_sources_once_and_not_again_as_time_goes_on() {
+    let t = boot().await;
+    t.http.serve(SOURCES_URL, sources_of(&[("new", "https://xyz.net/forum/viewforum.php?f=1")]));
+    set_sources(&t, SOURCES_URL).await.unwrap();
+    // One read: the fetch runs in the background.
+    sources_rows(&t).await;
+    assert!(t.until_clock(std::time::Duration::from_millis(10), 100, || !t.http.sent().is_empty()).await);
+    assert_eq!(t.http.sent(), [SOURCES_URL]);
+
+    // The refresh is off, and no one reads the page: past the fresh time, no new fetch.
+    t.clock.advance(std::time::Duration::from_secs(release_catalog::FRESH + 3600)).await;
+    assert_eq!(t.http.sent(), [SOURCES_URL]);
+}
+
+#[tokio::test]
 async fn a_failed_sources_fetch_waits_before_it_tries_again_and_a_read_does_not_make_it_sooner() {
     let t = boot().await;
     set_sources(&t, SOURCES_URL).await.unwrap();
@@ -134,8 +149,11 @@ async fn a_failed_sources_fetch_waits_before_it_tries_again_and_a_read_does_not_
     }
     assert_eq!(t.http.sent(), [SOURCES_URL], "the failed fetch is held");
 
-    // Past the first wait, the plugin's task tries again with no read.
+    // Past the first wait, with the refresh off, only a read of the page makes it try again.
     t.clock.advance(std::time::Duration::from_secs(release_catalog::RETRY)).await;
+    assert_eq!(t.http.sent(), [SOURCES_URL], "no read, no new try");
+    sources_rows(&t).await;
+    assert!(t.until_clock(std::time::Duration::from_millis(10), 100, || t.http.sent().len() == 2).await);
     assert_eq!(t.http.sent(), [SOURCES_URL, SOURCES_URL]);
 }
 

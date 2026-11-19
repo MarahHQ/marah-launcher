@@ -356,6 +356,30 @@ async fn an_open_catalog_page_shows_the_fetched_sources_once_the_background_fetc
 }
 
 #[tokio::test]
+async fn with_the_refresh_turned_off_the_sources_are_not_fetched_again_with_no_page_read() {
+    let t = boot(true).await;
+    list(&t).await;
+    assert!(until(&t, || t.http.sent().iter().any(|u| *u == SOURCES)).await, "the refresh fetches the sources");
+    // The fetch tells the core the page changed, and the core reads the page again.
+    t.clock.run_until_idle().await;
+    t.core
+        .dispatch(Command::SetConfig {
+            plugin: id("release-catalog"),
+            scope: ConfigScope::Emulator,
+            value: serde_json::json!({ "catalog_url": "https://xyz.dev/catalog", "sources_url": SOURCES,
+                "refresh_from_forums": false }),
+        })
+        .await
+        .unwrap();
+    let sources = |t: &TestCore| t.http.sent().iter().filter(|u| *u == SOURCES).count();
+    let before = sources(&t);
+
+    // Past the fresh time, with no read of the page: the kept copy stays.
+    t.clock.advance(std::time::Duration::from_secs(release_catalog::FRESH + 3600)).await;
+    assert_eq!(sources(&t), before, "no new fetch of the sources: {:?}", t.http.sent());
+}
+
+#[tokio::test]
 async fn a_console_named_like_the_kept_catalog_sources_keeps_its_own_copy() {
     let t = boot(false).await;
     // The first read of the page gets the bundled list, and the fetch runs in the background.
@@ -564,6 +588,8 @@ async fn with_downloads_only_through_a_vpn_the_refresh_waits_for_the_vpn() {
     let row = refresh_row(&t, "PS5: Waiting for the VPN").await;
     assert!(row.starts_with("PS5: Waiting for the VPN"), "{row}");
     assert!(!t.http.sent().iter().any(|u| **u == feed_url() || *u == pvc_url()), "no forum is asked");
+    // The sources address is no bulk download: it is fetched while the refresh waits.
+    assert!(t.http.sent().iter().any(|u| *u == SOURCES), "the sources are fetched: {:?}", t.http.sent());
 
     // The VPN connects: Refresh now runs it.
     t.network.up("wg-se");
