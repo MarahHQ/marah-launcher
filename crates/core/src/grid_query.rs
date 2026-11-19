@@ -229,21 +229,22 @@ pub(crate) fn neighbours(
     found
 }
 
-/// The Catalog's grid as it was last shown. Only the Catalog shows its grid: on another screen
-/// the last one stands, so the view doesn't search and sort every offer again on each render.
+/// The Catalog's grid as kept off the Catalog, with the count of the catalog read it was built
+/// over. Only the Catalog builds its grid: on another screen the kept one stands, so the view
+/// doesn't search and sort every offer again on each render.
 #[derive(Clone, Debug, Default)]
-pub(crate) struct ShownGrid(Option<std::sync::Arc<LibraryVm>>);
+pub(crate) struct ShownGrid(Option<(u64, std::sync::Arc<LibraryVm>)>);
 
 impl ShownGrid {
-    /// The grid to show: the last one, while another screen is on; `None` to build it now.
+    /// The grid to show: the kept one, while another screen is on; `None` to build it now.
     pub fn get(&self, on_screen: bool) -> Option<LibraryVm> {
-        self.0.as_deref().filter(|_| !on_screen).cloned()
+        self.0.as_ref().filter(|_| !on_screen).map(|(_, grid)| grid.as_ref().clone())
     }
 
-    /// Keeps `grid` when it is on screen, or when there is none yet.
-    pub fn keep(&mut self, on_screen: bool, grid: &LibraryVm) {
-        if on_screen || self.0.is_none() {
-            self.0 = Some(std::sync::Arc::new(grid.clone()));
+    /// Keeps `grid`, built over catalog read `read`, unless the kept one is from a later read.
+    pub fn keep(&mut self, read: u64, grid: LibraryVm) {
+        if self.0.as_ref().is_none_or(|(kept, _)| *kept <= read) {
+            self.0 = Some((read, std::sync::Arc::new(grid)));
         }
     }
 
@@ -1003,13 +1004,15 @@ mod tests {
         let grid = |total| LibraryVm { total, ..LibraryVm::default() };
         let mut shown = ShownGrid::default();
         assert_eq!(shown.get(false), None, "none yet: build it");
-        shown.keep(false, &grid(1));
-        assert_eq!(shown.get(false).map(|g| g.total), Some(1), "the first one stands");
-        shown.keep(false, &grid(2));
-        assert_eq!(shown.get(false).map(|g| g.total), Some(1), "off screen, a new one isn't kept");
+        shown.keep(1, grid(1));
+        assert_eq!(shown.get(false).map(|g| g.total), Some(1), "it stands off screen");
         assert_eq!(shown.get(true), None, "on screen, it is built");
-        shown.keep(true, &grid(3));
-        assert_eq!(shown.get(false).map(|g| g.total), Some(3));
+        shown.keep(1, grid(2));
+        assert_eq!(shown.get(false).map(|g| g.total), Some(2), "a grid of the same read replaces it");
+        shown.keep(0, grid(3));
+        assert_eq!(shown.get(false).map(|g| g.total), Some(2), "a grid of an older read is dropped");
+        shown.keep(2, grid(4));
+        assert_eq!(shown.get(false).map(|g| g.total), Some(4));
         shown.clear();
         assert_eq!(shown.get(false), None);
     }

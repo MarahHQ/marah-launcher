@@ -544,3 +544,74 @@ async fn the_catalog_s_grid_off_screen_does_not_hang_on_earlier_draws() {
     assert_eq!(drew.core.view().catalog.games, never.core.view().catalog.games);
     assert_eq!(titles(&drew), ["Astro", "Bolt"], "the grid of the catalogs loaded");
 }
+
+/// The sorted titles of the Catalog's grid.
+fn sorted_titles(t: &TestCore) -> Vec<String> {
+    let mut titles = titles(t);
+    titles.sort();
+    titles
+}
+
+/// The ways off the Catalog: another screen opens, or Back.
+fn leaving() -> [Command; 2] {
+    [Command::Navigate(launcher_core::Route::Downloads), Command::Back]
+}
+
+/// Off the Catalog, its grid stands as the player left it: a search changed off screen shows
+/// once the Catalog is back on top.
+#[tokio::test]
+async fn the_catalog_s_grid_stands_as_the_player_left_it() {
+    for leave in leaving() {
+        let topics = serde_json::json!([named(1, "Astro", "PS5", "", 'a'), named(2, "Bolt", "PS5", "", 'b')]);
+        let t = offering("emu-kyty", "PS5", topics, false).await;
+        t.core.dispatch(leave.clone()).await.unwrap();
+        assert_ne!(t.core.view().screen, launcher_ui_api::ScreenId::Catalog, "{leave:?}");
+
+        t.core.dispatch(Command::CatalogSearch("Bolt".into())).await.unwrap();
+        assert_eq!(sorted_titles(&t), ["Astro", "Bolt"], "{leave:?}: the grid stands as the player left it");
+        t.core.dispatch(Command::Navigate(launcher_core::Route::Catalog)).await.unwrap();
+        assert_eq!(sorted_titles(&t), ["Bolt"], "{leave:?}: on top, the Catalog builds its grid");
+    }
+}
+
+/// Catalogs read while the player is off the Catalog replace the grid kept when the player
+/// left it.
+#[tokio::test]
+async fn catalogs_read_off_the_catalog_replace_the_grid_kept_when_the_player_left() {
+    for leave in leaving() {
+        let topics = serde_json::json!([named(1, "Astro", "PS5", "", 'a'), named(2, "Bolt", "PS5", "", 'b')]);
+        let t = offering("emu-kyty", "PS5", topics, false).await;
+        t.core.dispatch(leave.clone()).await.unwrap();
+
+        let comet = serde_json::json!([named(3, "Comet", "PS5", "", 'c')]);
+        t.http.serve("https://xyz.dev/catalog2/ps5.json", catalog_of("2026-10-19T00:00:00Z", comet));
+        set_address(&t, "https://xyz.dev/catalog2").await.unwrap();
+        t.until(Area::Catalogs, |_| sorted_titles(&t) == ["Comet"]).await;
+        assert_ne!(t.core.view().screen, launcher_ui_api::ScreenId::Catalog, "{leave:?}");
+    }
+}
+
+/// The grid kept off the Catalog has the community's results the catalog read asked for: the
+/// "In-game" filter counts them.
+#[tokio::test]
+async fn the_grid_kept_off_the_catalog_has_the_community_s_results() {
+    let t = FakeHost::new()
+        .built_in(launcher_api::PluginBox::code(release_catalog::ReleaseCatalog::default()))
+        .plugin(
+            FakeCatalog::new("emu-kyty")
+                .system("PS5")
+                .games([])
+                .lists(&[("PPSA01234", launcher_api::CompatLevel::Ingame)])
+                .build()
+                .console("PS5"),
+        )
+        .boot_core()
+        .await;
+    let topics = serde_json::json!([named(1, "Astro", "PS5", "PPSA01234", 'a'), named(2, "Bolt", "PS5", "", 'b')]);
+    t.http.serve(URL, catalog_of("2026-10-18T00:00:00Z", topics));
+    set_address(&t, "https://xyz.dev/catalog").await.unwrap();
+    catalogs_fetched(&t.core).await;
+    t.until(Area::Catalogs, |core| core.view().catalog.games.systems.iter().any(|c| c.id == "ingame" && c.count == 1))
+        .await;
+    assert_eq!(t.core.view().screen, launcher_ui_api::ScreenId::Home, "off the Catalog");
+}
