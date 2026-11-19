@@ -12,12 +12,12 @@ export component SettingsPage inherits SettingsFrame {
     note: "Changes are saved automatically";
 
     // Every section, in the rail's order (`Prefs.first-section`), each under its header.
-    if Vm.system.whole-screen : PageSection { section: 5; show(y) => { root.show-at(y); } SystemSection { reveal(y, h) => { root.reveal(y, h); } } }
-    PageSection { section: 1; show(y) => { root.show-at(y); } GamesSection { reveal(y, h) => { root.reveal(y, h); } } }
-    PageSection { section: 3; show(y) => { root.show-at(y); } DownloadsSection { reveal(y, h) => { root.reveal(y, h); } } }
     PageSection { section: 0; show(y) => { root.show-at(y); } LauncherSection { reveal(y, h) => { root.reveal(y, h); } } }
     PageSection { section: 2; show(y) => { root.show-at(y); } UpdatesSection { reveal(y, h) => { root.reveal(y, h); } } }
     PageSection { section: Prefs.backup-section; show(y) => { root.show-at(y); } BackupSection { reveal(y, h) => { root.reveal(y, h); } } }
+    PageSection { section: 1; show(y) => { root.show-at(y); } GamesSection { reveal(y, h) => { root.reveal(y, h); } } }
+    PageSection { section: 3; show(y) => { root.show-at(y); } DownloadsSection { reveal(y, h) => { root.reveal(y, h); } } }
+    if Vm.system.whole-screen : PageSection { section: 5; show(y) => { root.show-at(y); } SystemSection { reveal(y, h) => { root.reveal(y, h); } } }
     PageSection { section: 4; show(y) => { root.show-at(y); } PcSection { logo: root.logo; reveal(y, h) => { root.reveal(y, h); } } }
     PageSection { section: Prefs.power-section; show(y) => { root.show-at(y); } PowerSection { reveal(y, h) => { root.reveal(y, h); } } }
 }

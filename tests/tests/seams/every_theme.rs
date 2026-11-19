@@ -235,11 +235,8 @@ fn settings_opens_on_its_first_row_after_another_screen_in_every_theme() {
         let mut host = in_theme(theme, two_emulators);
         host.dispatch(Command::Navigate(Route::Settings));
         host.settle();
-        // The Games tab: its game folders, then Rescan.
-        let first = match host.core().view().settings.folders.first() {
-            Some(folder) => format!("folder:{}", folder.name),
-            None => "rescan".to_owned(),
-        };
+        // The Launcher tab, the first: Full screen.
+        let first = "fullscreen".to_owned();
         assert!(host.lit(&first), "{theme}: Settings opens on {first}");
 
         host.navigate(Key::DownArrow);

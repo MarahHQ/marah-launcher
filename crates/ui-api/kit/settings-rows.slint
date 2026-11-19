@@ -96,26 +96,21 @@ export global Prefs {
     // The old name of `rail`, for themes that read it.
     out property <bool> tabbed: root.rail;
     // The tab a section's rows are in, and a tab's first section. Settings shows its sections in
-    // their order of use, not their numbers: System first (the machine, when Marah Launcher is
-    // the whole screen), then Games, Downloads, Launcher, Updates, Backup, This PC, and Power
-    // last. The rail, the page, L1 and R1, and Up and Down all go in this order.
+    // four groups, not in their numbers' order: the app (Launcher, Updates, Backup), play (Games,
+    // Downloads), the machine (System, when Marah Launcher is the whole screen, then This PC), and
+    // Power last. It opens on Launcher. The rail, the page, L1 and R1, and Up and Down all go in
+    // this order. `order` is the sections by tab; `place` is the tab of each section.
+    property <[int]> order: Vm.system.whole-screen ? [0, 2, 6, 1, 3, 5, 4, 7] : [0, 2, 5, 1, 3, 4, 6];
+    property <[int]> place: Vm.system.whole-screen ? [0, 3, 1, 4, 6, 5, 2, 7] : [0, 3, 1, 4, 5, 2, 6];
     public pure function tab-of(section: int) -> int {
         root.page && !root.theme-page ? (section <= 1 ? 0 : section - 1)
             : Vm.screen != "settings" ? section
-            : Vm.system.whole-screen
-            ? (section == 5 ? 0 : section == 1 ? 1 : section == 3 ? 2 : section == 0 ? 3
-                : section == 2 ? 4 : section == 6 ? 5 : section == 4 ? 6 : 7)
-            : (section == 1 ? 0 : section == 3 ? 1 : section == 0 ? 2 : section == 2 ? 3
-                : section == 5 ? 4 : section == 4 ? 5 : 6)
+            : root.place[section]
     }
     public pure function first-section(tab: int) -> int {
         root.page && !root.theme-page ? (tab == 0 ? 0 : tab + 1)
             : Vm.screen != "settings" ? tab
-            : Vm.system.whole-screen
-            ? (tab == 0 ? 5 : tab == 1 ? 1 : tab == 2 ? 3 : tab == 3 ? 0
-                : tab == 4 ? 2 : tab == 5 ? 6 : tab == 6 ? 4 : 7)
-            : (tab == 0 ? 1 : tab == 1 ? 3 : tab == 2 ? 0 : tab == 3 ? 2
-                : tab == 4 ? 5 : tab == 5 ? 4 : 6)
+            : root.order[tab]
     }
 
     out property <int> current-tab: root.tab-of(root.section);
