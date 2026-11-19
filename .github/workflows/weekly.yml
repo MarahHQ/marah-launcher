@@ -116,7 +116,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup
-      - run: cargo test --locked -p launcher-app a_torrent_downloads
+      - run: cargo test --locked -p launcher-app torrents::tests
         env:
           MARAH_TORRENT_TESTS: "1"
 
