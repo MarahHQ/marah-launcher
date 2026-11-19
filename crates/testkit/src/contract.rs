@@ -391,7 +391,7 @@ pub trait TorrentFixture: Send {
     fn send(&mut self, id: &str);
 }
 
-/// A torrent file of `len` bytes, with no run of a piece's length repeated.
+/// A torrent file of `len` bytes, whose pieces of 16 KiB differ from each other.
 fn torrent_bytes(len: u32, step: u32) -> Vec<u8> {
     (0..len).map(|i| (i.wrapping_mul(step) % 251) as u8).collect()
 }
@@ -492,9 +492,9 @@ pub async fn torrents(fixture: &mut dyn TorrentFixture) {
     let still = adapter.stats(id).expect("running");
     assert_eq!((still.state, still.finished), (TransferState::Paused, false), "contract torrents: paused stays paused");
     assert_eq!(read(&whole, "game.bin"), Some(broken), "contract torrents: paused, nothing downloads");
-    adapter.stop(id).await.unwrap_or_else(|e| panic!("contract torrents: stop: {e}"));
 
-    // The launcher restarts: the check counts the pieces the folder has, and the rest downloads.
+    // The launcher closes with the download still running, and starts again: the check counts
+    // the pieces the folder has, and the rest downloads.
     adapter.stop_all().await.unwrap_or_else(|e| panic!("contract torrents: stop_all: {e}"));
     drop(adapter);
     let adapter = fixture.adapter();
