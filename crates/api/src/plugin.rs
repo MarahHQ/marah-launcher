@@ -99,6 +99,7 @@ pub struct Provided {
     pub power: Option<Arc<dyn crate::PowerSettings>>,
     pub os_updates: Option<Arc<dyn crate::OsUpdates>>,
     pub os_install: Option<Arc<dyn crate::OsInstall>>,
+    pub drives: Option<Arc<dyn crate::DriveSettings>>,
     /// Images that slot data and catalog entries refer to as [`crate::ImageSource::Asset`].
     /// Plugins loaded from a folder can use the manifest's `assets` folder instead.
     pub assets: Option<Arc<dyn Files>>,
@@ -132,6 +133,7 @@ impl Provided {
             (Capability::Power, self.power.is_some()),
             (Capability::OsUpdates, self.os_updates.is_some()),
             (Capability::OsInstall, self.os_install.is_some()),
+            (Capability::Drives, self.drives.is_some()),
         ];
         present.into_iter().filter_map(|(c, yes)| yes.then_some(c)).collect()
     }

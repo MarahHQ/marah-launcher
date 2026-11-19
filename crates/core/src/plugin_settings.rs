@@ -197,6 +197,7 @@ pub(crate) fn set_folders(core: &Core, name: &str, paths: &[std::path::PathBuf])
         config.set(&["app", "folders", name], Value::Array(list))
     };
     saved.map_err(|e| CoreError::Io(e.to_string()))?;
+    crate::drives::remember_folders(core, &paths);
     crate::disks::refresh(core);
     core.changed(Area::Settings);
     Ok(())

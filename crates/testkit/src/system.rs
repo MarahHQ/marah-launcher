@@ -1,5 +1,5 @@
 //! [`FakeSystem`]: a system plugin the test controls. It has a machine's network, Wi-Fi, Bluetooth,
-//! sound, power and battery, and Marah OS's updates and installer, as plain state the test sets
+//! sound, power and battery, drives, and Marah OS's updates and installer, as plain state the test sets
 //! and reads. Its long work (joining, scanning, pairing, installing) ends when the test says, or
 //! at once.
 
@@ -8,9 +8,9 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use launcher_api::{
-    AudioLevel, AudioOutput, AudioSettings, Battery, BluetoothDevice, BluetoothSettings, InstallDisk, Installed,
-    NetworkSettings, NetworkStatus, OsInstall, OsUpdate, OsUpdates, PluginError, PluginResult, PowerSettings, Provided,
-    SystemJob, Vpn, VpnSettings, WifiNetwork,
+    AudioLevel, AudioOutput, AudioSettings, Battery, BluetoothDevice, BluetoothSettings, DriveSettings, InstallDisk,
+    Installed, NetworkSettings, NetworkStatus, OsInstall, OsUpdate, OsUpdates, PluginError, PluginResult,
+    PowerSettings, Provided, SystemDrive, SystemJob, Vpn, VpnSettings, WifiNetwork,
 };
 
 use crate::StubPlugin;
@@ -46,6 +46,15 @@ pub struct FakeMachine {
     pub installed_on: Vec<PathBuf>,
     pub partition_choices: usize,
     pub vpns: Vec<Vpn>,
+    /// The drives, as the system lists them.
+    pub drives: Vec<SystemDrive>,
+    /// Where a mount puts a drive: a folder named by its label in here, which the mount makes.
+    /// Without it, `/media/fake/<label>`, which isn't made.
+    pub mount_at: Option<PathBuf>,
+    /// Mounting these devices fails with the reason.
+    pub mount_refusals: Vec<(String, String)>,
+    /// What was asked of the drives: `mount /dev/sda1`, `unmount …`, `eject /dev/sda`.
+    pub drive_actions: Vec<String>,
     /// Why a capability is unavailable, by its name ("network", "bluetooth", "audio", "power").
     pub unavailable: Vec<(&'static str, String)>,
     /// Calls that never answer, by method name ("status", "devices", …).
@@ -92,7 +101,7 @@ impl FakeSystem {
 
     /// The plugin, `fake-system`, providing every system capability.
     pub fn plugin(&self) -> StubPlugin {
-        self.plugin_with(&["network", "vpn", "bluetooth", "audio", "power", "os_updates", "os_install"])
+        self.plugin_with(&["network", "vpn", "bluetooth", "audio", "power", "os_updates", "os_install", "drives"])
     }
 
     /// The plugin, providing only `capabilities` (as the manifest names them).
@@ -115,6 +124,7 @@ impl FakeSystem {
                 power: has("power").then(|| me.clone() as Arc<dyn PowerSettings>),
                 os_updates: has("os_updates").then(|| me.clone() as Arc<dyn OsUpdates>),
                 os_install: has("os_install").then(|| me.clone() as Arc<dyn OsInstall>),
+                drives: has("drives").then(|| me.clone() as Arc<dyn DriveSettings>),
                 ..Provided::default()
             })
         })
@@ -359,6 +369,65 @@ impl OsInstall for FakeSystem {
 
     async fn choose_partitions(&self) -> PluginResult<()> {
         self.with(|m| m.partition_choices += 1);
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl DriveSettings for FakeSystem {
+    async fn unavailable(&self) -> Option<String> {
+        FakeSystem::unavailable(self, "drives")
+    }
+
+    async fn drives(&self) -> PluginResult<Vec<SystemDrive>> {
+        self.call("drives").await;
+        Ok(self.read(|m| m.drives.clone()))
+    }
+
+    async fn mount(&self, device: &str, job: Arc<dyn SystemJob>) -> PluginResult<()> {
+        self.call("mount").await;
+        let refused = self.read(|m| m.mount_refusals.iter().find(|(d, _)| d == device).map(|(_, why)| why.clone()));
+        self.with(|m| m.drive_actions.push(format!("mount {device}")));
+        if let Some(why) = refused {
+            self.end(job, Err(why));
+            return Ok(());
+        }
+        let label = self.read(|m| m.drives.iter().find(|d| d.device == device).map(|d| d.label.clone()));
+        let label = label.ok_or_else(|| PluginError::NotFound(format!("no drive {device}")))?;
+        let at = match self.read(|m| m.mount_at.clone()) {
+            Some(root) => {
+                let at = root.join(&label);
+                std::fs::create_dir_all(&at).map_err(|e| PluginError::Storage(e.to_string()))?;
+                at
+            }
+            None => PathBuf::from("/media/fake").join(&label),
+        };
+        self.with(|m| {
+            for drive in m.drives.iter_mut().filter(|d| d.device == device) {
+                drive.mount = Some(at.clone());
+            }
+        });
+        self.end(job, Ok(at.display().to_string()));
+        Ok(())
+    }
+
+    async fn unmount(&self, device: &str, job: Arc<dyn SystemJob>) -> PluginResult<()> {
+        self.with(|m| {
+            m.drive_actions.push(format!("unmount {device}"));
+            for drive in m.drives.iter_mut().filter(|d| d.device == device) {
+                drive.mount = None;
+            }
+        });
+        self.end(job, Ok("Unmounted".into()));
+        Ok(())
+    }
+
+    async fn eject(&self, disk: &str, job: Arc<dyn SystemJob>) -> PluginResult<()> {
+        self.with(|m| {
+            m.drive_actions.push(format!("eject {disk}"));
+            m.drives.retain(|d| d.disk != disk);
+        });
+        self.end(job, Ok("You can take it out now".into()));
         Ok(())
     }
 }

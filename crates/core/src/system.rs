@@ -65,6 +65,9 @@ pub enum JobKind {
     ScanBluetooth,
     Pair,
     InstallOs,
+    Mount,
+    Unmount,
+    Eject,
 }
 
 impl JobKind {
@@ -74,6 +77,9 @@ impl JobKind {
             JobKind::ScanBluetooth => "scan",
             JobKind::Pair => "pair",
             JobKind::InstallOs => "install",
+            JobKind::Mount => "mount",
+            JobKind::Unmount => "unmount",
+            JobKind::Eject => "eject",
         }
     }
 }
@@ -146,7 +152,10 @@ fn low_battery(warned: Option<u8>, battery: Option<Battery>) -> (Option<u8>, Opt
 }
 
 /// The first active system plugin that provides a capability, and that capability.
-async fn provider<T: ?Sized>(core: &Core, pick: impl Fn(&Provided) -> Option<Arc<T>>) -> Option<(PluginId, Arc<T>)> {
+pub(crate) async fn provider<T: ?Sized>(
+    core: &Core,
+    pick: impl Fn(&Provided) -> Option<Arc<T>>,
+) -> Option<(PluginId, Arc<T>)> {
     let kernel = core.kernel();
     for plugin in kernel.of_kind(PluginKind::System) {
         if let Ok(provided) = kernel.provided(&plugin).await
@@ -222,7 +231,7 @@ impl SystemJob for HostJob {
 }
 
 /// A new running job, and the handle its plugin reports through.
-fn start_job(core: &Core, kind: JobKind, target: &str) -> (u64, Arc<dyn SystemJob>) {
+pub(crate) fn start_job(core: &Core, kind: JobKind, target: &str) -> (u64, Arc<dyn SystemJob>) {
     let cancel = Arc::new(AtomicBool::new(false));
     let id = {
         let mut state = core.state();
@@ -307,6 +316,10 @@ pub(crate) async fn refresh(core: &Core) {
     {
         found.disks = core.kernel().guard(&plugin, "os_install.disks", install.disks()).await.unwrap_or_default();
         found.capabilities.insert(Capability::OsInstall, None);
+    }
+    if let Some((plugin, drives)) = provider(core, |p| p.drives.clone()).await {
+        let reason = core.kernel().guard(&plugin, "drives.unavailable", async { Ok(drives.unavailable().await) }).await;
+        found.capabilities.insert(Capability::Drives, reason.unwrap_or(None));
     }
     let battery_notice = {
         let mut state = core.state();

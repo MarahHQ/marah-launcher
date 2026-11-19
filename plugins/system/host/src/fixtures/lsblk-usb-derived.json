@@ -1,0 +1,146 @@
+{
+   "blockdevices": [
+      {
+         "name": "zram0",
+         "pkname": null,
+         "path": "/dev/zram0",
+         "type": "disk",
+         "size": 17179869184,
+         "fstype": "swap",
+         "label": "zram0",
+         "uuid": "669f3431-1671-4883-bfa2-507259639c00",
+         "mountpoints": [
+            "[SWAP]"
+         ],
+         "fsavail": null,
+         "tran": null,
+         "hotplug": false,
+         "rm": false,
+         "model": null
+      },
+      {
+         "name": "nvme0n1",
+         "pkname": null,
+         "path": "/dev/nvme0n1",
+         "type": "disk",
+         "size": 2000398934016,
+         "fstype": null,
+         "label": null,
+         "uuid": null,
+         "mountpoints": [],
+         "fsavail": null,
+         "tran": "nvme",
+         "hotplug": false,
+         "rm": false,
+         "model": "CT2000P310SSD8"
+      },
+      {
+         "name": "nvme0n1p1",
+         "pkname": "nvme0n1",
+         "path": "/dev/nvme0n1p1",
+         "type": "part",
+         "size": 5368709120,
+         "fstype": "vfat",
+         "label": null,
+         "uuid": "F699-676E",
+         "mountpoints": [
+            "/boot/efi"
+         ],
+         "fsavail": 5337153536,
+         "tran": "nvme",
+         "hotplug": false,
+         "rm": false,
+         "model": null
+      },
+      {
+         "name": "nvme0n1p2",
+         "pkname": "nvme0n1",
+         "path": "/dev/nvme0n1p2",
+         "type": "part",
+         "size": 322122547200,
+         "fstype": "ext4",
+         "label": null,
+         "uuid": "952ac412-f4da-4c35-8290-9743cc0958e2",
+         "mountpoints": [
+            "/"
+         ],
+         "fsavail": 148108922880,
+         "tran": "nvme",
+         "hotplug": false,
+         "rm": false,
+         "model": null
+      },
+      {
+         "name": "nvme0n1p3",
+         "pkname": "nvme0n1",
+         "path": "/dev/nvme0n1p3",
+         "type": "part",
+         "size": 1672906539008,
+         "fstype": "ext4",
+         "label": null,
+         "uuid": "5c5610e8-88ce-47e1-a610-ece27a9df67d",
+         "mountpoints": [
+            "/mnt/Media"
+         ],
+         "fsavail": 766702088192,
+         "tran": "nvme",
+         "hotplug": false,
+         "rm": false,
+         "model": null
+      },
+      {
+         "name": "nvme0n1p4",
+         "pkname": "nvme0n1",
+         "path": "/dev/nvme0n1p4",
+         "type": "part",
+         "size": "200000000000",
+         "fstype": "ntfs",
+         "label": "Windows",
+         "uuid": "5A1C2B3D4E5F6071",
+         "mountpoints": [
+            null
+         ],
+         "fsavail": null,
+         "tran": "nvme",
+         "hotplug": "0",
+         "rm": "0",
+         "model": null
+      },
+      {
+         "name": "sda",
+         "pkname": null,
+         "path": "/dev/sda",
+         "type": "disk",
+         "size": "62008590336",
+         "fstype": null,
+         "label": null,
+         "uuid": null,
+         "mountpoints": [
+            null
+         ],
+         "fsavail": null,
+         "tran": "usb",
+         "hotplug": "1",
+         "rm": "1",
+         "model": "Ultra"
+      },
+      {
+         "name": "sda1",
+         "pkname": "sda",
+         "path": "/dev/sda1",
+         "type": "part",
+         "size": "62008590336",
+         "fstype": "exfat",
+         "label": "STICK",
+         "uuid": "1A2B-3C4D",
+         "mountpoints": [
+            "/run/media/player/STICK"
+         ],
+         "fsavail": "40000000000",
+         "tran": null,
+         "hotplug": "0",
+         "rm": "0",
+         "model": null
+      }
+   ]
+}

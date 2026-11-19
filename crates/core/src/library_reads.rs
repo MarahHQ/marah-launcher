@@ -35,6 +35,10 @@ pub(crate) fn installed_offers<'a>(
 
 pub(crate) async fn refresh_library(core: &Core) -> CoreResult<()> {
     core.library().start_loading();
+    // The first read of a run: the game folders' drives mount before the games are read.
+    if !core.library().booted() {
+        crate::drives::mount_game_drives(core).await;
+    }
     let kernel = core.kernel();
     move_old_names(core).await;
     let mut library = Vec::new();
@@ -62,6 +66,8 @@ pub(crate) async fn refresh_library(core: &Core) -> CoreResult<()> {
             library.push(Entry { key, summary });
         }
     }
+    let away = crate::drives::away_games(core, &library);
+    library.extend(away);
     crate::library::sort_by_title(&mut library);
     // The home screen shows the selected game with its details. With no selection, or one
     // that is gone, the first game is selected, so the first screen is a whole one. The

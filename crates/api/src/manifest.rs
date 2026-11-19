@@ -138,11 +138,13 @@ pub enum Capability {
     OsUpdates,
     /// See [`crate::OsInstall`].
     OsInstall,
+    /// See [`crate::DriveSettings`]. Not `storage`: that is a plugin's own data folder.
+    Drives,
 }
 
 impl Capability {
     /// The capabilities only a system plugin provides.
-    pub const SYSTEM: [Capability; 7] = [
+    pub const SYSTEM: [Capability; 8] = [
         Capability::Network,
         Capability::Vpn,
         Capability::Bluetooth,
@@ -150,6 +152,7 @@ impl Capability {
         Capability::Power,
         Capability::OsUpdates,
         Capability::OsInstall,
+        Capability::Drives,
     ];
 }
 

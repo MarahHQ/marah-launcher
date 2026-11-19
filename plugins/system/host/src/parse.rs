@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use launcher_api::{
-    AudioLevel, AudioOutput, Battery, BluetoothDevice, Connection, InstallDisk, Installed, NetworkStatus,
+    AudioLevel, AudioOutput, Battery, BluetoothDevice, Connection, InstallDisk, Installed, NetworkStatus, SystemDrive,
 };
 
 /// One line of `nmcli -t` output: fields are `:`-separated, with `\:` inside a field.
@@ -263,6 +263,102 @@ pub fn staged(json: &str) -> Option<Option<String>> {
     Some(deployments.iter().find(|d| d["staged"].as_bool() == Some(true)).map(version))
 }
 
+/// The folders a drive the launcher may unmount is mounted in: the ones UDisks mounts in
+/// (`/run/media/<user>` on Fedora and Arch, `/media/<user>` on Debian and Ubuntu) and `/mnt`.
+const DRIVE_FOLDERS: [&str; 3] = ["/run/media/", "/media/", "/mnt/"];
+
+/// File systems that hold no files to mount: swap, and the parts of volumes, arrays and
+/// encrypted drives.
+const NOT_FILES: [&str; 6] = ["swap", "LVM2_member", "crypto_LUKS", "linux_raid_member", "zfs_member", "BitLocker"];
+
+/// `lsblk --json --list -b -o NAME,PKNAME,PATH,TYPE,SIZE,FSTYPE,LABEL,UUID,MOUNTPOINTS,FSAVAIL,TRAN,HOTPLUG,RM,MODEL`:
+/// every drive with a file system to mount. A part of a disk takes its disk's model, and whether
+/// the player can take it out, from the disk (`pkname` names it). Loop devices and RAM disks
+/// (zram) are left out.
+pub fn drives(json: &str) -> Vec<SystemDrive> {
+    use launcher_api::serde_json::Value;
+    let Ok(v) = launcher_api::serde_json::from_str::<Value>(json) else { return Vec::new() };
+    let rows: Vec<&Value> = v["blockdevices"].as_array().into_iter().flatten().collect();
+    // Older lsblk prints numbers and flags as text.
+    let number = |v: &Value| v.as_u64().or_else(|| v.as_str()?.parse().ok());
+    let flag = |v: &Value| v.as_bool().unwrap_or_else(|| matches!(v.as_str(), Some("1" | "true")));
+    let text = |v: &Value| v.as_str().unwrap_or_default().trim().to_owned();
+    let mut out = Vec::new();
+    for row in &rows {
+        let path = text(&row["path"]);
+        let disk = disk_of(&rows, row);
+        if text(&row["type"]) == "loop" || text(&disk["type"]) == "loop" || path.starts_with("/dev/zram") {
+            continue;
+        }
+        let filesystem = text(&row["fstype"]);
+        if filesystem.is_empty() || NOT_FILES.contains(&filesystem.as_str()) {
+            continue;
+        }
+        // A device may be mounted at more than one folder; an unmounted one may list `null`.
+        let mounts: Vec<&str> =
+            row["mountpoints"].as_array().into_iter().flatten().filter_map(|m| m.as_str()).collect();
+        let ours = |m: &str| DRIVE_FOLDERS.iter().any(|f| m.starts_with(f));
+        let shown = mounts.iter().find(|m| ours(m)).or(mounts.first());
+        out.push(SystemDrive {
+            device: path,
+            disk: text(&disk["path"]),
+            uuid: text(&row["uuid"]),
+            label: text(&row["label"]),
+            model: text(&disk["model"]),
+            size: number(&row["size"]).unwrap_or(0),
+            filesystem,
+            usb: text(&disk["tran"]) == "usb" || flag(&disk["hotplug"]),
+            mount: shown.map(PathBuf::from),
+            free: number(&row["fsavail"]),
+            system: !mounts.iter().all(|m| ours(m)),
+        });
+    }
+    out.sort_by(|a, b| a.device.cmp(&b.device));
+    out
+}
+
+/// The whole disk an lsblk row is on: itself, or the row its `pkname` names, up to the top.
+fn disk_of<'a>(
+    rows: &[&'a launcher_api::serde_json::Value],
+    row: &'a launcher_api::serde_json::Value,
+) -> &'a launcher_api::serde_json::Value {
+    let name = |r: &launcher_api::serde_json::Value| r["name"].as_str().map(str::to_owned);
+    let mut row = row;
+    // A part of a part (a volume on an encrypted part) is a few levels down; a loop in the rows
+    // can't hold this up.
+    for _ in 0..8 {
+        let parent = row["pkname"].as_str();
+        match rows.iter().find(|r| parent.is_some() && name(r).as_deref() == parent) {
+            Some(up) => row = up,
+            None => break,
+        }
+    }
+    row
+}
+
+/// The folder in `udisksctl mount`'s reply: `Mounted /dev/sdb1 at /run/media/player/STICK`, with
+/// or without a full stop at the end.
+pub fn mounted_at(text: &str) -> Option<PathBuf> {
+    text.lines().find_map(|line| {
+        let rest = line.trim().strip_prefix("Mounted ")?;
+        let (_, at) = rest.split_once(" at ")?;
+        let at = at.strip_suffix('.').unwrap_or(at);
+        Some(PathBuf::from(at)).filter(|p| p.is_absolute())
+    })
+}
+
+/// What went wrong, from udisksctl's error line, for the player: `Error mounting /dev/sdb1:
+/// GDBus.Error:org.freedesktop.UDisks2.Error.Failed: Wrong fs type` says `Wrong fs type`. A line
+/// without a D-Bus error name stays as it is.
+pub fn udisks_error(line: &str) -> String {
+    let line = line.trim();
+    match line.split_once("GDBus.Error:") {
+        Some((_, rest)) => rest.split_once(": ").map(|(_, why)| why).unwrap_or(rest).trim().to_owned(),
+        None if line.is_empty() => "it failed".into(),
+        None => line.to_owned(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -386,5 +482,79 @@ mod tests {
         assert_eq!(staged(json), Some(Some("44.20261008".into())));
         assert_eq!(staged(r#"{"deployments":[{"booted":true,"version":"44.1"}]}"#), Some(None));
         assert_eq!(staged("not json"), None);
+    }
+
+    /// Recorded on a Fedora 45 desktop (util-linux 2.42) with one NVMe disk: no USB drive.
+    const LSBLK_NVME: &str = include_str!("fixtures/lsblk-nvme.json");
+    /// Derived from the recording above, not recorded: a USB stick (`/dev/sda`, its exFAT part
+    /// mounted where UDisks mounts on Fedora) and an internal NTFS part that isn't mounted,
+    /// written as older lsblk writes values (text numbers, `null` mount folders).
+    const LSBLK_USB: &str = include_str!("fixtures/lsblk-usb-derived.json");
+
+    #[test]
+    fn reads_the_drives_of_a_desktop_with_one_disk() {
+        let list = drives(LSBLK_NVME);
+        let seen: Vec<_> = list
+            .iter()
+            .map(|d| (d.device.as_str(), d.filesystem.as_str(), d.mount.as_deref().and_then(|m| m.to_str()), d.system))
+            .collect();
+        assert_eq!(
+            seen,
+            [
+                ("/dev/nvme0n1p1", "vfat", Some("/boot/efi"), true),
+                ("/dev/nvme0n1p2", "ext4", Some("/"), true),
+                ("/dev/nvme0n1p3", "ext4", Some("/mnt/Media"), false),
+            ],
+            "the swap on zram is left out"
+        );
+        let media = &list[2];
+        assert_eq!(media.disk, "/dev/nvme0n1");
+        assert_eq!(media.model, "CT2000P310SSD8", "the disk's model");
+        assert_eq!(media.uuid, "5c5610e8-88ce-47e1-a610-ece27a9df67d");
+        assert_eq!((media.size, media.free), (1_672_906_539_008, Some(766_702_088_192)));
+        assert!(!media.usb);
+    }
+
+    #[test]
+    fn a_usb_stick_s_part_is_usb_and_an_unmounted_part_has_no_folder() {
+        let list = drives(LSBLK_USB);
+        let stick = list.iter().find(|d| d.device == "/dev/sda1").unwrap();
+        assert!(stick.usb && !stick.system);
+        assert_eq!(
+            (stick.disk.as_str(), stick.label.as_str(), stick.filesystem.as_str()),
+            ("/dev/sda", "STICK", "exfat")
+        );
+        assert_eq!(stick.mount.as_deref(), Some(Path::new("/run/media/player/STICK")));
+        assert_eq!((stick.size, stick.free), (62_008_590_336, Some(40_000_000_000)));
+        let windows = list.iter().find(|d| d.device == "/dev/nvme0n1p4").unwrap();
+        assert_eq!((windows.mount.as_ref(), windows.system, windows.usb), (None, false, false));
+        assert!(drives("not json").is_empty());
+    }
+
+    #[test]
+    fn reads_where_udisks_mounted_a_drive() {
+        // The reply's words are the format in udisksctl 2.11.2's binary ("Mounted %s at %s").
+        assert_eq!(
+            mounted_at("Mounted /dev/sda1 at /run/media/player/STICK\n"),
+            Some(PathBuf::from("/run/media/player/STICK"))
+        );
+        assert_eq!(
+            mounted_at("Mounted /dev/sda1 at /media/player/MY STICK.\n"),
+            Some(PathBuf::from("/media/player/MY STICK"))
+        );
+        assert_eq!(mounted_at("Error mounting /dev/sda1: it failed"), None);
+    }
+
+    #[test]
+    fn says_why_udisks_refused_in_the_player_s_words() {
+        // Recorded: udisksctl 2.11.2 asked to mount a device that isn't there.
+        let recorded = "Error looking up object for device /dev/marah-does-not-exist";
+        assert_eq!(udisks_error(recorded), recorded);
+        // The format of udisksctl 2.11.2's binary ("Error mounting %s: %s"), with a D-Bus error.
+        assert_eq!(
+            udisks_error("Error mounting /dev/sda1: GDBus.Error:org.freedesktop.UDisks2.Error.Failed: Wrong fs type"),
+            "Wrong fs type"
+        );
+        assert_eq!(udisks_error(""), "it failed");
     }
 }

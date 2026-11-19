@@ -290,7 +290,7 @@ async fn a_plugin_that_isn_t_system_can_t_declare_system_capabilities() {
         ))
     };
     let mut fake = FakeHost::new();
-    let system = ["network", "vpn", "bluetooth", "audio", "power", "os_updates", "os_install"];
+    let system = ["network", "vpn", "bluetooth", "audio", "power", "os_updates", "os_install", "drives"];
     for (i, capability) in system.iter().enumerate() {
         fake = fake.plugin(plugin(&format!("emu-{i}"), "emulator", capability));
         fake = fake.plugin(plugin(&format!("svc-{i}"), "service", capability));

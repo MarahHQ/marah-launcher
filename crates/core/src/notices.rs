@@ -26,6 +26,8 @@ pub struct Notice {
     pub route: Option<Route>,
     /// The game the notice is about: its card shows the game's art.
     pub game: Option<GameKey>,
+    /// The drive the notice is about, by its id: clicking it opens the drives' panel there.
+    pub drive: Option<String>,
 }
 
 /// What the player does with the notices.
@@ -75,7 +77,14 @@ impl NoticesSubsystem {
     /// Shows the player `message`. Clicking it opens `route`, when there is one. Only the
     /// core's readers learn of it: the change that goes with the notice tells the app.
     pub fn post(&self, kind: NoticeKind, message: String, route: Option<Route>, game: Option<GameKey>) {
-        self.add(kind, message, route, game);
+        self.add(Notice { id: 0, message, kind, route, game, drive: None });
+        self.inner.notifier.noted(Area::Notices);
+    }
+
+    /// A drive was plugged in: clicking the notice opens the drives' panel on it.
+    pub fn drive_found(&self, drive: &str, message: String) {
+        let drive = Some(drive.to_owned());
+        self.add(Notice { id: 0, message, kind: NoticeKind::Info, route: None, game: None, drive });
         self.inner.notifier.noted(Area::Notices);
     }
 
@@ -102,22 +111,23 @@ impl NoticesSubsystem {
     /// Shows the player a problem outside the core, such as a theme's logic failing. Nothing
     /// else changes with it, so the app learns of it too.
     pub fn report(&self, message: String) {
-        self.add(NoticeKind::Error, message, None, None);
+        self.add(Notice { id: 0, message, kind: NoticeKind::Error, route: None, game: None, drive: None });
         self.inner.notifier.changed(Area::Notices);
     }
 
-    fn add(&self, kind: NoticeKind, message: String, route: Option<Route>, game: Option<GameKey>) {
+    /// Adds `notice`, with the next id.
+    fn add(&self, mut notice: Notice) {
         // Only a problem is a warning in the log: "Download complete" is news.
-        if kind == NoticeKind::Error {
-            tracing::warn!(%message, "notice");
+        if notice.kind == NoticeKind::Error {
+            tracing::warn!(message = %notice.message, "notice");
         } else {
-            tracing::info!(%message, kind = kind.as_str(), "notice");
+            tracing::info!(message = %notice.message, kind = notice.kind.as_str(), "notice");
         }
         let mut state = self.state();
         state.last_id += 1;
-        let id = state.last_id;
+        notice.id = state.last_id;
         let notices = Arc::make_mut(&mut state.notices);
-        notices.push(Notice { id, message, kind, route, game });
+        notices.push(notice);
         if notices.len() > launcher_ui_api::MAX_NOTICES {
             notices.remove(0);
         }

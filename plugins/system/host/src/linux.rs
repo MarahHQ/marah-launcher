@@ -1,5 +1,6 @@
 //! Linux: NetworkManager (`nmcli`), BlueZ (`bluetoothctl`), PipeWire's PulseAudio server
-//! (`pactl`), systemd (`systemctl`), the kernel's power supply folder, and on Marah OS
+//! (`pactl`), systemd (`systemctl`), the kernel's power supply folder, UDisks (`udisksctl`, with
+//! `lsblk` for the list), and on Marah OS
 //! `rpm-ostree` and the USB stick's installer. Every program runs through the host's
 //! [`Programs`], so the manifest's `permissions.process` decides what may run.
 
@@ -8,9 +9,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use launcher_api::{
-    AudioLevel, AudioOutput, AudioSettings, Battery, BluetoothDevice, BluetoothSettings, Connection, InstallDisk,
-    Location, NetworkSettings, NetworkStatus, OsInstall, OsUpdate, OsUpdates, PluginError, PluginResult, PowerSettings,
-    Programs, SystemJob, WifiNetwork,
+    AudioLevel, AudioOutput, AudioSettings, Battery, BluetoothDevice, BluetoothSettings, Connection, DriveSettings,
+    InstallDisk, Location, NetworkSettings, NetworkStatus, OsInstall, OsUpdate, OsUpdates, PluginError, PluginResult,
+    PowerSettings, Programs, SystemDrive, SystemJob, WifiNetwork,
 };
 
 use crate::parse;
@@ -375,6 +376,80 @@ impl OsInstall for Linux {
     }
 }
 
+/// The columns `lsblk` lists, as [`parse::drives`] reads them.
+const LSBLK_COLUMNS: &str = "NAME,PKNAME,PATH,TYPE,SIZE,FSTYPE,LABEL,UUID,MOUNTPOINTS,FSAVAIL,TRAN,HOTPLUG,RM,MODEL";
+
+impl Linux {
+    /// Runs `udisksctl <action> -b <device>` for a job, without asking for a password: UDisks asks
+    /// polkit itself, and the session has no one to type it. Every line it printed, or why it
+    /// failed.
+    async fn udisks(&self, action: &str, device: &str, job: &Arc<dyn SystemJob>) -> Result<String, String> {
+        let printed = std::sync::Mutex::new(String::new());
+        let each = |line: &str| {
+            let mut printed = printed.lock().expect("not poisoned");
+            printed.push_str(line);
+            printed.push('\n');
+        };
+        let args = [action, "-b", device, "--no-user-interaction"];
+        let (code, last) = self.stream("udisksctl", &args, false, job, each).await.map_err(failed)?;
+        if code == 0 { Ok(printed.into_inner().expect("not poisoned")) } else { Err(parse::udisks_error(&last)) }
+    }
+}
+
+#[launcher_api::async_trait]
+impl DriveSettings for Linux {
+    async fn unavailable(&self) -> Option<String> {
+        match self.missing("udisksctl", "UDisks").await {
+            Some(missing) => Some(missing),
+            None => self.missing("lsblk", "util-linux").await,
+        }
+    }
+
+    async fn drives(&self) -> PluginResult<Vec<SystemDrive>> {
+        Ok(parse::drives(&self.run("lsblk", &["--json", "--list", "-b", "-o", LSBLK_COLUMNS]).await?))
+    }
+
+    async fn mount(&self, device: &str, job: Arc<dyn SystemJob>) -> PluginResult<()> {
+        job.progress(None, "Mounting");
+        let (me, device, handle) = (self.clone(), device.to_owned(), job.clone());
+        Linux::background(job, async move {
+            let reply = me.udisks("mount", &device, &handle).await?;
+            // lsblk says where first: the reply's words may change from one UDisks to the next.
+            let listed = me.drives().await.ok().and_then(|list| list.into_iter().find(|d| d.device == device)?.mount);
+            let at = listed.or_else(|| parse::mounted_at(&reply));
+            at.map(|at| at.display().to_string()).ok_or_else(|| "UDisks mounted the drive but didn't say where".into())
+        });
+        Ok(())
+    }
+
+    async fn unmount(&self, device: &str, job: Arc<dyn SystemJob>) -> PluginResult<()> {
+        job.progress(None, "Writing what is left to the drive");
+        let (me, device, handle) = (self.clone(), device.to_owned(), job.clone());
+        Linux::background(job, async move {
+            me.udisks("unmount", &device, &handle).await?;
+            Ok("Unmounted".into())
+        });
+        Ok(())
+    }
+
+    async fn eject(&self, disk: &str, job: Arc<dyn SystemJob>) -> PluginResult<()> {
+        job.progress(None, "Writing what is left to the drive");
+        let parts: Vec<SystemDrive> = self.drives().await?.into_iter().filter(|d| d.disk == disk).collect();
+        if parts.iter().any(|d| d.system) {
+            return Err(PluginError::InvalidInput("the system runs from this drive".into()));
+        }
+        let (me, disk, handle) = (self.clone(), disk.to_owned(), job.clone());
+        Linux::background(job, async move {
+            for part in parts.iter().filter(|d| d.mount.is_some()) {
+                me.udisks("unmount", &part.device, &handle).await?;
+            }
+            me.udisks("power-off", &disk, &handle).await?;
+            Ok("You can take it out now".into())
+        });
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -408,6 +483,7 @@ mod tests {
             AudioSettings::unavailable(&linux).await.as_deref(),
             Some("PipeWire's sound tools (pactl) isn't installed")
         );
+        assert_eq!(DriveSettings::unavailable(&linux).await.as_deref(), Some("UDisks (udisksctl) isn't installed"));
         assert!(NetworkSettings::status(&linux).await.is_err());
     }
 }

@@ -10,53 +10,25 @@
 //!   A system plugin with the `drives` capability brings a better one.
 //!
 //! [`Drives::refresh`] reads the list again and says which drives came and went since the last
-//! read.
+//! read. The flows over the core (the commands, a plugged drive, the game folders' drives at the
+//! start) are in [`flows`].
 
+mod flows;
 #[cfg(test)]
 mod tests;
+mod udisks;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use async_trait::async_trait;
 
-use serde::{Deserialize, Serialize};
+use launcher_api::SystemJob;
 
-use crate::changes::Area;
-use crate::{Core, CoreError, CoreResult, DriveSpace};
+pub use flows::DriveCmd;
+pub(crate) use flows::{away_games, handle, mount_game_drives, refresh, remember_folders};
 
-/// What the player asks of a drive, by its id ([`Drive::id`]).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum DriveCmd {
-    /// Reads the drives again now.
-    Refresh,
-    Mount(String),
-    Unmount(String),
-    /// Unmounts the drive's disk and powers it off, so it can be taken out.
-    Eject(String),
-}
-
-pub(crate) async fn handle(core: &Core, command: DriveCmd) -> CoreResult<()> {
-    match command {
-        DriveCmd::Refresh => {}
-        DriveCmd::Mount(id) => {
-            core.drives().mount(&id).await?;
-        }
-        DriveCmd::Unmount(id) => core.drives().unmount(&id).await?,
-        DriveCmd::Eject(id) => core.drives().eject(&id).await?,
-    }
-    refresh(core).await;
-    Ok(())
-}
-
-/// Reads the drives again, and tells the view when the list changed.
-pub(crate) async fn refresh(core: &Core) {
-    let before = core.drives().known();
-    core.drives().refresh().await;
-    if core.drives().known() != before {
-        core.changed(Area::System);
-    }
-}
+use crate::{CoreError, CoreResult, DriveSpace};
 
 /// One drive: a USB stick, a disk, or a part of a disk with a file system on it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -66,6 +38,9 @@ pub struct Drive {
     pub id: String,
     /// The system's device, such as `/dev/sdb1`. Empty when the adapter doesn't name one.
     pub device: String,
+    /// The whole disk it is on, such as `/dev/sdb`, which an eject powers off. Empty when the
+    /// adapter doesn't name one.
+    pub disk: String,
     /// The name the player knows it by: its label, else its mount folder's name, else its model.
     pub label: String,
     /// Its size in bytes; `None` when the system doesn't say.
@@ -74,7 +49,7 @@ pub struct Drive {
     pub free: Option<u64>,
     /// Its file system, such as `ext4` or `exfat`. Empty when the system doesn't say.
     pub filesystem: String,
-    /// It is plugged in by USB: the player may take it out.
+    /// It is plugged in by USB, or into another port the player may take it out of.
     pub usb: bool,
     /// Where it is mounted; `None` while it isn't.
     pub mount: Option<PathBuf>,
@@ -90,13 +65,17 @@ pub struct Changes {
 /// Where the list of drives and the actions come from.
 #[async_trait]
 pub trait Adapter: Send + Sync {
+    /// What kind of adapter it is. The drives' ids are the adapter's own, so another kind starts
+    /// the list again.
+    fn kind(&self) -> &'static str;
     /// Every drive there is now, mounted or not.
     async fn list(&self) -> CoreResult<Vec<Drive>>;
-    /// Mounts the drive, and returns where.
-    async fn mount(&self, drive: &Drive) -> CoreResult<PathBuf>;
-    async fn unmount(&self, drive: &Drive) -> CoreResult<()>;
+    /// Mounts the drive, and returns where. `job` shows the player how it goes; the action ends
+    /// it, or the caller does with the action's error.
+    async fn mount(&self, drive: &Drive, job: Arc<dyn SystemJob>) -> CoreResult<PathBuf>;
+    async fn unmount(&self, drive: &Drive, job: Arc<dyn SystemJob>) -> CoreResult<()>;
     /// Unmounts every part of the drive's disk, then powers the disk off, so it can be taken out.
-    async fn eject(&self, drive: &Drive) -> CoreResult<()>;
+    async fn eject(&self, drive: &Drive, job: Arc<dyn SystemJob>) -> CoreResult<()>;
 }
 
 /// The free bytes on the drive that holds `folder`, which may not be there yet: the drive of the
@@ -140,6 +119,15 @@ impl Drives {
         lock(&self.adapter).clone()
     }
 
+    /// Uses `adapter` from now on. With another kind of adapter, the next read finds what is
+    /// there, as the first one does: the ids changed, not the drives.
+    pub(crate) fn use_adapter(&self, adapter: Arc<dyn Adapter>) {
+        let was = std::mem::replace(&mut *lock(&self.adapter), adapter.clone());
+        if was.kind() != adapter.kind() {
+            *lock(&self.last) = None;
+        }
+    }
+
     /// Every drive there is now, each mounted one with its free space, and its size when the
     /// adapter didn't say.
     pub(crate) async fn list(&self) -> CoreResult<Vec<Drive>> {
@@ -177,6 +165,20 @@ impl Drives {
         }
     }
 
+    /// Reads the drives again after an action, for where each is mounted now. The drives that
+    /// came and went stay for the next [`Drives::refresh`] to find: a drive taken out stays
+    /// listed, and one plugged in isn't listed yet.
+    async fn reread(&self) {
+        let Ok(now) = self.list().await else { return };
+        let mut last = lock(&self.last);
+        let Some(last) = last.as_mut() else { return };
+        for drive in last.iter_mut() {
+            if let Some(read) = now.iter().find(|d| d.id == drive.id) {
+                *drive = read.clone();
+            }
+        }
+    }
+
     /// The drive with this id in the last list.
     pub(crate) fn find(&self, id: &str) -> CoreResult<Drive> {
         self.known()
@@ -185,29 +187,31 @@ impl Drives {
             .ok_or_else(|| CoreError::Invalid(format!("no drive {id} here: it was taken out")))
     }
 
-    /// Mounts the drive with this id, and returns where.
-    pub(crate) async fn mount(&self, id: &str) -> CoreResult<PathBuf> {
+    /// Mounts the drive with this id, and returns where. One that is mounted already isn't
+    /// mounted again.
+    pub(crate) async fn mount(&self, id: &str, job: Arc<dyn SystemJob>) -> CoreResult<PathBuf> {
         let drive = self.find(id)?;
         if let Some(mount) = drive.mount {
+            job.done(&mount.display().to_string());
             return Ok(mount);
         }
-        let at = self.adapter().mount(&drive).await?;
-        self.refresh().await;
-        Ok(at)
+        let at = self.adapter().mount(&drive, job).await;
+        self.reread().await;
+        at
     }
 
-    pub(crate) async fn unmount(&self, id: &str) -> CoreResult<()> {
+    pub(crate) async fn unmount(&self, id: &str, job: Arc<dyn SystemJob>) -> CoreResult<()> {
         let drive = self.find(id)?;
-        self.adapter().unmount(&drive).await?;
-        self.refresh().await;
-        Ok(())
+        let done = self.adapter().unmount(&drive, job).await;
+        self.reread().await;
+        done
     }
 
-    pub(crate) async fn eject(&self, id: &str) -> CoreResult<()> {
+    pub(crate) async fn eject(&self, id: &str, job: Arc<dyn SystemJob>) -> CoreResult<()> {
         let drive = self.find(id)?;
-        self.adapter().eject(&drive).await?;
-        self.refresh().await;
-        Ok(())
+        let done = self.adapter().eject(&drive, job).await;
+        self.reread().await;
+        done
     }
 }
 
@@ -250,6 +254,10 @@ const CANT_ACT: &str = "Mounting needs UDisks. Install udisks2, or mount the dri
 
 #[async_trait]
 impl Adapter for MountFolders {
+    fn kind(&self) -> &'static str {
+        "mount folders"
+    }
+
     async fn list(&self) -> CoreResult<Vec<Drive>> {
         let (parents, roots) = (self.parents.clone(), self.roots.clone());
         let found = tokio::task::spawn_blocking(move || {
@@ -280,15 +288,15 @@ impl Adapter for MountFolders {
             .collect())
     }
 
-    async fn mount(&self, _: &Drive) -> CoreResult<PathBuf> {
+    async fn mount(&self, _: &Drive, _: Arc<dyn SystemJob>) -> CoreResult<PathBuf> {
         Err(CoreError::Invalid(CANT_ACT.into()))
     }
 
-    async fn unmount(&self, _: &Drive) -> CoreResult<()> {
+    async fn unmount(&self, _: &Drive, _: Arc<dyn SystemJob>) -> CoreResult<()> {
         Err(CoreError::Invalid(CANT_ACT.into()))
     }
 
-    async fn eject(&self, _: &Drive) -> CoreResult<()> {
+    async fn eject(&self, _: &Drive, _: Arc<dyn SystemJob>) -> CoreResult<()> {
         Err(CoreError::Invalid(CANT_ACT.into()))
     }
 }

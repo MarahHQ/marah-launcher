@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use launcher_api::SystemJob;
 
 use super::*;
 
@@ -41,11 +42,15 @@ impl Fake {
 
 #[async_trait]
 impl Adapter for Fake {
+    fn kind(&self) -> &'static str {
+        "fake"
+    }
+
     async fn list(&self) -> CoreResult<Vec<Drive>> {
         self.list.lock().unwrap().clone().ok_or_else(|| CoreError::Invalid("lsblk failed".into()))
     }
 
-    async fn mount(&self, drive: &Drive) -> CoreResult<PathBuf> {
+    async fn mount(&self, drive: &Drive, _: Arc<dyn SystemJob>) -> CoreResult<PathBuf> {
         self.acted.lock().unwrap().push(format!("mount {}", drive.id));
         let at = PathBuf::from("/media").join(&drive.label);
         let mut list = self.list.lock().unwrap();
@@ -55,15 +60,31 @@ impl Adapter for Fake {
         Ok(at)
     }
 
-    async fn unmount(&self, drive: &Drive) -> CoreResult<()> {
+    async fn unmount(&self, drive: &Drive, _: Arc<dyn SystemJob>) -> CoreResult<()> {
         self.acted.lock().unwrap().push(format!("unmount {}", drive.id));
         Ok(())
     }
 
-    async fn eject(&self, drive: &Drive) -> CoreResult<()> {
+    async fn eject(&self, drive: &Drive, _: Arc<dyn SystemJob>) -> CoreResult<()> {
         self.acted.lock().unwrap().push(format!("eject {}", drive.id));
         Ok(())
     }
+}
+
+/// A job no one watches.
+struct NoJob;
+
+impl SystemJob for NoJob {
+    fn progress(&self, _: Option<u8>, _: &str) {}
+    fn done(&self, _: &str) {}
+    fn failed(&self, _: &str) {}
+    fn cancelled(&self) -> bool {
+        false
+    }
+}
+
+fn job() -> Arc<dyn SystemJob> {
+    Arc::new(NoJob)
 }
 
 fn drive(id: &str, mount: Option<&Path>) -> Drive {
@@ -121,6 +142,18 @@ async fn the_first_read_finds_what_is_there_then_each_read_says_what_came_and_we
 }
 
 #[tokio::test]
+async fn another_kind_of_adapter_finds_what_is_there_as_a_first_read_does() {
+    let (drives, fake) = with(Vec::new());
+    fake.set(Some(vec![drive("A", None)]));
+    drives.refresh().await;
+    drives.use_adapter(fake.clone());
+    let folders = MountFolders { parents: Vec::new(), roots: vec![std::env::temp_dir()] };
+    drives.use_adapter(Arc::new(folders));
+    assert_eq!(drives.refresh().await, Changes::default(), "not A gone and a folder come");
+    assert_eq!(drives.known().len(), 1);
+}
+
+#[tokio::test]
 async fn a_read_that_fails_changes_nothing() {
     let (drives, fake) = with(Vec::new());
     fake.set(Some(vec![drive("A", None)]));
@@ -137,12 +170,24 @@ async fn mounting_goes_through_the_adapter_and_the_list_is_read_again() {
     let (drives, fake) = with(Vec::new());
     fake.set(Some(vec![drive("A", None)]));
     drives.refresh().await;
-    assert_eq!(drives.mount("A").await.unwrap(), Path::new("/media/A"));
+    assert_eq!(drives.mount("A", job()).await.unwrap(), Path::new("/media/A"));
     assert_eq!(drives.known()[0].mount.as_deref(), Some(Path::new("/media/A")));
-    assert_eq!(drives.mount("A").await.unwrap(), Path::new("/media/A"), "mounted already: no second mount");
-    drives.eject("A").await.unwrap();
+    assert_eq!(drives.mount("A", job()).await.unwrap(), Path::new("/media/A"), "mounted already: no second mount");
+    drives.eject("A", job()).await.unwrap();
     assert_eq!(*fake.acted.lock().unwrap(), ["mount A", "eject A"]);
-    assert!(drives.mount("Z").await.unwrap_err().to_string().contains("no drive Z"));
+    assert!(drives.mount("Z", job()).await.unwrap_err().to_string().contains("no drive Z"));
+}
+
+#[tokio::test]
+async fn a_drive_that_comes_during_an_action_is_still_found_by_the_next_read() {
+    let (drives, fake) = with(Vec::new());
+    fake.set(Some(vec![drive("A", None)]));
+    drives.refresh().await;
+    fake.set(Some(vec![drive("A", None), drive("B", None)]));
+    drives.mount("A", job()).await.unwrap();
+    assert_eq!(drives.known().len(), 1, "B waits for the next read");
+    let changes = drives.refresh().await;
+    assert_eq!(changes.plugged.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(), ["B"]);
 }
 
 #[tokio::test]
@@ -157,6 +202,6 @@ async fn the_mount_folders_list_each_drive_mounted_in_them_and_can_t_mount() {
     let list = folders.list().await.unwrap();
     let seen: Vec<_> = list.iter().map(|d| (d.label.as_str(), d.mount.as_deref())).collect();
     assert_eq!(seen, [("Games disk", Some(disk.as_path())), ("STICK", Some(stick.as_path()))]);
-    let refused = folders.mount(&list[0]).await.unwrap_err().to_string();
+    let refused = folders.mount(&list[0], job()).await.unwrap_err().to_string();
     assert!(refused.contains("Mounting needs UDisks"), "{refused}");
 }

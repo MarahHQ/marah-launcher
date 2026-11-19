@@ -1,5 +1,6 @@
 //! What a system plugin provides: the machine's own settings and devices. Network and Wi-Fi,
-//! VPNs, Bluetooth, sound, power and battery, and on Marah OS its updates and its installer.
+//! VPNs, Bluetooth, sound, power and battery, drives, and on Marah OS its updates and its
+//! installer.
 //! Each is one capability and one trait; the core uses the first active system plugin that
 //! provides it, and shows a capability nobody provides as unavailable.
 //!
@@ -261,4 +262,52 @@ pub trait OsInstall: Send + Sync {
     /// Starts the installer that lets the player choose partitions (Anaconda). It may restart
     /// the PC into it.
     async fn choose_partitions(&self) -> PluginResult<()>;
+}
+
+/// A drive as the system sees it: a USB stick, a disk, or a part of a disk with a file system.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SystemDrive {
+    /// The device that mounts, such as `/dev/sdb1`.
+    pub device: String,
+    /// The whole disk it is on, such as `/dev/sdb`: what [`DriveSettings::eject`] powers off.
+    pub disk: String,
+    /// The file system's UUID: it stays the same from one plug-in to the next. Empty when the
+    /// file system has none.
+    pub uuid: String,
+    pub label: String,
+    /// The disk's model, such as "SanDisk Ultra". Empty when the system doesn't say.
+    pub model: String,
+    pub size: u64,
+    /// Such as `ext4`, `exfat` or `ntfs`.
+    pub filesystem: String,
+    /// The player can take it out: it is plugged in by USB, or into a port like a card reader.
+    pub usb: bool,
+    /// Where it is mounted; `None` while it isn't.
+    pub mount: Option<PathBuf>,
+    /// Its free bytes, while it is mounted and the system says.
+    pub free: Option<u64>,
+    /// The system mounted it for itself (`/`, `/home`, `/boot`, swap): the launcher never
+    /// unmounts it.
+    pub system: bool,
+}
+
+/// Drives: listing them, and mounting, unmounting and ejecting them. Mounting, unmounting and
+/// ejecting can take long (an unmount writes what is left to the drive first): each starts in
+/// the background and returns at once, and reports through the job. A mount's `done` text is
+/// the folder the drive is mounted at.
+#[async_trait]
+pub trait DriveSettings: Send + Sync {
+    /// Why drives can't be mounted here ("UDisks isn't installed"), or `None`.
+    async fn unavailable(&self) -> Option<String> {
+        None
+    }
+    /// Every drive with a file system, mounted or not.
+    async fn drives(&self) -> PluginResult<Vec<SystemDrive>>;
+    /// Starts mounting `device`.
+    async fn mount(&self, device: &str, job: Arc<dyn SystemJob>) -> PluginResult<()>;
+    /// Starts unmounting `device`.
+    async fn unmount(&self, device: &str, job: Arc<dyn SystemJob>) -> PluginResult<()>;
+    /// Starts unmounting every part of `disk` that is mounted, then powers `disk` off, so the
+    /// player can take it out.
+    async fn eject(&self, disk: &str, job: Arc<dyn SystemJob>) -> PluginResult<()>;
 }

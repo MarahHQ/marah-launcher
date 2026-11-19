@@ -58,6 +58,9 @@ contents:
     dst: /usr/share/applications/marah-launcher.desktop
   - src: packaging/linux/marah-session.desktop
     dst: /usr/share/wayland-sessions/marah-launcher.desktop
+  # Mounting a drive inside the PC from the Drives panel without a password (see the file).
+  - src: packaging/linux/drives.rules
+    dst: /usr/share/polkit-1/rules.d/50-marah-launcher-drives.rules
   - src: assets/marah-launcher.png
     dst: /usr/share/icons/hicolor/512x512/apps/marah-launcher.png
   - src: ${FOLDER}/README.md
@@ -68,9 +71,10 @@ contents:
 # PC), the tools it runs to bring games to the front (ps, xdotool, xprop), what old Linux games'
 # own launchers need (GTK 2, and libpng 1.2 where the system has it: Trine 3's GOG start.sh runs
 # Frozenbyte's launcher), and, recommended, the session's display servers, the tools of
-# Settings → System (NetworkManager, BlueZ, pactl), and unar, for the RAR archives libarchive
-# can't read (a RAR 5 with a big dictionary, as in Cuphead's installer), Steam (the Steam
-# plugin's games; not in the distributions' main repositories, so only recommended) and
+# Settings → System (NetworkManager, BlueZ, pactl), UDisks for the Drives panel, and unar,
+# for the RAR archives libarchive can't read (a RAR 5 with a big dictionary, as in Cuphead's
+# installer), Steam (the Steam plugin's games; not in the distributions' main repositories, so
+# only recommended) and
 # GameMode (games run through gamemoderun). Debian, Ubuntu and Arch have no libpng 1.2
 # package (Arch's is in the AUR). Only the rpm depends on the 32-bit libraries that a game's own
 # 32-bit Wine needs: Debian and Ubuntu need the i386 architecture added first, Arch the multilib
@@ -99,6 +103,8 @@ overrides:
       - bluez
       - pulseaudio-utils
       - unar
+      # The Drives panel: mounting and ejecting drives.
+      - udisks2
       # Steam's games (the Steam plugin), and GameMode for every game.
       - steam-installer | steam
       - gamemode
@@ -150,6 +156,8 @@ overrides:
       - bluez
       - pulseaudio-utils
       - unar
+      # The Drives panel: mounting and ejecting drives.
+      - udisks2
       # Steam's games (the Steam plugin; RPM Fusion's nonfree repository), and GameMode.
       - steam
       - gamemode
@@ -179,6 +187,8 @@ overrides:
       - bluez-utils
       - libpulse
       - unarchiver
+      # The Drives panel: mounting and ejecting drives.
+      - udisks2
       # Steam's games (the Steam plugin; the multilib repository), and GameMode.
       - steam
       - gamemode
