@@ -279,7 +279,7 @@ them (see [CI](#ci)).
 | `MARAH_DESKTOP_REQUIRE=1` | With the above: a skipped desktop test fails | |
 | `MARAH_KWIN_TESTS=1` | `cargo test -p launcher-app kwin_says`: asks KWin which window is in front | A KDE Plasma Wayland session |
 | `MARAH_TRAILER_TESTS=1` | `cargo test -p launcher-app libmpv_plays`: plays a video through libmpv | libmpv, and `ffmpeg` to make the video |
-| `MARAH_TORRENT_TESTS=1` | `cargo test -p launcher-app a_torrent_downloads`: a BitTorrent transfer between two sessions on this computer | |
+| `MARAH_TORRENT_TESTS=1` | `cargo test -p launcher-app a_torrent_downloads`: a BitTorrent transfer between two sessions on this computer. `cargo test -p launcher-app keeps_the_torrents_contract`: the torrents contract on the same kind of swarm | |
 | `MARAH_VPN_TESTS=1` | `cargo test -p system-host lists_this_computer_s_networks`: lists this computer's networks and connects nothing | |
 | `MARAH_REAL_RELEASES=1` | `cargo test -p launcher-app real -- --nocapture`: downloads and installs the newest KytyPS5 and shadPS4 releases | The network and hundreds of megabytes. Anonymous GitHub API calls can hit the rate limit. |
 | `MARAH_REAL_ARCHIVES=<folder>` | `cargo test -p launcher-tests --test seams real_archives::`: unpacks real release archives through the plugins | The archives. A missing one is skipped. |
