@@ -1372,8 +1372,62 @@ shots! {
     the_pad_hints => shoot_pad_hints,
     the_system_controls => shoot_system,
     the_status_areas => shoot_status_areas,
+    the_system_controls_on_a_desktop => shoot_desktop_system,
     a_game_s_own_settings => shoot_game_settings,
     send_ratings => shoot_send_ratings,
+}
+
+/// On a desktop, in each built-in theme: the top bar with every machine icon, as
+/// `<theme>-desktop-status-bar.png`; Settings on its System tab, with the whole tab list, as
+/// `<theme>-desktop-settings-tabs.png`; and Restart's dialog, with the focus on Cancel, as
+/// `<theme>-desktop-restart-confirm.png`.
+fn shoot_desktop_system(window: &MinimalSoftwareWindow, out: &Path) {
+    use i_slint_backend_testing::ElementHandle;
+    window.set_size(slint::PhysicalSize::new(WIDTH, HEIGHT));
+    let press = |host: &mut Composed, label: &str| {
+        let found = ElementHandle::find_by_accessible_label(host.instance(), label).next();
+        found.unwrap_or_else(|| panic!("no {label}")).invoke_accessible_default_action();
+        host.pump();
+        follow(host);
+    };
+    for theme in [theme_classic::ID, theme_default::ID] {
+        let system = launcher_testkit::FakeSystem::new();
+        system.with(|m| {
+            m.network = launcher_api::NetworkStatus {
+                connection: launcher_api::Connection::Wifi,
+                name: "Home".into(),
+                signal: Some(80),
+            };
+            m.bluetooth_on = true;
+            m.devices = vec![launcher_api::BluetoothDevice {
+                address: "AA".into(),
+                name: "DualSense".into(),
+                paired: true,
+                connected: true,
+            }];
+            m.level = launcher_api::AudioLevel { volume: 65, muted: false };
+            m.battery = Some(launcher_api::Battery { percent: 64, charging: false });
+        });
+        let plugin = system.plugin();
+        let mut host = composed_on_current_platform(|h| {
+            h.place(launcher_core::system::Place::default())
+                .plugin(plugin)
+                .plugin(FakeCatalog::new("emu-a").system("PS5").games(["Astro Drift"]).build())
+        });
+        host.ui.start_with(Some(id(theme))).unwrap();
+        host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
+        host.dispatch(Command::System(launcher_core::system::SystemCommand::Refresh));
+        follow(&mut host);
+        follow(&mut host);
+        shoot(window, &out.join(format!("{theme}-desktop-status-bar.png")));
+        host.dispatch(Command::Navigate(Route::Settings));
+        follow(&mut host);
+        press(&mut host, "settings-tab:System");
+        shoot(window, &out.join(format!("{theme}-desktop-settings-tabs.png")));
+        press(&mut host, "settings-tab:Power");
+        press(&mut host, "system-restart");
+        shoot(window, &out.join(format!("{theme}-desktop-restart-confirm.png")));
+    }
 }
 
 /// The top bar's status icons in each built-in theme, one area in each state: the network is

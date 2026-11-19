@@ -33,7 +33,12 @@ export global ShellHints {
     // header rows (search, filters). `home`: the theme's own hints for Home, empty elsewhere.
     // `trailer-key`: the shown game has a trailer, and its key opens it.
     public pure function pick(sort-open: bool, grid-header: bool, home: [Hint], trailer-key: bool) -> [Hint] {
-        Osk.open ? [
+        PowerAsk.asking != "" ? [
+            { pad: "⮝  ⮟", key: "↑ ↓", label: "Choose" },
+            { pad: "✕", key: "Enter", label: PowerAsk.focus == 0 ? "Cancel" : PowerAsk.asking == "restart" ? "Restart" : "Shut down" },
+            { pad: "○", key: "Esc", label: "Cancel" },
+        ]
+        : Osk.open ? [
             { pad: "✕", key: "Enter", label: "Type" },
             { pad: "□", key: "⌫", label: "Delete" },
             { pad: "△", key: "Space", label: "Space" },
