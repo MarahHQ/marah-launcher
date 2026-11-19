@@ -118,6 +118,28 @@ impl GameInstaller for HangingInstaller {
     }
 }
 
+/// Never answers `begin`, but its work goes on: once `go` fires, it finishes `Ok` and doesn't
+/// look at `cancelled`, as a plugin whose `begin` hangs after its work started.
+struct LateInstaller {
+    go: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+}
+
+#[async_trait]
+impl GameInstaller for LateInstaller {
+    async fn candidates(&self) -> launcher_api::PluginResult<Vec<Installable>> {
+        Ok(Vec::new())
+    }
+
+    async fn begin(&self, _source: &HostPath, job: Arc<dyn InstallJob>) -> launcher_api::PluginResult<HostPath> {
+        let go = self.go.lock().unwrap().take().unwrap();
+        tokio::spawn(async move {
+            let _ = go.await;
+            job.finished(Ok(InstalledGame { dest: at("games", "late"), title: "late".into() }));
+        });
+        std::future::pending().await
+    }
+}
+
 /// What the core heard, with the job's phase at that moment.
 type Heard = Arc<Mutex<Vec<(String, Option<GamePhase>)>>>;
 
@@ -341,6 +363,24 @@ async fn a_begin_that_times_out_cancels_the_plugin_s_work() {
     // The work dropped the job as it stopped: the player heard of the failure from `begin`.
     tokio::time::sleep(Duration::from_millis(50)).await;
     assert_eq!(s.heard(), [], "no second failure");
+}
+
+#[tokio::test]
+async fn a_begin_that_times_out_still_lists_the_game_its_work_finished() {
+    let s = setup_with(Duration::from_millis(50));
+    let (go, wait) = tokio::sync::oneshot::channel();
+    let mut install = s.new_install(1, at("packages", "late"));
+    install.installer = Arc::new(LateInstaller { go: Mutex::new(Some(wait)) });
+
+    let begun = s.installs.begin(install).await;
+    assert!(begun.unwrap_err().to_string().contains("timed out"), "the plugin didn't answer in time");
+    let told = s.told.notified();
+    go.send(()).unwrap();
+
+    let heard = tokio::time::timeout(Duration::from_secs(5), told).await;
+    assert!(heard.is_ok(), "the core heard of the game");
+    assert_eq!(s.heard(), [("installed".to_owned(), None)], "the library lists it, and no failure follows");
+    assert_eq!(s.phase(1), None, "the install that didn't start stays off the list");
 }
 
 #[tokio::test]

@@ -219,6 +219,9 @@ struct HostJob {
     id: JobId,
     cancel: Arc<AtomicBool>,
     ended: AtomicBool,
+    /// `begin` failed, and the player heard why from its error: a later error or cancel says
+    /// nothing more. A later `Ok` still lists the game, which is on disk.
+    quiet: AtomicBool,
     runtime: tokio::runtime::Handle,
     /// The game folder the player picked.
     into: Option<HostPath>,
@@ -249,7 +252,7 @@ const REPORT_EVERY: Duration = Duration::from_millis(200);
 
 impl HostJob {
     fn end(&self, result: PluginResult<InstalledGame>) {
-        if self.ended.swap(true, Ordering::SeqCst) {
+        if (result.is_err() && self.quiet.load(Ordering::SeqCst)) || self.ended.swap(true, Ordering::SeqCst) {
             return;
         }
         let Some(inner) = self.installs.upgrade() else { return };
@@ -471,6 +474,7 @@ impl GameInstallsSubsystem {
             id,
             cancel,
             ended: AtomicBool::new(false),
+            quiet: AtomicBool::new(false),
             runtime: tokio::runtime::Handle::current(),
             into,
             latest: Arc::default(),
@@ -490,10 +494,11 @@ impl GameInstallsSubsystem {
         let work = match begun {
             Ok(work) => work,
             Err(e) => {
-                // The player hears why from this error, so the job's own end says nothing more.
-                // Then a `begin` that timed out may have left work running that holds the job:
-                // it stops at its next look at `cancelled`.
-                handle.ended.store(true, Ordering::SeqCst);
+                // The player hears why from this error, so the job's own failure says nothing
+                // more. Then a `begin` that timed out may have left work running that holds the
+                // job: it stops at its next look at `cancelled`, or finishes, and then the game
+                // it made is listed.
+                handle.quiet.store(true, Ordering::SeqCst);
                 if let Some(job) = self.state().jobs().remove(&id) {
                     job.cancel.store(true, Ordering::SeqCst);
                 }
