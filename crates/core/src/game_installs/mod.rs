@@ -482,6 +482,7 @@ impl GameInstallsSubsystem {
             disposable,
         });
         let timeout = self.inner.ports.call_timeout;
+        let handle = job.clone();
         let call = installer.begin(&source, job);
         let begun = crate::guard::guarded(clock.as_ref(), &plugin, "game_installer.begin", timeout, call)
             .await
@@ -489,7 +490,13 @@ impl GameInstallsSubsystem {
         let work = match begun {
             Ok(work) => work,
             Err(e) => {
-                self.state().jobs().remove(&id);
+                // The player hears why from this error, so the job's own end says nothing more.
+                // Then a `begin` that timed out may have left work running that holds the job:
+                // it stops at its next look at `cancelled`.
+                handle.ended.store(true, Ordering::SeqCst);
+                if let Some(job) = self.state().jobs().remove(&id) {
+                    job.cancel.store(true, Ordering::SeqCst);
+                }
                 self.changed();
                 return Err(e);
             }
@@ -574,21 +581,38 @@ impl GameInstallsSubsystem {
     }
 
     /// Removes the work folders of installs that were running when the app last stopped.
-    /// `folders` gives a plugin's folders, to find them on disk.
+    /// `folders` gives a plugin's folders, to find them on disk. A work folder out of reach (its
+    /// plugin isn't loaded, or its games folder isn't there, as a drive not plugged in) keeps its
+    /// record for the next start.
     pub fn clean_up(&self, folders: impl Fn(&PluginId) -> Option<HostFolders>) {
+        let mut kept = Vec::new();
         for (plugin, work) in self.inner.records.take_all() {
-            let Some(folders) = folders(&plugin) else { continue };
-            match folders.resolve(&work) {
-                Ok(path) if path.exists() => {
-                    tracing::info!(path = %path.display(), "removing an install the app stopped in the middle of");
-                    if let Err(e) = std::fs::remove_dir_all(&path) {
-                        tracing::warn!(error = %e, "could not remove it");
+            let Some(folders) = folders(&plugin) else {
+                tracing::info!(%plugin, "an interrupted install's plugin isn't loaded: its folder waits");
+                kept.push((plugin, work));
+                continue;
+            };
+            let games = HostPath::new(work.folder.clone(), work.root, launcher_api::RelPath::root());
+            match (folders.resolve(&games), folders.resolve(&work)) {
+                (Ok(games), Ok(path)) if games.is_dir() => {
+                    if path.exists() {
+                        tracing::info!(path = %path.display(), "removing an install the app stopped in the middle of");
+                        if let Err(e) = std::fs::remove_dir_all(&path) {
+                            tracing::warn!(error = %e, "could not remove it");
+                        }
                     }
                 }
-                Ok(_) => {}
-                Err(e) => tracing::warn!(error = %e, "an interrupted install's folder is out of reach"),
+                (Ok(games), Ok(_)) => {
+                    tracing::info!(folder = %games.display(), "an interrupted install's games folder isn't there: it waits");
+                    kept.push((plugin, work));
+                }
+                (Err(e), _) | (_, Err(e)) => {
+                    tracing::warn!(error = %e, "an interrupted install's folder is out of reach: it waits");
+                    kept.push((plugin, work));
+                }
             }
         }
+        self.inner.records.keep(&kept);
     }
 }
 

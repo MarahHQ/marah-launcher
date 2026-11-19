@@ -451,11 +451,15 @@ pub fn windows(adapter: &dyn Windows, fixture: &mut dyn WindowFixture) {
     assert!(!adapter.show_game(&[]), "contract windows: show_game for no process");
 }
 
+/// The size of a piece of the torrent the [`torrents`] contract downloads.
+pub const TORRENT_PIECE: u64 = 16 * 1024;
+
 /// Serves the torrent the [`torrents`] contract downloads, and makes the adapter it checks.
 #[async_trait]
 pub trait TorrentFixture: Send {
     /// Puts a torrent named `name` into the swarm, with these files in this order, `/` between
-    /// the parts of a path: its info hash in lowercase hex, and its magnet link.
+    /// the parts of a path, and pieces of [`TORRENT_PIECE`] bytes: its info hash in lowercase
+    /// hex, and its magnet link.
     async fn torrent(&mut self, name: &str, files: &[(&str, Vec<u8>)]) -> (String, String);
     /// A new adapter over the same data folder and swarm, as after the launcher restarts. The
     /// contract stops every torrent of the adapter before it asks for the next one.
@@ -465,7 +469,7 @@ pub trait TorrentFixture: Send {
     fn send(&mut self, id: &str);
 }
 
-/// A torrent file of `len` bytes, whose pieces of 16 KiB differ from each other.
+/// A torrent file of `len` bytes, whose pieces of [`TORRENT_PIECE`] bytes differ from each other.
 fn torrent_bytes(len: u32, step: u32) -> Vec<u8> {
     (0..len).map(|i| (i.wrapping_mul(step) % 251) as u8).collect()
 }
@@ -483,13 +487,14 @@ fn torrent_bytes(len: u32, step: u32) -> Vec<u8> {
 /// - After a restart, the check counts the pieces the folder has, and an unpause downloads the
 ///   rest.
 /// - With files left out, it downloads only the chosen files, and makes no file for the rest,
-///   after a check too. `total` counts the chosen files, and not the rest.
+///   after a check too. `total` counts the chosen files, and at most the two pieces they share
+///   with the rest.
 /// - Stopping a torrent, or every torrent, leaves its files.
 ///
 /// Rules of one engine stay in its own tests: which pieces it trusts after a restart without
 /// reading them, how many bytes it fetches, and where it keeps the bytes of a file left out.
 pub async fn torrents(fixture: &mut dyn TorrentFixture) {
-    // No file starts or ends on the edge of a piece of 16 KiB, so pieces span two files.
+    // No file starts or ends on the edge of a piece, so pieces span two files.
     let files = [
         ("game.bin", torrent_bytes(100_001, 7)),
         ("update.bin", torrent_bytes(60_003, 13)),
@@ -599,10 +604,11 @@ pub async fn torrents(fixture: &mut dyn TorrentFixture) {
         until(adapter.as_ref(), id, "finished with a file left out", |s| s.finished && s.state == TransferState::Live)
             .await;
     // An engine counts whole pieces, so the total may have the bytes the chosen files share a
-    // piece with: never the whole file left out.
+    // piece with: the file left out shares one piece with the file before it and one with the
+    // file after it.
     assert_eq!(left_out.done, left_out.total, "contract torrents: finished, done is the total");
     assert!(
-        (sum(&chosen)..sum(&every)).contains(&left_out.total),
+        (sum(&chosen)..=sum(&chosen) + 2 * TORRENT_PIECE).contains(&left_out.total),
         "contract torrents: the total counts the chosen files, not the one left out: {left_out:?}"
     );
     all_whole(&some, &chosen, "a file left out");

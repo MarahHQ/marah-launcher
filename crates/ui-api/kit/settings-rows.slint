@@ -411,6 +411,10 @@ export component Row inherits Rectangle {
     border-width: root.focused ? 3 * Look.px : 0;
     border-color: root.danger ? Tokens.color-danger : Tokens.color-tint;
     min-height: body.preferred-height;
+    // The row with the keys shows as selected, to a screen reader and to a test. A row that
+    // acts sets its own role, `button`.
+    accessible-role: list-item;
+    accessible-item-selected: root.focused;
     animate background { duration: Tokens.motion-fast; }
     changed focused => { if (root.focused) { root.reveal(self.absolute-position.y, self.height); } }
 

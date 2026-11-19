@@ -1,5 +1,6 @@
 //! The installs' saved records: the work folder of each running install, under
-//! `app.game_installs.<job id>`, so the next start removes one a crash left.
+//! `app.game_installs.<job id>`, so the next start removes one a crash left. A work folder out
+//! of reach at the start stays saved, under `left-<n>`, for a later start.
 
 use std::sync::Arc;
 
@@ -52,5 +53,16 @@ impl Records {
             tracing::warn!(error = %e, "could not clear the install records");
         }
         left
+    }
+
+    /// Saves again the work folders of the last run that [`Records::take_all`] took and the
+    /// start couldn't reach. Their keys are no job id, so this run's installs leave them be.
+    pub fn keep(&self, left: &[(PluginId, HostPath)]) {
+        for (n, (plugin, work)) in left.iter().enumerate() {
+            let record = serde_json::json!({ "plugin": plugin, "work": work });
+            if let Err(e) = self.config.set(&[RECORDS[0], RECORDS[1], &format!("left-{n}")], record) {
+                tracing::warn!(error = %e, "could not keep the install's record");
+            }
+        }
     }
 }

@@ -560,6 +560,13 @@ pub struct ReleaseVm {
     /// What its download sheet says of it, from `version`, `region`, `size` and the game's
     /// emulator: "Version 1.02 · Europe · 7.6 GB · runs with KytyPS5".
     pub sheet_text: String,
+    /// Its row's second line, from `version_label`, `size` and `added`: "Version 3 of 3
+    /// (newest) · 7.6 GB · added Oct 15, 2026", with "Size unknown" for no size.
+    pub line_text: String,
+    /// What its download sheet says when this computer can't start it, from `not_here`: "This
+    /// is a Linux release: it can't run on Windows. It installs, but it won't start on this
+    /// computer." Empty when it can.
+    pub not_here_text: String,
     /// Its place among the game's releases, numbered by version from the lowest: "Version 3
     /// of 3 (newest)" for the highest version.
     pub version_label: String,
@@ -674,9 +681,9 @@ pub struct TorrentVm {
     pub file_summary: String,
     /// Where the files are.
     pub folder: String,
-    /// What the player can do now, in order: `start`, `pause`, `cancel`, `remove`,
-    /// `stop-seeding`, `install`, `play`, `remove-unpacked`, `cancel-install`. While its
-    /// archives unpack, `cancel` stops the unpacking.
+    /// What the player can do now, in order: `start`, `pause`, `play`, `install`,
+    /// `stop-seeding`, `cancel`, `remove`, `remove-unpacked`, `cancel-install`, `open-store`
+    /// (a store's install). While its archives unpack, `cancel` stops the unpacking.
     pub actions: Vec<String>,
     /// Its install: `installing`, `done`, `failed` or `cancelled`; empty for none yet.
     pub install: String,

@@ -326,6 +326,8 @@ fn detail() -> GameDetailVm {
             title_text: s(),
             peers_text: s(),
             sheet_text: s(),
+            line_text: s(),
+            not_here_text: s(),
             version_label: s(),
             best: true,
             seeders: Some(1),

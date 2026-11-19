@@ -94,6 +94,30 @@ impl GameInstaller for FakeInstaller {
     }
 }
 
+/// Lists a package in the background and never answers `begin`, as a plugin's slow listing of a
+/// large package. Its work stops once the job is cancelled, and says so on `stopped`.
+struct HangingInstaller {
+    stopped: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+}
+
+#[async_trait]
+impl GameInstaller for HangingInstaller {
+    async fn candidates(&self) -> launcher_api::PluginResult<Vec<Installable>> {
+        Ok(Vec::new())
+    }
+
+    async fn begin(&self, _source: &HostPath, job: Arc<dyn InstallJob>) -> launcher_api::PluginResult<HostPath> {
+        let stopped = self.stopped.lock().unwrap().take().unwrap();
+        tokio::spawn(async move {
+            while !job.cancelled() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            let _ = stopped.send(());
+        });
+        std::future::pending().await
+    }
+}
+
 /// What the core heard, with the job's phase at that moment.
 type Heard = Arc<Mutex<Vec<(String, Option<GamePhase>)>>>;
 
@@ -110,6 +134,11 @@ struct Setup {
 }
 
 fn setup() -> Setup {
+    setup_with(Duration::from_secs(5))
+}
+
+/// [`setup`], with `call_timeout` the longest a plugin's `begin` may take.
+fn setup_with(call_timeout: Duration) -> Setup {
     let config = Arc::new(ConfigService::in_memory());
     let (games, packages) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let folders = serde_json::json!({
@@ -146,7 +175,7 @@ fn setup() -> Setup {
             hardware: Arc::new(NoHardware),
             clock: Arc::new(TokioClock),
             downloads: downloads.clone(),
-            call_timeout: Duration::from_secs(5),
+            call_timeout,
         },
         Records::new(config.clone()),
         Notifier::new(changes.clone(), EventBus::new(16)),
@@ -297,6 +326,24 @@ async fn the_same_source_doesn_t_install_twice_at_once() {
 }
 
 #[tokio::test]
+async fn a_begin_that_times_out_cancels_the_plugin_s_work() {
+    let s = setup_with(Duration::from_millis(50));
+    let (stopped, heard) = tokio::sync::oneshot::channel();
+    let mut install = s.new_install(1, at("packages", "huge"));
+    install.installer = Arc::new(HangingInstaller { stopped: Mutex::new(Some(stopped)) });
+
+    let begun = s.installs.begin(install).await;
+
+    assert!(begun.unwrap_err().to_string().contains("timed out"), "the plugin didn't answer in time");
+    assert_eq!(s.phase(1), None, "the install that didn't start isn't listed");
+    let stops = tokio::time::timeout(Duration::from_secs(5), heard).await;
+    assert!(stops.is_ok_and(|told| told.is_ok()), "the plugin's work saw the job cancelled");
+    // The work dropped the job as it stopped: the player heard of the failure from `begin`.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(s.heard(), [], "no second failure");
+}
+
+#[tokio::test]
 async fn install_unpacks_a_download_s_archives_first_then_asks_the_core_to_install() {
     let s = setup();
     let folder = s.finished_download();
@@ -328,5 +375,31 @@ fn the_work_folder_a_crash_left_goes_at_the_next_start() {
     s.installs.clean_up(|p| (p == &plugin()).then(|| s.folders()));
 
     assert!(!s.games.path().join("astro.part").exists());
+    assert_eq!(s.config.get(&["app", "game_installs"]), serde_json::json!({}));
+}
+
+#[test]
+fn a_work_folder_out_of_reach_at_the_start_goes_at_a_later_start() {
+    let s = setup();
+    // The games folder is on a drive that isn't plugged in.
+    let drive = s.games.path().join("drive");
+    s.config.set(&["app", "folders", "games"], serde_json::json!([drive.display().to_string()])).unwrap();
+    let left = serde_json::json!({ "plugin": "emu-g", "work": at("games", "astro.part") });
+    s.config.set(&["app", "game_installs"], serde_json::json!({ "1": left })).unwrap();
+
+    s.installs.clean_up(|p| (p == &plugin()).then(|| s.folders()));
+
+    let kept = s.config.get(&["app", "game_installs"]);
+    assert_eq!(kept.as_object().map(|r| r.values().collect::<Vec<_>>()), Some(vec![&left]), "kept: {kept}");
+    // This run's install 1 comes and goes, and leaves the last run's record as it was.
+    s.installs.inner.records.save(JobId(1), &plugin(), &at("games", "quest.part"));
+    s.installs.inner.records.forget(JobId(1));
+    assert_eq!(s.config.get(&["app", "game_installs"]), kept);
+
+    // At the next start, the drive is back.
+    std::fs::create_dir_all(drive.join("astro.part")).unwrap();
+    s.installs.clean_up(|p| (p == &plugin()).then(|| s.folders()));
+
+    assert!(!drive.join("astro.part").exists());
     assert_eq!(s.config.get(&["app", "game_installs"]), serde_json::json!({}));
 }

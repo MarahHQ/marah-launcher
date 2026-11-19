@@ -11,7 +11,7 @@
 //! empty text, which most fields can hold.
 
 use launcher_api::{ActionStyle, Tone};
-use launcher_core::{JobPhase, Sort};
+use launcher_core::{JobPhase, Sort, TorrentButton};
 use launcher_ui_api::{FieldKind, NoticeKind, ScreenId, SlotKind, contract};
 use serde::Serialize;
 
@@ -89,6 +89,18 @@ impl Row {
 fn rows() -> Vec<Row> {
     let sorts = every!(Sort: Title, Played, Size, Smallest, Rating, Release, Compat, Added);
     let phases = every!(JobPhase: Queued, Downloading, Verifying, Unpacking, Paused, Done, Failed, Cancelled);
+    let buttons = every!(
+        TorrentButton: Start,
+        Pause,
+        Play,
+        Install,
+        StopSeeding,
+        Cancel,
+        Remove,
+        RemoveUnpacked,
+        CancelInstall,
+        OpenStore,
+    );
     vec![
         of_enum(
             "SlotKind",
@@ -106,7 +118,9 @@ fn rows() -> Vec<Row> {
         doc(("ReleaseVm", "availability"), ("Release", "availability")),
         doc(("VerdictVm", "level"), ("Verdict", "level")),
         doc(("TorrentVm", "state"), ("Torrent", "state")).notes("TorrentPick"),
-        doc(("TorrentVm", "actions"), ("Torrent", "actions")).notes("TorrentPick"),
+        doc(("TorrentVm", "actions"), ("Torrent", "actions"))
+            .notes("TorrentPick")
+            .core(buttons.iter().map(|b| b.as_str().to_owned()).collect()),
         doc(("TorrentVm", "install"), ("Torrent", "install")).notes("TorrentPick"),
         doc(("TorrentVm", "unpack"), ("Torrent", "unpack")).notes("TorrentPick"),
         doc(("TorrentPickVm", "kind"), ("TorrentPick", "kind")),

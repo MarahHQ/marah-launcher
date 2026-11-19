@@ -581,7 +581,11 @@ mod tests {
                 .session
                 .create_and_serve_torrent(
                     &source,
-                    librqbit::CreateTorrentOptions { name: None, trackers: vec![], piece_length: Some(16 * 1024) },
+                    librqbit::CreateTorrentOptions {
+                        name: None,
+                        trackers: vec![],
+                        piece_length: Some(launcher_testkit::contract::TORRENT_PIECE as u32),
+                    },
                 )
                 .await
                 .unwrap();

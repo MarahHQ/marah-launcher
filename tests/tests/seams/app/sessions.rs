@@ -764,10 +764,66 @@ async fn log_out_asks_no_plugin_when_no_launch_left_anything_running() {
 
 /// A core with `emu-a` and a system plugin over `system`.
 async fn core_with_system(system: &launcher_testkit::FakeSystem) -> TestCore {
-    let mut emu = FakeEmulator::new(vec!["A"]);
+    core_with_system_and(system, FakeEmulator::new(vec!["A"])).await.0
+}
+
+/// A core with `emu` as `emu-a` and a system plugin over `system`.
+async fn core_with_system_and(
+    system: &launcher_testkit::FakeSystem,
+    mut emu: FakeEmulator,
+) -> (TestCore, FakeEmulator) {
     let host = FakeHost::new();
     emu.build_sha = host.http().serve(&emu.build_url, vec![7u8; 20_000]);
-    host.plugin(emu.plugin("emu-a")).plugin(system.plugin()).boot_core().await
+    let core = host.plugin(emu.plugin("emu-a")).plugin(system.plugin()).boot_core().await;
+    (core, emu)
+}
+
+/// Restart or Shut down (`command`) past a plugin that panics or hangs when asked to close
+/// what its launch left running: the guard cuts the plugin off, the host ends what still runs,
+/// and the machine still goes (`went` counts it), with `last_step` on the closing screen.
+async fn power_off_past_a_plugin_that_fails_to_close(
+    command: launcher_core::system::SystemCommand,
+    went: fn(&launcher_testkit::FakeMachine) -> usize,
+    last_step: &str,
+) {
+    for answer in [CloseAnswer::Panics, CloseAnswer::Hangs] {
+        let system = launcher_testkit::FakeSystem::new();
+        let mut emu = FakeEmulator::new(vec!["A"]).handing_over("AppId=7 ");
+        emu.close_answer = answer;
+        let (t, emu) = core_with_system_and(&system, emu).await;
+        let steam = played_with_steam_left_running(&t).await;
+
+        let core = t.core.clone();
+        let command = command.clone();
+        let power_off = tokio::spawn(async move { core.dispatch(Command::System(command)).await });
+        until(&t, "the machine goes", || system.read(went) == 1).await;
+        power_off.await.expect("the plugin's failure stays in the guard").unwrap();
+        assert_eq!(emu.closed_left_running(), 1, "{answer:?}");
+        assert_eq!(steam.signals().first(), Some(&Signal::Terminate), "{answer:?}: ended by the host");
+        assert_eq!(t.core.view().closing.as_deref(), Some(last_step), "{answer:?}");
+    }
+}
+
+/// A plugin that panics or hangs at close down doesn't hold Restart: the machine restarts.
+#[tokio::test]
+async fn a_plugin_that_panics_or_hangs_at_close_down_doesn_t_hold_restart() {
+    power_off_past_a_plugin_that_fails_to_close(
+        launcher_core::system::SystemCommand::Restart,
+        |m| m.restarts,
+        "Restarting",
+    )
+    .await;
+}
+
+/// A plugin that panics or hangs at close down doesn't hold Shut down: the machine turns off.
+#[tokio::test]
+async fn a_plugin_that_panics_or_hangs_at_close_down_doesn_t_hold_shut_down() {
+    power_off_past_a_plugin_that_fails_to_close(
+        launcher_core::system::SystemCommand::ShutDown,
+        |m| m.shutdowns,
+        "Shutting down",
+    )
+    .await;
 }
 
 /// Shut down closes the running game before the machine turns off.
