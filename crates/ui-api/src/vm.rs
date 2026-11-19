@@ -299,7 +299,7 @@ pub struct LibraryVm {
     pub systems: Vec<FilterVm>,
     /// "All genres", then each genre, most games first.
     pub genres: Vec<FilterVm>,
-    /// `title`, `played`, `size`, `rating`, `release`, `compat` or `added`.
+    /// `title`, `played`, `size`, `smallest`, `rating`, `release`, `compat` or `added`.
     pub sort: String,
     pub query: String,
     /// The titles of the best matches of `query`, best first, at most five; empty with no
@@ -659,8 +659,8 @@ pub struct TorrentVm {
     /// Where the files are.
     pub folder: String,
     /// What the player can do now, in order: `start`, `pause`, `cancel`, `remove`,
-    /// `stop-seeding`, `install`, `play`, `remove-unpacked`. While its archives unpack,
-    /// `cancel` stops the unpacking.
+    /// `stop-seeding`, `install`, `play`, `remove-unpacked`, `cancel-install`. While its
+    /// archives unpack, `cancel` stops the unpacking.
     pub actions: Vec<String>,
     /// Its install: `installing`, `done`, `failed` or `cancelled`; empty for none yet.
     pub install: String,
