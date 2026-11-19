@@ -330,7 +330,7 @@ Tests in `contract.rs` hold every kit file to three rules:
 | `plugin-list.slint` | `PluginList`, `PluginListSheet` | The Emulators or Themes list as a side sheet, and its keys. |
 | `plugin.slint` | `PluginPage` | One plugin's page, on `SettingsFrame`. For a theme, "Use this theme" and its options. |
 | `pop.slint` | `Pop` | A pop-up: a wash over the screen and a card in its middle. |
-| `power-ask.slint` | `PowerAsk`, `PowerAskSheet` | On a desktop, the dialog before Restart or Shut down: the focus starts on Cancel. Esc, the pad's ○ and a click outside cancel. `Overlays` shows it and `ShellKeys` sends it its keys. |
+| `power-ask.slint` | `PowerAsk`, `PowerAskSheet` | On a desktop, the dialog before Restart or Shut down: the focus starts on Cancel. Esc, the pad's ○ and a click outside cancel. `Overlays` shows it and `ShellKeys` sends it its keys. Accessible labels: `power-confirm` (value `restart` or `shut-down`) and `power-confirm-choice` (value `Cancel`, `Restart` or `Shut down`). |
 | `power-menu.slint` | `PowerMenu`, `PowerMenuSheet` | The power menu: Log out, restart the launcher, Restart, Shut down, or quit. |
 | `progress-bar.slint` | `ProgressBar` | A thin progress bar. |
 | `question-prompt.slint` | `Question`, `QuestionPrompt` | A plugin's question at the start, with its two buttons. |
@@ -361,7 +361,8 @@ theme: put your screens inside it and give it the focus (`forward-focus`).
 
 `ShellKeys` answers the keys in this order and stops at the first that takes the key:
 
-1. Before any element sees the key: the closing screen takes every key. Then the folder browser
+1. Before any element sees the key: the closing screen takes every key. Then the dialog before
+   Restart or Shut down on a desktop (`PowerAsk.key`) takes every key but a held Enter. Then the folder browser
    (`Browser.key`), a folder's list (`FolderList.key`), Send ratings (`Sending.key`) and the
    on-screen keyboard (`Osk.key`), while each is open. Ctrl+P, for the power menu, still gets
    past the first three.
