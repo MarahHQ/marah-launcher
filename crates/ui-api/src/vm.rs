@@ -1349,8 +1349,10 @@ pub struct ReportPreviewVm {
 /// loading, absent, unsupported (with why) or ready. The rest is each ready area's data.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SystemVm {
-    /// Marah Launcher is the whole screen (the Marah Launcher session, Marah OS): the theme shows the network,
-    /// sound and Bluetooth controls and Settings → System then. A desktop has its own.
+    /// Marah Launcher is the whole session, with no desktop behind it (the Marah Launcher session,
+    /// Marah OS). A fact of the session only: Quit restarts the launcher, and Restart and Shut down
+    /// ask by a second press, not in a dialog. It doesn't decide what the player can manage: the
+    /// machine's controls show wherever the launcher runs, each by its area's state in `areas`.
     pub whole_screen: bool,
     pub own_os: bool,
     /// Marah OS started from its USB stick, which can install it.

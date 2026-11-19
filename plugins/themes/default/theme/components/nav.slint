@@ -13,9 +13,9 @@ export { Origin } from "../kit/origin.slint";
 // (`filters`), its bar (`bar`: search, sort, the genres' list, and in the Catalog the catalog
 // plugin's button) and its grid (`grid`). The Library has one card size.
 //
-// The top bar has no tabs: the five screen buttons (0 to 4), then, when Marah Launcher is the whole
-// screen, the network, sound and Bluetooth icons, then the drives' icon, on a desktop
-// too. A system opens the Library screen on
+// The top bar has no tabs: the screen buttons (0 to 3), then the machine's icons, the kit's status
+// bar (the network, sound, Bluetooth and drives icons, everywhere), then Settings. A system opens
+// the Library screen on
 // its games (LibrarySystem, then Navigate); Back from it is the core's. The list shows no game,
 // so the shell's game keys (Menu, T) work only in the Library. The shell, the card, the top bar
 // and the running screen read the other members.
@@ -54,10 +54,10 @@ export global Nav {
     in-out property <bool> to-search;
 
     out property <int> tabs: 0;
-    // The screen buttons, the network, sound and Bluetooth icons when Marah Launcher is the whole screen
-    // (`Sys`), the drives' icon, and Settings last.
+    // The screen buttons, the machine's icons (`Sys.statuses`: the network, sound, Bluetooth and
+    // drives icons), and Settings last.
     out property <int> buttons: 5 + root.statuses;
-    out property <int> statuses: (Vm.system.whole-screen ? 3 : 0) + 1;
+    out property <int> statuses: Sys.statuses;
 
     public pure function platform(entry: int) -> string {
         entry < 0 || entry >= Vm.home.groups.length ? "" : Vm.home.groups[entry].platform
@@ -109,12 +109,11 @@ export global Nav {
     }
     // The top bar's first item the keys can reach: Search, or Downloads with no Catalog.
     out property <int> first-tab: Vm.catalog-available ? 0 : 1;
-    // The screen buttons (Search, Downloads, Emulators, Themes), the machine's icons when Marah Launcher
-    // is the whole screen, and Settings last.
+    // The screen buttons (Search, Downloads, Emulators, Themes), the machine's icons, and Settings
+    // last.
     public function activate-tab(index: int) {
         if (index >= root.tabs + 4 && index < root.tabs + 4 + root.statuses) {
-            // On a desktop the drives' icon is the only machine icon.
-            Sys.show-status(Vm.system.whole-screen ? index - root.tabs - 4 : 3);
+            Sys.show-status(index - root.tabs - 4);
         } else {
             Host.play-sound("select");
             Commands.navigate(index == 0 ? "catalog"

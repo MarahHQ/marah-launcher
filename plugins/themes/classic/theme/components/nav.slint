@@ -14,8 +14,8 @@ export { Origin } from "../kit/origin.slint";
 // Comfortable, Compact, and in the Catalog the catalog plugin's button), its systems
 // (`filters`), its genres (`genres`) and its grid (`grid`).
 //
-// The top bar has two tabs, Home (0) and Library (1), then the five screen buttons (2 to 6),
-// then, when Marah Launcher is the whole screen, the network, sound and Bluetooth icons (7 to 9). The
+// The top bar has two tabs, Home (0) and Library (1), then the screen buttons (2 to 5),
+// then the network, sound, Bluetooth and drives icons (the kit's status bar), and Settings. The
 // tabs open the Home screen and the Library screen. Home's row has every game; the Library's
 // games are searched, filtered and sorted by the core (`Vm.home.library`). The Catalog screen
 // is the same view on the catalogs' games (`Vm.catalog`), with the same zones but the top bar's.
@@ -48,10 +48,10 @@ export global Nav {
     in-out property <bool> to-search;
 
     out property <int> tabs: 2;
-    // The screen buttons, the network, sound and Bluetooth icons when Marah Launcher is the whole screen
-    // (`Sys`), the drives' icon, and Settings last.
+    // The screen buttons, the machine's icons (`Sys.statuses`: the network, sound, Bluetooth and
+    // drives icons), and Settings last.
     out property <int> buttons: 5 + root.statuses;
-    out property <int> statuses: (Vm.system.whole-screen ? 3 : 0) + 1;
+    out property <int> statuses: Sys.statuses;
     // The shown game is the one running.
     out property <bool> playing: Games.has-game && Vm.has-running && Vm.running.key == Games.games[Games.shown].key;
     // The buttons under the game: Resume, Stop and Game Hub while it runs; Play (when it can
@@ -87,7 +87,7 @@ export global Nav {
         }
     }
     // The tabs, then the screen buttons (Search, Downloads, Emulators, Themes), the machine's
-    // icons when Marah Launcher is the whole screen, and Settings last. Home goes back to the bottom of
+    // icons, and Settings last. Home goes back to the bottom of
     // the stack: nothing is left to go back to.
     public function activate-tab(index: int) {
         let button = index - root.tabs;
@@ -96,8 +96,7 @@ export global Nav {
         } else if (index == 1) {
             root.open-library();
         } else if (button >= 4 && button < 4 + root.statuses) {
-            // On a desktop the drives' icon is the only machine icon.
-            Sys.show-status(Vm.system.whole-screen ? button - 4 : 3);
+            Sys.show-status(button - 4);
         } else {
             Host.play-sound("select");
             Commands.navigate(button == 0 ? "catalog"

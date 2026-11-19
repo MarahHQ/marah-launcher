@@ -1,14 +1,13 @@
-import { Vm, Host, Areas } from "../types.slint";
+import { Vm, Host } from "../types.slint";
 import { Commands } from "../kit/commands.slint";
 import { Tokens } from "../tokens.slint";
 import { Look } from "../kit/look.slint";
 import { Nav } from "nav.slint";
 import { Icon } from "../kit/icon.slint";
-import { NetIcon, SoundIcon, BluetoothIcon, StorageIcon, BatteryIcon, Sys } from "../kit/system-panel.slint";
+import { StatusBar } from "../kit/status-bar.slint";
 import { Hint } from "../kit/shell.slint";
 import { Reveal } from "../kit/reveal.slint";
-import { StatusSlot, StatusState, LoadingLine } from "../kit/loading.slint";
-import { Leaving, Motion } from "../kit/motion.slint";
+import { LoadingLine } from "../kit/loading.slint";
 
 // One system in the top bar, as a tab ("Home", "Library"): white when
 // shown, with a short bar under it; a white outline when the keys are on it.
@@ -91,39 +90,6 @@ component RoundButton inherits Rectangle {
     ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
 
-// A machine status icon on the far side of the top bar, as a round button: its panel opens
-// under it. Its icon is its child. Its area's state shows over it (`StatusState`): loading, or
-// disabled where the area can't be used here, which still takes the focus and shows why.
-component StatusButton inherits Rectangle {
-    in property <string> label;
-    in property <string> value;
-    in property <bool> focused;
-    in property <bool> current;
-    // Its area's place in `Vm.system.areas`.
-    in property <int> area;
-    callback clicked();
-    width: 52 * Look.px;
-    height: 52 * Look.px;
-    border-radius: 26 * Look.px;
-    // A disabled icon's focus is the ring `StatusState` draws, not this fill.
-    out property <bool> lit: status.lit;
-    background: status.lit ? #ffffff : root.current ? #ffffff24 : ta.has-hover && !status.disabled ? #ffffff14 : transparent;
-    accessible-role: button;
-    accessible-label: root.label;
-    accessible-value: status.loading ? "loading" : status.disabled ? "disabled" : root.value;
-    accessible-enabled: !status.disabled;
-    accessible-description: status.disabled ? Vm.system.areas[root.area].reason : "";
-    accessible-action-default => { if (!status.disabled) { root.clicked(); } }
-    animate background { duration: Tokens.motion-fast; }
-    Rectangle {
-        opacity: status.dim;
-        animate opacity { duration: Motion.focus; easing: Motion.enter; }
-        @children
-    }
-    status := StatusState { area: root.area; focused: root.focused; hovered: ta.has-hover; }
-    ta := TouchArea { mouse-cursor: status.cursor; clicked => { if (!status.disabled) { root.clicked(); } } }
-}
-
 // A small button inside the playing pill.
 component PillButton inherits Rectangle {
     in property <string> text;
@@ -162,8 +128,6 @@ export component TopBar inherits Rectangle {
         y: root.height - 3 * Look.px;
         width: root.width - 2 * 96 * Look.px;
     }
-    // The battery stays while it fades out and its place closes.
-    battery-place := Leaving { open: Vm.system.battery-shown || Vm.system.areas[Areas.power].state == "loading"; time: Motion.sheet-out; }
 
     tabs := HorizontalLayout {
         x: Look.rtl ? parent.width - self.width - 96 * Look.px : 96 * Look.px;
@@ -271,71 +235,13 @@ export component TopBar inherits Rectangle {
             focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 1 + i;
             clicked => { Commands.navigate(b.screen); }
         }
-        // The machine's icons and Settings, with no spacing of their own: each icon's place
-        // holds the gap after it, so a place that closes closes its gap with it.
+        // The machine's icons (the kit's status bar, the same in every theme) and Settings, with
+        // no spacing of their own: each icon's place holds the gap after it, so a place that
+        // closes closes its gap with it.
         HorizontalLayout {
             spacing: 0;
-            // The machine, when Marah Launcher is the whole screen: each icon opens its panel
-            // (`Sys`). Each is in place from the first frame, in its loading look until its part
-            // is read.
-            if Vm.system.whole-screen : StatusSlot {
-                item-width: 52 * Look.px;
-                gap: 22 * Look.px;
-                StatusButton {
-                    label: "status:network";
-                    area: Areas.network;
-                    value: Vm.system.connection == "wifi" ? "wifi " + Vm.system.signal-bars : Vm.system.connection;
-                    current: Sys.open == 0;
-                    focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 4;
-                    clicked => { Sys.toggle(0); }
-                    NetIcon { tint: parent.lit ? Look.ink : Tokens.color-text; }
-                }
-            }
-            if Vm.system.whole-screen : StatusSlot {
-                item-width: 52 * Look.px;
-                gap: 22 * Look.px;
-                StatusButton {
-                    label: "status:sound";
-                    area: Areas.audio;
-                    value: Vm.system.muted ? "muted" : Vm.system.volume;
-                    current: Sys.open == 1;
-                    focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 5;
-                    clicked => { Sys.toggle(1); }
-                    SoundIcon { color: parent.lit ? Look.ink : Tokens.color-text; }
-                }
-            }
-            if Vm.system.whole-screen : StatusSlot {
-                item-width: 52 * Look.px;
-                gap: 22 * Look.px;
-                StatusButton {
-                    label: "status:bluetooth";
-                    area: Areas.bluetooth;
-                    value: !Vm.system.bluetooth-on ? "off" : "on " + Vm.system.connected-devices;
-                    current: Sys.open == 2;
-                    focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 6;
-                    clicked => { Sys.toggle(2); }
-                    BluetoothIcon { color: parent.lit ? Look.ink : Tokens.color-text; }
-                }
-            }
-            // Everywhere: its panel mounts, opens, uses and ejects every drive. Where drives
-            // can't be managed, the icon shows disabled and says why.
-            StatusSlot {
-                item-width: 52 * Look.px;
-                gap: 22 * Look.px;
-                StatusButton {
-                    label: "status:drives";
-                    area: Areas.drives;
-                    current: Sys.open == 3;
-                    focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 4 + Nav.statuses - 1;
-                    clicked => { Sys.toggle(3); }
-                    StorageIcon { color: parent.lit ? Look.ink : Tokens.color-text; }
-                }
-            }
-            if battery-place.shown : StatusSlot {
-                open: battery-place.open;
-                item-width: battery.width;
-                gap: 22 * Look.px;
-                battery := BatteryIcon {}
+            StatusBar {
+                focused: root.keys && Nav.zone == "tabs" ? Nav.tab - Nav.tabs - 4 : -1;
             }
             // Settings is always the last icon, after the machine's.
             RoundButton {

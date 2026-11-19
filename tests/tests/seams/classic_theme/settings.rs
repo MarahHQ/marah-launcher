@@ -113,8 +113,13 @@ fn the_keys_move_down_the_settings_page_and_change_the_focused_row() {
     assert_eq!(host.first("seed-downloads").accessible_value().as_deref(), Some("on"));
     host.navigate(Key::Return);
     assert_eq!(host.first("seed-downloads").accessible_value().as_deref(), Some("off"), "Enter stops sharing");
-    // Down at Downloads' last row passes This PC, which has no rows, into POWER, the last.
+    // Down at Downloads' last row goes into SYSTEM, on a desktop too; down past its three rows
+    // and This PC, which has no rows, into POWER, the last.
     host.navigate(Key::DownArrow);
+    assert_eq!(lit_section(&host), "System");
+    for _ in 0..3 {
+        host.navigate(Key::DownArrow);
+    }
     assert_eq!(lit_section(&host), "Power");
     // R1 from the last section goes round to LAUNCHER, the first; down to "Interface sounds"
     // and "Start at login".
@@ -682,8 +687,9 @@ fn l1_from_reading_this_pc_goes_to_another_section_s_rows() {
     host.navigate(Key::UpArrow);
     host.settings_tab("This PC");
     host.navigate(Key::RightArrow);
-    // L1 four times, past Downloads, Games and Backup to Updates: its first row takes Enter.
-    for _ in 0..4 {
+    // L1 five times, past System, Downloads, Games and Backup to Updates: its first row takes
+    // Enter.
+    for _ in 0..5 {
         host.navigate(Key::Backtab);
     }
     assert_eq!(lit_section(&host), "Updates");

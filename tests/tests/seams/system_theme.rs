@@ -1,7 +1,7 @@
-//! Seam 3: the Classic theme's machine settings, over a fake system plugin. The top bar's
-//! network, sound and Bluetooth icons and their panels show when Marah Launcher is the whole screen;
-//! the battery wherever the PC has one; Settings → System; and on Marah OS's USB stick, the
-//! Welcome and Install screens.
+//! Seam 3: the themes' machine settings, over a fake system plugin. The top bar's network, sound,
+//! Bluetooth and drives icons and their panels, and Settings → System, show wherever Marah Launcher
+//! runs, on a desktop too: each by its area's state. The battery shows wherever the PC has one. On
+//! Marah OS's USB stick, the Welcome and Install screens.
 
 use std::path::PathBuf;
 
@@ -54,12 +54,24 @@ fn refreshed(host: &mut Composed) {
     host.settle();
 }
 
+/// On a desktop the top bar has every machine icon, each by its area's state, and Settings has
+/// its System section: the player manages the machine wherever the launcher runs.
 #[test]
-fn on_a_desktop_only_the_battery_shows_in_the_top_bar() {
-    let host = shown(&machine(), Place::default());
-    assert_eq!(host.count("status:network") + host.count("status:sound") + host.count("status:bluetooth"), 0);
-    assert_eq!(host.value("battery"), "18");
-    assert_eq!(host.count("system-internet"), 0, "no SYSTEM section in Settings");
+fn on_a_desktop_the_top_bar_shows_every_machine_icon_and_settings_has_system() {
+    for theme in ["classic", "default"] {
+        let mut host = shown(&machine(), Place::default());
+        host.ui.switch(&id(theme)).unwrap();
+        host.settle();
+        assert_eq!(host.value("status:network"), "wired", "{theme}");
+        assert_eq!(host.value("status:sound"), "40", "{theme}");
+        assert_eq!(host.value("status:bluetooth"), "on 1", "{theme}");
+        assert_eq!(host.count("status:drives"), 1, "{theme}");
+        assert_eq!(host.value("battery"), "18", "{theme}");
+        host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+        host.settle();
+        host.settings_tab("System");
+        assert_eq!(host.value("system-internet"), "wired", "{theme}: Settings has System");
+    }
 }
 
 #[test]
@@ -562,7 +574,8 @@ fn the_drives_icon_and_its_panel_list_every_drive_in_every_theme() {
     assert_eq!(host.values("drive"), ["Games disk"]);
 }
 
-/// On a desktop the drives' icon is the only machine icon: the keys reach it, and its panel opens.
+/// On a desktop the drives' icon is there with the others: the keys reach it, its panel opens, and
+/// left goes to the panel beside it, Bluetooth's.
 #[test]
 fn on_a_desktop_the_drives_icon_is_there_and_opens_its_panel() {
     use slint::platform::Key;
@@ -577,14 +590,14 @@ fn on_a_desktop_the_drives_icon_is_there_and_opens_its_panel() {
         host.dispatch(Command::Navigate(launcher_core::Route::Home));
         host.settle();
         assert_eq!(host.count("status:drives"), 1, "{theme}");
-        assert_eq!(host.count("status:network") + host.count("status:bluetooth"), 0, "{theme}");
+        assert_eq!(host.count("status:network") + host.count("status:bluetooth"), 2, "{theme}: the others too");
         host.navigate(Key::Backtab);
         host.navigate(Key::Backtab);
         host.navigate(Key::Return);
         host.settle();
         assert_eq!(host.value("system-panel"), "drives", "{theme}: the keys reach it");
         host.navigate(Key::LeftArrow);
-        assert_eq!(host.value("system-panel"), "drives", "{theme}: no other panel beside it");
+        assert_eq!(host.value("system-panel"), "bluetooth", "{theme}: the panel beside it");
         host.navigate(Key::Escape);
     }
 }

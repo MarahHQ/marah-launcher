@@ -9,12 +9,10 @@ import { Popover, Tooltip, Motion } from "motion.slint";
 import { Reveal } from "reveal.slint";
 import { LoadingLine, LoadingRow } from "loading.slint";
 
-// The machine's settings in the top bar (`Vm.system`): the network, sound and Bluetooth icons,
-// and the drives' icon, open a panel under them. The network, sound and Bluetooth icons and
-// panels show when Marah Launcher is the whole screen (the Marah Launcher session, Marah OS); a
-// desktop has its own. The drives' icon shows everywhere, on a desktop too. An icon whose area
-// can't be used here shows disabled and opens no panel (`StatusState`). The battery shows
-// wherever the PC has one.
+// The machine's settings in the top bar (`Vm.system`): the network, sound, Bluetooth and drives
+// icons (`StatusBar` in status-bar.slint) open a panel under them, wherever Marah Launcher runs, on
+// a desktop too. An icon whose area can't be used here shows disabled and opens no panel
+// (`StatusState`). The battery shows wherever the PC has one.
 //
 // Each panel is a list of rows the keys move through:
 //   0 Network     "Look for networks", then one row per Wi-Fi network
@@ -55,6 +53,19 @@ export global Sys {
     // them) is empty.
     out property <bool> power-on: Vm.system.areas[Areas.power].state == "ready" && Vm.system.areas[Areas.power].reason == "";
 
+    // How many status icons, and panels, there are: the network, sound, Bluetooth and drives.
+    out property <int> statuses: 4;
+    // A status icon's name, for screen readers and tests.
+    public pure function status-name(panel: int) -> string {
+        panel == 0 ? "status:network" : panel == 1 ? "status:sound" : panel == 2 ? "status:bluetooth" : "status:drives"
+    }
+    // What a ready status icon shows, for screen readers and tests: "wifi 3", "muted", "on 1".
+    public pure function status-value(panel: int) -> string {
+        panel == 0 ? (Vm.system.connection == "wifi" ? "wifi " + Vm.system.signal-bars : Vm.system.connection)
+            : panel == 1 ? (Vm.system.muted ? "muted" : Vm.system.volume)
+            : panel == 2 ? (!Vm.system.bluetooth-on ? "off" : "on " + Vm.system.connected-devices)
+            : ""
+    }
     // The area each panel shows, by its place in `Vm.system.areas`.
     public pure function area(panel: int) -> int {
         panel == 0 ? Areas.network : panel == 1 ? Areas.audio : panel == 2 ? Areas.bluetooth : Areas.drives
@@ -187,10 +198,8 @@ export global Sys {
             root.volume((text == Key.RightArrow) != Look.rtl ? 10 : -10);
             return true;
         }
-        // Left and right go to the panel beside, as on the top bar, past a disabled one. On a
-        // desktop the drives' panel is the only one.
+        // Left and right go to the panel beside, as on the top bar, past a disabled one.
         if (text == Key.LeftArrow || text == Key.RightArrow) {
-            if (!Vm.system.whole-screen) { return true; }
             let next = root.beside(root.open, (text == Key.RightArrow) != Look.rtl ? 1 : -1);
             if (next != root.open) { root.show(next); }
             return true;

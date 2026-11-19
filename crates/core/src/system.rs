@@ -26,11 +26,14 @@ const BLUETOOTH_SCAN_SECONDS: u32 = 10;
 /// A finished job stays listed this long, so the theme can say how it ended.
 const JOB_KEPT: Duration = Duration::from_secs(8);
 
-/// Where Marah Launcher runs, which decides what the theme shows.
+/// Where Marah Launcher runs: facts of the session only. They decide how the launcher leaves and
+/// who mounts a drive, not what the player can manage: the machine's controls show everywhere,
+/// each by its area's state.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Place {
-    /// Marah Launcher is the whole screen, with no desktop behind it: the Marah Launcher session or Marah OS.
-    /// The network, sound and Bluetooth controls show then.
+    /// Marah Launcher is the whole session, with no desktop behind it: the Marah Launcher session
+    /// or Marah OS. Quit restarts it, it mounts a drive that comes, and Restart and Shut down ask
+    /// by a second press; on a desktop they ask in a dialog.
     pub whole_screen: bool,
     /// Marah OS (its marker, `/usr/lib/marah-os/release`).
     pub own_os: bool,

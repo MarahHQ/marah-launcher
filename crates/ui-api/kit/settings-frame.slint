@@ -17,18 +17,14 @@ export global Sections {
                 : i <= Prefs.panels + 1 ? (Prefs.panels == 1 ? "Settings" : Vm.plugin-page.settings[i - 2].slot.text)
                 : Prefs.about && i == Prefs.about-section ? "About"
                 : "Folders")
-            : i == 0 ? "Launcher" : i == 1 ? "Games" : i == 2 ? "Updates"
-            : i == 3 ? "Downloads" : i == 4 ? "This PC" : i == 5 && Vm.system.whole-screen ? "System"
-            : i == Prefs.backup-section ? "Backup" : "Power"
+            : Prefs.settings-tabs[Prefs.place[i]].name
     }
     public pure function icon(i: int) -> string {
         Prefs.game-page ? "gamepad"
             : Prefs.theme-page ? (i == 0 ? "palette" : "gear")
             : Prefs.page ? (i <= 1 ? "power" : i <= Prefs.panels + 1 ? "gear"
                 : Prefs.about && i == Prefs.about-section ? "info" : "folder")
-            : i == 0 ? "gear" : i == 1 ? "gamepad" : i == 2 ? "refresh"
-            : i == 3 ? "download" : i == 4 ? "desktop" : i == 5 && Vm.system.whole-screen ? "sliders"
-            : i == Prefs.backup-section ? "archive" : "power"
+            : Prefs.settings-tabs[Prefs.place[i]].icon
     }
 }
 
@@ -155,8 +151,8 @@ export component SettingsFrame inherits SheetFrame {
     changed nudged => {
         flick.viewport-y = Math.min(0, Math.max(flick.height - flick.viewport-height, flick.viewport-y - Prefs.scroll-by * 160 * Look.px));
     }
-    // A section goes (Settings' System when the launcher is no longer the whole screen, a
-    // plugin's settings when it is turned off): the focus in it goes to the last section.
+    // A section goes (a plugin's settings when it is turned off): the focus in it goes to the
+    // last section.
     property <int> count: Prefs.tab-count;
     changed count => { if (Prefs.current-tab >= self.count) { Prefs.show(self.count - 1); } }
 

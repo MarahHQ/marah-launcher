@@ -211,6 +211,27 @@ async fn a_hanging_or_panicking_system_plugin_leaves_the_core_working() {
     t.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
 }
 
+/// Where the launcher runs doesn't decide what the player can manage: on a desktop and as the
+/// whole screen the view lists the same areas in the same states, from the plugin alone.
+#[tokio::test]
+async fn on_a_desktop_every_area_is_read_as_on_the_whole_screen() {
+    let states =
+        |vm: &launcher_ui_api::SystemVm| vm.areas.iter().map(|a| (a.name.clone(), a.state.clone())).collect::<Vec<_>>();
+    let mut seen = Vec::new();
+    for place in [Place::default(), Place { whole_screen: true, own_os: true, stick: false }] {
+        let system = machine();
+        let t = FakeHost::new().place(place).plugin(system.plugin()).boot_core().await;
+        ask(SystemCommand::Refresh, &t).await;
+        let vm = t.core.view().system;
+        for area in ["network", "audio", "bluetooth", "power"] {
+            assert!(vm.area(area).ready(), "{place:?}: {area} is ready");
+        }
+        assert_eq!((vm.connection.as_str(), vm.volume, vm.connected_devices), ("wired", 40, 1), "{place:?}");
+        seen.push(states(&vm));
+    }
+    assert_eq!(seen[0], seen[1], "the same areas, in the same states");
+}
+
 #[tokio::test]
 async fn the_view_says_whether_marah_is_the_whole_screen() {
     let place = Place { whole_screen: true, own_os: false, stick: false };

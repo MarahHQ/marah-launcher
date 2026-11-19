@@ -448,13 +448,13 @@ fn l1_and_r1_go_round_every_tab_of_settings() {
     host.settle();
     assert_eq!(host.core().view().screen, launcher_ui_api::ScreenId::Settings);
     let mut back = vec![lit_settings_tab(&host)];
-    for _ in 0..7 {
+    for _ in 0..8 {
         host.pad(PadButton::LeftShoulder);
         back.push(lit_settings_tab(&host));
     }
     assert_eq!(
         back,
-        ["Launcher", "Power", "This PC", "Downloads", "Games", "Backup", "Updates", "Launcher"],
+        ["Launcher", "Power", "This PC", "System", "Downloads", "Games", "Backup", "Updates", "Launcher"],
         "L1 reaches every tab and wraps"
     );
     assert_eq!(host.core().view().screen, launcher_ui_api::ScreenId::Settings, "and stays in Settings");

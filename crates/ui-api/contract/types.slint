@@ -512,8 +512,10 @@ export struct AreaItem { name: string, state: string, reason: string, busy: bool
 
 // The machine's settings, from the system plugins (see `SystemVm` in launcher-ui-api). areas:
 // every system area, always all of them, in the order of `Areas` below. whole-screen: Marah
-// Launcher is the whole screen (the Marah Launcher session, Marah OS): show the network, sound
-// and Bluetooth controls and Settings → System then. connection: none | wired | wifi. bars: 0-4.
+// Launcher is the whole session, with no desktop behind it (the Marah Launcher session, Marah
+// OS): Quit restarts it, the game menu opens nothing outside it, and Restart and Shut down ask by
+// a second press, not in a dialog. It is a fact of the session only: the machine's controls show
+// wherever the launcher runs, each by its area's state. connection: none | wired | wifi. bars: 0-4.
 // os-update: "" (not Marah OS) | current | checking | staged | failed. A job's kind: join |
 // scan | pair | install | mount | unmount | eject; state: running | done | failed; percent:
 // 0-100, or -1 when unknown. drives: the Drives panel's drives (see `DriveItem`). Whether an

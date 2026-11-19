@@ -88,6 +88,7 @@ pub const KIT: &[(&str, &str)] = &[
     ("slot-actions.slint", include_str!("../kit/slot-actions.slint")),
     ("slot-badges.slint", include_str!("../kit/slot-badges.slint")),
     ("slot-sections.slint", include_str!("../kit/slot-sections.slint")),
+    ("status-bar.slint", include_str!("../kit/status-bar.slint")),
     ("system-panel.slint", include_str!("../kit/system-panel.slint")),
     ("trailer-player.slint", include_str!("../kit/trailer-player.slint")),
     ("widgets.slint", include_str!("../kit/widgets.slint")),

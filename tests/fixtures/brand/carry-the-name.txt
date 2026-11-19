@@ -122,12 +122,8 @@ plugins/system/host/src/linux.rs
 plugins/system/host/src/parse.rs
 plugins/system/host/src/vpn.rs
 plugins/themes/classic/theme/components/boot.slint
-plugins/themes/classic/theme/components/nav.slint
-plugins/themes/classic/theme/components/top-bar.slint
 plugins/themes/classic/theme/theme.toml
 plugins/themes/default/theme/components/boot.slint
-plugins/themes/default/theme/components/nav.slint
-plugins/themes/default/theme/components/top-bar.slint
 plugins/themes/default/theme/theme.toml
 scripts/appimage.sh
 scripts/bundle-libarchive.sh
@@ -151,7 +147,6 @@ scripts/screenshots.sh
 scripts/test-rpm.sh
 scripts/update-manifest.sh
 scripts/windows-installer.sh
-tests/fixtures/themes/fixture-grid/screens/settings.slint
 tests/tests/seams/app/sessions.rs
 tests/tests/seams/backup.rs
 tests/tests/seams/boot.rs

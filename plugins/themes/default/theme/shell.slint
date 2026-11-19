@@ -191,7 +191,7 @@ export component Shell inherits Window {
             keys: root.home;
         }
         // A panel stays while it fades out (`Leaving`).
-        sys-leaving := Leaving { open: Sys.open >= 0 && (Vm.system.whole-screen || Sys.open == 3); time: Motion.popover-out; }
+        sys-leaving := Leaving { open: Sys.open >= 0; time: Motion.popover-out; }
         if sys-leaving.shown : SystemSheet { width: parent.width; height: parent.height; }
 
         RunningScreen { width: parent.width; height: parent.height; }

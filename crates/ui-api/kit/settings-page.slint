@@ -1,4 +1,3 @@
-import { Vm } from "../types.slint";
 import { Prefs } from "settings-rows.slint";
 import { SettingsFrame, PageSection } from "settings-frame.slint";
 import { GamesSection, UpdatesSection, LauncherSection, DownloadsSection, PcSection, SystemSection, BackupSection, PowerSection, AboutCard } from "settings-sections.slint";
@@ -17,7 +16,7 @@ export component SettingsPage inherits SettingsFrame {
     PageSection { section: Prefs.backup-section; show(y) => { root.show-at(y); } BackupSection { reveal(y, h) => { root.reveal(y, h); } } }
     PageSection { section: 1; show(y) => { root.show-at(y); } GamesSection { reveal(y, h) => { root.reveal(y, h); } } }
     PageSection { section: 3; show(y) => { root.show-at(y); } DownloadsSection { reveal(y, h) => { root.reveal(y, h); } } }
-    if Vm.system.whole-screen : PageSection { section: 5; show(y) => { root.show-at(y); } SystemSection { reveal(y, h) => { root.reveal(y, h); } } }
+    PageSection { section: 5; show(y) => { root.show-at(y); } SystemSection { reveal(y, h) => { root.reveal(y, h); } } }
     PageSection { section: 4; show(y) => { root.show-at(y); } PcSection { reveal(y, h) => { root.reveal(y, h); } } }
     // Power last, with the About card and Made with Slint under its rows: the end of the page.
     PageSection {
