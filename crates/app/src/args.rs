@@ -76,7 +76,7 @@ pub fn version_line() -> String {
     format!("{} {}", launcher_api::brand::IDS_BINARY, env!("CARGO_PKG_VERSION"))
 }
 
-/// Whether this launcher has `feature`, for `--supports` (docs/contributors/marah-os.md):
+/// Whether this launcher has `feature`, for `--supports` (docs/contributors/os-contract.md):
 /// - `gamescope`: it runs in a Gamescope session and sets the window ids Gamescope shows;
 /// - `system-settings`: Settings → System for Marah OS;
 /// - `os-install`: the stick's welcome and install screens, which the stick's build checks.
