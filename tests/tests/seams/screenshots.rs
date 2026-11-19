@@ -1663,10 +1663,6 @@ fn every_classic_screen_renders_the_library() {
     shoot_classic(&mut host, &window, &out, "classic");
     shoot_sizes(&mut host, &window, &out);
     shoot_steam_offers(&mut host, &window, &out);
-    // A first play asks before the emulator downloads.
-    host.dispatch(Command::Session(SessionCmd::Launch("emu-x:G0".parse().unwrap())));
-    shoot(&window, &out.join("classic-install-prompt.png"));
-    host.dispatch(Command::CancelInstall);
     // A game runs; the PS button brought the launcher back in front of it.
     host.dispatch(Command::Session(SessionCmd::Launch("emu-p:G0".parse().unwrap())));
     // The game watcher's rounds bring the game to the front.
@@ -1681,6 +1677,23 @@ fn every_classic_screen_renders_the_library() {
     assert_served(&host, &[]);
     println!("screenshots in {}", out.display());
     not_blank(&out, &["classic-home", "classic-library", "classic-detail", "classic-settings", "classic-running"]);
+}
+
+/// A first play asks before the emulator downloads: the prompt in each built-in theme, as
+/// `<theme>-install-prompt.png`.
+#[test]
+fn the_install_prompt_renders_in_each_theme() {
+    let (window, out) = offscreen();
+    let home = tempfile::tempdir().unwrap();
+    let mut host = library(home.path());
+    for theme in [theme_classic::ID, theme_default::ID] {
+        host.ui.switch(&id(theme)).unwrap();
+        host.dispatch(Command::Session(SessionCmd::Launch("emu-x:G0".parse().unwrap())));
+        follow(&mut host);
+        shoot(&window, &out.join(format!("{theme}-install-prompt.png")));
+        round_corners(&host, &out, &format!("{theme}-install-prompt"), "install-prompt");
+        host.dispatch(Command::CancelInstall);
+    }
 }
 
 #[test]
@@ -1957,6 +1970,7 @@ fn the_boot_screen_renders_a_plugin_s_question() {
         host.load_images();
         assert_eq!(host.values("question"), ["Install Switch firmware 22.5.0?"], "{theme}");
         shoot(&window, &out.join(format!("{theme}-boot-question.png")));
+        round_corners(&host, &out, &format!("{theme}-boot-question"), "question");
     }
     not_blank(&out, &["classic-boot-question", "default-boot-question"]);
 }

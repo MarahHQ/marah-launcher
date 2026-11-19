@@ -65,6 +65,37 @@ export component Popover inherits Rectangle {
     @children
 }
 
+// A card's fill with round corners: `top` at the top to `bottom` at the bottom, and a 1 px
+// `edge`. Set its `border-radius`; put the card's content inside. Slint's software renderer fills
+// a gradient square, past round corners: so the corners are solid, the top's in the card's own
+// fill and the bottom's in a cap, and the gradient runs between them.
+export component Card inherits Rectangle {
+    in property <color> top: Tokens.color-surface;
+    in property <color> bottom: Tokens.color-panel;
+    in property <color> edge: Look.line;
+    background: root.top;
+    Rectangle {
+        y: parent.height - 2 * root.border-radius;
+        height: 2 * root.border-radius;
+        border-radius: root.border-radius;
+        background: root.bottom;
+    }
+    Rectangle {
+        x: 1px;
+        width: parent.width - 2px;
+        y: root.border-radius;
+        height: parent.height - 2 * root.border-radius;
+        background: @linear-gradient(180deg, root.top 0%, root.bottom 100%);
+    }
+    // The edge, over the fill.
+    Rectangle {
+        border-radius: root.border-radius;
+        border-width: 1px;
+        border-color: root.edge;
+    }
+    @children
+}
+
 // A sheet over everything: the wash behind fades in, and the card in the middle slides up 16 px
 // and fades in; both fade out while `open` is false. A click on the wash says `outside`; a click
 // on the card, off its rows and buttons, does nothing. Put the card's content inside.
@@ -73,7 +104,6 @@ export component Sheet inherits Rectangle {
     in property <length> card-width;
     in property <length> card-height;
     callback outside();
-    property <length> radius: 22 * Look.px;
     reveal := Reveal {
         open: root.open;
         move-time: root.open ? Motion.sheet-in : Motion.sheet-out;
@@ -88,40 +118,16 @@ export component Sheet inherits Rectangle {
     }
     // A sheet that goes takes no click: the screen behind has them at once.
     TouchArea { enabled: root.open; clicked => { root.outside(); } }
-    card := Rectangle {
+    card := Card {
         width: root.card-width;
         height: root.card-height;
         x: (root.width - self.width) / 2;
         y: (root.height - self.height) / 2 + (1 - reveal.move) * 16 * Look.px;
         opacity: reveal.fade;
-        border-radius: root.radius;
-        background: Tokens.color-surface;
+        border-radius: 22 * Look.px;
         drop-shadow-blur: 48 * Look.px;
         drop-shadow-color: Tokens.color-shade.with-alpha(0.6);
         clip: true;
-        // The fill goes from the surface at the top to the panel at the bottom. Slint's software
-        // renderer fills a gradient square, past round corners: so the corners are solid, the
-        // top's in the card's own fill and the bottom's in this cap, and the gradient runs
-        // between them.
-        Rectangle {
-            y: parent.height - 2 * root.radius;
-            height: 2 * root.radius;
-            border-radius: root.radius;
-            background: Tokens.color-panel;
-        }
-        Rectangle {
-            x: 1px;
-            width: parent.width - 2px;
-            y: root.radius;
-            height: parent.height - 2 * root.radius;
-            background: @linear-gradient(180deg, Tokens.color-surface 0%, Tokens.color-panel 100%);
-        }
-        // The edge, over the fill.
-        Rectangle {
-            border-radius: root.radius;
-            border-width: 1px;
-            border-color: Look.line;
-        }
         TouchArea {}
         @children
     }
