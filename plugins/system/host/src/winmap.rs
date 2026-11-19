@@ -41,6 +41,32 @@ pub fn parse_bluetooth_address(text: &str) -> Option<u64> {
     parts.iter().try_fold(0u64, |address, part| Some(address << 8 | u64::from(u8::from_str_radix(part, 16).ok()?)))
 }
 
+/// The device's own address in a WinRT Bluetooth device id, which ends with it:
+/// `Bluetooth#Bluetooth<adapter>-<device>`. `None` when the id doesn't end with one.
+pub fn address_in_id(id: &str) -> Option<String> {
+    let (_, last) = id.rsplit_once('-')?;
+    parse_bluetooth_address(last).map(bluetooth_address)
+}
+
+/// How a WinRT pairing ended (its `DevicePairingResultStatus`): `Ok` once the device is paired,
+/// else why not, for the player.
+pub fn paired(status: i32) -> Result<(), &'static str> {
+    match status {
+        // Paired, AlreadyPaired.
+        0 | 3 => Ok(()),
+        // NotReadyToPair.
+        1 => Err("The device isn't ready to pair: put it in pairing mode, then pair again"),
+        // AuthenticationTimeout.
+        7 => Err("The device didn't answer: put it in pairing mode, then pair again"),
+        // RequiredHandlerNotRegistered, RejectedByHandler: it asked for a PIN or a code to
+        // compare, which only Windows' own settings show.
+        16 | 17 => Err("The device asks for a PIN or a code: pair it in Windows' Bluetooth settings"),
+        // PairingCanceled.
+        14 => Err("Cancelled"),
+        _ => Err("Windows didn't pair the device"),
+    }
+}
+
 /// One entry of the WLAN API's list of networks in reach. Windows lists a network once for each
 /// saved profile it has, and once more without one.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -234,6 +260,26 @@ mod tests {
         assert_eq!(parse_bluetooth_address("00:1A:7D:DA:71"), None);
         assert_eq!(parse_bluetooth_address("00:1A:7D:DA:71:1"), None);
         assert_eq!(parse_bluetooth_address("zz:1A:7D:DA:71:13"), None);
+    }
+
+    #[test]
+    fn a_device_id_ends_with_the_device_s_address() {
+        let classic = "Bluetooth#Bluetooth00:1a:7d:da:71:13-e4:17:d8:0a:5b:c2";
+        assert_eq!(address_in_id(classic).as_deref(), Some("E4:17:D8:0A:5B:C2"));
+        let low_energy = "BluetoothLE#BluetoothLE00:1a:7d:da:71:13-c0:11:22:33:44:55";
+        assert_eq!(address_in_id(low_energy).as_deref(), Some("C0:11:22:33:44:55"));
+        assert_eq!(address_in_id(r"\\?\USB#VID_1234"), None);
+        assert_eq!(address_in_id("Bluetooth#x-not-an-address"), None);
+    }
+
+    #[test]
+    fn a_pairing_that_needs_a_pin_sends_the_player_to_windows_own_settings() {
+        assert_eq!(paired(0), Ok(()));
+        assert_eq!(paired(3), Ok(()));
+        assert!(paired(16).unwrap_err().contains("Windows' Bluetooth settings"));
+        assert!(paired(7).unwrap_err().contains("pairing mode"));
+        assert_eq!(paired(14), Err("Cancelled"));
+        assert_eq!(paired(19), Err("Windows didn't pair the device"));
     }
 
     #[test]

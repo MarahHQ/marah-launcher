@@ -1,7 +1,7 @@
 //! Windows: the battery (`GetSystemPowerStatus`), restart and shut down (`shutdown`), and the
 //! drives (the volumes with a letter, and Configuration Manager's eject), the sound (Core
-//! Audio), and the network (WinRT's connection profile, and the WLAN API for Wi-Fi). VPNs say
-//! why they can't work there.
+//! Audio), the network (WinRT's connection profile, and the WLAN API for Wi-Fi), and
+//! Bluetooth (WinRT's radios and devices). VPNs say why they can't work there.
 //!
 //! Wi-Fi goes through the WLAN API, not `netsh`: `netsh` prints in the language Windows is set
 //! to, so its output can't be read the same way on every PC.
@@ -10,13 +10,22 @@
 //! most a time limit ([`blocking`]). What Windows' calls return becomes the areas' data in
 //! `winmap.rs`, which the tests run on every OS.
 
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use launcher_api::{
-    AreaAction, AreaData, AreaSettings, AreaState, AudioLevel, AudioOutput, Connection, NetworkStatus, PluginError,
-    PluginResult, SystemArea, SystemDrive, SystemJob, WifiNetwork,
+    AreaAction, AreaData, AreaSettings, AreaState, AudioLevel, AudioOutput, BluetoothDevice, Connection, NetworkStatus,
+    PluginError, PluginResult, SystemArea, SystemDrive, SystemJob, WifiNetwork,
 };
+use windows::Devices::Bluetooth::{
+    BluetoothConnectionStatus, BluetoothDevice as WinBluetoothDevice, BluetoothLEDevice,
+};
+use windows::Devices::Enumeration::{
+    DeviceInformation, DeviceInformationCustomPairing, DeviceInformationUpdate, DevicePairingKinds,
+    DevicePairingRequestedEventArgs, DeviceUnpairingResultStatus, DeviceWatcher,
+};
+use windows::Devices::Radios::{Radio, RadioAccessStatus, RadioKind, RadioState};
+use windows::Foundation::TypedEventHandler;
 use windows::Networking::Connectivity::NetworkInformation;
 use windows::Win32::Devices::DeviceAndDriverInstallation::{
     CM_GET_DEVICE_INTERFACE_LIST_PRESENT, CM_Get_Device_Interface_List_SizeW, CM_Get_Device_Interface_ListW,
@@ -52,7 +61,7 @@ use windows::Win32::System::Ioctl::{
 use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
 use windows::Win32::System::SystemInformation::GetWindowsDirectoryW;
 use windows::Win32::System::WindowsProgramming::{DRIVE_CDROM, DRIVE_FIXED, DRIVE_RAMDISK, DRIVE_REMOVABLE};
-use windows::core::{GUID, HRESULT, PCWSTR};
+use windows::core::{GUID, HRESULT, HSTRING, PCWSTR, Ref};
 
 use crate::tools::{self, Runner, Tool};
 use crate::winmap;
@@ -71,6 +80,7 @@ pub fn adapter(area: SystemArea, tools: Arc<Runner>) -> Arc<dyn AreaSettings> {
         SystemArea::Drives => Arc::new(Drives),
         SystemArea::Audio => Arc::new(Audio),
         SystemArea::Network => Arc::new(Network),
+        SystemArea::Bluetooth => Arc::new(Bluetooth::default()),
         _ => Arc::new(Power(tools)),
     }
 }
@@ -770,7 +780,7 @@ impl Wlan {
     }
 
     fn wait_on(&self, wanted: &str, cancelled: &dyn Fn() -> bool) -> PluginResult<()> {
-        let started = std::time::Instant::now();
+        let started = Instant::now();
         while started.elapsed() < JOIN_WAIT {
             if cancelled() {
                 return Err(PluginError::Other("Cancelled".into()));
@@ -882,6 +892,241 @@ impl AreaSettings for Network {
                 .await
             }
             other => Err(PluginError::Unsupported(format!("the network area can't run {other:?}"))),
+        }
+    }
+}
+
+/// How long pairing may take: the device's answer, and the player putting it in pairing mode.
+const PAIR_TIME: Duration = Duration::from_secs(40);
+
+/// A device the last scan found, not paired yet.
+#[derive(Clone, Debug)]
+struct Found {
+    /// WinRT's id for it, which pairing takes.
+    id: String,
+    address: String,
+    name: String,
+}
+
+/// Bluetooth, through WinRT: the radio, the paired devices, and a scan for new ones. WinRT has
+/// no call to connect or disconnect a paired device: Windows connects one by itself when it is
+/// turned on.
+#[derive(Default)]
+struct Bluetooth {
+    /// What the last scan found, which the state lists and pairing takes.
+    found: Arc<Mutex<Vec<Found>>>,
+}
+
+/// WinRT's selectors for Bluetooth devices, paired or not: the classic kind (most headsets),
+/// then Bluetooth LE (newer controllers).
+fn selectors(paired: bool) -> PluginResult<[HSTRING; 2]> {
+    let read = failed("Bluetooth wasn't read");
+    Ok([
+        WinBluetoothDevice::GetDeviceSelectorFromPairingState(paired).map_err(&read)?,
+        BluetoothLEDevice::GetDeviceSelectorFromPairingState(paired).map_err(&read)?,
+    ])
+}
+
+impl Bluetooth {
+    /// The Bluetooth radio; `None` when the PC has none.
+    fn radio() -> PluginResult<Option<Radio>> {
+        let radios = Radio::GetRadiosAsync().and_then(|r| r.join()).map_err(failed("Bluetooth wasn't read"))?;
+        Ok(radios.into_iter().find(|r| r.Kind().is_ok_and(|k| k == RadioKind::Bluetooth)))
+    }
+
+    /// The paired devices, each with WinRT's id for it.
+    fn paired() -> PluginResult<Vec<(String, BluetoothDevice)>> {
+        let mut devices = Vec::new();
+        for (low_energy, selector) in selectors(true)?.iter().enumerate() {
+            let list = DeviceInformation::FindAllAsyncAqsFilter(selector)
+                .and_then(|l| l.join())
+                .map_err(failed("The Bluetooth devices weren't read"))?;
+            for index in 0..list.Size().unwrap_or(0) {
+                let Ok(info) = list.GetAt(index) else { continue };
+                let Ok(id) = info.Id() else { continue };
+                let name = info.Name().map(|n| n.to_string()).unwrap_or_default();
+                // A device out of reach still opens: it isn't connected.
+                let (address, connected) = if low_energy == 1 {
+                    let device = BluetoothLEDevice::FromIdAsync(&id).and_then(|d| d.join()).ok();
+                    let address = device.as_ref().and_then(|d| d.BluetoothAddress().ok());
+                    (address, device.and_then(|d| d.ConnectionStatus().ok()))
+                } else {
+                    let device = WinBluetoothDevice::FromIdAsync(&id).and_then(|d| d.join()).ok();
+                    let address = device.as_ref().and_then(|d| d.BluetoothAddress().ok());
+                    (address, device.and_then(|d| d.ConnectionStatus().ok()))
+                };
+                let id = id.to_string();
+                let Some(address) = address.map(winmap::bluetooth_address).or_else(|| winmap::address_in_id(&id))
+                else {
+                    continue;
+                };
+                let connected = connected == Some(BluetoothConnectionStatus::Connected);
+                devices.push((id, BluetoothDevice { address, name, paired: true, connected }));
+            }
+        }
+        Ok(devices)
+    }
+
+    /// Looks for devices that aren't paired for `seconds`, or until `cancelled`: what it found,
+    /// named, one per address.
+    fn scan(seconds: u32, cancelled: &dyn Fn() -> bool) -> PluginResult<Vec<Found>> {
+        let found: Arc<Mutex<Vec<Found>>> = Arc::default();
+        let start = failed("Windows didn't look for Bluetooth devices");
+        let mut watchers = Vec::new();
+        for selector in selectors(false)? {
+            let watcher = DeviceInformation::CreateWatcherAqsFilter(&selector).map_err(&start)?;
+            let seen = found.clone();
+            let added = TypedEventHandler::new(move |_: Ref<DeviceWatcher>, info: Ref<DeviceInformation>| {
+                let Some(info) = info.as_ref() else { return Ok(()) };
+                let (id, name) = (info.Id()?.to_string(), info.Name()?.to_string());
+                // A device with no name is a beacon or a phone nearby, not one to pair.
+                if let Some(address) = winmap::address_in_id(&id).filter(|_| !name.is_empty()) {
+                    let mut seen = seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    if !seen.iter().any(|f| f.address == address) {
+                        seen.push(Found { id, address, name });
+                    }
+                }
+                Ok(())
+            });
+            watcher.Added(&added).map_err(&start)?;
+            // WinRT sends the updates only to a watcher that takes them.
+            let updated = TypedEventHandler::new(|_: Ref<DeviceWatcher>, _: Ref<DeviceInformationUpdate>| Ok(()));
+            watcher.Updated(&updated).map_err(&start)?;
+            watcher.Start().map_err(&start)?;
+            watchers.push(watcher);
+        }
+        let started = Instant::now();
+        while started.elapsed() < Duration::from_secs(u64::from(seconds)) && !cancelled() {
+            std::thread::sleep(Duration::from_millis(250));
+        }
+        for watcher in watchers {
+            let _stopped = watcher.Stop();
+        }
+        if cancelled() {
+            return Err(PluginError::Other("Cancelled".into()));
+        }
+        let found = found.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        Ok(found)
+    }
+
+    /// Pairs the device WinRT knows by `id`. It accepts only a pairing that asks nothing of the
+    /// player: one that asks for a PIN or a code fails, and says to use Windows' own settings.
+    fn pair(id: &str) -> PluginResult<()> {
+        let info = DeviceInformation::CreateFromIdAsync(&HSTRING::from(id))
+            .and_then(|i| i.join())
+            .map_err(failed("The device isn't in reach"))?;
+        let custom = info.Pairing().and_then(|p| p.Custom()).map_err(failed("Windows didn't pair the device"))?;
+        let accept = TypedEventHandler::new(
+            |_: Ref<DeviceInformationCustomPairing>, asked: Ref<DevicePairingRequestedEventArgs>| {
+                if let Some(asked) = asked.as_ref()
+                    && asked.PairingKind()? == DevicePairingKinds::ConfirmOnly
+                {
+                    asked.Accept()?;
+                }
+                Ok(())
+            },
+        );
+        let token = custom.PairingRequested(&accept).map_err(failed("Windows didn't pair the device"))?;
+        let result = custom.PairAsync(DevicePairingKinds::ConfirmOnly).and_then(|r| r.join());
+        let _removed = custom.RemovePairingRequested(token);
+        let status = result.and_then(|r| r.Status()).map_err(failed("Windows didn't pair the device"))?;
+        winmap::paired(status.0).map_err(|why| PluginError::Other(why.into()))
+    }
+
+    fn remove(address: &str) -> PluginResult<()> {
+        let paired = Self::paired()?;
+        let (id, _) = paired
+            .iter()
+            .find(|(_, d)| d.address.eq_ignore_ascii_case(address))
+            .ok_or_else(|| PluginError::NotFound(format!("{address} isn't paired")))?;
+        let forget = failed("Windows didn't forget the device");
+        let info = DeviceInformation::CreateFromIdAsync(&HSTRING::from(id.as_str()))
+            .and_then(|i| i.join())
+            .map_err(&forget)?;
+        let status = info.Pairing().and_then(|p| p.UnpairAsync()).and_then(|u| u.join()).and_then(|r| r.Status());
+        match status.map_err(&forget)? {
+            DeviceUnpairingResultStatus::Unpaired | DeviceUnpairingResultStatus::AlreadyUnpaired => Ok(()),
+            _ => Err(PluginError::Other("Windows didn't forget the device".into())),
+        }
+    }
+
+    fn set_powered(on: bool) -> PluginResult<()> {
+        let access = Radio::RequestAccessAsync().and_then(|a| a.join()).map_err(failed("Bluetooth didn't change"))?;
+        if access != RadioAccessStatus::Allowed {
+            return Err(PluginError::PermissionDenied(
+                "Windows didn't let the launcher turn Bluetooth on or off: allow it in Windows' privacy settings"
+                    .into(),
+            ));
+        }
+        let radio = Self::radio()?.ok_or_else(|| PluginError::NotFound("No Bluetooth adapter".into()))?;
+        let state = if on { RadioState::On } else { RadioState::Off };
+        let changed = radio.SetStateAsync(state).and_then(|s| s.join()).map_err(failed("Bluetooth didn't change"))?;
+        if changed != RadioAccessStatus::Allowed {
+            return Err(PluginError::Other("Windows didn't turn Bluetooth on or off: turn airplane mode off".into()));
+        }
+        Ok(())
+    }
+}
+
+#[launcher_api::async_trait]
+impl AreaSettings for Bluetooth {
+    /// The radio, the paired devices, and what the last scan found that isn't paired.
+    async fn state(&self) -> PluginResult<AreaState> {
+        let found = self.found.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        blocking(QUICK, move || {
+            let Some(radio) = Bluetooth::radio()? else {
+                return Ok(AreaState::Unsupported("No Bluetooth adapter".into()));
+            };
+            let powered = radio.State().is_ok_and(|s| s == RadioState::On);
+            let mut devices: Vec<BluetoothDevice> = Bluetooth::paired()?.into_iter().map(|(_, d)| d).collect();
+            for new in found {
+                if !devices.iter().any(|d| d.address == new.address) {
+                    devices.push(BluetoothDevice {
+                        address: new.address,
+                        name: new.name,
+                        paired: false,
+                        connected: false,
+                    });
+                }
+            }
+            Ok(AreaState::Ready(AreaData::Bluetooth { powered, devices }))
+        })
+        .await
+    }
+
+    async fn act(&self, action: AreaAction, job: Arc<dyn SystemJob>) -> PluginResult<()> {
+        match action {
+            AreaAction::SetBluetooth { on } => blocking(QUICK, move || Bluetooth::set_powered(on)).await,
+            AreaAction::ScanBluetooth { seconds } => {
+                job.progress(None, "Looking for devices: put yours in pairing mode");
+                let (keep, handle) = (self.found.clone(), job.clone());
+                tools::job(job, async move {
+                    let limit = Duration::from_secs(u64::from(seconds) + 15);
+                    let scan = move || Bluetooth::scan(seconds, &move || handle.cancelled());
+                    let found = blocking(limit, scan).await.map_err(tools::reason)?;
+                    *keep.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = found;
+                    Ok("Done looking".into())
+                });
+                Ok(())
+            }
+            AreaAction::Pair { address } => {
+                let found = self.found.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+                let device = found
+                    .into_iter()
+                    .find(|f| f.address.eq_ignore_ascii_case(&address))
+                    .ok_or_else(|| PluginError::NotFound(format!("{address} wasn't found: look for devices again")))?;
+                job.progress(None, "Pairing");
+                tools::job(job, async move {
+                    blocking(PAIR_TIME, move || Bluetooth::pair(&device.id)).await.map_err(tools::reason)?;
+                    Ok("Paired".into())
+                });
+                Ok(())
+            }
+            AreaAction::RemoveDevice { address } => blocking(QUICK, move || Bluetooth::remove(&address)).await,
+            AreaAction::ConnectDevice { .. } | AreaAction::DisconnectDevice { .. } => Err(PluginError::Unsupported(
+                "Windows connects a paired device by itself when it is on: turn the device on or off".into(),
+            )),
+            other => Err(PluginError::Unsupported(format!("the Bluetooth area can't run {other:?}"))),
         }
     }
 }
