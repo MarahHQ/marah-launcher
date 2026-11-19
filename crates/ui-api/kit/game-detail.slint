@@ -407,12 +407,6 @@ component ReleaseRow inherits Rectangle {
     // The Download button's column: wide enough for "Downloading 100%".
     property <length> slot: 260 * Look.px;
     property <length> text-width: Math.max(0px, root.width - 2 * root.pad - root.gap - root.slot);
-    property <string> title: (root.release.version != "" ? "Version " + root.release.version : "Release")
-        + (root.release.region != "" ? " · " + root.release.region : "")
-        + (root.release.system != "" ? " · " + root.release.system : "");
-    property <string> peers: root.release.seeders + (root.release.seeders == "1" ? " seeder" : " seeders")
-        + (root.release.leechers != ""
-            ? " · " + root.release.leechers + (root.release.leechers == "1" ? " leecher" : " leechers") : "");
     // The place of a part `x` from the start side, `w` wide, in a line `span` wide.
     pure function at(x: length, w: length, span: length) -> length { Look.rtl ? span - x - w : x }
     height: Math.max(84 * Look.px, lines.preferred-height + 24 * Look.px);
@@ -448,7 +442,7 @@ component ReleaseRow inherits Rectangle {
                 x: root.at(heading.tag-width, self.width, heading.width);
                 width: heading.width - heading.tag-width;
                 height: parent.height;
-                text: root.title;
+                text: root.release.title-text;
                 font-size: 21 * Look.px;
                 font-weight: 600;
                 color: Tokens.color-text;
@@ -503,13 +497,13 @@ component ReleaseRow inherits Rectangle {
             if root.release.seeders != "" : Text {
                 x: root.at(avail-name.width + avail-level.width + 26 * Look.px, self.width, avail.width);
                 height: parent.height;
-                text: root.peers;
+                text: root.release.peers-text;
                 font-size: 16 * Look.px;
                 color: Tokens.color-text-muted;
                 vertical-alignment: center;
                 accessible-role: text;
                 accessible-label: "release-peers";
-                accessible-value: root.peers;
+                accessible-value: root.release.peers-text;
             }
         }
         if root.release.not-here != "" : Note {
@@ -582,10 +576,7 @@ component DownloadSheet inherits Rectangle {
                 horizontal-alignment: Look.rtl ? right : left;
             }
             Text {
-                text: (root.release.version != "" ? "Version " + root.release.version + " · " : "")
-                    + (root.release.region != "" ? root.release.region + " · " : "")
-                    + (root.release.size != "" ? root.release.size : "Size unknown")
-                    + " · runs with " + Vm.detail.emulator;
+                text: root.release.sheet-text;
                 font-size: 20 * Look.px;
                 color: Tokens.color-text-muted;
                 wrap: word-wrap;

@@ -56,6 +56,10 @@ fn game(d: &mut GameDetailVm) {
         r.counted_text = date_text(r.counted_at.get(..10).unwrap_or_default());
         r.availability_text = availability_text(&r.availability);
         r.download_text = download_text(&r.store, &r.download, r.download_progress);
+        r.title_text = release_title(&r.version, &r.region, &r.system);
+        r.peers_text = peers_text(r.seeders, r.leechers);
+        // After `size`: the sheet shows it.
+        r.sheet_text = sheet_text(&r.version, &r.region, &r.size, &d.emulator);
     }
 }
 
@@ -283,6 +287,34 @@ fn download_text(store: &str, download: &str, progress: f32) -> String {
     }
 }
 
+/// A release's title: "Version 1.02 · Europe · Linux", or "Release" when it has no version.
+fn release_title(version: &str, region: &str, system: &str) -> String {
+    let mut title = if version.is_empty() { "Release".to_owned() } else { format!("Version {version}") };
+    for part in [region, system].into_iter().filter(|p| !p.is_empty()) {
+        title = format!("{title} · {part}");
+    }
+    title
+}
+
+/// The catalog's counts: "5 seeders · 1 leecher". Empty when it has no count of seeders.
+fn peers_text(seeders: Option<u64>, leechers: Option<u64>) -> String {
+    let count = |n: u64, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
+    match (seeders, leechers) {
+        (None, _) => String::new(),
+        (Some(s), None) => count(s, "seeder", "seeders"),
+        (Some(s), Some(l)) => format!("{} · {}", count(s, "seeder", "seeders"), count(l, "leecher", "leechers")),
+    }
+}
+
+/// What the download sheet says of a release: "Version 1.02 · Europe · 7.6 GB · runs with
+/// KytyPS5".
+fn sheet_text(version: &str, region: &str, size: &str, emulator: &str) -> String {
+    let version = if version.is_empty() { String::new() } else { format!("Version {version} · ") };
+    let region = if region.is_empty() { String::new() } else { format!("{region} · ") };
+    let size = if size.is_empty() { "Size unknown" } else { size };
+    format!("{version}{region}{size} · runs with {emulator}")
+}
+
 /// What the file list shows: `120 files · 1.5 GB · first 100 shown`.
 fn file_summary(t: &TorrentVm) -> String {
     let files = if t.file_count == 1 { "1 file".to_owned() } else { format!("{} files", t.file_count) };
@@ -406,6 +438,56 @@ mod tests {
         ];
         for (name, (store, download, progress), words) in rows {
             assert_eq!(download_text(store, download, progress), words, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_release_s_title_says_its_version_region_and_system() {
+        let rows = [
+            ("all three", ("1.02", "Europe", "Linux"), "Version 1.02 · Europe · Linux"),
+            ("no system", ("1.02", "Europe", ""), "Version 1.02 · Europe"),
+            ("no region", ("1.02", "", "Linux"), "Version 1.02 · Linux"),
+            ("a version only", ("1.02", "", ""), "Version 1.02"),
+            ("no version", ("", "Europe", "Linux"), "Release · Europe · Linux"),
+            ("a region only", ("", "Europe", ""), "Release · Europe"),
+            ("a system only", ("", "", "Windows"), "Release · Windows"),
+            ("nothing", ("", "", ""), "Release"),
+        ];
+        for (name, (version, region, system), words) in rows {
+            assert_eq!(release_title(version, region, system), words, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_release_s_peers_read_in_words() {
+        let rows = [
+            ("no count", (None, None), ""),
+            // Leechers alone say nothing: the row shows the counts with the seeders only.
+            ("leechers only", (None, Some(4)), ""),
+            ("no seeders", (Some(0), None), "0 seeders"),
+            ("one seeder", (Some(1), None), "1 seeder"),
+            ("seeders", (Some(5), None), "5 seeders"),
+            ("no leechers", (Some(5), Some(0)), "5 seeders · 0 leechers"),
+            ("one leecher", (Some(5), Some(1)), "5 seeders · 1 leecher"),
+            ("leechers", (Some(1), Some(2)), "1 seeder · 2 leechers"),
+        ];
+        for (name, (seeders, leechers), words) in rows {
+            assert_eq!(peers_text(seeders, leechers), words, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_release_s_download_sheet_says_what_it_gets() {
+        let rows = [
+            ("all of it", ("1.02", "Europe", "7.6 GB"), "Version 1.02 · Europe · 7.6 GB · runs with KytyPS5"),
+            ("no version", ("", "Europe", "7.6 GB"), "Europe · 7.6 GB · runs with KytyPS5"),
+            ("no region", ("1.02", "", "7.6 GB"), "Version 1.02 · 7.6 GB · runs with KytyPS5"),
+            ("no size", ("1.02", "Europe", ""), "Version 1.02 · Europe · Size unknown · runs with KytyPS5"),
+            ("a size only", ("", "", "7.6 GB"), "7.6 GB · runs with KytyPS5"),
+            ("nothing", ("", "", ""), "Size unknown · runs with KytyPS5"),
+        ];
+        for (name, (version, region, size), words) in rows {
+            assert_eq!(sheet_text(version, region, size, "KytyPS5"), words, "{name}");
         }
     }
 
