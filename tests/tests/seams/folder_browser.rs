@@ -131,3 +131,34 @@ async fn the_list_says_each_folder_s_free_space_and_a_folder_comes_and_goes() {
     assert!(again.is_err(), "not in the list any more");
     assert!(there.path().is_dir(), "Remove leaves the folder");
 }
+
+#[tokio::test]
+async fn the_backup_folder_is_chosen_in_the_browser_and_says_its_free_space() {
+    let (home, chosen) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let t = FakeHost::new().home(home.path()).free_space(120_500_000_000).boot_core().await;
+    std::fs::create_dir_all(home.path().join(launcher_core::DEFAULT_BACKUP_FOLDER)).unwrap();
+    std::fs::create_dir_all(chosen.path().join("old-pc")).unwrap();
+    let backup = format!("{}2026-01-01-000000.tar.gz", launcher_api::brand::FILES_BACKUP_PREFIX);
+    std::fs::write(chosen.path().join(backup), b"").unwrap();
+    assert_eq!(t.core.view().settings.backup.free, "120.5 GB free");
+
+    let open = BrowseCmd::Open { at: None, purpose: BrowsePurpose::BackupFolder };
+    browse(&t, open).await.unwrap();
+    let shown = t.core.view().browser;
+    assert_eq!((shown.purpose.as_str(), shown.title.as_str()), ("pick", "Choose the backup folder"));
+    let default = home.path().join(launcher_core::DEFAULT_BACKUP_FOLDER);
+    assert_eq!(shown.shown, "~/".to_owned() + launcher_core::DEFAULT_BACKUP_FOLDER, "it opens at the backup folder");
+    assert!(default.is_dir());
+
+    browse(&t, BrowseCmd::Go(chosen.path().into())).await.unwrap();
+    let names: Vec<String> = t.core.view().browser.entries.into_iter().map(|e| e.name).collect();
+    assert_eq!(names, ["old-pc"], "folders only");
+    browse(&t, BrowseCmd::Use).await.unwrap();
+    assert!(!t.core.view().browser.open);
+    let saved = t.core.kernel().config().get(&["app", "backup_folder"]);
+    assert_eq!(saved, serde_json::json!(chosen.path().display().to_string()), "one folder, not a list");
+
+    // "Use the default folder": empty goes back to it.
+    t.core.dispatch(Command::Pref(launcher_core::Pref::BackupFolder, serde_json::Value::Null)).await.unwrap();
+    assert_eq!(t.core.view().settings.backup.folder, "~/".to_owned() + launcher_core::DEFAULT_BACKUP_FOLDER);
+}

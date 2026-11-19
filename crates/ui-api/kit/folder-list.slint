@@ -17,16 +17,26 @@ export global FolderList {
     // Which folder: its index in `Vm.folders`, or in `Vm.plugin-page.folders` with `on-page`.
     in-out property <int> index;
     in-out property <bool> on-page;
+    // The backup folder (Settings → Backup), not a named folder: one folder, not a list. Its
+    // rows are "Choose a folder", "Type a path" and "Use the default folder".
+    in-out property <bool> backup;
     in-out property <int> row;
     // Goes up by one each time "Type a path" is picked: the folder's row takes the path.
     in-out property <int> asks-path;
     out property <Folder> folder: root.on-page ? Vm.plugin-page.folders[root.index] : Vm.folders[root.index];
-    // Its folders, then "Add folder", then "Type a path".
-    out property <int> rows: root.folder.list.length + 2;
+    // Its folders, then "Add folder", then "Type a path"; the backup folder's three rows.
+    out property <int> rows: root.backup ? 3 : root.folder.list.length + 2;
 
     public function show(index: int, on-page: bool) {
         root.index = index;
         root.on-page = on-page;
+        root.backup = false;
+        root.row = 0;
+        root.open = true;
+        Host.play-sound("select");
+    }
+    public function show-backup() {
+        root.backup = true;
         root.row = 0;
         root.open = true;
         Host.play-sound("select");
@@ -38,6 +48,14 @@ export global FolderList {
     // What ✕ does on row `r`.
     public function act(r: int) {
         root.row = r;
+        if (root.backup) {
+            root.open = false;
+            if (r == 0) { Commands.choose-backup-folder(); }
+            else if (r == 1) { root.asks-path += 1; }
+            else { Commands.set-backup-folder(""); }
+            Host.play-sound("select");
+            return;
+        }
         let count = root.folder.list.length;
         if (r < count) {
             Commands.remove-folder(root.folder.name, root.folder.list[r].path);
@@ -134,7 +152,7 @@ export component FolderListSheet inherits Rectangle {
     TouchArea { clicked => { FolderList.close(); } }
     accessible-role: groupbox;
     accessible-label: "folder-list";
-    accessible-value: FolderList.folder.name;
+    accessible-value: FolderList.backup ? "backup" : FolderList.folder.name;
 
     card := Rectangle {
         width: Math.min(root.width - 96 * Look.px, 760 * Look.tpx);
@@ -154,20 +172,60 @@ export component FolderListSheet inherits Rectangle {
             padding: 24 * Look.px;
             spacing: 6 * Look.px;
             Text {
-                text: FolderList.folder.title != "" ? FolderList.folder.title : FolderList.folder.name;
+                text: FolderList.backup ? "Backup folder" : FolderList.folder.title != "" ? FolderList.folder.title : FolderList.folder.name;
                 font-size: 26 * Look.tpx;
                 font-weight: 700;
                 color: Tokens.color-text;
                 horizontal-alignment: Look.rtl ? right : left;
             }
-            if FolderList.folder.help != "" : Text {
-                text: FolderList.folder.help;
+            property <string> help: FolderList.backup ? "Backups go into this one folder." : FolderList.folder.help;
+            if self.help != "" : Text {
+                text: parent.help;
                 font-size: 16 * Look.tpx;
                 color: Tokens.color-text-muted;
                 wrap: word-wrap;
                 horizontal-alignment: Look.rtl ? right : left;
             }
             Rectangle { height: 10 * Look.px; }
+            // The backup folder: the folder now, then how to change it.
+            if FolderList.backup : HorizontalLayout {
+                padding-left: 16 * Look.px;
+                padding-right: 16 * Look.px;
+                spacing: 12 * Look.px;
+                height: 52 * Look.px;
+                VerticalLayout { alignment: center; Icon { name: "folder"; width: 24 * Look.px; height: 24 * Look.px; color: Tokens.color-text-muted; } }
+                VerticalLayout {
+                    alignment: center;
+                    horizontal-stretch: 1;
+                    Text { text: Vm.backup.folder; font-size: 19 * Look.tpx; color: Tokens.color-text; overflow: elide; horizontal-alignment: Look.rtl ? right : left; }
+                    if Vm.backup.free != "" : Text { text: Vm.backup.free; font-size: 15 * Look.tpx; color: Look.text3; horizontal-alignment: Look.rtl ? right : left; }
+                }
+            }
+            if FolderList.backup : ListRow {
+                icon: "folder";
+                label: "Choose a folder";
+                detail: "On this PC or on a drive";
+                focused: FolderList.row == 0;
+                name: "backup-choose";
+                clicked => { FolderList.act(0); }
+            }
+            if FolderList.backup : ListRow {
+                icon: "document";
+                label: "Type a path";
+                focused: FolderList.row == 1;
+                name: "folder-type";
+                clicked => { FolderList.act(1); }
+            }
+            if FolderList.backup : ListRow {
+                icon: "home";
+                label: "Use the default folder";
+                detail: Vm.backup.default-folder;
+                focused: FolderList.row == 2;
+                name: "backup-default";
+                clicked => { FolderList.act(2); }
+            }
+            if !FolderList.backup : VerticalLayout {
+            spacing: 6 * Look.px;
             for path[i] in FolderList.folder.list : ListRow {
                 icon: path.there ? "folder" : "usb";
                 label: path.shown;
@@ -194,8 +252,9 @@ export component FolderListSheet inherits Rectangle {
                 name: "folder-type";
                 clicked => { FolderList.act(FolderList.folder.list.length + 1); }
             }
+            }
             Rectangle { height: 6 * Look.px; }
-            Text {
+            if !FolderList.backup : Text {
                 text: "Remove takes a folder out of the list. The folder and its files stay.";
                 font-size: 15 * Look.tpx;
                 color: Look.text3;

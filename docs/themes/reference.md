@@ -197,7 +197,7 @@ A variant with a sub-enum takes that enum, written as JSON the same way. The doc
 | `GameInstall` | `{"Download": {"id": id, "folder": path}}` (`folder` optional), `{"Package": {"plugin": id, "source": {"folder": name, "root": n, "path": path}}}` (a `HostPath`), `{"RemoveUnpacked": {"id": id}}`, `{"Cancel": {"id": id}}`. |
 | `Vpn` | `{"SetOnly": bool}`, `{"Choose": name}`, `{"Connect": name}`, `{"Disconnect": name}`, `{"Import": path}`. |
 | `Backup` | `"Refresh"`, `{"BackUp": {"large": bool}}`, `{"Restore": file}`, `{"RestoreFile": path}`, `{"Delete": file}`, `{"Browse": path or null}`, `"CloseBrowser"`, `{"ShowHidden": bool}`, `{"Filter": text}`. `Browse`, `CloseBrowser`, `ShowHidden` and `Filter` drive the folder browser for a restore, as `Browse` does. |
-| `Browse` | The folder browser: `{"Open": {"at": path or null, "purpose": "Restore" or {"Pick": folder}}}`, `{"Go": path}`, `"Close"`, `{"ShowHidden": bool}`, `{"Filter": text}`, `{"Mount": drive}` (mounts a drive from the places, then opens it), `"Use"` (a pick: adds the folder shown to the named folder, and closes). |
+| `Browse` | The folder browser: `{"Open": {"at": path or null, "purpose": "Restore", {"Pick": folder} or "BackupFolder"}}`, `{"Go": path}`, `"Close"`, `{"ShowHidden": bool}`, `{"Filter": text}`, `{"Mount": drive}` (mounts a drive from the places, then opens it), `"Use"` (a pick: adds the folder shown to the named folder, or makes it the backup folder, and closes). |
 | `Drive` | The drives, by a drive's id (`DriveRow.drive`): `"Refresh"`, `{"Mount": id}`, `{"Unmount": id}`, `{"Eject": id}`. Unmount and Eject are refused while a game runs from the drive, or a download or an install uses it; Eject only for a drive the player can take out. |
 | `Notice` | `"DismissAll"`, `{"Dismiss": id}`, `{"Open": id}`. |
 | `LauncherUpdate` | `"Check"`, `"Download"`. |
@@ -310,7 +310,7 @@ Tests in `contract.rs` hold every kit file to three rules:
 | `cover-wall.slint` | `CoverWall` | A slowly drifting wall of the library's covers, dimmed, as the boot and closing screens show it. |
 | `downloads.slint` | `Dl`, `DownloadsPage` | The Downloads screen, its keys, the download sheet, and the install and remove sheets. |
 | `folder-browser.slint` | `Browser`, `FolderBrowser` | The folder browser, for a restore or to pick a folder: places (a drive that isn't mounted mounts from here), folders and backups, details, its own keys, "Use this folder" when it picks, and one dialog before a restore. |
-| `folder-list.slint` | `FolderList`, `FolderListSheet` | A named folder's list, which a `FolderRow` opens: each folder with the free space on its drive and Remove, then Add folder (the folder browser) and Type a path. |
+| `folder-list.slint` | `FolderList`, `FolderListSheet` | A named folder's list, which a `FolderRow` opens: each folder with the free space on its drive and Remove, then Add folder (the folder browser) and Type a path. With `FolderList.show-backup()`, the backup folder's: Choose a folder, Type a path, Use the default folder. |
 | `game-detail.slint` | `Hub`, `GameDetailPage` | The Game Hub: buttons, releases, fact cards, technical details and screenshots. |
 | `game-menu.slint` | `GameMenu`, `MenuRow`, `GameMenuSheet` | A game's menu, with Uninstall asking first. |
 | `game-settings.slint` | `GameSettingsPage` | One game's own settings, on the same frame as Settings (`SettingsFrame`). |
@@ -440,6 +440,7 @@ Version 0.6.0 moved the backup browser out of Settings → Backup: it is the fol
   `purpose`, `folder` and `folder-title`. `BrowsePlace` has `drive` and `mounted`.
 - `kit/backup-browser.slint` is `kit/folder-browser.slint`, and its component `BackupBrowser`
   is `FolderBrowser`. Its accessible label is `folder-browser`.
+- `FolderBrowser` has `title`. `Backup` has `free`, the free space on the backup folder's drive.
 - `Folder` has `list`, each a `FolderPath`. `FolderRow` takes `at` and `on-page`, and opens the
   folder's list (`kit/folder-list.slint`) instead of a text box.
 - `System` has `drives-available`, `drives-reason` and `drives` (each a `DriveRow`). `Notice`

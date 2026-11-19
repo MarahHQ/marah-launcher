@@ -5,6 +5,8 @@
 //!   backup restores ([`crate::backups`]).
 //! - [`Purpose::Pick`]: pick a folder for a named host folder, such as the game folders. It lists
 //!   folders only, and "Use this folder" adds the folder shown to the named folder's list.
+//! - [`Purpose::BackupFolder`]: choose the backup folder. It lists folders only, and "Use this
+//!   folder" makes the folder shown the backup folder.
 //!
 //! Its places are Home and its usual folders, each drive (a drive that isn't mounted mounts from
 //! here, then the browser opens it), and for a restore the backup folder and the folders restores
@@ -30,6 +32,8 @@ pub enum Purpose {
     /// Pick a folder for the named host folder (`games`, `packages`): it is added to the folders
     /// that name means.
     Pick(String),
+    /// Choose the backup folder: one folder, not a list.
+    BackupFolder,
 }
 
 /// The folder browser's commands.
@@ -222,10 +226,15 @@ pub(crate) async fn handle(core: &Core, command: BrowseCmd) -> CoreResult<()> {
         }
         BrowseCmd::Use => {
             let open = core.browsing().snapshot().ok_or_else(|| CoreError::Invalid(CLOSED.into()))?;
-            let Purpose::Pick(name) = &open.purpose else {
-                return Err(CoreError::Invalid("the browser is open for a restore, not to pick a folder".into()));
-            };
-            crate::plugin_settings::add_folder(core, name, &open.at)?;
+            match &open.purpose {
+                Purpose::Pick(name) => crate::plugin_settings::add_folder(core, name, &open.at)?,
+                Purpose::BackupFolder => {
+                    crate::backups::set_folder(core, serde_json::json!(open.at.display().to_string())).await?
+                }
+                Purpose::Restore => {
+                    return Err(CoreError::Invalid("the browser is open for a restore, not to pick a folder".into()));
+                }
+            }
             core.browsing().close();
             Ok(())
         }
@@ -241,6 +250,12 @@ pub(crate) async fn open(core: &Core, at: Option<PathBuf>, purpose: Purpose) -> 
             .next()
             .or_else(|| crate::backups::folder(core).ok().filter(|f| f.is_dir()))
             .or_else(|| core.kernel().host().home.clone())
+            .ok_or_else(|| CoreError::Invalid("no folder to start from".into()))?,
+        (None, Purpose::BackupFolder) => crate::backups::folder(core)
+            .ok()
+            .filter(|f| f.is_dir())
+            .or_else(|| core.kernel().host().home.clone())
+            .or_else(|| std::env::temp_dir().ancestors().last().map(Path::to_path_buf))
             .ok_or_else(|| CoreError::Invalid("no folder to start from".into()))?,
         // With no home folder, the top of the system's disk: `/`, or `C:\` on Windows.
         (None, Purpose::Pick(name)) => crate::plugin_settings::folder_roots(core, name)

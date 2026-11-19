@@ -3,6 +3,7 @@ import { Commands } from "commands.slint";
 import { Tokens } from "../tokens.slint";
 import { Look } from "look.slint";
 import { Prefs, Row, Value, Editor, FolderRow } from "settings-rows.slint";
+import { FolderList } from "folder-list.slint";
 import { LauncherRows, DownloadsRows, SystemRows, BackupRows, PowerRows } from "settings-layout.slint";
 import { Sys } from "system-panel.slint";
 import { Setup } from "install-os.slint";
@@ -639,11 +640,13 @@ export component BackupSection inherits VerticalLayout {
         }
         Value { kind: "toggle"; on: root.large; }
     }
+    // As a folder row: Enter opens its list, to choose a folder in the folder browser, type a
+    // path, or go back to the default folder.
     folder := Row {
         property <bool> typing: Prefs.editing && self.focused;
         label: "Backup folder";
-        detail: Vm.backup.folder;
-        hint: "Type a folder · empty goes back to " + Vm.backup.default-folder;
+        detail: Vm.backup.free != "" ? Vm.backup.folder + " · " + Vm.backup.free : Vm.backup.folder;
+        hint: "Where backups go · the default is " + Vm.backup.default-folder;
         focused: Prefs.is(Prefs.backup-section, BackupRows.folder);
         accessible-role: button;
         accessible-label: "backup-folder";
@@ -654,8 +657,15 @@ export component BackupSection inherits VerticalLayout {
         property <int> seen: Prefs.serial;
         changed seen => { if (self.focused && Prefs.pending == 0 && !Prefs.editing) { self.open(); } }
         function open() {
-            Prefs.edit-text = Vm.backup.folder;
-            Prefs.editing = true;
+            FolderList.show-backup();
+        }
+        // "Type a path" in the list: this row takes it.
+        property <int> asked: FolderList.asks-path;
+        changed asked => {
+            if (self.focused && FolderList.backup) {
+                Prefs.edit-text = Vm.backup.folder;
+                Prefs.editing = true;
+            }
         }
         if !folder.typing : Value { kind: "action"; text: "Change"; tone: 3; }
         if folder.typing : Editor { horizontal-stretch: 2; done(text) => { Commands.set-backup-folder(text); } }

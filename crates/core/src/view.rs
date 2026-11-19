@@ -1437,6 +1437,7 @@ fn backup_vm(s: &Snapshot) -> launcher_ui_api::BackupVm {
         s.backup_folder.as_ref().map(|f| crate::display::short_home(&f.display().to_string(), home.as_deref()));
     let job = backup.job.as_ref();
     launcher_ui_api::BackupVm {
+        free: s.backup_free.map(|b| format!("{} free", crate::browser::drive_size_text(b))).unwrap_or_default(),
         folder: folder.unwrap_or_default(),
         running: job.is_some(),
         restoring: job.is_some_and(|j| j.restoring),
@@ -1481,14 +1482,23 @@ fn browser_vm(s: &Snapshot) -> launcher_ui_api::FolderBrowserVm {
     let (purpose, folder) = match &browser.purpose {
         crate::browser::Purpose::Restore => ("restore", String::new()),
         crate::browser::Purpose::Pick(name) => ("pick", name.clone()),
+        crate::browser::Purpose::BackupFolder => ("pick", "backup".to_owned()),
     };
-    let folder_title =
-        launcher_api::shared_folder(&folder).map(|f| f.title.to_owned()).unwrap_or_else(|| folder.clone());
+    let folder_title = match &browser.purpose {
+        crate::browser::Purpose::BackupFolder => "Backup folder".to_owned(),
+        _ => launcher_api::shared_folder(&folder).map(|f| f.title.to_owned()).unwrap_or_else(|| folder.clone()),
+    };
+    let title = match &browser.purpose {
+        crate::browser::Purpose::Restore => "Restore a backup".to_owned(),
+        crate::browser::Purpose::Pick(_) => format!("Add to {folder_title}"),
+        crate::browser::Purpose::BackupFolder => "Choose the backup folder".to_owned(),
+    };
     launcher_ui_api::FolderBrowserVm {
         open: true,
         purpose: purpose.into(),
         folder,
         folder_title,
+        title,
         shown: crate::display::short_home(&full(&browser.at), home),
         parent: browser.at.parent().map(full).unwrap_or_default(),
         crumbs: crumbs(&browser.at, home),

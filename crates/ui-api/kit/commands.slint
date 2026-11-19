@@ -136,6 +136,10 @@ export global Commands {
     public function pick-folder(name: string) {
         Host.command("Browse", "{\"Open\":{\"at\":null,\"purpose\":{\"Pick\":" + Json.text(name) + "}}}");
     }
+    // The folder browser to choose the backup folder, where it is now.
+    public function choose-backup-folder() {
+        Host.command("Browse", "{\"Open\":{\"at\":null,\"purpose\":\"BackupFolder\"}}");
+    }
     // The open browser: to a full path, closed, its hidden folders shown or not, a drive (its
     // id) mounted and opened, the folder it shows used for its pick.
     public function browse-to(path: string) { Host.command("Browse", "{\"Go\":" + Json.text(path) + "}"); }

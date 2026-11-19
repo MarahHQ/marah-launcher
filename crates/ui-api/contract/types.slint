@@ -453,14 +453,16 @@ export struct VpnSettings { problem: string, only: bool, finds: bool, can-import
 // before-restore: the backup a restore made of what was there before.
 export struct BackupFile { file: string, date: string, size: string, items: string, before-restore: bool }
 
-// Settings → Backup. folder: the backup folder, with the home folder as `~`. running: a backup
+// Settings → Backup. folder: the backup folder, with the home folder as `~`; free: the free
+// space on its drive ("120.5 GB free"), "" when the system doesn't say. running: a backup
 // or a restore runs (restoring: a restore), `progress` from 0 to 1. status: what the last one
 // did, or why it failed (failed). restart: a restore finished, and Marah Launcher starts again to finish
 // it. backups: newest first.
 
 // The folder browser (`Vm.browser`), a sheet over everything while open. purpose: restore
 // ("Restore from another folder") | pick (a folder for the named folder `folder`, whose title is
-// `folder-title`, such as "Game folders"). shown: the folder, with the home folder as `~`.
+// `folder-title`, such as "Game folders"; `folder` is "backup" for the backup folder). title:
+// the sheet's title, such as "Choose the backup folder". shown: the folder, with the home folder as `~`.
 // parent: its parent's full path, empty at the top. crumbs: the folder's path, one part each,
 // from `~` or the top (the last is the folder). places: where it goes, each with a full path for
 // the command Browse Go; kind: home | downloads | desktop | documents | backups | drive |
@@ -475,11 +477,11 @@ export struct BackupFile { file: string, date: string, size: string, items: stri
 export struct BrowseCrumb { name: string, path: string }
 export struct BrowsePlace { name: string, path: string, kind: string, detail: string, drive: string, mounted: bool }
 export struct BrowseEntry { name: string, path: string, folder: bool, detail: string, date: string, size: string, items: string, computer: string, newer: bool }
-export struct FolderBrowser { open: bool, purpose: string, folder: string, folder-title: string, shown: string, parent: string, crumbs: [BrowseCrumb], places: [BrowsePlace], place: int, entries: [BrowseEntry], hidden: bool, filter: string }
+export struct FolderBrowser { open: bool, purpose: string, folder: string, folder-title: string, title: string, shown: string, parent: string, crumbs: [BrowseCrumb], places: [BrowsePlace], place: int, entries: [BrowseEntry], hidden: bool, filter: string }
 
 // holds: what a backup holds on this computer now. large: the large items a backup takes only
 // when asked, empty when no plugin has one. default-folder: the folder when none is chosen.
-export struct Backup { folder: string, running: bool, restoring: bool, progress: float, status: string, failed: bool, restart: bool, backups: [BackupFile], holds: string, large: string, default-folder: string }
+export struct Backup { folder: string, free: string, running: bool, restoring: bool, progress: float, status: string, failed: bool, restart: bool, backups: [BackupFile], holds: string, large: string, default-folder: string }
 
 // The launcher's own update. state: off | idle | checking | current | available |
 // downloading | ready | installed | system | failed. installed: the package manager put it in,

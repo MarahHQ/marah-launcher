@@ -666,7 +666,7 @@ export component FolderRow inherits Row {
     // "Type a path" in the list: this row takes it.
     property <int> asked: FolderList.asks-path;
     changed asked => {
-        if (root.focused) {
+        if (root.focused && !FolderList.backup) {
             Prefs.edit-text = "";
             Prefs.editing = true;
         }

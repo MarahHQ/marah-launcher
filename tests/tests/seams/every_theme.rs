@@ -642,3 +642,53 @@ fn add_folder_picks_a_folder_in_the_browser_in_every_theme() {
         assert!(games.as_array().unwrap().iter().any(|p| p == picked.path().to_str().unwrap()), "{theme}: {games}");
     }
 }
+
+/// Settings → Backup → Backup folder: its row opens the folder's list, as a game folder's does.
+/// "Choose a folder" opens the folder browser, △ uses the folder shown; "Use the default folder"
+/// goes back to it; "Type a path" opens the row's text box. With the pad, the mouse and the keys.
+#[test]
+fn the_backup_folder_is_chosen_like_a_game_folder_in_every_theme() {
+    for theme in THEMES {
+        let (backups, chosen) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let mut host = in_theme(theme, two_emulators);
+        let folder = serde_json::json!(backups.path().display().to_string());
+        host.dispatch(Command::Pref(launcher_core::Pref::BackupFolder, folder));
+        host.dispatch(Command::Navigate(Route::Settings));
+        host.settle();
+        host.settings_tab("Backup");
+        host.settle();
+        // The mouse: a click on the row opens the list.
+        host.press_first("backup-folder");
+        assert_eq!(host.value("folder-list"), "backup", "{theme}: the backup folder's list");
+        assert_eq!(host.count("folder-path") + host.count("folder-add"), 0, "{theme}: one folder, not a list");
+        // The pad: ✕ on "Choose a folder" opens the browser at the backup folder.
+        host.pad(PadButton::South);
+        assert_eq!(host.count("folder-browser"), 1, "{theme}: Choose a folder opens the browser");
+        assert_eq!(host.value("folder-browser"), backups.path().display().to_string(), "{theme}");
+        host.dispatch(Command::Browse(launcher_core::BrowseCmd::Go(chosen.path().into())));
+        host.settle();
+        // The keys: / (△) uses the folder shown.
+        text(&mut host, "/");
+        host.settle();
+        assert_eq!(host.count("folder-browser"), 0, "{theme}: △ used the folder");
+        let saved = host.core().kernel().config().get(&["app", "backup_folder"]);
+        assert_eq!(saved, serde_json::json!(chosen.path().display().to_string()), "{theme}");
+
+        // The list again: down twice to "Use the default folder", and ✕.
+        host.press_first("backup-folder");
+        host.pad(PadButton::Down);
+        host.pad(PadButton::Down);
+        assert_eq!(host.focused("backup-default").len(), 1, "{theme}");
+        host.pad(PadButton::South);
+        host.settle();
+        assert!(host.core().kernel().config().get(&["app", "backup_folder"]).is_null(), "{theme}: the default again");
+
+        // "Type a path": the row's text box, with the folder in it.
+        host.press_first("backup-folder");
+        host.navigate(Key::DownArrow);
+        host.navigate(Key::Return);
+        assert_eq!(host.count("folder-list"), 0, "{theme}");
+        assert_eq!(host.count("editor"), 1, "{theme}: Type a path opens the row's text box");
+        host.navigate(Key::Escape);
+    }
+}

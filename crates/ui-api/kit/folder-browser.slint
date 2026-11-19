@@ -380,7 +380,7 @@ export component FolderBrowser inherits Rectangle {
                     spacing: 6 * Look.px;
                     horizontal-stretch: 1;
                     Text {
-                        text: Browser.picking ? "Add to " + Vm.browser.folder-title : "Restore a backup";
+                        text: Vm.browser.title;
                         font-size: 26 * Look.tpx;
                         font-weight: 700;
                         color: Tokens.color-text;

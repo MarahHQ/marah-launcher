@@ -869,6 +869,9 @@ pub struct SettingsVm {
 pub struct BackupVm {
     /// The backup folder, with the home folder as `~`.
     pub folder: String,
+    /// The free space on its drive, such as "120.5 GB free". Empty when the folder isn't there
+    /// or the system doesn't say.
+    pub free: String,
     /// A backup or a restore runs.
     pub running: bool,
     /// The job running is a restore.
@@ -904,6 +907,9 @@ pub struct FolderBrowserVm {
     /// folders"). Empty for a restore.
     pub folder: String,
     pub folder_title: String,
+    /// What the sheet is for, as its title: "Restore a backup", "Add to Game folders", "Choose
+    /// the backup folder".
+    pub title: String,
     /// The folder shown, with the home folder as `~`.
     pub shown: String,
     /// Its parent, a full path for Browse Go. Empty at the top.

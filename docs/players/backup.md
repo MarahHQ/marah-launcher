@@ -13,7 +13,7 @@ Settings → Backup has these rows:
 | --- | --- |
 | Back up now | Writes a backup to the backup folder. |
 | Include large items | Adds the large items to the next backup only. It shows when a plugin has large items. |
-| Backup folder | Where backups go: `~/Marah Launcher Backups` until you type another. Empty text goes back to it. |
+| Backup folder | Where backups go, with the free space on its drive: `~/Marah Launcher Backups` until you choose another. ✕ opens its list: **Choose a folder** (the folder browser, then **Use this folder**), **Type a path**, or **Use the default folder**. |
 | Restore from another folder | Opens the folder browser, to restore a backup from a USB stick, another drive or another folder. |
 | Restart Marah Launcher | Shows after a restore. It finishes the restore. |
 | A backup | One row for each backup in the backup folder, newest first. |

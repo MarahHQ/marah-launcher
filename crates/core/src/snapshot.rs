@@ -44,6 +44,9 @@ pub(crate) struct Snapshot<'a> {
     pub drives: Vec<crate::drives::Drive>,
     /// Settings → Backup's folder; `None` with no home folder and none chosen.
     pub backup_folder: Option<std::path::PathBuf>,
+    /// The free bytes on the backup folder's drive, while the folder is there; `None` when the
+    /// system doesn't say.
+    pub backup_free: Option<u64>,
     pub vpn: VpnSnapshot,
     /// The emulator downloads.
     pub downloads: Vec<Job>,
