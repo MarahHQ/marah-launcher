@@ -1,26 +1,19 @@
-# Writing a theme
+# Theme contract reference
 
-A theme is a folder of Slint markup with a `theme.toml` manifest, and images, fonts and sounds
-if it wants them. It has no code. Marah Launcher compiles the markup when it shows the theme. The host
-fills the `Vm` global with the view, and carries out what the theme asks through the `Host`
-global.
+This page lists everything a theme can rely on and everything the host checks: the files and
+globals the host serves, the view model, the commands, the kit, the tokens and the rules. It is
+for theme authors who already have a theme running; start with
+[writing-a-theme.md](writing-a-theme.md). Terms follow [the glossary](../../GLOSSARY.md).
 
-Every theme stands alone. It ships its own shell and every screen. The host serves a kit of
-shared Slint files under `kit/`, and a theme imports what it wants from it. The reasons are in
-[ADR 0003](adr/0003-themes-stand-alone-with-a-shared-kit.md).
-
-This page is for designers and developers who write a theme. Terms follow
-[the glossary](../GLOSSARY.md). The built-in Classic theme is described file by file in
-[reference/classic-theme.md](reference/classic-theme.md). How plugins load is in
-[plugins.md](plugins.md). How to build and test the repository is in
-[development.md](development.md).
+The contract is the crate `launcher-ui-api` (`crates/ui-api`). Its version is
+`UI_API_VERSION`, now `0.5.1` (`crates/ui-api/src/lib.rs`). A theme's `ui_api` range must
+include it.
 
 ## Contents
 
-- [The built-in themes](#the-built-in-themes)
-- [Where a theme is installed](#where-a-theme-is-installed)
-- [The folder](#the-folder)
-- [theme.toml](#themetoml)
+- [Screens](#screens)
+- [Where the player is](#where-the-player-is)
+- [The theme section](#the-theme-section)
 - [The files the host serves](#the-files-the-host-serves)
 - [The view model: Vm](#the-view-model-vm)
 - [Host: what to ask for](#host-what-to-ask-for)
@@ -33,101 +26,11 @@ This page is for designers and developers who write a theme. Terms follow
 - [Keys and the gamepad](#keys-and-the-gamepad)
 - [Images, fonts, sounds and system art](#images-fonts-sounds-and-system-art)
 - [Rules the host checks](#rules-the-host-checks)
-- [Dev mode](#dev-mode)
-- [Switching, the fallback theme and safe mode](#switching-the-fallback-theme-and-safe-mode)
-- [Testing a theme](#testing-a-theme)
-- [Limitations](#limitations)
 
-## The built-in themes
+## Screens
 
-Two themes are compiled into the binary. Each crate's `build.rs` embeds every file under its
-`theme/` folder.
-
-- **Default** (`default`, `plugins/themes/default/theme/`). Its `theme.toml` says
-  `fallback = true`, so the app starts with it. Home is a list of systems on the far side of
-  the reading direction: "All games" first, then each entry of `Vm.emulators`. The focused
-  system's cover fills the screen behind the list. Enter or a click opens the Library on that
-  system's games (`LibrarySystem`). Menu opens the emulator's plugin page. The Library shows
-  the systems as chips in the top bar (`components/chip-row.slint`). Default sets no tokens:
-  the defaults are its look.
-- **Classic** (`classic`, `plugins/themes/classic/theme/`): a hero and a row of game tiles on
-  Home. It sets every token, each to its default value.
-
-The two share most files. Only `theme.toml`, `shell.slint` (one comment and two lines that read
-Classic's Library tile), `screens/home.slint`, `screens/library.slint`, `components/nav.slint`,
-`components/top-bar.slint` and `components/library-view.slint` differ. The behaviour both need is
-in the kit: `ShellKeys` starts the kit's pages afresh on a new screen, and `Games`
-(`kit/games.slint`) holds the games on screen, the selection that goes to the core after the
-moves stop, the commands for the view on screen and a card's commands. Each theme keeps its own
-keys and zones in `components/nav.slint`. Default adds `components/chip-row.slint`,
-`components/systems-cover.slint`, `images/all-games-icon.png` and `images/all-games-cover.jpg`.
-Both draw Downloads, the Game Hub, plugin pages and the Emulators and Themes lists with kit
-pages.
-
-## Where a theme is installed
-
-Put the theme's folder in the extensions folder. Marah Launcher reads it at start.
-
-- The extensions folder is `--extensions <path>`, or `<data-dir>/extensions` without it.
-- The data folder is `--data-dir <path>`, or by default (`default_data_dir` in
-  `crates/app/src/args.rs`):
-  - Linux: `$XDG_DATA_HOME/marah-launcher`, else `~/.local/share/marah-launcher`.
-  - macOS: `~/Library/Application Support/marah-launcher`.
-  - Windows: `%APPDATA%\marah-launcher`.
-- Marah Launcher also reads `extensions` next to the binary, or `../Resources/extensions` in a macOS app
-  bundle when that folder exists (`bundled_extensions`).
-
-`Kernel::discover` (`crates/core/src/kernel.rs`) reads each subfolder that holds a
-`plugin.toml` or a `theme.toml`, in sorted order. The built-in plugins are registered first.
-When two plugins have the same id, the first one stays and the other is rejected as a
-duplicate. So a folder can't replace `default` or `classic`.
-
-The kernel rejects a theme folder when (`validate` in `kernel.rs`):
-
-- the manifest doesn't read;
-- `host_api` doesn't match the host's API version (`API_VERSION` in `crates/api/src/lib.rs`
-  is `0.2.0`);
-- `platforms` is set and doesn't include this system;
-- `[runtime] type` is not `"data"` (`"third-party plugins must be data-only"`);
-- `capabilities` is anything other than `["theme"]`.
-
-A rejected plugin is in the log as `plugin not loaded`, with the reason. A theme whose `[theme]`
-section doesn't read is left out of the Themes list, and the log says `theme skipped`
-(`ThemeSet::from_core` in `crates/ui-host/src/themes.rs`).
-
-`--safe-mode` loads the built-in plugins only, and shows the fallback theme.
-
-## The folder
-
-`tests/fixtures/themes/fixture-grid/` is the smallest complete theme in the repository: a light
-grid theme with a sidebar. Its layout is the layout every theme has:
-
-```text
-fixture-grid/
-  theme.toml
-  shell.slint
-  screens/home.slint
-  screens/library.slint
-  screens/game-detail.slint
-  screens/catalog.slint
-  screens/downloads.slint
-  screens/settings.slint
-  screens/emulators.slint
-  screens/themes.slint
-  screens/plugin.slint
-  screens/game-settings.slint
-  screens/running.slint
-  components/card.slint
-  fonts/Inter-Regular.ttf
-  fonts/Inter-Bold.ttf
-  fonts/OFL.txt
-```
-
-A theme must ship `shell.slint` and the ten screen files. Other `.slint` files (such as
-`components/`, or the fixture's `screens/running.slint`, the overlay of a running game) and asset
-files are the theme's choice. The screen list is `ScreenId::ALL` in
-`crates/ui-api/src/vm.rs`. Each screen file exports one component, under this name
-(`ScreenId::component` in `crates/ui-api/src/contract.rs`):
+The screens are `ScreenId::ALL` in `crates/ui-api/src/vm.rs`. Each screen file exports one
+component under the name `ScreenId::component` gives (`crates/ui-api/src/contract.rs`):
 
 | `Vm.screen` | File | Exported component |
 | --- | --- | --- |
@@ -142,25 +45,15 @@ files are the theme's choice. The screen list is `ScreenId::ALL` in
 | `plugin` | `screens/plugin.slint` | `PluginScreen` |
 | `game-settings` | `screens/game-settings.slint` | `GameSettingsScreen` |
 
-`shell.slint` exports `Shell`, which inherits `Window`. The shell decides which screen shows for
-`Vm.screen`, and where. The host checks only that each file exists and exports its name. A screen
-can be a one-line kit page:
+`shell.slint` exports `Shell`, which inherits `Window`. The host checks only that each file
+exists and exports its name. A missing file stops the load with `ThemeError::File`, which names
+the file: `screens/downloads.slint: is missing: a theme ships its shell and every screen`.
 
-```slint
-import { DownloadsPage } from "../kit/downloads.slint";
+## Where the player is
 
-// Downloads: the kit's page, drawn in this theme's tokens.
-export component DownloadsScreen inherits DownloadsPage {}
-```
-
-A missing file stops the load with `ThemeError::File`, which names the file:
-`screens/downloads.slint: is missing: a theme ships its shell and every screen`.
-
-### Where the player is
-
-The core owns the navigation. It keeps a stack of the screens the player came through, with
-Home at the bottom. `Vm.screen` is the screen on top. A theme keeps no screen of its own: it
-sends `Navigate` or `Back` and shows the screen that comes back.
+The core owns the navigation: a stack of the screens the player came through, with Home at the
+bottom. `Vm.screen` is the screen on top. A theme keeps no screen of its own. It sends
+`Navigate` or `Back` and shows the screen that comes back.
 
 - `Navigate` to `"Home"` goes back to the bottom of the stack: Back has nowhere to go.
 - `Navigate` to a screen that is already on the stack goes back to that screen, as the player
@@ -170,36 +63,22 @@ sends `Navigate` or `Back` and shows the screen that comes back.
   Library's is `Vm.home.library.selected`: until the Library opens, it is Home's. The Catalog's
   is in `Vm.catalog`. `Select` selects a game on the screen on top. `OpenGame` also selects the
   game on the screen under its Game Hub, so Back comes back to the game.
+- `Vm.nav-direction` says which way the last move went, `forward` or `back`.
 - A running game is not a screen. `Vm.has-running` and `Vm.running` describe it, and the shell
   draws it over the screen, for example as a launch splash. Starting or ending a game doesn't
   change `Vm.screen`.
 
 Focus inside a screen, such as which button has the keys, is the theme's.
 
-## theme.toml
+## The theme section
 
-The top of the file is the plugin manifest. A theme folder needs these keys. From
-`tests/fixtures/themes/fixture-grid/theme.toml`:
-
-```toml
-id = "fixture-grid"
-kind = "theme"
-name = "Fixture grid"
-version = "0.1.0"
-host_api = "^0.3"
-capabilities = ["theme"]
-
-[runtime]
-type = "data"
-```
-
-The `[theme]` section is `ThemeSection` in `crates/ui-api/src/theme.rs`. It refuses keys it
-doesn't know.
+The `[theme]` section of `theme.toml` is `ThemeSection` in `crates/ui-api/src/theme.rs`. It
+refuses keys it doesn't know.
 
 | Key | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `ui_api` | version range | required | The `launcher-ui-api` contract versions the theme works with. The host's is `UI_API_VERSION`, `0.5.1` (`crates/ui-api/src/lib.rs`). A theme that doesn't match fails with `ThemeError::UiApi`. |
-| `fallback` | bool | `false` | This theme is the one the app starts with, falls back to, and shows in safe mode. Exactly one installed theme sets it. Default does. See [Switching](#switching-the-fallback-theme-and-safe-mode). |
+| `ui_api` | version range | required | The contract versions the theme works with. A theme that doesn't match fails with `ThemeError::UiApi`. |
+| `fallback` | bool | `false` | This theme is the fallback theme. Exactly one installed theme sets it, and Default does. |
 | `input` | list | `["pointer"]` | The input devices the theme supports, the main one first: `pointer`, `gamepad`, `touch`. The first one is `Vm.input-mode` at start. |
 | `navigation` | `pointer` or `focus` | `pointer` | How the player moves around. No host code reads it yet. |
 | `tokens` | table | none | Values for [tokens](#tokens). A token the theme leaves out keeps its default. |
@@ -208,8 +87,7 @@ doesn't know.
 | `options` | table | none | Settings the player changes, which set tokens. See [Options](#options). |
 | `systems` | table | none | A system's own icon and cover, by system id. See [System art](#images-fonts-sounds-and-system-art). |
 
-A theme manifest may not use three keys. The host refuses each one with what to do instead
-(`ThemeManifest::from_plugin`):
+The host refuses three keys, each with what to do instead (`ThemeManifest::from_plugin`):
 
 | Key | Message |
 | --- | --- |
@@ -222,13 +100,13 @@ A theme with one of them is left out of the Themes list. The log has the message
 
 ## The files the host serves
 
-The host serves five files at the root of every theme. A theme imports them and never ships
-them: a theme that ships one fails with `is served by the host; remove it`
-(`RESERVED_FILES` in `contract.rs`).
+The host serves five files at the root of every theme (`RESERVED_FILES` in
+`crates/ui-api/src/contract.rs`). A theme imports them and never ships them: a theme that ships
+one fails with `is served by the host; remove it`.
 
-| File | Global | Holds |
+| File | Global | What it holds |
 | --- | --- | --- |
-| `types.slint` | `Vm`, `Host`, `Json` and the structs | The view model, the callbacks, and helpers to build command args. The source is `crates/ui-api/contract/types.slint`. |
+| `types.slint` | `Vm`, `Host`, `Json` and the structs | The view model, the callbacks, and helpers to build command arguments. The source is `crates/ui-api/contract/types.slint`. |
 | `tokens.slint` | `Tokens` | One property per token. It also imports the theme's fonts. |
 | `assets.slint` | `Assets` | One `image` per name in `[theme.assets.images]`, and `loaded`. |
 | `options.slint` | `Options` | One property per option: a `string` for a choice option, a `color` for a color option. |
@@ -246,11 +124,11 @@ and struct holds. Read that file as the reference.
 
 | Topic | `Vm` properties |
 | --- | --- |
-| Where the player is | `screen`, `game`, `can-go-back` |
+| Where the player is | `screen`, `nav-direction`, `game`, `can-go-back` |
 | Home and the Library | `home` (with `home.library`), `has-detail`, `detail` |
 | The Catalog | `catalog`, `catalog-sources`, `catalog-releases`, `catalog-updated`, `catalog-loading`, `catalog-available`, `catalog-actions`, `catalog-status` |
 | Downloads | `downloads`, `torrents`, `seed-downloads`, `torrents-downloading`, `torrents-sharing` |
-| Settings | `vpn`, `backup`, `settings`, `theme-options`, `themes`, `folders`, `sounds`, `fullscreen`, `return-on-exit`, `auto-update`, `scale`, `can-start-at-login`, `start-at-login`, `start-at-login-error`, `hardware`, `launcher-update`, `system`, `monitors`, `monitor` |
+| Settings | `vpn`, `backup`, `settings`, `theme-options`, `themes`, `folders`, `sounds`, `animations`, `fullscreen`, `return-on-exit`, `auto-update`, `auto-install`, `scale`, `can-start-at-login`, `start-at-login`, `start-at-login-error`, `hardware`, `launcher-update`, `system`, `monitors`, `monitor` |
 | Plugins | `emulators`, `plugins`, `emulator-plugins`, `theme-plugins`, `has-plugin-page`, `plugin-page` |
 | Trailers | `can-play-trailers`, `has-trailer`, `trailer`, `trailer-frame` |
 | Prompts | `has-install-prompt`, `install-prompt`, `has-result-prompt`, `result-prompt`, `has-question`, `question`, `ratings` |
@@ -260,25 +138,25 @@ and struct holds. Read that file as the reference.
 
 An optional part comes with a `has-` flag: read `detail` only when `has-detail` is true. Text
 for the player, such as sizes, dates, a download's state and a release's title, comes ready to
-show (display text, built in the core's `display.rs`).
+show. It is display text, which the core builds in `display.rs`.
 
 ## Host: what to ask for
 
 A theme changes nothing itself. It asks the host through the `Host` global in `types.slint`.
 
-`Host.command(name, args)` sends a core `Command` (`crates/core/src/app.rs`). `name` is
-the variant's name. `args` is its payload as JSON text, or `""` for a variant with no payload.
-The host builds the value from the two (`command` in `crates/ui-host/src/host.rs`):
+`Host.command(name, args)` sends a core `Command` (`crates/core/src/app.rs`). `name` is the
+variant's name. `args` is its payload as JSON text, or `""` for a variant with no payload. The
+host builds the value from the two (`command` in `crates/ui-host/src/host.rs`):
 
 - With empty `args`, the value is the bare name: `Host.command("Back", "")` reads as `"Back"`.
 - With `args`, the value is `{ name: args }`: `Host.command("Select", "\"emu:astro\"")` reads as
   `{"Select": "emu:astro"}`.
 
-A command whose args aren't JSON, or don't fit the variant, is dropped. The log says
+A command whose arguments aren't JSON, or don't fit the variant, is dropped. The log says
 `the theme sent a command that doesn't read`. The theme gets no error.
 
-Build the args with the `Json` global. `Json.text(s)` makes a JSON string with its escapes.
-`Json.text-or-null(s)` gives `null` for `""`. `Json.flag(b)` gives `true` or `false`.
+Build the arguments with the `Json` global. `Json.text(s)` makes a JSON string with its
+escapes. `Json.text-or-null(s)` gives `null` for `""`. `Json.flag(b)` gives `true` or `false`.
 
 ```slint
 Host.command("Back", "");
@@ -287,12 +165,14 @@ Host.command("Session", "{\"Launch\":" + Json.text(game.key) + "}");
 ```
 
 Use `kit/commands.slint` instead of writing the JSON. Its `Commands` global has one function
-for each thing the player asks: `Commands.back()`, `Commands.launch(key)`,
-`Commands.set-sounds(on)` and so on. Read it for working args of most commands.
+for each thing the player asks, such as `Commands.back()`, `Commands.launch(key)` and
+`Commands.set-sounds(on)`. A test in `host.rs` calls each of its functions and fails when one
+sends a command the core doesn't read, so its arguments are a working example.
 
 ### The commands
 
-A variant with a sub-enum takes that enum, written as JSON the same way.
+A variant with a sub-enum takes that enum, written as JSON the same way. The doc comments on
+`Command` in `app.rs` say more about each variant.
 
 | Variant | Payload |
 | --- | --- |
@@ -305,21 +185,22 @@ A variant with a sub-enum takes that enum, written as JSON the same way.
 | `LibraryGenre`, `CatalogGenre` | A genre, or `null` for every genre. |
 | `LibrarySort`, `CatalogSort` | `title`, `played`, `size`, `smallest`, `rating`, `release`, `compat` or `added`. |
 | `LibraryMore`, `CatalogMore` | None. Shows the next page. |
-| `RememberSearch` | Text. Keeps a search among the last searches (`Library.recent`). Send it when a search is done, not at each key. |
-| `ForgetSearches` | None. Forgets the last searches. |
+| `RememberSearch` | Text. Keeps a recent search (`Library.recent`). Send it when a search is done, not at each key. |
+| `ForgetSearches` | None. Forgets the recent searches. |
 | `GridColumns` | `{"grid": "Library" or "Catalog", "columns": n}`. |
 | `Session` | `{"Launch": key}`, `{"Stop": session}`, `{"ShowGame": session}`, `"ToggleFocus"`. |
 | `ReportResult` | `"ingame"`, `"menus"`, `"boots"`, `"nothing"`, or `null` for Not now. |
 | `Ratings` | Send ratings: `"Open"`, `{"Pick": key}` (picks a rating or leaves it out), `"Next"` (shows the first picked report), `"Send"` (opens the report on screen in the browser), `"Skip"` (sends nothing), `"Close"`. |
 | `ConfirmInstall`, `CancelInstall` | None. |
-| `Torrent` | `{"Download": {"offer": key, "release": id, "folder": path}}` (`folder` optional), `{"Act": {"id": id, "action": action}}`, `{"Pick": {"id": id, "file": n, "on": bool}}` (`file` `null` for every file), `{"Begin": {"id": id, "install": bool, "folder": path}}` (`folder` optional), `{"SeedDownloads": bool}`. See [Torrent actions](#torrent-actions). |
+| `AnswerQuestion` | `true` or `false`: the player's answer to a plugin's question at the start. |
+| `Torrent` | `{"Download": {"offer": key, "release": id, "folder": path}}` (`folder` optional), `{"Act": {"id": id, "action": action}}`, `{"Pick": {"id": id, "file": n, "on": bool}}` (`file` `null` for every file), `{"Begin": {"id": id, "install": bool, "folder": path}}` (`install` and `folder` optional), `{"SeedDownloads": bool}`. See [Torrent actions](#torrent-actions). |
 | `GameInstall` | `{"Download": {"id": id, "folder": path}}` (`folder` optional), `{"Package": {"plugin": id, "source": {"folder": name, "root": n, "path": path}}}` (a `HostPath`), `{"RemoveUnpacked": {"id": id}}`, `{"Cancel": {"id": id}}`. |
 | `Vpn` | `{"SetOnly": bool}`, `{"Choose": name}`, `{"Connect": name}`, `{"Disconnect": name}`, `{"Import": path}`. |
 | `Backup` | `"Refresh"`, `{"BackUp": {"large": bool}}`, `{"Restore": file}`, `{"RestoreFile": path}`, `{"Delete": file}`, `{"Browse": path or null}`, `"CloseBrowser"`, `{"ShowHidden": bool}`, `{"Filter": text}`. |
 | `Notice` | `"DismissAll"`, `{"Dismiss": id}`, `{"Open": id}`. |
 | `LauncherUpdate` | `"Check"`, `"Download"`. |
-| `System` | `SystemCommand` (`crates/core/src/system.rs`): `"Refresh"`, `"ScanWifi"`, `{"JoinWifi": {"ssid": name, "password": text or null}}`, `{"ForgetWifi": name}`, `{"SetBluetooth": bool}`, `"ScanBluetooth"`, `{"Pair": address}`, `{"ConnectDevice": address}`, `{"DisconnectDevice": address}`, `{"RemoveDevice": address}`, `{"SetOutput": name}`, `{"SetVolume": 0-100}`, `{"SetMuted": bool}`, `"Restart"`, `"ShutDown"`, `"CheckOsUpdate"`, `{"InstallOs": path}`, `"ChoosePartitions"`, `{"CancelJob": id}`. |
-| `Pref` | A pair, such as `["sounds", false]`. The key is a `Pref` in snake case (`crates/core/src/preferences.rs`). The player sets `sounds`, `animations`, `fullscreen`, `return_on_exit`, `scale`, `start_at_login`, `auto_update`, `monitor`, `welcomed` and `backup_folder`. |
+| `System` | `SystemCommand` (`crates/core/src/system.rs`): `"Refresh"`, `"ScanWifi"`, `{"JoinWifi": {"ssid": name, "password": text or null}}`, `{"ForgetWifi": name}`, `{"SetBluetooth": bool}`, `"ScanBluetooth"`, `{"Pair": address}`, `{"ConnectDevice": address}`, `{"DisconnectDevice": address}`, `{"RemoveDevice": address}`, `{"SetOutput": name}`, `{"SetVolume": 0-100}`, `{"SetMuted": bool}`, `"Restart"`, `"ShutDown"`, `"LogOut"`, `"CheckOsUpdate"`, `{"InstallOs": path}`, `"ChoosePartitions"`, `{"CancelJob": id}`. |
+| `Pref` | A pair, such as `["sounds", false]`. The key is a `Pref` in snake case (`crates/core/src/preferences.rs`). The player sets `sounds`, `animations`, `fullscreen`, `return_on_exit`, `scale`, `start_at_login`, `auto_update`, `auto_install`, `monitor`, `welcomed` and `backup_folder`. The core sets the others. |
 | `SetThemeOption` | `{"key": option, "value": text}`. |
 | `SetConfig` | `{"plugin": id, "scope": scope, "value": json}`. A scope is `{"type": "emulator"}` or `{"type": "game", "game": text}`. Pass a settings panel's `scope` back unchanged. |
 | `SetConfigField` | `{"plugin": id, "scope": scope, "key": field, "value": text}`. |
@@ -334,32 +215,30 @@ A variant with a sub-enum takes that enum, written as JSON the same way.
 | `CheckUpdates` | None. |
 | `ThemeSwitched` | The host sends it. A theme asks for a switch with `Host.switch-theme`. |
 
-The doc comments on `Command` in `app.rs` say more about each variant.
-
 ### The other callbacks
 
 The other `Host` callbacks never reach the core. They go to the app shell (`UiRequest` in
 `crates/ui-host/src/host.rs`).
 
-| Callback | Does |
+| Callback | What it does |
 | --- | --- |
 | `switch-theme(id)` | Switches to the theme `id`. |
 | `play-sound(name)` | Plays a sound from `[theme.assets.sounds]`. |
-| `open-url(url)` | Opens a page in the system's browser. Only `https://` addresses; others are dropped. |
+| `open-url(url)` | Opens a page in the system's browser. Only `https://` addresses; the host drops others. |
 | `open-game-folder(key)`, `open-game-log(key)` | Opens a game's folder, or its emulator log. The theme names the game, never a path. |
 | `open-download-folder(id)` | Opens a download's folder, once it is on disk. |
 | `play-trailer(url)`, `pause-trailer()`, `seek-trailer(seconds)`, `close-trailer()` | The trailer player. `play-trailer` takes `https://` only. `seek-trailer` goes back with a negative number. |
-| `grid-window(grid, first, last)` | Says which cards of a grid (`"library"` or `"catalog"`) are on screen. Only covers near them load. |
-| `quit()`, `restart()`, `log-out()` | Closes Marah Launcher, starts it again, or ends the Marah Launcher session. |
+| `grid-window(grid, first, last)` | Says which cards of a grid (`"library"` or `"catalog"`) are on screen. Only the covers near them load. |
+| `quit()`, `restart()`, `log-out()` | Closes the launcher, starts it again, or ends the launcher's session. |
 
 A theme with a grid calls `grid-window` when the visible cards change. Until it calls, the host
-loads covers near cards 0 to 29 (`Window::START` in `crates/ui-host/src/images.rs`).
+loads the covers near cards 0 to 29 (`Window::START` in `crates/ui-host/src/images.rs`).
 
 ## Torrent actions
 
 Each `Torrent` in `Vm.torrents` has `actions`, a list of names in the order to show them. The
 names are `start`, `pause`, `play`, `install`, `stop-seeding`, `cancel`, `remove`,
-`remove-unpacked`, `cancel-install`, and `open-store` for an install a store does.
+`remove-unpacked`, `cancel-install`, and `open-store` for an install that a store does.
 
 The theme turns an action into a command:
 
@@ -371,26 +250,31 @@ The theme turns an action into a command:
 | `remove-unpacked` | `GameInstall`, `{"RemoveUnpacked": {"id": id}}`. |
 | `cancel-install` | `GameInstall`, `{"Cancel": {"id": id}}`. |
 
-`start` on a `ready` torrent is the download sheet's: the kit opens it first. The sheet shows
-`picks` (each file, its `kind`, `on` and `locked`), `picked`, `download-free`, `install-free`,
-`download-room` and `install-room`. `Commands.pick-file(id, n, on)` (`n` -1 for every file) sends
-`Pick`, and `Commands.begin-download(id, install, folder)` sends `Begin`: with `install`, the game
-installs into `folder` once the download finishes, and the torrent's `install-after` is true. A
-`Begin` the core refuses leaves the torrent `ready`, with the reason in `install-error`.
+`start` on a `ready` torrent belongs to the download sheet: the kit opens the sheet first. The
+sheet shows `picks` (each file, its `kind`, `on` and `locked`), `picked`, `download-free`,
+`install-free`, `download-room` and `install-room`.
 
-The core never lists `delete-files`. A theme sends it (`"DeleteFiles"`) when the player removes a
-download with its files. `Commands.torrent-action(id, action)` in `kit/commands.slint` does all of
-this, and `play` is `Commands.launch(game)`.
+- `Commands.pick-file(id, n, on)` sends `Pick`. `n` is -1 for every file.
+- `Commands.begin-download(id, install, folder)` sends `Begin`. With `install`, the game
+  installs into `folder` once the download finishes, and the torrent's `install-after` is true.
+- A `Begin` that the core refuses leaves the torrent `ready`, with the reason in
+  `install-error`.
+
+The core never lists `delete-files`. A theme sends it (`"DeleteFiles"`) when the player removes
+a download with its files. `Commands.torrent-action(id, action)` in `kit/commands.slint` does
+all of this, and `play` is `Commands.launch(game)`.
 
 ## Slots
 
-A slot item is something a plugin adds to a screen. It reaches a theme as a `Slot` struct.
+A slot item is something a plugin adds to a screen. It reaches a theme as a `Slot` struct. How a
+plugin fills a slot is in [the plugin reference](../plugins/reference.md).
 
 | Where | `kind` | Draw it as |
 | --- | --- | --- |
 | `GameCard.badges`, `GameDetail.badges` | `badge` | A small tag. `short` is its text for small places. |
 | `GameDetail.actions` | `action` | A button. |
 | `GameDetail.sections` | `section` | A block of `rows`. |
+| `PluginPage.blocks` | `block` | A titled list of rows on the plugin's page, after its build. |
 | `SettingsPanel.slot` | `settings_panel` | A form of `fields`. |
 
 `tone` is `neutral`, `info`, `success`, `warning` or `danger`. `style` is `primary` or
@@ -398,145 +282,157 @@ A slot item is something a plugin adds to a screen. It reaches a theme as a `Slo
 and the game's key: `Commands.run-action(plugin, action, game, args)`. `args` and `scope` are
 JSON text: pass them back unchanged.
 
-A plugin's page has its own lists: `PluginPage.sections` holds the plugin's blocks (the
-`emulator.panel` slot), and `PluginPage.actions` the action slots among them.
-
 Set `accessible-role: text` and `accessible-label: <slot>.label` on each slot item you draw. The
 label is `<plugin-id>:<item-id>`. Tests find items by it. The kit's `SlotBadges`, `SlotActions`
 and `SlotSections` do it.
 
 ## The kit
 
-The kit is shared Slint files the host serves under `kit/`, beneath the theme's own files. The
-list is `KIT` in `crates/ui-api/src/contract.rs`. The files are in
-`crates/ui-api/kit/`. Import a kit file by its path: `"kit/button.slint"` from the
-shell, `"../kit/button.slint"` from a screen or a component.
+The kit is the shared Slint files the host serves under `kit/`, beneath the theme's own files.
+The list is `KIT` in `crates/ui-api/src/contract.rs`. The files are in `crates/ui-api/kit/`.
+Import a kit file by its path: `"kit/button.slint"` from the shell, `"../kit/button.slint"` from
+a screen or a component.
 
-Three rules hold for every kit file. Tests in `contract.rs` check them:
+Tests in `contract.rs` hold every kit file to three rules:
 
 - It draws only from tokens. No hex color is in a kit file.
-- It imports only the host's files (`../types.slint`, `../tokens.slint`, `../brand.slint`), Slint's
-  `std-widgets.slint` (for `AboutSlint`) and other kit files,
-  by bare name.
+- It imports only the host's served files, Slint's `std-widgets.slint` and other kit files.
 - It passes the same rules as a theme's files (see [Rules the host checks](#rules-the-host-checks)).
 
 | File | Exports | What it gives |
 | --- | --- | --- |
-| `backup-browser.slint` | `Browser`, `BackupBrowser` | "Restore from another folder": a sheet with places, folders and backups, details, its own keys and one dialog before a restore. One click opens a place or a folder, or asks to restore a backup. |
+| `backup-browser.slint` | `Browser`, `BackupBrowser` | The backup browser: places, folders and backups, details, its own keys, and one dialog before a restore. |
 | `button.slint` | `Button` | A small round button. Primary and the current choice are white; others light up on hover and focus. |
-| `closing.slint` | `Closing`, `ClosingScreen` | Covers the screen while Log out, Restart or Shut down closes what runs. While a step closes a game (`Vm.closing-game`), it shows that game as its launch did: art, cover, title and "Closing…". For any other step (`Vm.closing`), it shows Marah Launcher as the boot screen does: the drifting wall of covers, the emblem and the step. Set `logo` to your emblem (`Assets.logo`). It takes every key: hide your key hints while `Closing.shows`. |
+| `closing.slint` | `Closing`, `ClosingScreen` | Covers the screen while Log out, Restart or Shut down closes what runs. It takes every key: hide your key hints while `Closing.shows`. |
 | `commands.slint` | `Commands` | One function for each thing the player asks of the core. |
-| `cover-wall.slint` | `CoverWall` | A slowly drifting wall of the library's covers, dimmed, as the boot and closing screens show it. `on` stops it. |
-| `downloads.slint` | `Dl`, `DownloadsPage` | The Downloads screen, its keys, and its install and remove sheets. |
-| `game-detail.slint` | `Hub`, `GameDetailPage` | The Game Hub: buttons, releases, fact cards, technical details, screenshots, the download sheet. |
-| `game-menu.slint` | `GameMenu`, `MenuRow`, `GameMenuSheet` | A game's options menu, with Uninstall asking first. |
-| `game-settings.slint` | `GameSettingsPage` | One game's own settings, from its emulator: one page like Settings (`SettingsFrame`), with the game's name in the header bar. |
-| `game-stage.slint` | `GameStage` | A game on the whole screen, as its launch and its closing show it: its art dimmed behind its cover, its title, a line, what you add as children, and a turning ring. |
-| `games.slint` | `Games` | The games on screen (the Library's or the Catalog's view, else Home's) and the theme's own selection of one: `select` moves it at once, `ShellKeys` sends it to the core `Look.select-after` after the last move, and it follows the core when the core's selection changes for another reason (`core-moved`). `select-now` selects at once, for a click. The search, filters, sort and next page of the view on screen (`search`, `system`, `genre`, `sort`, `more`), its sorts (`sorts`, `sort-index`), and a card's eye (`hide`) and main action (`act`). |
+| `cover-wall.slint` | `CoverWall` | A slowly drifting wall of the library's covers, dimmed, as the boot and closing screens show it. |
+| `downloads.slint` | `Dl`, `DownloadsPage` | The Downloads screen, its keys, the download sheet, and the install and remove sheets. |
+| `game-detail.slint` | `Hub`, `GameDetailPage` | The Game Hub: buttons, releases, fact cards, technical details and screenshots. |
+| `game-menu.slint` | `GameMenu`, `MenuRow`, `GameMenuSheet` | A game's menu, with Uninstall asking first. |
+| `game-settings.slint` | `GameSettingsPage` | One game's own settings, on the same frame as Settings (`SettingsFrame`). |
+| `game-stage.slint` | `GameStage` | A game on the whole screen, as its launch and its closing show it: its art, its cover, its title and a turning ring. |
+| `games.slint` | `Games` | The games on screen and the theme's own selection of one. `select` moves it at once, `ShellKeys` sends it to the core `Look.select-after` after the last move, and `select-now` selects at once, for a click. Also the search, filters, sort and next page of the grid on screen, and a card's eye (`hide`) and main action (`act`). |
 | `icon.slint` | `Icon` | The launcher's icons, drawn as paths. |
-| `install-os.slint` | `Setup`, `InstallOs` | Marah OS's USB stick: welcome, the disks, the question before erasing, progress. |
+| `install-os.slint` | `Setup`, `InstallOs` | The OS's USB stick: welcome, the disks, the question before erasing, progress. |
 | `install-prompt.slint` | `Prompt`, `InstallPrompt` | The prompt to install an emulator before a first play. |
-| `question-prompt.slint` | `Question`, `QuestionPrompt` | A plugin's question at the start, such as "Install Switch firmware 22.5.0?", with its two buttons. |
-| `keyboard.slint` | `Osk`, `TextField`, `OnScreenKeyboard` | A text field, and the on-screen keyboard it opens for a controller. A field with `picking` shows a row of picks over the keys (a search's `matches`, or its `recent` searches) and gets `picked(index)` for the one pressed. |
-| `lingering.slint` | `Lingering` | Keeps a sheet on screen while it slides out. |
+| `keyboard.slint` | `Osk`, `TextField`, `OnScreenKeyboard` | A text field, and the on-screen keyboard it opens for a controller. A field with `picking` shows a row of picks over the keys, such as a search's matches or recent searches. |
+| `lingering.slint` | `Lingering` | Keeps a screen or a sheet on screen while it goes out. |
 | `list-item.slint` | `ListItem` | A row: a label, a line under it, a value at the end. |
-| `look.slint` | `Look` | Shared sizes (`k`, `px`, `tpx`), `rtl`, colors made from tokens, `timed`, `motion-on` and `clock` (the time for what moves on its own, still with Animations off), the kinds of motion (`enter`, `fade` and `emphasis`, each a `-time` and an `-easing`, and `stagger`; what leaves runs its way in backwards), and words and colors for ratings, results, sorts and states. |
-| `notices.slint` | `Notices`, `NoticeStack` | The notices on screen; Delete closes the newest. |
+| `look.slint` | `Look` | Shared sizes (`k`, `px`, `t`, `tpx`), `rtl`, colors made from tokens, `timed`, `motion-on`, `clock`, the kinds of motion, and words and colors for ratings, results, sorts and states. |
+| `notices.slint` | `Notices`, `NoticeStack` | The notices on screen. Delete closes the newest. |
 | `origin.slint` | `Origin` | The card the Game Hub opens from, for its cover to grow out of it. |
 | `plugin-list.slint` | `PluginList`, `PluginListSheet` | The Emulators or Themes list as a side sheet, and its keys. |
-| `plugin.slint` | `PluginPage` | One plugin's sheet, one page like Settings (`SettingsFrame`): General (on or off, builds, actions, blocks), one section for each settings panel, then folders; for a theme, "Use this theme" and its options. |
-| `pop.slint` | `Pop` | A pop-up: a wash over the screen and a card in its middle that fades in and grows into place. Its rows go inside; `dismissed` is a click on the wash. |
-| `power-menu.slint` | `PowerMenu`, `PowerMenuSheet` | Log out, Restart Marah Launcher, Restart, Shut down, or Quit Marah Launcher. |
+| `plugin.slint` | `PluginPage` | One plugin's page, on `SettingsFrame`. For a theme, "Use this theme" and its options. |
+| `pop.slint` | `Pop` | A pop-up: a wash over the screen and a card in its middle. |
+| `power-menu.slint` | `PowerMenu`, `PowerMenuSheet` | The power menu: Log out, restart the launcher, Restart, Shut down, or quit. |
 | `progress-bar.slint` | `ProgressBar` | A thin progress bar. |
+| `question-prompt.slint` | `Question`, `QuestionPrompt` | A plugin's question at the start, with its two buttons. |
 | `result-prompt.slint` | `Ask`, `ResultPrompt` | "How far did it get?" after a game closes. |
-| `send-ratings.slint` | `Sending`, `SendRatings` | Send ratings, from Settings: the ratings that wait, to pick from, then each picked report in full with where it goes, and Open in browser or Skip. |
-| `reveal.slint` | `Reveal` | How far something has come in, as `move` and `fade` from 0 to 1, for a site to bind to its position and opacity. It comes in after its first frame and goes back out when `open` turns false. Its times and easings default to `Look`'s `enter` and `fade` kinds. |
-| `settings-frame.slint` | `Sections`, `PageScroll`, `SectionHead`, `PageSection`, `SettingsFrame` | The frame that Settings, a plugin's page and a game's own settings share: the header bar (Back, the title in the middle, a line, a note), the rail of the sections' icons when there are two or more, and the page of `PageSection`s, each under its icon and name. A jump to a section scrolls its header into view; the rail follows the page the mouse wheel scrolls. |
+| `reveal.slint` | `Reveal` | How far something has come in, as `move` and `fade` from 0 to 1. It comes in after its first frame and goes back out when `open` turns false. |
+| `send-ratings.slint` | `Sending`, `SendRatings` | Send ratings: the ratings that wait, then each picked report in full. |
+| `settings-frame.slint` | `Sections`, `PageScroll`, `SectionHead`, `PageSection`, `SettingsFrame` | The frame that Settings, a plugin's page and a game's own settings share: the header bar, the rail of section icons when there are two sections or more, and the page of sections. |
 | `settings-layout.slint` | `LauncherRows`, `DownloadsRows`, `SystemRows`, `BackupRows`, `PowerRows` | Where each row of a Settings section is, so the keys know where to stop. |
-| `settings-page.slint` | `SettingsPage` | Settings as a side sheet on `SettingsFrame`: one page of every section, each under its icon and name, with a rail of the sections' icons on the near side (`RailTab`) that lights the focused section. Down from a section's last row goes into the next section, Up from its first row into the one before; L1, R1 and the rail jump to a section and scroll its header into view. In the rail, Up and Down choose a section and the key toward the rows (Right; Left from right to left), Return or Space goes in; Up from the very first row comes back, and a held Up stops there. This PC, with no rows to focus, is passed by Up and Down; a jump to it reads it: Up and Down scroll the page and the key away from the rows comes back. A dot by the Updates icon says a launcher update is there to get or ready (`update-dot`). Set `logo` to your emblem for This PC's About card. |
-| `settings-rows.slint` | `Prefs`, `RailTab`, `Tab`, `Header`, `Row`, `Value`, `Editor`, `FieldRow`, `FolderRow` | The rows of a settings sheet, and where the keys are in it. The kit's sheets use the rail (`RailTab`); `Tab` stays for themes that draw tabs. |
-| `settings-sections.slint` | `GamesSection`, `UpdatesSection`, `LauncherSection`, `DownloadsSection`, `PcSection`, `SystemSection`, `BackupSection`, `PowerSection` | The rows of each Settings tab. |
+| `settings-page.slint` | `SettingsPage` | Settings as a side sheet on `SettingsFrame`, with the rail that lights the focused section. Set `logo` to your emblem for the About card of This PC. |
+| `settings-rows.slint` | `Prefs`, `Tab`, `RailTab`, `Header`, `Row`, `Value`, `Editor`, `FieldRow`, `FolderRow` | The rows of a settings sheet, and where the keys are in it. The kit's sheets use the rail (`RailTab`); `Tab` stays for themes that draw tabs. |
+| `settings-sections.slint` | `GamesSection`, `UpdatesSection`, `LauncherSection`, `DownloadsSection`, `PcSection`, `SystemSection`, `BackupSection`, `PowerSection` | The rows of each Settings section. |
 | `sheet-frame.slint` | `SheetFrame` | A side sheet: the wash behind and the panel that slides in. A click on the wash goes back. |
-| `shell.slint` | `Screens`, `ShellKeys`, `Overlays`, `ShellHints`, `Hint` | The shell's keys in the order every theme answers them (`ShellKeys`, a `FocusScope` around the screens, which also starts the kit's pages afresh on a new screen), the key hints for what is up (`ShellHints.pick`, a list of `Hint`; the theme gives its own Home hints), what opens over the screens (`Overlays`: the prompts, the game menu, a trailer, the screenshot viewer, the backup browser, Install OS, the power menu and the closing screen), which kind of screen is up (`Screens.home`, `.list`, `.sheet`), and the side a screen moves on (`Screens.side(leaving)`, from `Vm.nav-direction`). |
+| `shell.slint` | `Hint`, `ShellHints`, `Screens`, `ShellKeys`, `Overlays` | The shell's keys (`ShellKeys`), the key hints (`ShellHints.pick`), what opens over the screens (`Overlays`), which kind of screen is up (`Screens.home`, `.list`, `.sheet`), and the side a screen moves on (`Screens.side(leaving)`). |
 | `shot-viewer.slint` | `Viewer`, `ShotViewer` | A game's screenshots, full screen. |
 | `slot-actions.slint` | `SlotActions` | Plugin actions as round buttons. |
 | `slot-badges.slint` | `SlotBadges` | Plugin badges as small tags with a dot in their tone. |
 | `slot-sections.slint` | `SlotSections` | Plugin sections as fact cards. |
-| `system-panel.slint` | `Sys`, `NetIcon`, `SoundIcon`, `BluetoothIcon`, `BatteryIcon`, `SystemSheet` | Network, sound and Bluetooth icons and panels, for when Marah Launcher is the whole screen, and the battery. |
+| `system-panel.slint` | `Sys`, `NetIcon`, `SoundIcon`, `BluetoothIcon`, `BatteryIcon`, `SystemSheet` | The network, sound and Bluetooth icons and panels for when the launcher is the whole screen, and the battery. |
 | `trailer-player.slint` | `Trailers`, `TrailerPlayer` | A trailer in the window, with its keys. |
 | `widgets.slint` | `FocusRing`, `KeyCap`, `BackButton`, `Stars`, `Chip`, `Pill`, `Kicker`, `Switch`, `Shimmer`, `Cover` | Small widgets. |
 
 ### What a shell does for the kit
 
-The kit's pages and sheets have no keys of their own. Each has a global with a `key` function,
-and the shell sends it the keys. `ShellKeys` (`kit/shell.slint`) does this for every theme: put
-your screens inside it and give it the focus (`forward-focus`). It answers the keys in this
-order:
+The kit's pages and sheets have no keys of their own. Each one has a global with a `key`
+function, and the shell sends it the keys. `ShellKeys` (`kit/shell.slint`) does this for every
+theme: put your screens inside it and give it the focus (`forward-focus`).
 
-- `Browser.key(event.text, event.repeat, event.modifiers.control)` first while `Browser.open`,
-  then `Osk.key(...)` while `Osk.open`;
-- `PowerMenu.key`, `Setup.key`, `Sys.key`, `Trailers.key`, `Ask.key`, `GameMenu.key`,
-  `Viewer.key`, `Prompt.key` while each is open;
-- `Prefs.key` on a settings sheet, `PluginList.key` on Emulators and Themes, `Hub.key` on the
-  Game Hub, `Dl.key` on Downloads.
+`ShellKeys` answers the keys in this order and stops at the first that takes the key:
 
-`ShellKeys` also runs the timer that sends a key move among the games to the core
-(`Games.send`), and moves the cursor back to the core's selection when that changes
+1. Before any element sees the key: the closing screen takes every key. Then the backup browser
+   (`Browser.key`), Send ratings (`Sending.key`) and the on-screen keyboard (`Osk.key`), while
+   each is open. Ctrl+P, for the power menu, still gets past the first two.
+2. A held Enter does nothing: it would play, download or install a second time.
+3. The power menu (`PowerMenu.key`), and Ctrl+P to open it.
+4. A plugin's question at the start (`Question.key`), the Welcome screen, and the boot screen
+   while the start's installs run.
+5. The OS installer (`Setup.key`) and a machine panel (`Sys.key`).
+6. The launch splash, while it lists the game's keys (`splash-keys`): it takes every key but
+   Escape and Ctrl+Q.
+7. Delete closes the newest notice.
+8. The trailer (`Trailers.key`), the result prompt (`Ask.key`), the game's menu
+   (`GameMenu.key`), the screenshot viewer (`Viewer.key`), and your list of sorts (`sort-key`
+   while `sort-open`).
+9. Menu opens the game's menu while `game-keys` is set.
+10. The install prompt (`Prompt.key`).
+11. Ctrl+Q quits. Ctrl+D opens Downloads.
+12. Your `theme-key`: a search key, a trailer key, your own top bar.
+13. L1 and R1 (Shift+Tab and Tab): on a sheet with a rail, the section before or after; else
+    the screen before or after, in the order Home, Catalog, Downloads, Emulators, Themes,
+    Settings.
+14. Your `screen-key`: your own screens, such as a row on Home.
+15. The kit's pages: `Prefs.key` on a settings sheet, `PluginList.key` on Emulators and Themes,
+    `Hub.key` on the Game Hub, `Dl.key` on Downloads.
+16. Escape or Backspace goes back, with the `back` sound except on Home.
+
+`ShellKeys` also runs the timer that sends a move among the games to the core (`Games.send`),
+and moves the cursor back to the core's selection when that changes for another reason
 (`Games.core-moved`).
 
 When `Vm.screen` changes, `ShellKeys` starts the kit's pages afresh: the Game Hub on its first
 button (`Hub.reset`), Downloads on its first row (`Dl.reset`), a settings sheet on its first row
-(`Prefs.reset`), the game menu and the screenshot viewer closed. It then calls `screen-changed`,
-where your theme sets its own focus for the new screen, and takes the keys back. To open the
-Game Hub on its releases, set `Hub.to-releases` before you open it.
+(`Prefs.reset`), and the game menu and the screenshot viewer closed. It then calls
+`screen-changed`, where your theme sets its own focus for the new screen. To open the Game Hub
+on its releases, set `Hub.to-releases` before you open it.
+`plugins/themes/default/theme/shell.slint` shows each callback in use.
 
-Your theme answers the keys only it knows in three callbacks: `sort-key` while `sort-open`,
-`theme-key` before the sheets' tabs (a search key, a trailer key, your own top bar) and
-`screen-key` for your own screens, such as a Home row. Set `game-keys` while a game's page or
-card is up, so Options opens the game menu, and `splash-keys` while the launch splash lists the
-game's keys. `plugins/themes/default/theme/shell.slint` shows each one.
+The shell also does these things:
 
-Put `Overlays` over your screens, the size of the window, with `logo` set to your emblem: it
-shows each sheet while it is open.
+- Put `Overlays` over your screens, the size of the window, with `logo` set to your emblem. It
+  shows the prompts, the game menu, the trailer, the screenshot viewer, the backup browser, the
+  OS installer, the power menu and the closing screen while each is open.
+- Put `QuestionPrompt` over your boot screen while `Vm.has-question`. The start waits for the
+  answer, and `ShellKeys` gives it every key. A theme without it leaves the player unable to
+  answer.
+- Keep a screen on screen while it goes out with a `Lingering` (`open: Vm.screen ==
+  "library"`): show it while `shown`, and pass it `open`. The kit's Game Hub and Downloads pages
+  fade out while `open` is false. Put an empty `TouchArea` over a screen that is going, so a
+  click on it does nothing.
+- Read the side a screen moves on with `Screens.side(leaving)` when the screen opens and when it
+  starts to leave, and keep it for that move. Back then mirrors a forward move.
+- Set `Look.window-height` from the window's height, so the first frame has the right size.
 
-Put `QuestionPrompt` over your boot screen, the size of the window, while `Vm.has-question`:
-a plugin's question at the start comes up while the boot screen is, and `ShellKeys` gives it
-every key until it is answered. A theme without it leaves the player unable to answer.
-
-A screen can go out as the next comes in. Keep it with a `Lingering` (`open: Vm.screen ==
-"library"`), show it while `shown`, and pass it `open`: the kit's Game Hub and Downloads pages
-fade out while `open` is false. `Vm.nav-direction` says which way the screens moved, `forward`
-or `back`; `Screens.side(leaving)` turns it into the side a screen moves on, so Back mirrors a
-forward move. Read the side when the screen opens and when it starts to leave, and keep it for
-that move. Put an empty `TouchArea` over a screen that is going, so a click on it does nothing.
-
-The shell also sets `Look.window-height` from the window's height so the first frame has the
-right size. `tests/fixtures/themes/fixture-grid/shell.slint` is a shell of its own layout that
-does no more than this.
+`tests/fixtures/themes/fixture-grid/shell.slint` is a shell with a layout of its own that does
+no more than this.
 
 ### Replacing a kit file
 
-Ship a file at the same path, for example `kit/commands.slint`. The host serves the kit first,
-then the theme's files over it, so the theme's copy wins (`ResolvedTheme::slint_sources`). Every
-file that imports it, the kit's own included, gets the theme's copy. The theme's copy is checked
-as a theme file, not as a kit file, so it may use hex colors. Keep its exports: a kit file that
-imports it still needs them, or the theme doesn't compile.
+Ship a file at the same path, for example `kit/commands.slint`. The host lays the kit down
+first, then the theme's files over it, so the theme's copy wins (`ResolvedTheme::slint_sources`
+in `crates/ui-host/src/themes.rs`). Every file that imports it, the kit's own included, gets the
+theme's copy.
+
+- The host checks the theme's copy as a theme file, not as a kit file, so it may use hex colors.
+- Keep its exports. A kit file that imports it still needs them, or the theme doesn't compile.
 
 A kit file that gains a member another kit file uses is a breaking change for a theme with its
-own copy, so the contract's minor version goes up. Version 0.5.0 added `Hub.reset()` and
-`Hub.to-releases` to `kit/game-detail.slint`: the kit's `ShellKeys` and `Games` use them. A
-theme with its own copy of that file adds both, then sets `ui_api = "^0.5"`. A theme that still
-says `^0.4` is refused with `ThemeError::UiApi` before it compiles.
+own copy, so the contract's minor version goes up. For example, version 0.5.0 added
+`Hub.reset()` and `Hub.to-releases` to `kit/game-detail.slint`, which the kit's `ShellKeys`
+and `Games` use. A theme with its own copy of that file adds both, then sets
+`ui_api = "^0.5"`.
 
-Version 0.5.1 added `line-text` and `not-here-text` to `Release`: the core words a release
-row's second line and the download sheet's note on a release this computer can't start. It only
-adds fields, so a theme on `^0.5.0` still loads.
+Version 0.5.1 added `line-text` and `not-here-text` to `Release`. It only adds fields, so a
+theme on `^0.5.0` still loads.
 
 ## Tokens
 
 A token is a named design value. Slint reads it as `Tokens.<name>`. The list and the defaults
-are `TOKENS` in `crates/ui-api/src/tokens.rs`. A theme sets only the tokens it changes in
-`[theme.tokens]`. The defaults are the Classic look. A name that isn't in the list fails the load
+are `TOKENS` in `crates/ui-api/src/tokens.rs`. The defaults are the Classic look. A theme sets
+only the tokens it changes, in `[theme.tokens]`. A name that isn't in the list fails the load
 with `no such token`.
 
 | Token | Kind | Default |
@@ -567,7 +463,7 @@ with `no such token`.
 | `motion-slow` | duration | `420` |
 | `layout-direction` | text | `ltr` |
 
-What the newer color tokens are for, from the comments in `tokens.rs`:
+The comments in `tokens.rs` say what some tokens are for:
 
 - `color-panel`: deeper than the surface: sheets, hints, the backs of panels.
 - `color-text-faint`: less than muted: hints and the third line of a row.
@@ -576,12 +472,12 @@ What the newer color tokens are for, from the comments in `tokens.rs`:
 - `color-caution`: between success and warning: a game that reaches its menus.
 - `color-tint`, `color-shade`: light and dark marks laid over anything, at an alpha the kit
   picks.
-- `layout-direction`: `"ltr"` or `"rtl"`. `Look.rtl` reads it.
+- `layout-direction`: `"ltr"` or `"rtl"`, which side a theme puts its leading edge on.
+  `Look.rtl` reads it.
 
-The kit sizes everything as `N * Look.px`, which follows the window and the player's "Size of
-everything", so there are no tokens for sizes, spaces, radii or shadows: write them in your own
-files. Version 0.4.0 of the contract took out the size tokens that version 0.3.0 had, which no
-kit file read.
+There are no tokens for sizes, spaces, radii or shadows. The kit sizes everything as
+`N * Look.px`, which follows the window and the player's "Size of everything". Write those
+values in your own files.
 
 Write each kind in `theme.toml` as `TokenValue::parse` reads it:
 
@@ -593,16 +489,17 @@ Write each kind in `theme.toml` as `TokenValue::parse` reads it:
 
 A value of the wrong kind fails the load with `ThemeError::Token`, which names the token.
 
-The kit's animations use the motion tokens or `Look.timed(...)`. "Animations" is the launcher's
-own setting (Settings → Launcher, `Vm.animations`): off, the host sets every motion token to 0,
-whatever the theme set. `Look.timed` gives 0 too, so "Animations: Off" cuts every move. What moves on its own, such as a
-turning ring or a drifting wall of covers, reads the time from `Look.clock`, never from
-`animation-tick()`: `Look.clock` stands still with Animations off.
+**Animations.** "Animations" is the launcher's own setting (Settings → Launcher,
+`Vm.animations`). With it off, the host sets every motion token to 0, whatever the theme set,
+and `Look.timed(...)` gives 0 too. So use the motion tokens or `Look.timed` for every animation
+time. What moves on its own, such as a turning ring or a drifting wall of covers, reads the time
+from `Look.clock`, never from `animation-tick()`: `Look.clock` stands still with Animations off.
+Don't offer an Animations option of your own.
 
 ## Options
 
-An option is a setting the player changes on the theme's page. It sets tokens. Option names
-use lowercase letters, digits and `-`, and start with a letter.
+An option is a setting the player changes on the theme's page. It sets tokens. Option names use
+lowercase letters, digits and `-`, and start with a letter.
 
 A choice option sets a group of tokens for each choice. For example, a theme that offers a
 calmer pace:
@@ -622,8 +519,6 @@ motion-normal = 400
 motion-slow = 640
 ```
 
-Don't offer an Animations on/off option: the launcher has one for every theme.
-
 A color option sets one color token. From `tests/fixtures/themes/fixture-grid/theme.toml`:
 
 ```toml
@@ -635,20 +530,20 @@ default = "#0f9d8a"
 ```
 
 `hidden = true` keeps an option out of the Settings list. It still works when something else
-sets it. Both built-in themes hide "Layout direction", because the right-to-left layout is not
-finished.
+sets it.
 
-How the values apply (`merge` in `theme.rs`):
+How the values apply (`merge` in `crates/ui-api/src/theme.rs`):
 
 - Until the player sets an option, the theme's own `[theme.tokens]` (or the defaults) stay.
   `default` only says what `Options` holds.
 - Once the player sets an option, its tokens go over the theme's.
-- A color value that doesn't read leaves the token as it was, with a warning in the log.
+- A color value that doesn't read leaves the token as it was, and the log says
+  `theme option ignored`.
 - An unknown choice sets no tokens. `Options` then holds the default.
 
 `Vm.theme-options` lists the shown theme's options as fields. `Commands.set-theme-option(key,
 value)` sets one. A change sets `Tokens` and `Options` again on the running theme, with no
-recompile.
+compile.
 
 A theme reads its option values from the `Options` global. Cut down from the test
 `a_theme_reads_its_option_values_from_the_options_global` in `tests/tests/seams/themes.rs`:
@@ -679,11 +574,14 @@ always holds, so put it last. When none holds, the name is `""`.
 The built-in themes have `compact` (`max_width = 900`) and then `regular`.
 
 `Vm.viewport` holds `width`, `height`, `scale` (the screen's pixel density), `aspect`,
-`breakpoint`, and `size`. `size` is the player's "Size of everything", from 0.8 to 1.4, where 1
-is the theme's own size (`MIN_SCALE` and `MAX_SCALE` in `crates/core/src/preferences.rs`).
-The `MARAH_SCALE` environment variable sets it for one run. A theme that doesn't multiply its
-sizes by `size` ignores the setting. The kit's `Look.k` does it: `Look.k` maps a 1920×1080
-canvas to the window, times `size`. Write a size as `N * Look.px` for N pixels at 1080p.
+`breakpoint` and `size`. `size` is the player's "Size of everything", from 0.8 to 1.4, where 1
+is the theme's own size (`MIN_SCALE` and `MAX_SCALE` in `crates/core/src/preferences.rs`). An
+environment variable can set it for one run: see
+[Troubleshooting](../players/troubleshooting.md).
+
+A theme that doesn't multiply its sizes by `size` ignores the setting. The kit's `Look.k` does
+it: it maps a 1920×1080 canvas to the window, times `size`. Write a size as `N * Look.px` for N
+pixels at 1080p.
 
 ## Keys and the gamepad
 
@@ -705,24 +603,24 @@ controller does.
 | Left trigger (L2) | `Key.PageUp` |
 | Right trigger (R2) | `Key.PageDown` |
 
-The Guide button (PS, Xbox or Logitech) is not a key:
+The Guide button (PS or Xbox) is not a key:
 
 - A tap sends `Navigate` to `Home`. While a game runs, a tap does nothing.
-- Held for 600 ms (`GUIDE_HOLD` in `crates/app/src/gamepad.rs`), it stops the running
-  games. With no game running, it adds one to `Vm.power-menu`. A theme opens its power menu when
-  that number changes.
+- Held for 600 ms (`GUIDE_HOLD` in `crates/app/src/gamepad.rs`), it stops the running games.
+  With no game running, it adds one to `Vm.power-menu`. A theme opens its power menu when that
+  number changes.
 
-While a game's window is in front, or Marah Launcher's window has no focus, the other buttons do
+While a game's window is in front, or the launcher's window has no focus, the other buttons do
 nothing.
 
 A held button or stick repeats after 380 ms, then every 85 ms (`gamepad.rs`). A repeat comes as
 a repeated key press, so `event.repeat` is true. Ignore repeats of Enter: a held ✕ would play,
-download or install again.
+download or install again. `ShellKeys` does this.
 
-`Vm.pad-key` is true while the host delivers a controller's key, and false for a keyboard's. The
-kit's text fields open the on-screen keyboard only for a controller. `Vm.input-mode` is the first
-entry of `input` at start, and `gamepad` once a controller button comes in. `Vm.pad-name` is the
-controller's name, empty for none.
+`Vm.pad-key` is true while the host delivers a controller's key, and false for a keyboard's.
+The kit's text fields open the on-screen keyboard only for a controller. `Vm.input-mode` is the
+first entry of `input` at start, and `gamepad` once a controller button comes in.
+`Vm.pad-name` is the controller's name, or empty for none.
 
 ## Images, fonts, sounds and system art
 
@@ -753,18 +651,18 @@ error = "sounds/error.wav"
 start = "sounds/start.wav"
 ```
 
-**Images.** Each name becomes `Assets.<name>`. A name uses lowercase letters, digits and `-`,
-and starts with a letter. The host decodes PNG and JPEG, and shrinks an image to fit 1920×1080
-(`MAX_WIDTH`, `MAX_HEIGHT` in `crates/ui-host/src/images.rs`). A missing or broken image
-stops the load with `ThemeError::Asset`. Game art comes from `Vm` (`GameCard.cover` and the
-like), not from `Assets`.
+**Images.** Each name becomes `Assets.<name>`. A name uses lowercase letters, digits and `-`.
+The host decodes PNG and JPEG, and shrinks an image to fit 1920×1080 (`MAX_WIDTH` and
+`MAX_HEIGHT` in `crates/ui-host/src/images.rs`). A missing or broken image stops the load with
+`ThemeError::Asset`. Game art comes from `Vm` (`GameCard.cover` and the like), not from
+`Assets`.
 
-**Fonts.** The host registers each font file, through imports in the served `tokens.slint`. Set
+**Fonts.** The host registers each font file through imports in the served `tokens.slint`. Set
 `font-family` to the family name inside the files, such as `"Inter"`. A font path must stay
 inside the theme folder. A built-in theme has no folder, so the host writes its fonts once to
 `launcher-fonts/<theme>/` in the system's temp folder.
 
-**Sounds.** A sound's name is what `Host.play-sound(name)` takes. Marah Launcher plays WAV and Ogg
+**Sounds.** A sound's name is what `Host.play-sound(name)` takes. The launcher plays WAV and Ogg
 Vorbis (the `rodio` features in the workspace `Cargo.toml`). The host plays nothing when the
 player turned sounds off or the name isn't declared. The theme gets no error. The built-in
 themes play `move`, `select`, `back`, `error` and `start`.
@@ -785,127 +683,20 @@ stays when another emulator plays the system.
 
 ## Rules the host checks
 
-Before compiling, the host checks each of the theme's `.slint` files with `contract::lint`
-(`crates/ui-api/src/contract.rs`). A file that breaks a rule stops the load with
-`ThemeError::File`, which names the file.
+Before it compiles, the host checks each of the theme's `.slint` files with `contract::lint`
+(`crates/ui-api/src/contract.rs`). Comments don't count. A file that breaks a rule stops the
+load with `ThemeError::File`, which names the file.
 
 - No `@image-url`. Show images from `Assets`, from `Vm`, or from slot icons.
 - Every `import` and `export ... from` names a `.slint` file. A font import is refused: list
   fonts in `theme.toml`.
-- A screen file exports its component under the name in [the table](#the-folder). `shell.slint`
+- A screen file exports its component under the name in [the table](#screens). `shell.slint`
   exports `Shell`.
 
-Comments don't count when the rules are checked.
-
-The host also refuses a theme that ships a [served file](#the-files-the-host-serves), or misses
-the shell or a screen.
+The host also refuses a theme that ships a [served file](#the-files-the-host-serves), or that
+misses the shell or a screen.
 
 The compiler serves the files from a virtual folder, `/launcher-theme` (`VFS_ROOT` in
-`crates/ui-host/src/compile.rs`). It reads nothing from disk under it. An import that
-leaves the folder fails with `outside the theme`. A compile error stops the load with
-`ThemeError::Compile`, which lists each error as `file:line:column: message`.
-
-## Dev mode
-
-Run Marah Launcher with `--dev` to see edits as you save them. Every 250 ms (`TICK` in
-`crates/ui-host/src/shell.rs`), the host compares the newest change time of the theme's
-files with the last load. When it changed, the host loads the theme again.
-
-- An edit that doesn't load keeps the last good version on screen. The log says
-  `theme edit doesn't load; keeping the last good version`. The host doesn't try again until a
-  file changes.
-- Markup, images, fonts and sounds reload. `theme.toml` doesn't: the host read it at start.
-  Restart Marah Launcher after you change it.
-- The built-in themes don't reload: they have no folder on disk.
-
-`--theme <id>` shows a theme for this run without saving it.
-
-## Switching, the fallback theme and safe mode
-
-The player switches theme on the Themes screen. A theme can do the same with
-`Host.switch-theme(id)`. The kit's `PluginPage` calls it for "Use this theme".
-
-A switch (`ThemeHost::switch` in `crates/ui-host/src/host.rs`) reads the theme and its
-option values, decodes its images, sounds and system art, compiles it, makes the new instance
-in the same window and binds the view. Then the core saves the choice, and the new theme shows.
-A failure at any step leaves the old theme on screen. The log says
-`the theme's request failed`. The player sees no message. Navigation, downloads and running
-games stay: they are in the core, not in the theme.
-
-The fallback theme is the one installed theme with `fallback = true`. Default is that theme.
-The host starts it when the player chose none, and when the chosen theme fails to load. The
-Themes list shows it first. No theme, or more than one, with `fallback = true` stops the start
-with `ThemeError::Fallback`. When more than one sets it, the error names them. So a folder theme must not set it.
-
-`--safe-mode` loads no theme folder and shows the fallback theme only. A switch to another theme
-fails with `safe mode shows the fallback theme only`.
-
-## Testing a theme
-
-Tests drive a theme the way a player does, through `ThemeDriver` in
-`crates/testkit/src/driver.rs`. It finds elements by their accessible label and value,
-sends keys and clicks, and moves Slint's clock. It never reads `Vm` or calls the theme's
-callbacks. So give each element a test needs an `accessible-label`.
-
-| Step | Does |
-| --- | --- |
-| `count(label)`, `first(label)` | How many elements have the label, or the first. |
-| `value(label)`, `values(label)`, `description(label)` | Read accessible values. |
-| `focused(label)`, `lit(label)` | Which elements show as focused. |
-| `press(label, value)`, `press_first(label)` | Run an element's default action. |
-| `click(label)` | A mouse click in the middle of the element. |
-| `tap(key)`, `navigate(key)` | Send a key. `navigate` also carries out what the theme asked. |
-| `type_text(text)` | Type characters. |
-| `settings_tab(name)` | Jump to a Settings section, with the focus on the rail. |
-| `settle()`, `wait(duration)` | Move Slint's clock on. |
-
-The seam tests are in `tests/tests/seams/` (package `launcher-tests`, test binary `seams`):
-
-- `every_theme.rs` runs one suite against every built-in theme (`THEMES`): every screen renders,
-  the Settings tabs and rows, the Backup tab, the on-screen keyboard, and the backup browser's
-  keys, filter, restore dialog and mouse. `THEMES` lists the two built-in themes.
-- `themes.rs` covers loading and the rules: the fallback theme, a theme's own card and token,
-  refused `extends`, a missing screen, a wrong `ui_api`, imports out of the folder,
-  `@image-url` and font imports, served files, a wrong export, the `Options` global, kit
-  replacement, and exactly one fallback.
-- `classic_theme/` and `default_theme/` test each built-in theme's own screens and files.
-  `kit_in_default/` runs the Classic tests of the kit's pages (Settings, Downloads, the on-screen
-  keyboard, Emulators and Themes) in the Default theme too: the same files, with a `composed`
-  that starts Default. Tests that read Classic's own screens are in `classic_theme/classic_only.rs`.
-  `theme_files.rs` in each checks that every animation time goes through `Look.timed`.
-- `motion.rs` checks the same for the kit, that no kit or theme file reads
-  `animation-tick()` outside `Look.clock`, and that only `Reveal` waits for a first frame
-  (a 16 ms timer elsewhere fails).
-- `text_fit.rs` checks that a `Text` with a fixed font size fits the fixed height of the
-  element it is in (a line is about 1.2 times its font size), in the kit and each built-in
-  theme.
-
-`write_theme` in `tests/tests/seams/common/mod.rs` writes a test theme: a copy of Default's
-files under a new id, with your `[theme]` lines and files over it.
-
-Run the theme tests:
-
-```sh
-cargo test -p launcher-tests --test seams themes::
-cargo test -p launcher-tests --test seams every_theme::
-```
-
-Render every screen offscreen to PNG files in `target/tmp/screenshots/`:
-
-```sh
-cargo test -p launcher-tests --test seams screenshots::
-```
-
-`make check` runs the format check, clippy and every test, as CI does.
-
-## Limitations
-
-- `navigation` is read into the merged theme, but no host code reads it.
-- Only the first `input` entry is used, at start. The host never sets `touch`. After the first
-  controller button, `Vm.input-mode` stays `gamepad` until Marah Launcher restarts.
-- The host doesn't check that slot items set `accessible-label`.
-- Dev mode doesn't read `theme.toml` again, and never reloads a built-in theme.
-- A failed `Host.switch-theme` is in the log only. The player sees no message.
-- A theme can't add screens. The screens are `ScreenId::ALL`.
-- Classic's own files still use some fixed hex colors, so a token change doesn't reach every
-  part of it. See [reference/classic-theme.md](reference/classic-theme.md).
+`crates/ui-host/src/compile.rs`), and reads nothing from disk. An import that leaves the folder
+fails with `is outside the theme`. A compile error stops the load with `ThemeError::Compile`,
+which lists each error with its file, line and column.
