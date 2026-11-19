@@ -681,9 +681,9 @@ pub struct TorrentVm {
     pub file_summary: String,
     /// Where the files are.
     pub folder: String,
-    /// What the player can do now, in order: `start`, `pause`, `cancel`, `remove`,
-    /// `stop-seeding`, `install`, `play`, `remove-unpacked`, `cancel-install`. While its
-    /// archives unpack, `cancel` stops the unpacking.
+    /// What the player can do now, in order: `start`, `pause`, `play`, `install`,
+    /// `stop-seeding`, `cancel`, `remove`, `remove-unpacked`, `cancel-install`, `open-store`
+    /// (a store's install). While its archives unpack, `cancel` stops the unpacking.
     pub actions: Vec<String>,
     /// Its install: `installing`, `done`, `failed` or `cancelled`; empty for none yet.
     pub install: String,

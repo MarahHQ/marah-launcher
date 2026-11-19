@@ -184,9 +184,9 @@ export struct Verdict { plugin: string, emulator: string, level: string, headlin
 // ready (its files are listed: the player starts it), checking, downloading, paused,
 // complete, failed or cancelled. `detail` is one line of sizes, speed and peers. `files` are
 // the first files, "path · size", of `file-count`. `actions`, in order, from: start, pause,
-// cancel, remove, stop-seeding, install, play, remove-unpacked, cancel-install (see "Torrent
-// actions" in docs/themes.md; play launches `game`; while it unpacks, cancel stops the
-// unpacking).
+// play, install, stop-seeding, cancel, remove, remove-unpacked, cancel-install, open-store
+// (see "Torrent actions" in docs/themes.md; play launches `game`; while it unpacks, cancel
+// stops the unpacking; open-store is for a store's install).
 // `install`: installing, done, failed or cancelled; empty before Install.
 // `unpack`, its archives: waiting, unpacking, unpacked, failed or cancelled; empty for none.
 // `waiting-vpn`: "Download only through a VPN" paused it; it starts again by itself once the

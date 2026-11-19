@@ -935,6 +935,46 @@ fn downloads_vm(s: &Snapshot, owned: &Ownership) -> DownloadsVm {
     DownloadsVm { jobs, torrents: cards, seeding: torrents.sharing, downloading, sharing }
 }
 
+/// A button on a Downloads card (`TorrentVm::actions`). Its order here is the order the card
+/// shows them in. It is not [`crate::TorrentAction`], the command that a few of them send.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum TorrentButton {
+    Start,
+    Pause,
+    Play,
+    Install,
+    StopSeeding,
+    Cancel,
+    Remove,
+    RemoveUnpacked,
+    CancelInstall,
+    OpenStore,
+}
+
+impl TorrentButton {
+    /// The word a theme gets.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Start => "start",
+            Self::Pause => "pause",
+            Self::Play => "play",
+            Self::Install => "install",
+            Self::StopSeeding => "stop-seeding",
+            Self::Cancel => "cancel",
+            Self::Remove => "remove",
+            Self::RemoveUnpacked => "remove-unpacked",
+            Self::CancelInstall => "cancel-install",
+            Self::OpenStore => "open-store",
+        }
+    }
+}
+
+/// `buttons` as the words a theme gets, in [`TorrentButton`]'s order.
+fn button_words(mut buttons: Vec<TorrentButton>) -> Vec<String> {
+    buttons.sort();
+    buttons.into_iter().map(|b| b.as_str().to_owned()).collect()
+}
+
 /// A store's install as a Downloads card: its phase and bytes, and the store's page.
 fn store_install_vm(plugins: &Plugins, plugin: &PluginId, install: &launcher_api::StoreInstall) -> TorrentVm {
     use launcher_api::StorePhase as P;
@@ -959,7 +999,7 @@ fn store_install_vm(plugins: &Plugins, plugin: &PluginId, install: &launcher_api
         total: install.total,
         install: if installing { "installing".into() } else { String::new() },
         install_progress: if installing { part } else { 0.0 },
-        actions: if install.open.is_empty() { Vec::new() } else { vec!["open-store".into()] },
+        actions: button_words(if install.open.is_empty() { Vec::new() } else { vec![TorrentButton::OpenStore] }),
         store,
         ..TorrentVm::default()
     }
@@ -991,29 +1031,30 @@ fn torrent_vm(library: &LibrarySnapshot, installs: &InstallsSnapshot, owned: &Ow
         .unwrap_or_default();
     use crate::archives::UnpackPhase as U;
     let unpacking = j.hand_off.unpack.phase == U::Unpacking;
-    let mut actions: Vec<&str> = Vec::new();
+    use TorrentButton as B;
+    let mut actions = Vec::new();
     match j.state {
-        S::Ready | S::Paused | S::Failed | S::Cancelled => actions.push("start"),
-        S::Checking | S::Downloading => actions.push("pause"),
+        S::Ready | S::Paused | S::Failed | S::Cancelled => actions.push(B::Start),
+        S::Checking | S::Downloading => actions.push(B::Pause),
         _ => {}
     }
     if j.state == S::Complete && !installing && !unpacking {
-        actions.push(if !game.is_empty() { "play" } else { "install" });
+        actions.push(if !game.is_empty() { B::Play } else { B::Install });
     }
     if j.seeding || j.verifying {
-        actions.push("stop-seeding");
+        actions.push(B::StopSeeding);
     }
     // While its archives unpack, Cancel stops the unpacking.
     if !matches!(j.state, S::Complete | S::Cancelled) || unpacking {
-        actions.push("cancel");
+        actions.push(B::Cancel);
     } else if !j.seeding && !j.verifying && !installing {
-        actions.push("remove");
+        actions.push(B::Remove);
     }
     if j.state == S::Complete && j.hand_off.unpack.phase == U::Unpacked && !installing {
-        actions.push("remove-unpacked");
+        actions.push(B::RemoveUnpacked);
     }
     if installing {
-        actions.push("cancel-install");
+        actions.push(B::CancelInstall);
     }
     let unpack_error =
         (j.hand_off.unpack.phase == U::Failed).then(|| j.hand_off.unpack.error.clone()).filter(|e| !e.is_empty());
@@ -1056,7 +1097,7 @@ fn torrent_vm(library: &LibrarySnapshot, installs: &InstallsSnapshot, owned: &Ow
         file_count: j.file_count,
         file_summary: String::new(),
         folder: j.folder.display().to_string(),
-        actions: actions.into_iter().map(str::to_owned).collect(),
+        actions: button_words(actions),
         install: install.map(|g| g.phase.as_str().to_owned()).unwrap_or_default(),
         unpack: j.hand_off.unpack.phase.as_str().into(),
         unpack_progress: j.hand_off.unpack.progress,

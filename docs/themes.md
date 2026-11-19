@@ -358,7 +358,7 @@ loads covers near cards 0 to 29 (`Window::START` in `crates/ui-host/src/images.r
 ## Torrent actions
 
 Each `Torrent` in `Vm.torrents` has `actions`, a list of names in the order to show them. The
-names are `start`, `pause`, `cancel`, `remove`, `stop-seeding`, `install`, `play`,
+names are `start`, `pause`, `play`, `install`, `stop-seeding`, `cancel`, `remove`,
 `remove-unpacked`, `cancel-install`, and `open-store` for an install a store does.
 
 The theme turns an action into a command:
