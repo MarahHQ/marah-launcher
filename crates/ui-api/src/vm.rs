@@ -299,7 +299,7 @@ pub struct LibraryVm {
     pub systems: Vec<FilterVm>,
     /// "All genres", then each genre, most games first.
     pub genres: Vec<FilterVm>,
-    /// `title`, `played`, `size`, `rating`, `release`, `compat` or `added`.
+    /// `title`, `played`, `size`, `smallest`, `rating`, `release`, `compat` or `added`.
     pub sort: String,
     pub query: String,
     /// The titles of the best matches of `query`, best first, at most five; empty with no
@@ -586,7 +586,8 @@ pub struct DownloadVm {
     pub progress: f32,
     /// `received` and `total` as text, "12.5 MB of 40.0 MB".
     pub progress_text: String,
-    /// `queued`, `downloading`, `verifying`, `paused`, `done`, `failed` or `cancelled`.
+    /// `queued`, `downloading`, `verifying`, `unpacking`, `paused`, `done`, `failed` or
+    /// `cancelled`.
     pub state: String,
     pub error: String,
     pub can_pause: bool,
@@ -659,8 +660,8 @@ pub struct TorrentVm {
     /// Where the files are.
     pub folder: String,
     /// What the player can do now, in order: `start`, `pause`, `cancel`, `remove`,
-    /// `stop-seeding`, `install`, `play`, `remove-unpacked`. While its archives unpack,
-    /// `cancel` stops the unpacking.
+    /// `stop-seeding`, `install`, `play`, `remove-unpacked`, `cancel-install`. While its
+    /// archives unpack, `cancel` stops the unpacking.
     pub actions: Vec<String>,
     /// Its install: `installing`, `done`, `failed` or `cancelled`; empty for none yet.
     pub install: String,

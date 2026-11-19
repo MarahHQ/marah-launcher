@@ -237,7 +237,7 @@ export struct GameDetail {
     system-name: string,
     system-color: color,
     description: string,
-    // `description` on one line, cut after a word to at most 80 characters, with "…".
+    // `description` on one line, cut after a word to at most 75 characters, with "…".
     summary: string,
     developer: string,
     genres: [string],
@@ -322,7 +322,7 @@ export struct GameDetail {
 }
 
 
-// state: queued | downloading | verifying | done | failed
+// state: queued | downloading | verifying | unpacking | paused | done | failed | cancelled
 export struct Download {
     id: int,
     plugin: string,
@@ -457,7 +457,9 @@ export struct BackupBrowser { open: bool, shown: string, parent: string, crumbs:
 export struct Backup { folder: string, running: bool, restoring: bool, progress: float, status: string, failed: bool, restart: bool, backups: [BackupFile], holds: string, large: string, default-folder: string, browser: BackupBrowser }
 
 // The launcher's own update. state: off | idle | checking | current | available |
-// downloading | ready | failed. text: what to tell the player.
+// downloading | ready | installed | system | failed. installed: the package manager put it in,
+// a restart starts it. system: it comes with Marah OS's next update. text: what to tell the
+// player.
 export struct LauncherUpdate { state: string, current: string, version: string, text: string, method: string }
 
 // The machine's settings, from the system plugins (see `SystemVm` in launcher-ui-api). A part
@@ -498,7 +500,7 @@ export struct Viewport { width: length, height: length, scale: float, size: floa
 
 // Everything the theme shows. The host sets it after every change; themes only read it.
 export global Vm {
-    // home | game-detail | catalog | downloads | settings | emulators | themes | plugin | game-settings | running
+    // home | library | game-detail | catalog | downloads | settings | emulators | themes | plugin | game-settings
     in-out property <string> screen: "home";
     // Which way the screens last moved: forward, back, or empty for neither.
     in-out property <string> nav-direction;
