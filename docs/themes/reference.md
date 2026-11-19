@@ -479,6 +479,9 @@ Version 0.7.0 put every system area in one list
   works comes from its area's state only. `whole-screen` is a fact of the session now: Quit
   restarts the launcher, the game menu opens nothing outside it, and Restart and Shut down ask
   by a second press. On a desktop they ask in a dialog (`kit/power-ask.slint`).
+- That dialog and the one before a restore are an `Ask` (`kit/ask.slint`): Cancel and the
+  action side by side, with the focus on Cancel. `Browser.choice` is 0 for Cancel and 1 for
+  Restore, the reverse of before.
 - The kit draws the status icons: `StatusBar` in `kit/status-bar.slint`. Both built-in themes
   use it, and their `Nav.statuses` is `Sys.statuses`, 4.
 - Settings' tabs come from one list, `Prefs.settings-tabs`, the same in every place. System is
