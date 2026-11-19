@@ -227,6 +227,31 @@ fn a_plugin_s_page_is_one_page_with_a_rail_in_every_theme() {
     }
 }
 
+/// Settings opens on the first row of its first tab. The keys go down a row, to another screen,
+/// and back: Settings opens on that first row again, not on the row the keys left.
+#[test]
+fn settings_opens_on_its_first_row_after_another_screen_in_every_theme() {
+    for theme in THEMES {
+        let mut host = in_theme(theme, two_emulators);
+        host.dispatch(Command::Navigate(Route::Settings));
+        host.settle();
+        // The Games tab: its game folders, then Rescan.
+        let first = match host.core().view().settings.folders.first() {
+            Some(folder) => format!("folder:{}", folder.name),
+            None => "rescan".to_owned(),
+        };
+        assert!(host.lit(&first), "{theme}: Settings opens on {first}");
+
+        host.navigate(Key::DownArrow);
+        assert!(!host.lit(&first), "{theme}: the keys left {first}");
+        host.dispatch(Command::Navigate(Route::Home));
+        host.settle();
+        host.dispatch(Command::Navigate(Route::Settings));
+        host.settle();
+        assert!(host.lit(&first), "{theme}: back on {first}");
+    }
+}
+
 /// Settings → Launcher's Animations row: a press turns the theme's motion off, and the row
 /// says so; a second turns it on again.
 #[test]
