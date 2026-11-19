@@ -1,6 +1,6 @@
 //! Windows: the battery (`GetSystemPowerStatus`), restart and shut down (`shutdown`), and the
-//! drives (the volumes with a letter, and Configuration Manager's eject). VPNs say why they
-//! can't work there.
+//! drives (the volumes with a letter, and Configuration Manager's eject), and the sound (Core
+//! Audio). VPNs say why they can't work there.
 //!
 //! Windows' own calls block: each runs on a blocking thread with COM set up for it, for at
 //! most a time limit ([`blocking`]). What Windows' calls return becomes the areas' data in
@@ -10,20 +10,28 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use launcher_api::{
-    AreaAction, AreaData, AreaSettings, AreaState, PluginError, PluginResult, SystemArea, SystemDrive, SystemJob,
+    AreaAction, AreaData, AreaSettings, AreaState, AudioLevel, AudioOutput, PluginError, PluginResult, SystemArea,
+    SystemDrive, SystemJob,
 };
 use windows::Win32::Devices::DeviceAndDriverInstallation::{
     CM_GET_DEVICE_INTERFACE_LIST_PRESENT, CM_Get_Device_Interface_List_SizeW, CM_Get_Device_Interface_ListW,
     CM_Get_Device_Interface_PropertyW, CM_LOCATE_DEVNODE_NORMAL, CM_Locate_DevNodeW, CM_Request_Device_EjectW,
     CR_SUCCESS, PNP_VETO_TYPE, PNP_VetoTypeUnknown,
 };
+use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
 use windows::Win32::Devices::Properties::{DEVPKEY_Device_InstanceId, DEVPROPTYPE};
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
+use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
+use windows::Win32::Media::Audio::{
+    DEVICE_STATE_ACTIVE, IMMDevice, IMMDeviceEnumerator, MMDeviceEnumerator, eConsole, eRender,
+};
 use windows::Win32::Storage::FileSystem::{
     CreateFileW, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE, GetDiskFreeSpaceExW, GetDriveTypeW,
     GetLogicalDriveStringsW, GetVolumeInformationW, GetVolumeNameForVolumeMountPointW, OPEN_EXISTING,
 };
-use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
+use windows::Win32::System::Com::{
+    CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, STGM_READ,
+};
 use windows::Win32::System::IO::DeviceIoControl;
 use windows::Win32::System::Ioctl::{
     GUID_DEVINTERFACE_DISK, IOCTL_STORAGE_GET_DEVICE_NUMBER, IOCTL_STORAGE_QUERY_PROPERTY, PropertyStandardQuery,
@@ -42,13 +50,14 @@ const SHUTDOWN: Tool = Tool::new("shutdown", "Windows' shutdown");
 
 /// Each area Windows manages, and the tools it runs.
 pub const AREAS: &[(SystemArea, &[Tool])] =
-    &[(SystemArea::Vpn, &[]), (SystemArea::Power, &[SHUTDOWN]), (SystemArea::Drives, &[])];
+    &[(SystemArea::Vpn, &[]), (SystemArea::Audio, &[]), (SystemArea::Power, &[SHUTDOWN]), (SystemArea::Drives, &[])];
 
 /// The adapter for `area`, one of [`AREAS`].
 pub fn adapter(area: SystemArea, tools: Arc<Runner>) -> Arc<dyn AreaSettings> {
     match area {
         SystemArea::Vpn => Arc::new(Vpns),
         SystemArea::Drives => Arc::new(Drives),
+        SystemArea::Audio => Arc::new(Audio),
         _ => Arc::new(Power(tools)),
     }
 }
@@ -56,7 +65,7 @@ pub fn adapter(area: SystemArea, tools: Arc<Runner>) -> Arc<dyn AreaSettings> {
 /// How long a read or a quick change through Windows' own calls may take.
 const QUICK: Duration = crate::tools::QUICK;
 
-/// COM, set up on this thread for as long as it lives: the multithreaded kind, so a wait on a
+/// COM, set up on this thread for as long as the guard lives: the multithreaded kind, so a wait on a
 /// WinRT call doesn't block a window's thread.
 struct Com {
     /// COM was set up here, and is closed again on drop. Not when the thread had another kind.
@@ -418,6 +427,133 @@ impl AreaSettings for Drives {
                 Ok(())
             }
             other => Err(PluginError::Unsupported(format!("the drives area can't run {other:?}"))),
+        }
+    }
+}
+
+/// The sound, through Core Audio: the outputs that are plugged in, and the default one's level.
+/// Windows has no public call to change the default output.
+struct Audio;
+
+impl Audio {
+    fn devices() -> PluginResult<IMMDeviceEnumerator> {
+        #[allow(unsafe_code)] // Makes Core Audio's own object, on a thread with COM.
+        // SAFETY: `blocking` set up COM on this thread.
+        unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL) }.map_err(failed("Windows' sound isn't there"))
+    }
+
+    /// The output Windows plays to; `None` when none is plugged in.
+    fn default_output(devices: &IMMDeviceEnumerator) -> Option<IMMDevice> {
+        #[allow(unsafe_code)] // One call on a Core Audio object.
+        // SAFETY: `devices` is a live Core Audio object on this COM thread.
+        unsafe { devices.GetDefaultAudioEndpoint(eRender, eConsole) }.ok()
+    }
+
+    /// Windows' id for `device`.
+    fn id(device: &IMMDevice) -> Option<String> {
+        #[allow(unsafe_code)] // Reads the id, then frees the string Windows made for it.
+        // SAFETY: `device` is live; the string Windows returns is read once, then freed once.
+        unsafe {
+            let id = device.GetId().ok()?;
+            let text = id.to_string().ok();
+            CoTaskMemFree(Some(id.0.cast_const().cast()));
+            text
+        }
+    }
+
+    /// The name Windows shows for `device`, such as "Speakers (Realtek(R) Audio)".
+    fn name(device: &IMMDevice) -> Option<String> {
+        #[allow(unsafe_code)] // Reads one property of a live Core Audio object.
+        // SAFETY: `device` is live; the key is a constant.
+        let value = unsafe { device.OpenPropertyStore(STGM_READ).and_then(|s| s.GetValue(&PKEY_Device_FriendlyName)) };
+        value.ok().map(|v| v.to_string()).filter(|n| !n.is_empty())
+    }
+
+    fn outputs(devices: &IMMDeviceEnumerator, current: Option<&str>) -> PluginResult<Vec<AudioOutput>> {
+        #[allow(unsafe_code)] // Lists the outputs that are plugged in.
+        // SAFETY: `devices` is a live Core Audio object on this COM thread.
+        let list = unsafe { devices.EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE) }
+            .map_err(failed("The sound outputs weren't read"))?;
+        #[allow(unsafe_code)] // Reads the length of the list it made.
+        // SAFETY: `list` is live.
+        let count = unsafe { list.GetCount() }.map_err(failed("The sound outputs weren't read"))?;
+        let mut outputs = Vec::new();
+        for index in 0..count {
+            #[allow(unsafe_code)] // Reads one item of the list, below its length.
+            // SAFETY: `list` is live and `index` is below its count.
+            let Ok(device) = (unsafe { list.Item(index) }) else { continue };
+            let Some(id) = Self::id(&device) else { continue };
+            let description = Self::name(&device).unwrap_or_else(|| "Sound output".into());
+            outputs.push(AudioOutput { current: current == Some(id.as_str()), name: id, description });
+        }
+        Ok(outputs)
+    }
+
+    /// The volume control of `device`.
+    fn volume(device: &IMMDevice) -> PluginResult<IAudioEndpointVolume> {
+        #[allow(unsafe_code)] // Gets the volume control of a live Core Audio object.
+        // SAFETY: `device` is live, on this COM thread; no activation values.
+        unsafe { device.Activate(CLSCTX_ALL, None) }.map_err(failed("The volume wasn't read"))
+    }
+
+    fn level(device: &IMMDevice) -> PluginResult<AudioLevel> {
+        let volume = Self::volume(device)?;
+        #[allow(unsafe_code)] // Two reads of a live volume control.
+        // SAFETY: `volume` is live, on this COM thread.
+        let (scalar, muted) = unsafe { (volume.GetMasterVolumeLevelScalar(), volume.GetMute()) };
+        let read = failed("The volume wasn't read");
+        Ok(AudioLevel {
+            volume: winmap::volume_percent(scalar.map_err(&read)?),
+            muted: muted.map_err(&read)?.as_bool(),
+        })
+    }
+
+    /// Changes the default output's volume control with `change`.
+    async fn change(
+        change: impl FnOnce(&IAudioEndpointVolume) -> windows::core::Result<()> + Send + 'static,
+    ) -> PluginResult<()> {
+        blocking(QUICK, move || {
+            let devices = Self::devices()?;
+            let device = Self::default_output(&devices)
+                .ok_or_else(|| PluginError::NotFound("No sound output is plugged in".into()))?;
+            change(&Self::volume(&device)?).map_err(failed("The volume didn't change"))
+        })
+        .await
+    }
+}
+
+#[launcher_api::async_trait]
+impl AreaSettings for Audio {
+    async fn state(&self) -> PluginResult<AreaState> {
+        let (outputs, level) = blocking(QUICK, || {
+            let devices = Self::devices()?;
+            let current = Self::default_output(&devices);
+            let id = current.as_ref().and_then(Self::id);
+            let outputs = Self::outputs(&devices, id.as_deref())?;
+            Ok((outputs, current.as_ref().and_then(|d| Self::level(d).ok())))
+        })
+        .await?;
+        Ok(AreaState::Ready(AreaData::Audio { outputs, level }))
+    }
+
+    async fn act(&self, action: AreaAction, _job: Arc<dyn SystemJob>) -> PluginResult<()> {
+        match action {
+            AreaAction::SetVolume { volume } => {
+                let scalar = winmap::volume_scalar(volume);
+                #[allow(unsafe_code)] // One change of a live volume control.
+                // SAFETY: the control is live, on the COM thread `change` runs it on; no event id.
+                Self::change(move |control| unsafe { control.SetMasterVolumeLevelScalar(scalar, std::ptr::null()) })
+                    .await
+            }
+            AreaAction::SetMuted { muted } => {
+                #[allow(unsafe_code)] // One change of a live volume control.
+                // SAFETY: the control is live, on the COM thread `change` runs it on; no event id.
+                Self::change(move |control| unsafe { control.SetMute(muted, std::ptr::null()) }).await
+            }
+            AreaAction::SetOutput { .. } => Err(PluginError::Unsupported(
+                "Windows lets no program change the sound output: change it in Windows' sound settings".into(),
+            )),
+            other => Err(PluginError::Unsupported(format!("the sound area can't run {other:?}"))),
         }
     }
 }
