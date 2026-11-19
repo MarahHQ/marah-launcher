@@ -105,6 +105,11 @@ pub(crate) async fn refresh_releases(core: &Core) {
         );
     }
     crate::disks::refresh(core);
+    // Off the Catalog, its grid stands: keep it again over the catalogs just read.
+    let on_catalog = core.state().stack.route() == &crate::app::Route::Catalog;
+    if !on_catalog {
+        core.keep_catalog_grid();
+    }
     core.changed(Area::Catalogs);
     describe_catalog_page(core);
     // A catalog refresh waits for the VPN: the VPN check reads the catalogs again when it is back.

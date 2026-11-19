@@ -541,14 +541,26 @@ impl Core {
         }
     }
 
-    /// The view models for the current state. The Catalog's grid, once built on the Catalog,
-    /// stands on the other screens.
+    /// The view models for the current state. A read: it changes nothing. Off the Catalog, its
+    /// grid stands as [`Core::keep_catalog_grid`] kept it.
     pub fn view(&self) -> AppView {
-        let snapshot = self.snapshot();
-        let view = view::build(&snapshot);
-        let on_catalog = snapshot.state.stack.route() == &Route::Catalog;
-        self.state().catalog_grid.keep(on_catalog, &view.catalog.games);
-        view
+        view::build(&self.snapshot())
+    }
+
+    /// Keeps the Catalog's grid as it is built now, to stand on the other screens: the Catalog
+    /// leaves the top of the stack, or the catalogs changed while it was off screen.
+    pub(crate) fn keep_catalog_grid(&self) {
+        self.state().catalog_grid.clear();
+        let grid = view::build(&self.snapshot()).catalog.games;
+        self.state().catalog_grid.keep(true, &grid);
+    }
+
+    /// Keeps the Catalog's grid when the Catalog is on top of the stack: it is about to leave.
+    pub(crate) fn keep_catalog_grid_if_on_top(&self) {
+        let on_top = self.state().stack.route() == &Route::Catalog;
+        if on_top {
+            self.keep_catalog_grid();
+        }
     }
 
     /// The theme the player picked last, if any.

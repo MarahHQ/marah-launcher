@@ -513,3 +513,34 @@ async fn games_without_images_are_hidden_unless_the_setting_is_off() {
     catalogs_fetched(&t.core).await;
     assert_eq!(titles(&t), ["Astro", "Bolt", "Comet"], "off, every game shows");
 }
+
+/// The view of a state doesn't hang on how often the screen was drawn. Two cores read the
+/// same catalog while off the Catalog: one drew the screen before the catalogs loaded, one
+/// didn't. Both give the Catalog's grid of the catalogs they loaded.
+#[tokio::test]
+async fn the_catalog_s_grid_off_screen_does_not_hang_on_earlier_draws() {
+    let topics = serde_json::json!([named(1, "Astro", "PS5", "", 'a'), named(2, "Bolt", "PS5", "", 'b')]);
+    let read = |draw_first: bool| {
+        let topics = topics.clone();
+        async move {
+            let t = FakeHost::new()
+                .built_in(launcher_api::PluginBox::code(release_catalog::ReleaseCatalog::default()))
+                .plugin(FakeCatalog::new("emu-kyty").system("PS5").games([]).build().console("PS5"))
+                .boot_core()
+                .await;
+            if draw_first {
+                t.core.view();
+            }
+            t.http.serve(URL, catalog_of("2026-10-18T00:00:00Z", topics));
+            set_address(&t, "https://xyz.dev/catalog").await.unwrap();
+            catalogs_fetched(&t.core).await;
+            t
+        }
+    };
+    let drew = read(true).await;
+    let never = read(false).await;
+
+    assert_eq!(drew.core.view().screen, launcher_ui_api::ScreenId::Home, "off the Catalog");
+    assert_eq!(drew.core.view().catalog.games, never.core.view().catalog.games);
+    assert_eq!(titles(&drew), ["Astro", "Bolt"], "the grid of the catalogs loaded");
+}

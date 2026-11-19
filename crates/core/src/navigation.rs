@@ -66,6 +66,9 @@ pub(crate) async fn navigate(core: &Core, route: Route) -> CoreResult<()> {
 
 /// Opens `route` on the stack (see [`crate::stack::Stack::open`]).
 pub(crate) fn open(core: &Core, route: Route) {
+    if route != Route::Catalog {
+        core.keep_catalog_grid_if_on_top();
+    }
     core.state().stack.open(route);
     core.changed(Area::Navigation);
 }
@@ -108,6 +111,7 @@ pub(crate) async fn open_game(core: &Core, game: GameKey) -> CoreResult<()> {
 
 /// Back to the screen before, unless this is the first.
 pub(crate) fn back(core: &Core) -> CoreResult<()> {
+    core.keep_catalog_grid_if_on_top();
     core.state().stack.back();
     core.changed(Area::Navigation);
     Ok(())

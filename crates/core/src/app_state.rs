@@ -57,7 +57,8 @@ pub(crate) struct AppState {
     /// Until when the stores' installs are read often: a minute after Marah Launcher asked a store to
     /// install, as the store writes its install down a moment later.
     pub store_watch_until: Option<std::time::Instant>,
-    /// The Catalog's grid as last shown.
+    /// The Catalog's grid as kept when the Catalog left the top of the stack, or when the
+    /// catalogs were read while it was off screen.
     pub catalog_grid: ShownGrid,
     /// Each grid's columns.
     pub grid_columns: HashMap<Grid, usize>,
