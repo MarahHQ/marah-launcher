@@ -427,6 +427,16 @@ mod tests {
             ),
             ("install cancelled", TorrentVm { install: "cancelled".into(), ..t("complete") }, "Complete"),
             ("paused with an install error", TorrentVm { install_error: "No room".into(), ..t("paused") }, "Paused"),
+            (
+                "install didn't start, unpacking failed",
+                TorrentVm { install_error: "No room".into(), unpack: "failed".into(), ..t("complete") },
+                "Install didn't start",
+            ),
+            (
+                "install cancelled with an install error",
+                TorrentVm { install: "cancelled".into(), install_error: "No room".into(), ..t("complete") },
+                "Complete",
+            ),
             // A store's install says where it is.
             ("in a store", TorrentVm { store: "Steam".into(), ..t("queued") }, "Queued in Steam"),
             (
@@ -444,6 +454,7 @@ mod tests {
     fn a_release_s_download_button_says_its_download_s_state() {
         let rows = [
             ("in a store", ("Steam", "downloading", 0.5), "Install in Steam"),
+            ("in a store, no download", ("Steam", "", 0.0), "Install in Steam"),
             ("no download", ("", "", 0.0), "Download"),
             ("downloading", ("", "downloading", 0.43), "Downloading 43%"),
             ("just started", ("", "downloading", 0.0), "Downloading 0%"),
