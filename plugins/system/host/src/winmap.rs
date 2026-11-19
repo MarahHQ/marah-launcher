@@ -130,6 +130,13 @@ pub fn profile_security(auth: i32, cipher: i32) -> Option<(&'static str, &'stati
     Some((authentication, encryption))
 }
 
+/// A network that signs in this way ([`profile_security`]) needs a password or a key: any with
+/// encryption, but OWE, which encrypts with no password.
+pub fn needs_password(security: (&str, &str)) -> bool {
+    let (authentication, encryption) = security;
+    encryption != "none" && authentication != "OWE"
+}
+
 /// The WLAN profile that joins `ssid` with a password, for `WlanSetProfile`. `security` is
 /// [`profile_security`]'s. The SSID goes in as hex too, so any byte in it survives.
 pub fn wifi_profile(ssid: &str, security: (&str, &str), password: Option<&str>) -> String {
@@ -314,6 +321,11 @@ mod tests {
         assert!(xml.contains("<keyType>passPhrase</keyType>"), "{xml}");
         assert!(xml.contains("<keyMaterial>p&quot;a&apos;ss&lt;</keyMaterial>"), "{xml}");
         assert!(xml.contains("<authentication>WPA2PSK</authentication><encryption>AES</encryption>"), "{xml}");
+
+        assert!(needs_password(("WPA2PSK", "AES")));
+        assert!(needs_password(("open", "WEP")));
+        assert!(!needs_password(("open", "none")));
+        assert!(!needs_password(("OWE", "AES")));
 
         let open = wifi_profile("Cafe", ("open", "none"), None);
         assert!(!open.contains("sharedKey"), "{open}");

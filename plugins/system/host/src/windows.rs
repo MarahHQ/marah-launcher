@@ -53,6 +53,7 @@ use windows::Win32::Storage::FileSystem::{
 use windows::Win32::System::Com::{
     CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, STGM_READ,
 };
+use windows::Win32::System::Diagnostics::Debug::{SEM_FAILCRITICALERRORS, SetThreadErrorMode, THREAD_ERROR_MODE};
 use windows::Win32::System::IO::DeviceIoControl;
 use windows::Win32::System::Ioctl::{
     GUID_DEVINTERFACE_DISK, IOCTL_STORAGE_GET_DEVICE_NUMBER, IOCTL_STORAGE_QUERY_PROPERTY, PropertyStandardQuery,
@@ -272,6 +273,21 @@ impl Drives {
     /// Each volume with a letter that has a file system: a disk, a USB stick, a card, a disc.
     /// Not a network share, which can hold the list for as long as the network takes.
     fn list() -> Vec<SystemDrive> {
+        // A card reader or a disc drive with nothing in it would have Windows show a dialog.
+        let mut was = THREAD_ERROR_MODE(0);
+        #[allow(unsafe_code)] // Changes this thread's error mode; set back below.
+        // SAFETY: `was` is writable.
+        let quiet = unsafe { SetThreadErrorMode(SEM_FAILCRITICALERRORS, Some(&mut was)) }.is_ok();
+        let drives = Self::volumes();
+        if quiet {
+            #[allow(unsafe_code)] // Sets this thread's error mode back.
+            // SAFETY: `was` is the mode the thread had.
+            let _set = unsafe { SetThreadErrorMode(was, None) };
+        }
+        drives
+    }
+
+    fn volumes() -> Vec<SystemDrive> {
         #[allow(unsafe_code)] // Asks how long the list of roots is.
         // SAFETY: no buffer: the call only says the length it needs.
         let needed = unsafe { GetLogicalDriveStringsW(None) };
@@ -765,7 +781,7 @@ impl Wlan {
                         "{wanted} signs in with an account: join it in Windows' own settings"
                     ))
                 })?;
-                if security.0 != "open" && security.0 != "OWE" && password.is_none() {
+                if winmap::needs_password(security) && password.is_none() {
                     return Err(PluginError::InvalidInput(format!("{wanted} needs its password")));
                 }
                 self.set_profile(&winmap::wifi_profile(wanted, security, password))?;
