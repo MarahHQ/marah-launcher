@@ -578,3 +578,38 @@ fn on_a_desktop_the_drives_icon_is_there_and_opens_its_panel() {
         host.navigate(Key::Escape);
     }
 }
+
+/// Opened from a Settings row, a panel opens next to the row: under it, its far edges lined up,
+/// and never over it. Esc closes it and the keys are on the row again; the page scrolling under
+/// it closes it.
+#[test]
+fn a_panel_opened_from_a_settings_row_opens_next_to_the_row_in_every_theme() {
+    use slint::platform::Key;
+    let system = machine();
+    let mut host = shown(&system, WHOLE_SCREEN);
+    for theme in ["classic", "default"] {
+        host.ui.switch(&id(theme)).unwrap();
+        host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+        host.settle();
+        host.settings_tab("System");
+        host.navigate(Key::RightArrow);
+        host.navigate(Key::DownArrow);
+        host.navigate(Key::Return);
+        assert_eq!(host.value("system-panel"), "sound", "{theme}");
+        let (row, panel) = (host.first("system-sound"), host.first("system-panel"));
+        let (r, p) = (row.absolute_position(), panel.absolute_position());
+        let (rs, ps) = (row.size(), panel.size());
+        let apart = p.y >= r.y + rs.height || p.y + ps.height <= r.y;
+        assert!(apart, "{theme}: the panel doesn't cover its row: row {r:?} {rs:?}, panel {p:?} {ps:?}");
+        assert!(((p.x + ps.width) - (r.x + rs.width)).abs() < 1.0, "{theme}: the far edges line up");
+        assert!(p.y > 0.0 && p.y + ps.height <= 900.0, "{theme}: inside the window");
+
+        host.navigate(Key::Escape);
+        assert_eq!(host.count("system-panel"), 0, "{theme}");
+        assert!(host.lit("system-sound"), "{theme}: the keys are on the row again");
+        host.navigate(Key::Return);
+        assert_eq!(host.value("system-panel"), "sound", "{theme}: the row opens it again");
+        host.wheel("settings-page", 3);
+        assert_eq!(host.count("system-panel"), 0, "{theme}: the page scrolled under it: it closed");
+    }
+}

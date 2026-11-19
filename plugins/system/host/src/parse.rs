@@ -119,7 +119,8 @@ pub fn outputs(json: &str, default: &str) -> Vec<AudioOutput> {
         .iter()
         .filter_map(|s| {
             let name = s["name"].as_str()?.to_owned();
-            let description = s["description"].as_str().unwrap_or(&name);
+            let description = output_name(s);
+            let description = description.as_str();
             let port = s["active_port"].as_str().unwrap_or("");
             // "GA102 High Definition Audio Controller Digital Stereo (HDMI)" says less than this.
             let description = if port.starts_with("hdmi") || description.contains("HDMI") {
@@ -132,6 +133,35 @@ pub fn outputs(json: &str, default: &str) -> Vec<AudioOutput> {
             Some(AudioOutput { current: name == default, name, description })
         })
         .collect()
+}
+
+/// The name a sink's player sees, before the HDMI and headphones names: its description, else
+/// its device's product name or nick, else its sink name cleaned ("raop_sink.Living-Room.local.…"
+/// is "Living Room"), else "Unknown output". PipeWire writes "(null)" for a description it
+/// doesn't have, as for an AirPlay speaker.
+fn output_name(sink: &launcher_api::serde_json::Value) -> String {
+    let readable = |v: &launcher_api::serde_json::Value| {
+        v.as_str().map(str::trim).filter(|t| !t.is_empty() && *t != "(null)").map(str::to_owned)
+    };
+    let properties = &sink["properties"];
+    let found = readable(&sink["description"])
+        .or_else(|| readable(&properties["device.description"]))
+        .or_else(|| readable(&properties["device.product.name"]))
+        .or_else(|| readable(&properties["device.nick"]))
+        .or_else(|| readable(&properties["node.nick"]));
+    if let Some(found) = found {
+        return found;
+    }
+    // "raop_sink.Living-Room.local.192.0.2.10.7000": the part after the kind, before the dots.
+    let name = sink["name"].as_str().unwrap_or_default();
+    let rest = name.split_once('.').map(|(_, rest)| rest).unwrap_or(name);
+    let cleaned = rest.split('.').next().unwrap_or_default().replace(['-', '_'], " ");
+    let cleaned = cleaned.trim();
+    if cleaned.is_empty() || cleaned.chars().all(|c| c.is_ascii_digit()) {
+        "Unknown output".into()
+    } else {
+        cleaned.to_owned()
+    }
 }
 
 /// `pactl get-sink-volume @DEFAULT_SINK@` and `pactl get-sink-mute @DEFAULT_SINK@`.
@@ -490,6 +520,26 @@ mod tests {
     /// mounted where UDisks mounts on Fedora) and an internal NTFS part that isn't mounted,
     /// written as older lsblk writes values (text numbers, `null` mount folders).
     const LSBLK_USB: &str = include_str!("fixtures/lsblk-usb-derived.json");
+
+    /// Recorded on a Fedora 45 desktop (PipeWire): an AirPlay speaker whose description is
+    /// "(null)", and the PC's own sound. The speaker's host name and address are replaced.
+    const PACTL_NULL: &str = include_str!("fixtures/pactl-sinks-null.json");
+
+    #[test]
+    fn an_output_without_a_description_has_a_readable_name_never_null() {
+        let list = outputs(PACTL_NULL, "alsa_output.pci-0000_c4_00.6.analog-stereo");
+        let names: Vec<(&str, &str, bool)> =
+            list.iter().map(|o| (o.name.as_str(), o.description.as_str(), o.current)).collect();
+        assert_eq!(
+            names,
+            [
+                ("alsa_output.pci-0000_c4_00.6.analog-stereo", "Ryzen HD Audio Controller", true),
+                ("raop_sink.Living-Room.local.192.0.2.10.7000", "Living Room", false),
+            ]
+        );
+        let unnamed = r#"[{"name":"1234","description":"(null)","properties":{}}]"#;
+        assert_eq!(outputs(unnamed, "")[0].description, "Unknown output");
+    }
 
     #[test]
     fn reads_the_drives_of_a_desktop_with_one_disk() {

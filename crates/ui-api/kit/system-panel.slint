@@ -30,6 +30,13 @@ export global Sys {
     // pointer last moved over a button: the Drives panel draws its focused button, and its
     // name, only then. The pointer shows a button's name on hover.
     in-out property <bool> keyed;
+    // Opened from a row (Settings → System), not from the top bar: the panel opens next to the
+    // row, whose place in the window this is. The top bar's icons open it under them.
+    in-out property <bool> anchored;
+    in-out property <length> anchor-x;
+    in-out property <length> anchor-y;
+    in-out property <length> anchor-width;
+    in-out property <length> anchor-height;
     // The network whose password is being typed; "" for none.
     in-out property <string> asking;
 
@@ -51,10 +58,20 @@ export global Sys {
         root.row = 0;
         root.button = 0;
         root.keyed = false;
+        root.anchored = false;
         root.asking = "";
         Host.play-sound("select");
         Commands.refresh-system();
         if (panel == 3) { Commands.refresh-drives(); }
+    }
+    // Opens `panel` next to the row at `x`, `y`, `width`, `height` in the window.
+    public function show-from(panel: int, x: length, y: length, width: length, height: length) {
+        root.show(panel);
+        root.anchored = true;
+        root.anchor-x = x;
+        root.anchor-y = y;
+        root.anchor-width = width;
+        root.anchor-height = height;
     }
     public function close() {
         root.open = -1;
@@ -445,11 +462,22 @@ export component SystemSheet inherits Rectangle {
             : root.jobs.length > 1 && root.jobs[root.jobs.length - 2].kind == kind ? root.jobs[root.jobs.length - 2].text : ""
     }
 
+    // From a row: under it, aligned with its far edge (its near edge right to left), or over it
+    // when there is no room under it; always inside the window, `margin` from its edges.
+    property <length> margin: 16 * Look.px;
+    property <length> gap: 8 * Look.px;
+    property <length> anchored-height: Math.min(root.height - 2 * root.margin, body.preferred-height);
+    property <length> below: Sys.anchor-y + Sys.anchor-height + root.gap;
+    property <length> above: Sys.anchor-y - root.gap - root.anchored-height;
     panel := Rectangle {
         width: Math.min(root.width - 32 * Look.px, 520 * Look.tpx);
-        x: Look.rtl ? 96 * Look.px : root.width - self.width - 96 * Look.px;
-        y: 96 * Look.px;
-        height: Math.min(root.height - self.y - 40 * Look.px, body.preferred-height);
+        x: !Sys.anchored ? (Look.rtl ? 96 * Look.px : root.width - self.width - 96 * Look.px)
+            : Math.clamp(Look.rtl ? Sys.anchor-x : Sys.anchor-x + Sys.anchor-width - self.width,
+                root.margin, root.width - self.width - root.margin);
+        y: !Sys.anchored ? 96 * Look.px
+            : root.below + root.anchored-height <= root.height - root.margin ? root.below
+            : Math.max(root.margin, root.above);
+        height: Sys.anchored ? root.anchored-height : Math.min(root.height - self.y - 40 * Look.px, body.preferred-height);
         border-radius: 22 * Look.px;
         background: Tokens.color-surface.with-alpha(0.949);
         border-width: 1px;
