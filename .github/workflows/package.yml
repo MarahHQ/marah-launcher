@@ -3,7 +3,7 @@ name: Package
 # Builds Marah Launcher's packages on each system:
 #   Linux    the tar.gz, the AppImage, and the deb, rpm and Arch packages
 #   macOS    one universal MarahLauncher.app (Apple Silicon and Intel), as a .zip and a .dmg, signed with
-#            the Developer ID and notarized when the secrets are set (docs/signing.md)
+#            the Developer ID and notarized when the secrets are set (docs/contributors/releasing.md)
 #   Windows  the zip and the installer, signed when the certificate is set
 #
 # On a Marah Launcher tag (v<version>) it attaches the files to the tag's draft release, with a SHA-256

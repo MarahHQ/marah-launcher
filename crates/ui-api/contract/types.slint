@@ -185,7 +185,7 @@ export struct Verdict { plugin: string, emulator: string, level: string, headlin
 // complete, failed or cancelled. `detail` is one line of sizes, speed and peers. `files` are
 // the first files, "path · size", of `file-count`. `actions`, in order, from: start, pause,
 // play, install, stop-seeding, cancel, remove, remove-unpacked, cancel-install, open-store
-// (see "Torrent actions" in docs/themes.md; play launches `game`; while it unpacks, cancel
+// (see "Torrent actions" in docs/themes/reference.md; play launches `game`; while it unpacks, cancel
 // stops the unpacking; open-store is for a store's install).
 // `install`: installing, done, failed or cancelled; empty before Install.
 // `unpack`, its archives: waiting, unpacking, unpacked, failed or cancelled; empty for none.
@@ -652,7 +652,7 @@ export global Vm {
 // What a theme can ask the host to do.
 //
 // `command` asks the core: the name of a command and its args as JSON, "" for none. The
-// commands, their args and examples are in docs/themes.md ("Host: what to ask for"); they are
+// commands, their args and examples are in docs/themes/reference.md ("Host: what to ask for"); they are
 // the core's `Command` enum, read with serde. Build the args with `Json`, which escapes text.
 // A command whose args don't read is dropped, with a warning in the log.
 //

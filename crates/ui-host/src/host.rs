@@ -764,7 +764,7 @@ mod tests {
     }
 
     /// The commands no kit function sends, which tests and tools send: their documented shapes
-    /// read (docs/themes.md).
+    /// read (docs/themes/reference.md).
     #[test]
     fn the_commands_for_tests_and_tools_read_in_their_documented_shape() {
         assert_eq!(command("CheckUpdates", ""), Ok(Command::CheckUpdates));
