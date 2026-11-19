@@ -318,6 +318,9 @@ async fn an_install_s_progress_never_waits_for_the_screen_and_redraws_a_few_time
     let b = boot().await;
     package(&b, "burst.pkg", 64 * 1024);
     let mut events = b.test.core.events();
+    // The boot's own changes (the hardware read, the catalogs, the emulators' builds) land
+    // first: only the install's are counted.
+    while let Ok(Some(_)) = tokio::time::timeout(Duration::from_millis(50), events.next()).await {}
     let started = b.test.clock.now();
     b.test.core.dispatch(install("burst.pkg")).await.unwrap();
     assert_eq!(wait_for_end(&b.test).await, "done");
