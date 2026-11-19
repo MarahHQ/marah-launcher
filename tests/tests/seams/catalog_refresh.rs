@@ -340,10 +340,35 @@ async fn a_new_base_copy_keeps_the_refreshed_releases_until_its_own_refresh_work
 }
 
 #[tokio::test]
+async fn an_open_catalog_page_shows_the_fetched_sources_once_the_background_fetch_ends() {
+    let t = boot(false).await;
+    // One read of the page: it gets the bundled list, and wakes the plugin's task.
+    let (sections, _) = page(&t).await;
+    assert_eq!(rows(&sections, "release-catalog:sources")[0], "List: the bundled list");
+    // The task tells the core when the fetch ends, and the core reads the page again.
+    let first_row = |core: &Core| {
+        let page = core.view().plugin_page.expect("the Game Catalog page");
+        let sources = page.sections.iter().find(|s| s.label == "release-catalog:sources").expect("the sources");
+        sources.rows.first().map(|r| format!("{}: {}", r.label, r.value))
+    };
+    t.until(Area::Plugins, |core| first_row(core).as_deref() == Some("List: fetched from xyz.dev")).await;
+    assert_eq!(t.http.sent().iter().filter(|u| *u == SOURCES).count(), 1);
+}
+
+#[tokio::test]
 async fn a_console_named_like_the_kept_catalog_sources_keeps_its_own_copy() {
     let t = boot(false).await;
-    let (sections, _) = page(&t).await;
-    assert_eq!(rows(&sections, "release-catalog:sources")[0], "List: fetched from xyz.dev");
+    // The first read of the page gets the bundled list, and the fetch runs in the background.
+    let mut first = String::new();
+    for _ in 0..100 {
+        let (sections, _) = page(&t).await;
+        first = rows(&sections, "release-catalog:sources")[0].clone();
+        if first == "List: fetched from xyz.dev" {
+            break;
+        }
+        t.clock.advance(TICK).await;
+    }
+    assert_eq!(first, "List: fetched from xyz.dev");
 
     t.http.serve("https://xyz.dev/catalog/catalog-sources.json", base());
     let provided = t.core.kernel().provided(&id("release-catalog")).await.unwrap();
