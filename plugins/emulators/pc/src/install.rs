@@ -6,12 +6,13 @@
 use std::sync::Arc;
 
 use emulator_kit::archive_sets::{UNPACKED, set_name};
-use emulator_kit::installs::{self, Download, DownloadFile, HostTree, Tree};
+use emulator_kit::game_install::{self, Part};
+use emulator_kit::installs::{self, Download, DownloadFile, HostTree};
 use launcher_api::*;
 
 use crate::manifest::{GAME_FILE, GameManifest, Start};
 use crate::probe::{self, Probe};
-use crate::{CONSOLE_FOLDER, GAMES, GOG_INFO, Pc, WRAPPER_INFO, WRAPPER_NAME_LINE};
+use crate::{CONSOLE_FOLDER, GOG_INFO, Pc, WRAPPER_INFO, WRAPPER_NAME_LINE};
 
 /// The most files of a release whose first bytes are read: the nearest the game's folder, so a
 /// start script beside a bundled runtime's thousands of files is read.
@@ -236,27 +237,15 @@ impl GameInstaller for Pc {
         let name = named.unwrap_or_else(|| plan.name.clone());
         let into = installs::games_folder(folders.as_ref(), job.as_ref(), CONSOLE_FOLDER).await?;
         let dest = into.join(&probe::folder_name(&name))?;
-        if folders.exists(&dest).await? {
-            return Err(PluginError::Precondition(format!("{name} is already installed")));
-        }
-        let work = HostPath::new(GAMES, dest.root, RelPath::new(format!("{}.part", dest.path))?);
-        folders.remove(&work).await?;
-        let manifest = GameManifest::new(name, ranked.into_iter().map(|(path, kind)| Start { path, kind }).collect());
+        let manifest =
+            GameManifest::new(name.clone(), ranked.into_iter().map(|(path, kind)| Start { path, kind }).collect());
         let runnable: Vec<String> = probed.iter().filter(|(_, p)| p.runnable()).map(|(rel, _)| rel.clone()).collect();
         let flags = self.platform != Platform::Windows;
+        // Moved in whole when the host allows; copied file by file otherwise.
         let whole = plan.whole.as_deref().map(|rel| download.source.join(rel)).transpose()?;
-        let mut tree = HostTree::of(folders.clone(), plan.files);
-        let into = work.clone();
-        installs::spawn(folders, work.clone(), job, move |writer, job| {
+        let tree = HostTree::of(folders.clone(), plan.files);
+        let part = Part::new(dest, name, Box::new(tree)).whole(whole).then(move |writer, into| {
             use emulator_kit::fail::Error;
-            let entries = tree.entries(&installs::cancel_check(job))?;
-            // Moved in whole when the host allows; copied file by file otherwise.
-            if whole.as_ref().is_some_and(|from| job.take(from, &into)) {
-                let total = installs::tree_size(&entries, "");
-                job.progress(total, total);
-            } else {
-                installs::write_tree(writer, &mut tree, &entries, "", &into, job)?;
-            }
             let io = |call: std::pin::Pin<Box<dyn std::future::Future<Output = PluginResult<()>> + Send + '_>>| {
                 writer.runtime.block_on(call).map_err(|e| Error::msg(e.to_string()))
             };
@@ -268,10 +257,8 @@ impl GameInstaller for Pc {
                 }
             }
             let file = into.join(GAME_FILE).map_err(|e| Error::msg(e.to_string()))?;
-            io(Box::pin(writer.folders.write(&file, &manifest.game_file(None))))?;
-            writer.rename(&into, &dest)?;
-            Ok((dest, manifest.name))
+            io(Box::pin(writer.folders.write(&file, &manifest.game_file(None))))
         });
-        Ok(work)
+        game_install::install(folders, job, vec![part]).await
     }
 }

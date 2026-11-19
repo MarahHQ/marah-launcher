@@ -225,6 +225,20 @@ async fn a_game_file_in_the_packages_folder_is_offered_and_installs_into_its_own
     assert_eq!(std::fs::read(installed).unwrap(), b"NCZ game");
 }
 
+#[tokio::test]
+async fn a_switch_game_file_keeps_the_game_install_contract() {
+    let (test, _games) = boot().await;
+    let packages = tempfile::tempdir().unwrap();
+    std::fs::create_dir(packages.path().join("Switch")).unwrap();
+    std::fs::write(packages.path().join("Switch/Hades [0100535012974000][v0].nsp"), b"PFS0 game").unwrap();
+    test.core
+        .dispatch(Command::SetFolders { name: "packages".into(), paths: vec![packages.path().into()] })
+        .await
+        .unwrap();
+    let source = HostPath::new("packages", 0, RelPath::new("Switch/Hades [0100535012974000][v0].nsp").unwrap());
+    contract::game_install(&test, &lichii(), &source).await;
+}
+
 /// The Emulators screen's button that opens Lichii's own window, if its page has one.
 fn open_button(test: &TestCore) -> Option<launcher_ui_api::SlotVm> {
     let view = test.core.view();

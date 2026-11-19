@@ -551,6 +551,15 @@ pub struct ReleaseVm {
     /// What its Download button says, from `store`, `download` and `download_progress`:
     /// "Download", "Downloading 43%", "Install in Steam".
     pub download_text: String,
+    /// Its title, from `version`, `region` and `system`: "Version 1.02 · Europe · Linux", or
+    /// "Release · Europe" with no version.
+    pub title_text: String,
+    /// The catalog's counts in words, from `seeders` and `leechers`: "5 seeders · 1 leecher";
+    /// empty when it has no count of seeders.
+    pub peers_text: String,
+    /// What its download sheet says of it, from `version`, `region`, `size` and the game's
+    /// emulator: "Version 1.02 · Europe · 7.6 GB · runs with KytyPS5".
+    pub sheet_text: String,
     /// Its place among the game's releases, numbered by version from the lowest: "Version 3
     /// of 3 (newest)" for the highest version.
     pub version_label: String,

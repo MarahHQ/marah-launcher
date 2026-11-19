@@ -3,6 +3,8 @@
 //! or adapter breaks a rule.
 //!
 //! - Run [`emulator`] on a started core with the plugin loaded.
+//! - Run [`game_install`] on a started core with the plugin loaded, its folders mapped, and a
+//!   game for it to install.
 //! - Run [`archives`] on an [`Archives`] adapter, with a fixture that makes its archives.
 //! - Run [`process_tree`] on a [`ProcessTree`] adapter, with a fixture that starts its processes.
 //! - Run [`windows`] on a [`Windows`] adapter, with a fixture that starts a process with a window
@@ -203,6 +205,59 @@ async fn launch_contract(test: &TestCore, plugin: &PluginId, game: &str) {
     .await
     .expect("contract launcher: the host reports the exit");
     assert_eq!(exited, key);
+}
+
+/// The game install contract, for a plugin whose game installer installs from `source`: the game
+/// installs, and installing it again is refused before the plugin's `begin` returns, as
+/// [`PluginError::Precondition`]. Neither the install nor the refusal leaves a work folder
+/// (`<name>.part`) in any host folder.
+pub async fn game_install(test: &TestCore, plugin: &PluginId, source: &HostPath) {
+    let start = || Command::RunAction {
+        plugin: plugin.clone(),
+        action: HOST_INSTALL_GAME.into(),
+        game: None,
+        args: serde_json::to_value(source).expect("a host path is JSON"),
+    };
+    // A fixture may hold a work folder of its own: only a new one counts.
+    let work_before = work_folders(test);
+    let before = test.core.view().downloads.jobs.len();
+    test.core.dispatch(start()).await.unwrap_or_else(|e| panic!("contract game install: install {}: {e}", source.path));
+    test.until(launcher_core::Area::Installs, |core| {
+        let jobs = core.view().downloads.jobs;
+        // The newest job is first.
+        jobs.len() > before && jobs.first().is_some_and(|j| j.state != "installing")
+    })
+    .await;
+    let job = test.core.view().downloads.jobs.into_iter().next().expect("the install's job");
+    assert_eq!(job.state, "done", "contract game install: install {}: {}", source.path, job.error);
+    assert_eq!(work_folders(test), work_before, "contract game install: a finished install leaves no work folder");
+
+    // An error from the dispatch is an error from `begin`: once `begin` returns, the install runs.
+    let again = test.core.dispatch(start()).await;
+    assert!(
+        matches!(&again, Err(launcher_core::CoreError::Plugin { error: PluginError::Precondition(_), .. })),
+        "contract game install: installing an installed game is refused in begin as Precondition: {again:?}"
+    );
+    assert_eq!(work_folders(test), work_before, "contract game install: a refused install leaves no work folder");
+}
+
+/// Every file and folder named `<name>.part` in the host folders.
+fn work_folders(test: &TestCore) -> BTreeSet<PathBuf> {
+    let mut found = BTreeSet::new();
+    let mut dirs: Vec<PathBuf> =
+        test.core.view().settings.folders.iter().flat_map(|f| f.paths.iter().map(PathBuf::from)).collect();
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|e| e == "part") {
+                found.insert(path.clone());
+            }
+            if entry.file_type().is_ok_and(|t| t.is_dir()) {
+                dirs.push(path);
+            }
+        }
+    }
+    found
 }
 
 /// One entry of an archive the [`archives`] contract asks a fixture for.

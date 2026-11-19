@@ -1,6 +1,7 @@
-//! Installing a game from a package or disc image into a game folder: the work a plugin's
-//! [`launcher_api::GameInstaller`] runs in the background. The tree is read through the
-//! folders facade and written into a `.part` work folder, which moves into place at the end.
+//! Installing a game from a package or disc image into a game folder: the trees a plugin's
+//! [`launcher_api::GameInstaller`] reads, and the writes [`crate::game_install`] runs in the
+//! background. The tree is read through the folders facade and written into a `.part` work
+//! folder, which moves into place at the end.
 
 use std::sync::Arc;
 
@@ -58,6 +59,22 @@ pub struct ExfatImage<R: ReadAt> {
 impl<R: ReadAt> ExfatImage<R> {
     pub fn open(file: R) -> Result<Self> {
         Ok(Self { volume: exfat::Volume::open(file)?, nodes: Vec::new() })
+    }
+}
+
+impl<R: ReadAt> ExfatImage<R> {
+    /// The file at `rel` in the folder nearest the top that holds it, at most `limit` bytes,
+    /// with that folder's path and a `/` after it (`""` at the top). It reads only the folders
+    /// on the way to it, not the whole image.
+    pub fn nearest(&self, rel: &str, limit: u64, cancel: &dyn Fn() -> Result<()>) -> Result<Option<(String, Vec<u8>)>> {
+        let Some((prefix, node)) = self.volume.nearest(rel, cancel)? else { return Ok(None) };
+        ensure!(node.size <= limit, "{} is too large", node.path);
+        let mut bytes = Vec::with_capacity(node.size as usize);
+        self.volume.copy(&node, &mut |piece| {
+            bytes.extend_from_slice(piece);
+            Ok(())
+        })?;
+        Ok(Some((prefix, bytes)))
     }
 }
 
@@ -399,28 +416,13 @@ pub fn game_folder(entries: &[Entry], marker: &str) -> Option<String> {
         .min_by_key(|prefix| prefix.matches('/').count())
 }
 
-/// Writes every file of `tree` under `prefix` into `work`, without the prefix. Folders
-/// come with the files in them.
-pub fn write_tree(
-    writer: &Writer,
-    tree: &mut dyn Tree,
-    entries: &[Entry],
-    prefix: &str,
-    work: &HostPath,
-    job: &dyn InstallJob,
-) -> Result<()> {
-    let total = tree_size(entries, prefix);
-    let mut done = 0;
-    job.progress(0, total);
-    write_tree_counted(writer, tree, entries, prefix, work, job, (&mut done, total))
-}
-
-/// The bytes [`write_tree`] writes for `prefix`.
+/// The bytes [`write_tree_counted`] writes for `prefix`.
 pub fn tree_size(entries: &[Entry], prefix: &str) -> u64 {
     entries.iter().filter(|e| !e.directory && e.path.starts_with(prefix)).map(|e| e.size).sum()
 }
 
-/// [`write_tree`] as one part of a larger job: `done` of `total` bytes are written before it.
+/// Writes every file of `tree` under `prefix` into `work`, without the prefix, as one part of a
+/// larger job: `done` of `total` bytes are written before it. Folders come with the files in them.
 pub fn write_tree_counted(
     writer: &Writer,
     tree: &mut dyn Tree,
@@ -443,39 +445,6 @@ pub fn write_tree_counted(
         writer.write_entry(tree, i, &dest, job, done, total).context(format!("Install {}", entries[i].path))?;
     }
     Ok(())
-}
-
-/// Runs `work` and reports its end: on an error the work folder goes, and the job fails.
-/// `work` returns where the game went and its title.
-pub fn finish(
-    writer: &Writer,
-    work_folder: &HostPath,
-    job: &dyn InstallJob,
-    work: impl FnOnce() -> Result<(HostPath, String)>,
-) {
-    match work() {
-        Ok((dest, title)) => job.finished(Ok(launcher_api::InstalledGame { dest, title })),
-        Err(e) => {
-            // If this fails too, the folder stays as `<name>.part`, which no game index reads.
-            let _ = writer.remove(work_folder);
-            job.finished(Err(PluginError::Other(e.to_string())));
-        }
-    }
-}
-
-/// Runs `work` on a blocking thread with a writer into the host folders, and reports its end
-/// through `job`: on an error `work_folder` goes. Call it from the plugin's `begin`, which then
-/// returns at once.
-pub fn spawn(
-    folders: Arc<dyn Folders>,
-    work_folder: HostPath,
-    job: Arc<dyn InstallJob>,
-    work: impl FnOnce(&Writer, &dyn InstallJob) -> Result<(HostPath, String)> + Send + 'static,
-) {
-    let writer = Writer { folders, runtime: tokio::runtime::Handle::current() };
-    tokio::task::spawn_blocking(move || {
-        finish(&writer, &work_folder, job.as_ref(), || work(&writer, job.as_ref()));
-    });
 }
 
 /// Runs short blocking work (opening a package reads its header and keys) off the runtime,

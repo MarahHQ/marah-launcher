@@ -112,6 +112,17 @@ pub(crate) async fn refresh_releases(core: &Core) {
         core.torrents().watch();
     }
     read_community(core).await;
+    // Off the Catalog, its grid stands: keep it again over the catalogs and the community's
+    // results just read. The read counts first (see `Core::keep_catalog_grid`).
+    let on_catalog = {
+        let mut state = core.state();
+        state.catalog_reads += 1;
+        state.stack.route() == &crate::app::Route::Catalog
+    };
+    if !on_catalog {
+        core.keep_catalog_grid();
+        core.changed(Area::Catalogs);
+    }
 }
 
 /// Asks each offer's emulator for its community list's result, by the offer's title ids in

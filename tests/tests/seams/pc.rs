@@ -123,6 +123,14 @@ async fn pc_meets_every_contract() {
 }
 
 #[tokio::test]
+async fn a_download_keeps_the_game_install_contract() {
+    let p = boot(Platform::Linux).await;
+    p.download(&[("Game/game.x86_64", &elf())]);
+    let source = HostPath::new("packages", 0, RelPath::new("PC/torrent-abc").unwrap());
+    contract::game_install(&p.test, &pc(), &source).await;
+}
+
+#[tokio::test]
 async fn a_release_installs_from_its_download_with_its_start_script_and_shows_in_the_library() {
     let p = boot(Platform::Linux).await;
     p.download(&[

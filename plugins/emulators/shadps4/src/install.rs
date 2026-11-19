@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 
+use emulator_kit::game_install::{self, Part};
 use emulator_kit::installs::{self, Entry, Format, Tree, Writer};
 use launcher_api::*;
 
@@ -134,81 +135,34 @@ impl GameInstaller for Shad {
             pkg4::Kind::Update => 1,
             pkg4::Kind::Dlc => 2,
         });
-        let mut steps: Vec<Step> = Vec::new();
+        let mut parts = Vec::new();
+        let mut game = None;
         for (package, root) in packages {
-            let game = steps.first().filter(|s| s.kind == pkg4::Kind::Game).map(|s| s.dest.clone());
             let kind = package.kind();
             let dest = self.dest(kind, &root, game.as_ref(), job.as_ref()).await?;
-            if folders.exists(&dest).await? {
-                if kind == pkg4::Kind::Dlc {
-                    continue; // an add-on that is installed stays as it is
-                }
-                return Err(PluginError::Precondition(format!("{} is already installed", dest.path)));
+            if kind == pkg4::Kind::Dlc && folders.exists(&dest).await? {
+                continue; // an add-on that is installed stays as it is
             }
-            let work = HostPath::new(&dest.folder, dest.root, RelPath::new(format!("{}.part", dest.path))?);
-            folders.remove(&work).await?;
-            steps.push(Step { package, root, kind, dest, work });
+            if kind == pkg4::Kind::Game {
+                game = Some(dest.clone());
+            }
+            let tree = Ps4Package { package, nodes: Vec::new() };
+            parts.push(Part::new(dest.clone(), dest.path.to_string(), Box::new(tree)).titled(|tree, entries| {
+                entries
+                    .iter()
+                    .position(|e| e.path == "sce_sys/param.sfo")
+                    .and_then(|at| Writer::read_entry(tree, at, 1 << 20).ok())
+                    .and_then(|bytes| emulator_kit::sfo::parse(&bytes))
+                    .and_then(|sfo| sfo.get("TITLE").map(|t| t.text().to_owned()))
+                    .filter(|t| !t.is_empty())
+                    .unwrap_or(root)
+            }));
         }
-        let Some(first) = steps.first() else {
+        if parts.is_empty() {
             return Err(PluginError::Precondition("every add-on in this download is already installed".into()));
-        };
-        let work = first.work.clone();
-        installs::spawn(folders, work.clone(), job, move |writer, job| install_steps(writer, job, steps));
-        Ok(work)
+        }
+        game_install::install(folders, job, parts).await
     }
-}
-
-/// One package of an install, and where it goes.
-struct Step {
-    package: pkg4::Package<emulator_kit::read_at::HostFile>,
-    root: String,
-    kind: pkg4::Kind,
-    dest: HostPath,
-    work: HostPath,
-}
-
-/// Copies each step's package into its work folder, then moves it into place, with one
-/// progress for them all. On an error the work folders go; what is in place stays.
-fn install_steps(
-    writer: &Writer,
-    job: &dyn InstallJob,
-    steps: Vec<Step>,
-) -> emulator_kit::fail::Result<(HostPath, String)> {
-    let cancel = installs::cancel_check(job);
-    let works: Vec<HostPath> = steps.iter().map(|s| s.work.clone()).collect();
-    let run = || -> emulator_kit::fail::Result<(HostPath, String)> {
-        let mut trees = Vec::new();
-        for step in steps {
-            let mut tree = Ps4Package { package: step.package, nodes: Vec::new() };
-            let entries = tree.entries(&cancel)?;
-            trees.push((tree, entries, step.root, step.dest, step.work));
-        }
-        let total = trees.iter().map(|(_, entries, ..)| installs::tree_size(entries, "")).sum();
-        let mut done = 0;
-        job.progress(0, total);
-        let mut first: Option<(HostPath, String)> = None;
-        for (mut tree, entries, root, dest, into) in trees {
-            let title = entries
-                .iter()
-                .position(|e| e.path == "sce_sys/param.sfo")
-                .and_then(|at| Writer::read_entry(&mut tree, at, 1 << 20).ok())
-                .and_then(|bytes| emulator_kit::sfo::parse(&bytes))
-                .and_then(|sfo| sfo.get("TITLE").map(|t| t.text().to_owned()))
-                .filter(|t| !t.is_empty())
-                .unwrap_or(root);
-            installs::write_tree_counted(writer, &mut tree, &entries, "", &into, job, (&mut done, total))?;
-            writer.rename(&into, &dest)?;
-            first.get_or_insert((dest, title));
-        }
-        first.ok_or_else(|| emulator_kit::fail::Error::msg("nothing to install"))
-    };
-    let result = run();
-    if result.is_err() {
-        for work in works.iter().skip(1) {
-            let _ = writer.remove(work);
-        }
-    }
-    result
 }
 
 impl Shad {
@@ -275,19 +229,8 @@ impl Shad {
             let title_id = text("TITLE_ID");
             let title = Some(text("TITLE")).filter(|t| !t.is_empty()).unwrap_or_else(|| title_id.clone());
             let dest = self.dest(pkg4::Kind::Game, &title_id, None, job.as_ref()).await?;
-            if folders.exists(&dest).await? {
-                return Err(PluginError::Precondition(format!("{title} is already installed")));
-            }
-            let work = HostPath::new(&dest.folder, dest.root, RelPath::new(format!("{}.part", dest.path))?);
-            folders.remove(&work).await?;
-            let mut tree = download.tree(folders.clone(), &prefix);
-            let into = work.clone();
-            installs::spawn(folders, work.clone(), job, move |writer, job| {
-                let entries = tree.entries(&installs::cancel_check(job))?;
-                installs::write_tree(writer, &mut tree, &entries, "", &into, job)?;
-                writer.rename(&into, &dest)?;
-                Ok((dest, title))
-            });
+            let tree = download.tree(folders.clone(), &prefix);
+            let work = game_install::install(folders, job, vec![Part::new(dest, title, Box::new(tree))]).await?;
             return Ok(Some(work));
         }
         Ok(None)
