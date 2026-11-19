@@ -586,7 +586,8 @@ pub struct DownloadVm {
     pub progress: f32,
     /// `received` and `total` as text, "12.5 MB of 40.0 MB".
     pub progress_text: String,
-    /// `queued`, `downloading`, `verifying`, `paused`, `done`, `failed` or `cancelled`.
+    /// `queued`, `downloading`, `verifying`, `unpacking`, `paused`, `done`, `failed` or
+    /// `cancelled`.
     pub state: String,
     pub error: String,
     pub can_pause: bool,
