@@ -213,6 +213,27 @@ pub fn storage_device(bytes: &[u8]) -> Option<StorageDevice> {
     Some(StorageDevice { usb: bus == BUS_USB, model })
 }
 
+/// A volume's name for the player: its label with its letter, "Games (E:)", or the letter
+/// alone when it has no label. `root` is `E:\`.
+pub fn drive_label(label: &str, root: &str) -> String {
+    let letter = root.trim_end_matches('\\');
+    match label.trim() {
+        "" => letter.to_owned(),
+        label => format!("{label} ({letter})"),
+    }
+}
+
+/// Why Windows didn't eject a drive (its `PNP_VETO_TYPE`), for the player.
+pub fn eject_refused(veto: i32) -> &'static str {
+    match veto {
+        // PNP_VetoTypeUnknown: no program said no.
+        0 => "Windows didn't eject the drive",
+        // PNP_VetoIllegalDeviceRequest, PNP_VetoNonDisableable, PNP_VetoInsufficientRights.
+        8 | 10 | 12 => "Windows can't eject this drive",
+        _ => "A program still uses the drive: close it, then eject again",
+    }
+}
+
 /// The strings of a list Windows ends each with a nul, and the list with one more.
 pub fn multi_sz(wide: &[u16]) -> Vec<String> {
     wide.split(|c| *c == 0).filter(|s| !s.is_empty()).map(String::from_utf16_lossy).collect()
@@ -367,6 +388,15 @@ mod tests {
         let mut broken = descriptor(7, "", "");
         broken[16..20].copy_from_slice(&999u32.to_le_bytes());
         assert_eq!(storage_device(&broken), Some(StorageDevice { usb: true, model: String::new() }));
+    }
+
+    #[test]
+    fn a_volume_reads_with_its_letter_and_a_refused_eject_says_why() {
+        assert_eq!(drive_label("Games", "E:\\"), "Games (E:)");
+        assert_eq!(drive_label("  ", "C:\\"), "C:");
+        assert_eq!(eject_refused(5), "A program still uses the drive: close it, then eject again");
+        assert_eq!(eject_refused(8), "Windows can't eject this drive");
+        assert_eq!(eject_refused(0), "Windows didn't eject the drive");
     }
 
     #[test]

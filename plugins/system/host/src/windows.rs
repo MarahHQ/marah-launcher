@@ -28,9 +28,10 @@ use windows::Devices::Radios::{Radio, RadioAccessStatus, RadioKind, RadioState};
 use windows::Foundation::TypedEventHandler;
 use windows::Networking::Connectivity::NetworkInformation;
 use windows::Win32::Devices::DeviceAndDriverInstallation::{
-    CM_GET_DEVICE_INTERFACE_LIST_PRESENT, CM_Get_Device_Interface_List_SizeW, CM_Get_Device_Interface_ListW,
-    CM_Get_Device_Interface_PropertyW, CM_LOCATE_DEVNODE_NORMAL, CM_Locate_DevNodeW, CM_Request_Device_EjectW,
-    CR_SUCCESS, PNP_VETO_TYPE, PNP_VetoTypeUnknown,
+    CM_DEVCAP_REMOVABLE, CM_DRP_CAPABILITIES, CM_GET_DEVICE_INTERFACE_LIST_PRESENT, CM_Get_DevNode_Registry_PropertyW,
+    CM_Get_Device_Interface_List_SizeW, CM_Get_Device_Interface_ListW, CM_Get_Device_Interface_PropertyW,
+    CM_Get_Parent, CM_LOCATE_DEVNODE_NORMAL, CM_Locate_DevNodeW, CM_Request_Device_EjectW, CR_SUCCESS,
+    PNP_VetoTypeUnknown,
 };
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
 use windows::Win32::Devices::Properties::{DEVPKEY_Device_InstanceId, DEVPROPTYPE};
@@ -61,7 +62,9 @@ use windows::Win32::System::Ioctl::{
 };
 use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
 use windows::Win32::System::SystemInformation::GetWindowsDirectoryW;
-use windows::Win32::System::WindowsProgramming::{DRIVE_CDROM, DRIVE_FIXED, DRIVE_RAMDISK, DRIVE_REMOVABLE};
+use windows::Win32::System::WindowsProgramming::{
+    DRIVE_CDROM, DRIVE_FIXED, DRIVE_RAMDISK, DRIVE_REMOTE, DRIVE_REMOVABLE,
+};
 use windows::core::{GUID, HRESULT, HSTRING, PCWSTR, Ref};
 
 use crate::tools::{self, Runner, Tool};
@@ -270,8 +273,8 @@ const EJECT_TIME: Duration = Duration::from_secs(55);
 struct Drives;
 
 impl Drives {
-    /// Each volume with a letter that has a file system: a disk, a USB stick, a card, a disc.
-    /// Not a network share, which can hold the list for as long as the network takes.
+    /// Each volume with a letter that has a file system: a disk, a USB stick, a card, a disc,
+    /// and a network drive.
     fn list() -> Vec<SystemDrive> {
         // A card reader or a disc drive with nothing in it would have Windows show a dialog.
         let mut was = THREAD_ERROR_MODE(0);
@@ -305,6 +308,17 @@ impl Drives {
         #[allow(unsafe_code)] // One call on a nul-ended path.
         // SAFETY: `at` ends with a nul and lives through the call.
         let kind = unsafe { GetDriveTypeW(PCWSTR(at.as_ptr())) };
+        if kind == DRIVE_REMOTE {
+            // Only its letter: a share's name and space can hold the list for as long as the
+            // network takes. The core reads its space with its own time limit.
+            let label = winmap::drive_label("", root);
+            return Some(SystemDrive {
+                device: root.to_owned(),
+                label,
+                mount: Some(root.into()),
+                ..SystemDrive::default()
+            });
+        }
         if ![DRIVE_FIXED, DRIVE_REMOVABLE, DRIVE_CDROM, DRIVE_RAMDISK].contains(&kind) {
             return None;
         }
@@ -331,7 +345,7 @@ impl Drives {
             device: root.to_owned(),
             disk: disk.map(winmap::disk_name).unwrap_or_default(),
             uuid: named.ok().map(|()| winmap::volume_id(&unwide(&name))).unwrap_or_default(),
-            label: unwide(&label),
+            label: winmap::drive_label(&unwide(&label), root),
             model: storage.model,
             size: if space.is_ok() { size } else { 0 },
             filesystem: unwide(&filesystem).to_ascii_lowercase(),
@@ -371,14 +385,48 @@ impl Drives {
         if found != CR_SUCCESS {
             return Err(PluginError::NotFound("the drive isn't plugged in".into()));
         }
+        let node =
+            Self::removable(node).ok_or_else(|| PluginError::Unsupported(winmap::eject_refused(8).to_owned()))?;
         let (mut veto, mut vetoed_by) = (PNP_VetoTypeUnknown, [0u16; 261]);
         #[allow(unsafe_code)] // Asks Windows to eject the device it found.
         // SAFETY: `veto` and `vetoed_by` are writable and live through the call.
         let ejected = unsafe { CM_Request_Device_EjectW(node, Some(&mut veto), Some(&mut vetoed_by), 0) };
         if ejected != CR_SUCCESS || veto != PNP_VetoTypeUnknown {
-            return Err(PluginError::Other(eject_refused(veto)));
+            return Err(PluginError::Other(winmap::eject_refused(veto.0).into()));
         }
         Ok(())
+    }
+
+    /// The device that comes out with the disk at `node`: the disk itself, or the USB device it
+    /// is on, a few steps up. The first that Windows marks removable; `None` when none is, as
+    /// an eject of anything else could stop a controller inside the PC.
+    fn removable(mut node: u32) -> Option<u32> {
+        for _ in 0..4 {
+            let (mut capabilities, mut size) = (0u32, std::mem::size_of::<u32>() as u32);
+            #[allow(unsafe_code)] // Reads one number about a device Windows found.
+            // SAFETY: `capabilities` is `size` bytes long and writable.
+            let read = unsafe {
+                CM_Get_DevNode_Registry_PropertyW(
+                    node,
+                    CM_DRP_CAPABILITIES,
+                    None,
+                    Some(std::ptr::from_mut(&mut capabilities).cast()),
+                    &mut size,
+                    0,
+                )
+            };
+            if read == CR_SUCCESS && capabilities & CM_DEVCAP_REMOVABLE.0 != 0 {
+                return Some(node);
+            }
+            let mut parent = 0u32;
+            #[allow(unsafe_code)] // Finds the device this one is on.
+            // SAFETY: `parent` is writable.
+            if unsafe { CM_Get_Parent(&mut parent, node, 0) } != CR_SUCCESS {
+                return None;
+            }
+            node = parent;
+        }
+        None
     }
 
     /// The device instance of disk `number`, from the disks Windows has now.
@@ -428,15 +476,6 @@ impl Drives {
             )
         };
         (read == CR_SUCCESS).then(|| unwide(&id))
-    }
-}
-
-/// Why Windows didn't eject a drive, for the player.
-fn eject_refused(veto: PNP_VETO_TYPE) -> String {
-    if veto == PNP_VetoTypeUnknown {
-        "Windows didn't eject the drive".into()
-    } else {
-        "A program still uses the drive: close it, then eject again".into()
     }
 }
 
@@ -597,9 +636,10 @@ impl AreaSettings for Audio {
     }
 }
 
-/// Why Windows didn't list the Wi-Fi networks when it refused: Windows 11 shows them to a
-/// program only with location access.
-const WIFI_REFUSED: &str = "Windows didn't let the launcher see the Wi-Fi networks: turn on location access for desktop apps in Windows' privacy settings";
+/// Why Windows didn't list the Wi-Fi networks when it refused: since its fall 2024 release,
+/// Windows 11 shows them to a program only with the player's consent to location.
+const WIFI_REFUSED: &str =
+    "Windows didn't let the launcher see the Wi-Fi networks: allow location in Settings, Privacy & security, Location";
 
 /// How long joining a network may take: the WLAN API's wait, and some more.
 const JOIN_TIME: Duration = Duration::from_secs(60);
@@ -920,6 +960,8 @@ const PAIR_TIME: Duration = Duration::from_secs(40);
 struct Found {
     /// WinRT's id for it, which pairing takes.
     id: String,
+    /// It is a Bluetooth LE device, not a classic one.
+    low_energy: bool,
     address: String,
     name: String,
 }
@@ -950,8 +992,8 @@ impl Bluetooth {
         Ok(radios.into_iter().find(|r| r.Kind().is_ok_and(|k| k == RadioKind::Bluetooth)))
     }
 
-    /// The paired devices, each with WinRT's id for it.
-    fn paired() -> PluginResult<Vec<(String, BluetoothDevice)>> {
+    /// The paired devices, each with what WinRT knows of it.
+    fn paired() -> PluginResult<Vec<(DeviceInformation, BluetoothDevice)>> {
         let mut devices = Vec::new();
         for (low_energy, selector) in selectors(true)?.iter().enumerate() {
             let list = DeviceInformation::FindAllAsyncAqsFilter(selector)
@@ -977,7 +1019,7 @@ impl Bluetooth {
                     continue;
                 };
                 let connected = connected == Some(BluetoothConnectionStatus::Connected);
-                devices.push((id, BluetoothDevice { address, name, paired: true, connected }));
+                devices.push((info, BluetoothDevice { address, name, paired: true, connected }));
             }
         }
         Ok(devices)
@@ -989,7 +1031,8 @@ impl Bluetooth {
         let found: Arc<Mutex<Vec<Found>>> = Arc::default();
         let start = failed("Windows didn't look for Bluetooth devices");
         let mut watchers = Vec::new();
-        for selector in selectors(false)? {
+        for (low_energy, selector) in selectors(false)?.into_iter().enumerate() {
+            let low_energy = low_energy == 1;
             let watcher = DeviceInformation::CreateWatcherAqsFilter(&selector).map_err(&start)?;
             let seen = found.clone();
             let added = TypedEventHandler::new(move |_: Ref<DeviceWatcher>, info: Ref<DeviceInformation>| {
@@ -999,7 +1042,7 @@ impl Bluetooth {
                 if let Some(address) = winmap::address_in_id(&id).filter(|_| !name.is_empty()) {
                     let mut seen = seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                     if !seen.iter().any(|f| f.address == address) {
-                        seen.push(Found { id, address, name });
+                        seen.push(Found { id, low_energy, address, name });
                     }
                 }
                 Ok(())
@@ -1027,10 +1070,16 @@ impl Bluetooth {
 
     /// Pairs the device WinRT knows by `id`. It accepts only a pairing that asks nothing of the
     /// player: one that asks for a PIN or a code fails, and says to use Windows' own settings.
-    fn pair(id: &str) -> PluginResult<()> {
-        let info = DeviceInformation::CreateFromIdAsync(&HSTRING::from(id))
-            .and_then(|i| i.join())
-            .map_err(failed("The device isn't in reach"))?;
+    fn pair(device: &Found) -> PluginResult<()> {
+        let id = HSTRING::from(device.id.as_str());
+        // The typed device's own information: its pairing is the device's, whatever kind of id
+        // the scan gave.
+        let info = if device.low_energy {
+            BluetoothLEDevice::FromIdAsync(&id).and_then(|d| d.join()).and_then(|d| d.DeviceInformation())
+        } else {
+            WinBluetoothDevice::FromIdAsync(&id).and_then(|d| d.join()).and_then(|d| d.DeviceInformation())
+        };
+        let info = info.map_err(failed("The device isn't in reach"))?;
         let custom = info.Pairing().and_then(|p| p.Custom()).map_err(failed("Windows didn't pair the device"))?;
         let accept = TypedEventHandler::new(
             |_: Ref<DeviceInformationCustomPairing>, asked: Ref<DevicePairingRequestedEventArgs>| {
@@ -1051,14 +1100,11 @@ impl Bluetooth {
 
     fn remove(address: &str) -> PluginResult<()> {
         let paired = Self::paired()?;
-        let (id, _) = paired
+        let (info, _) = paired
             .iter()
             .find(|(_, d)| d.address.eq_ignore_ascii_case(address))
             .ok_or_else(|| PluginError::NotFound(format!("{address} isn't paired")))?;
         let forget = failed("Windows didn't forget the device");
-        let info = DeviceInformation::CreateFromIdAsync(&HSTRING::from(id.as_str()))
-            .and_then(|i| i.join())
-            .map_err(&forget)?;
         let status = info.Pairing().and_then(|p| p.UnpairAsync()).and_then(|u| u.join()).and_then(|r| r.Status());
         match status.map_err(&forget)? {
             DeviceUnpairingResultStatus::Unpaired | DeviceUnpairingResultStatus::AlreadyUnpaired => Ok(()),
@@ -1133,7 +1179,7 @@ impl AreaSettings for Bluetooth {
                     .ok_or_else(|| PluginError::NotFound(format!("{address} wasn't found: look for devices again")))?;
                 job.progress(None, "Pairing");
                 tools::job(job, async move {
-                    blocking(PAIR_TIME, move || Bluetooth::pair(&device.id)).await.map_err(tools::reason)?;
+                    blocking(PAIR_TIME, move || Bluetooth::pair(&device)).await.map_err(tools::reason)?;
                     Ok("Paired".into())
                 });
                 Ok(())

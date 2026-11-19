@@ -43,8 +43,8 @@ screen. For other players, the message says "Not authorized"; mount the drive an
 add the player to that group.
 
 **On Windows, the Wi-Fi list is empty.** Windows 11 shows the Wi-Fi networks to a program only
-with location access. Choose Scan to see the message, then turn on location access for desktop
-apps in Windows' privacy settings.
+when you allow it your location. Choose Scan to see the message. Then allow location in
+Settings → Privacy & security → Location, for desktop apps too.
 
 **A drive doesn't eject.** The message says why: close the game that runs from it, or wait for
 the download or the install that writes to it.

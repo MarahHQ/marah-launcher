@@ -923,9 +923,9 @@ Notes on each:
   macOS it provides only `vpn` and `power`. On Windows it uses Windows' own calls
   (`src/windows.rs`, through the `windows` crate) and provides:
   - `network`: how the PC is online, the Wi-Fi networks in reach, and joining and forgetting
-    one, through the WLAN API. Not `netsh`: it prints in the language Windows is set to. Windows
-    11 lists the networks to a program only with location access; without it the list is empty
-    and Scan says why. A network that signs in with an account (802.1X) is joined in Windows'
+    one, through the WLAN API. Not `netsh`: it prints in the language Windows is set to. Since
+    its fall 2024 release, Windows 11 lists the networks to a program only with the player's
+    consent to location; without it the list is empty and Scan says why. A network that signs in with an account (802.1X) is joined in Windows'
     own settings.
   - `bluetooth`: the radio on and off, the paired devices, a scan, pairing and forgetting,
     through WinRT, for classic and Bluetooth LE devices. Pairing accepts only a device that asks
@@ -935,9 +935,10 @@ Notes on each:
     has no public call to change the default output, so choosing one is refused.
   - `power`: the battery (`GetSystemPowerStatus`), and restart and shut down
     (`shutdown /r /t 0`, `shutdown /s /t 0`).
-  - `drives`: each volume with a letter, with its free space, and the eject of a USB drive
-    (Configuration Manager's `CM_Request_Device_EjectW`, as "Safely remove" does). Windows
-    mounts drives by itself, so mount and unmount are refused. A network share isn't listed.
+  - `drives`: each volume with a letter, named "Games (E:)", with its free space, and the eject
+    of a USB drive (Configuration Manager's `CM_Request_Device_EjectW` on the first device
+    Windows marks removable, as "Safely remove" does). Windows mounts drives by itself, so
+    mount and unmount are refused. A network drive is listed by its letter only.
   - `vpn`: unsupported, as librqbit can't bind a download to an interface there. OS updates and
     the OS install are absent.
 
