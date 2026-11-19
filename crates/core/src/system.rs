@@ -262,46 +262,50 @@ pub(crate) async fn refresh(core: &Core) {
     adopt_vpn(core).await;
     let mut found = SystemState::default();
     if let Some((plugin, network)) = provider(core, |p| p.network.clone()).await {
-        let reason = core.kernel().guard(&plugin, "unavailable", async { Ok(network.unavailable().await) }).await;
+        let reason =
+            core.kernel().guard(&plugin, "network.unavailable", async { Ok(network.unavailable().await) }).await;
         let reason = reason.unwrap_or(None);
         if reason.is_none() {
-            found.network = core.kernel().guard(&plugin, "status", network.status()).await.ok();
-            found.wifi = core.kernel().guard(&plugin, "wifi", network.wifi(false)).await.unwrap_or_default();
+            found.network = core.kernel().guard(&plugin, "network.status", network.status()).await.ok();
+            found.wifi = core.kernel().guard(&plugin, "network.wifi", network.wifi(false)).await.unwrap_or_default();
         }
         found.capabilities.insert(Capability::Network, reason);
     }
     if let Some((plugin, bluetooth)) = provider(core, |p| p.bluetooth.clone()).await {
-        let reason = core.kernel().guard(&plugin, "unavailable", async { Ok(bluetooth.unavailable().await) }).await;
+        let reason =
+            core.kernel().guard(&plugin, "bluetooth.unavailable", async { Ok(bluetooth.unavailable().await) }).await;
         let reason = reason.unwrap_or(None);
         if reason.is_none() {
-            found.bluetooth_on = core.kernel().guard(&plugin, "powered", bluetooth.powered()).await.unwrap_or(false);
-            found.devices = core.kernel().guard(&plugin, "devices", bluetooth.devices()).await.unwrap_or_default();
+            found.bluetooth_on =
+                core.kernel().guard(&plugin, "bluetooth.powered", bluetooth.powered()).await.unwrap_or(false);
+            found.devices =
+                core.kernel().guard(&plugin, "bluetooth.devices", bluetooth.devices()).await.unwrap_or_default();
         }
         found.capabilities.insert(Capability::Bluetooth, reason);
     }
     if let Some((plugin, audio)) = provider(core, |p| p.audio.clone()).await {
-        let reason = core.kernel().guard(&plugin, "unavailable", async { Ok(audio.unavailable().await) }).await;
+        let reason = core.kernel().guard(&plugin, "audio.unavailable", async { Ok(audio.unavailable().await) }).await;
         let reason = reason.unwrap_or(None);
         if reason.is_none() {
-            found.outputs = core.kernel().guard(&plugin, "outputs", audio.outputs()).await.unwrap_or_default();
-            found.level = core.kernel().guard(&plugin, "level", audio.level()).await.ok();
+            found.outputs = core.kernel().guard(&plugin, "audio.outputs", audio.outputs()).await.unwrap_or_default();
+            found.level = core.kernel().guard(&plugin, "audio.level", audio.level()).await.ok();
         }
         found.capabilities.insert(Capability::Audio, reason);
     }
     if let Some((plugin, power)) = provider(core, |p| p.power.clone()).await {
-        let reason = core.kernel().guard(&plugin, "unavailable", async { Ok(power.unavailable().await) }).await;
+        let reason = core.kernel().guard(&plugin, "power.unavailable", async { Ok(power.unavailable().await) }).await;
         let reason = reason.unwrap_or(None);
-        found.battery = core.kernel().guard(&plugin, "battery", power.battery()).await.ok().flatten();
+        found.battery = core.kernel().guard(&plugin, "power.battery", power.battery()).await.ok().flatten();
         found.capabilities.insert(Capability::Power, reason);
     }
     if let Some((plugin, updates)) = provider(core, |p| p.os_updates.clone()).await {
-        found.os_update = core.kernel().guard(&plugin, "status", updates.status()).await.ok();
+        found.os_update = core.kernel().guard(&plugin, "os_updates.status", updates.status()).await.ok();
         found.capabilities.insert(Capability::OsUpdates, None);
     }
     if core.kernel().host().place.stick
         && let Some((plugin, install)) = provider(core, |p| p.os_install.clone()).await
     {
-        found.disks = core.kernel().guard(&plugin, "disks", install.disks()).await.unwrap_or_default();
+        found.disks = core.kernel().guard(&plugin, "os_install.disks", install.disks()).await.unwrap_or_default();
         found.capabilities.insert(Capability::OsInstall, None);
     }
     let battery_notice = {
@@ -385,13 +389,15 @@ pub enum SystemCommand {
 /// system doesn't refuse it here. When the system then fails, the closing screen goes.
 async fn power_off(core: &Core, purpose: crate::closing::Purpose) -> CoreResult<()> {
     let (plugin, power) = provider(core, |p| p.power.clone()).await.ok_or(missing(Capability::Power))?;
-    if let Some(why) = core.kernel().guard(&plugin, "unavailable", async { Ok(power.unavailable().await) }).await? {
+    if let Some(why) =
+        core.kernel().guard(&plugin, "power.unavailable", async { Ok(power.unavailable().await) }).await?
+    {
         return Err(CoreError::Invalid(why));
     }
     crate::closing::close_everything(core, purpose).await;
     let done = match purpose {
-        crate::closing::Purpose::ShutDown => core.kernel().guard(&plugin, "shut_down", power.shut_down()).await,
-        _ => core.kernel().guard(&plugin, "restart", power.restart()).await,
+        crate::closing::Purpose::ShutDown => core.kernel().guard(&plugin, "power.shut_down", power.shut_down()).await,
+        _ => core.kernel().guard(&plugin, "power.restart", power.restart()).await,
     };
     if done.is_err() {
         crate::closing::cancelled(core);
@@ -409,7 +415,7 @@ pub(crate) async fn run(core: &Core, command: SystemCommand) -> CoreResult<()> {
         C::Refresh => {}
         C::ScanWifi => {
             let (plugin, network) = provider(core, |p| p.network.clone()).await.ok_or(missing(Capability::Network))?;
-            let wifi = core.kernel().guard(&plugin, "wifi", network.wifi(true)).await?;
+            let wifi = core.kernel().guard(&plugin, "network.wifi", network.wifi(true)).await?;
             core.state().system.wifi = wifi;
             core.changed(Area::System);
             return Ok(());
@@ -417,8 +423,10 @@ pub(crate) async fn run(core: &Core, command: SystemCommand) -> CoreResult<()> {
         C::JoinWifi { ssid, password } => {
             let (plugin, network) = provider(core, |p| p.network.clone()).await.ok_or(missing(Capability::Network))?;
             let (_, job) = start_job(core, JobKind::JoinWifi, &ssid);
-            if let Err(e) =
-                core.kernel().guard(&plugin, "join", network.join(&ssid, password.as_deref(), job.clone())).await
+            if let Err(e) = core
+                .kernel()
+                .guard(&plugin, "network.join", network.join(&ssid, password.as_deref(), job.clone()))
+                .await
             {
                 failed_to_start(&job, &e);
             }
@@ -426,16 +434,18 @@ pub(crate) async fn run(core: &Core, command: SystemCommand) -> CoreResult<()> {
         }
         C::ForgetWifi(ssid) => {
             let (plugin, network) = provider(core, |p| p.network.clone()).await.ok_or(missing(Capability::Network))?;
-            core.kernel().guard(&plugin, "forget", network.forget(&ssid)).await?;
+            core.kernel().guard(&plugin, "network.forget", network.forget(&ssid)).await?;
         }
         C::SetBluetooth(on) => {
             let (plugin, bt) = provider(core, |p| p.bluetooth.clone()).await.ok_or(missing(Capability::Bluetooth))?;
-            core.kernel().guard(&plugin, "set_powered", bt.set_powered(on)).await?;
+            core.kernel().guard(&plugin, "bluetooth.set_powered", bt.set_powered(on)).await?;
         }
         C::ScanBluetooth => {
             let (plugin, bt) = provider(core, |p| p.bluetooth.clone()).await.ok_or(missing(Capability::Bluetooth))?;
             let (_, job) = start_job(core, JobKind::ScanBluetooth, "");
-            if let Err(e) = core.kernel().guard(&plugin, "scan", bt.scan(BLUETOOTH_SCAN_SECONDS, job.clone())).await {
+            if let Err(e) =
+                core.kernel().guard(&plugin, "bluetooth.scan", bt.scan(BLUETOOTH_SCAN_SECONDS, job.clone())).await
+            {
                 failed_to_start(&job, &e);
             }
             return Ok(());
@@ -443,31 +453,31 @@ pub(crate) async fn run(core: &Core, command: SystemCommand) -> CoreResult<()> {
         C::Pair(address) => {
             let (plugin, bt) = provider(core, |p| p.bluetooth.clone()).await.ok_or(missing(Capability::Bluetooth))?;
             let (_, job) = start_job(core, JobKind::Pair, &address);
-            if let Err(e) = core.kernel().guard(&plugin, "pair", bt.pair(&address, job.clone())).await {
+            if let Err(e) = core.kernel().guard(&plugin, "bluetooth.pair", bt.pair(&address, job.clone())).await {
                 failed_to_start(&job, &e);
             }
             return Ok(());
         }
         C::ConnectDevice(address) => {
             let (plugin, bt) = provider(core, |p| p.bluetooth.clone()).await.ok_or(missing(Capability::Bluetooth))?;
-            core.kernel().guard(&plugin, "connect", bt.connect(&address)).await?;
+            core.kernel().guard(&plugin, "bluetooth.connect", bt.connect(&address)).await?;
         }
         C::DisconnectDevice(address) => {
             let (plugin, bt) = provider(core, |p| p.bluetooth.clone()).await.ok_or(missing(Capability::Bluetooth))?;
-            core.kernel().guard(&plugin, "disconnect", bt.disconnect(&address)).await?;
+            core.kernel().guard(&plugin, "bluetooth.disconnect", bt.disconnect(&address)).await?;
         }
         C::RemoveDevice(address) => {
             let (plugin, bt) = provider(core, |p| p.bluetooth.clone()).await.ok_or(missing(Capability::Bluetooth))?;
-            core.kernel().guard(&plugin, "remove", bt.remove(&address)).await?;
+            core.kernel().guard(&plugin, "bluetooth.remove", bt.remove(&address)).await?;
         }
         C::SetOutput(name) => {
             let (plugin, audio) = provider(core, |p| p.audio.clone()).await.ok_or(missing(Capability::Audio))?;
-            core.kernel().guard(&plugin, "set_output", audio.set_output(&name)).await?;
+            core.kernel().guard(&plugin, "audio.set_output", audio.set_output(&name)).await?;
         }
         C::SetVolume(volume) => {
             let (plugin, audio) = provider(core, |p| p.audio.clone()).await.ok_or(missing(Capability::Audio))?;
             let volume = volume.min(100);
-            core.kernel().guard(&plugin, "set_volume", audio.set_volume(volume)).await?;
+            core.kernel().guard(&plugin, "audio.set_volume", audio.set_volume(volume)).await?;
             // Shown at once: the next read confirms it.
             if let Some(level) = core.state().system.level.as_mut() {
                 level.volume = volume;
@@ -477,7 +487,7 @@ pub(crate) async fn run(core: &Core, command: SystemCommand) -> CoreResult<()> {
         }
         C::SetMuted(muted) => {
             let (plugin, audio) = provider(core, |p| p.audio.clone()).await.ok_or(missing(Capability::Audio))?;
-            core.kernel().guard(&plugin, "set_muted", audio.set_muted(muted)).await?;
+            core.kernel().guard(&plugin, "audio.set_muted", audio.set_muted(muted)).await?;
             if let Some(level) = core.state().system.level.as_mut() {
                 level.muted = muted;
             }
@@ -492,7 +502,7 @@ pub(crate) async fn run(core: &Core, command: SystemCommand) -> CoreResult<()> {
         C::CheckOsUpdate => {
             let (plugin, updates) =
                 provider(core, |p| p.os_updates.clone()).await.ok_or(missing(Capability::OsUpdates))?;
-            core.kernel().guard(&plugin, "check_now", updates.check_now()).await?;
+            core.kernel().guard(&plugin, "os_updates.check_now", updates.check_now()).await?;
         }
         C::InstallOs(disk) => {
             if !core.kernel().host().place.stick {
@@ -504,7 +514,9 @@ pub(crate) async fn run(core: &Core, command: SystemCommand) -> CoreResult<()> {
             let (plugin, install) =
                 provider(core, |p| p.os_install.clone()).await.ok_or(missing(Capability::OsInstall))?;
             let (_, job) = start_job(core, JobKind::InstallOs, &disk.display().to_string());
-            if let Err(e) = core.kernel().guard(&plugin, "install", install.install(&disk, job.clone())).await {
+            if let Err(e) =
+                core.kernel().guard(&plugin, "os_install.install", install.install(&disk, job.clone())).await
+            {
                 failed_to_start(&job, &e);
             }
             return Ok(());
@@ -512,7 +524,7 @@ pub(crate) async fn run(core: &Core, command: SystemCommand) -> CoreResult<()> {
         C::ChoosePartitions => {
             let (plugin, install) =
                 provider(core, |p| p.os_install.clone()).await.ok_or(missing(Capability::OsInstall))?;
-            return core.kernel().guard(&plugin, "choose_partitions", install.choose_partitions()).await;
+            return core.kernel().guard(&plugin, "os_install.choose_partitions", install.choose_partitions()).await;
         }
         C::CancelJob(id) => {
             let state = core.state();
