@@ -33,18 +33,18 @@ launcher** turns this off.
 ## Rate how a game runs
 
 After a game closes, the launcher may ask "How far did <game> get?". It asks once for each
-emulator build. To answer again, choose **Rate how it runs** in the game's menu.
+emulator build. To give another result, choose **Rate how it runs** in the game's menu.
 
-Your answer stays on this PC until you send it. The launcher uses it to pick the
+Your result stays on this PC until you send it. The launcher uses it to pick the
 [best version](finding-games.md#best-for-this-pc) of a game in the Catalog.
 
 ## Send your ratings
 
-Settings → Games → **Send ratings** sends your answers to the community compatibility lists, so
+Settings → Games → **Send ratings** sends your results to the community compatibility lists, so
 other players know how a game runs. Two lists take reports this way: shadPS4's (PS4 games) and
-KytyPS5's (PS5 games). Answers for other emulators, and for PC games, stay on this PC.
+KytyPS5's (PS5 games). Results for other emulators, and for PC games, stay on this PC.
 
-1. The launcher lists the answers you haven't sent. All are picked. Press ✕ on one to leave it
+1. The launcher lists the results you haven't sent. All are picked. Press ✕ on one to leave it
    out, then choose **Next: see the reports**.
 2. The launcher shows each report in full: its title, every field, the end of the emulator's
    log, and the page it goes to. Move up and down to read all of it.
@@ -57,6 +57,6 @@ Before the report shows, the launcher takes personal data out of the log: your h
 becomes `~`, your user name `<user>`, your computer's name `<computer>`, IP addresses `<ip>`
 and email addresses `<email>`. Check the text before you submit it.
 
-An answer you opened in the browser counts as sent and isn't listed again. A new answer for the
+A result you opened in the browser counts as sent and isn't listed again. A new result for the
 same game is listed again. shadPS4's form has a checklist that you tick yourself: shadPS4 takes
 reports only for a game dumped from a copy you own, unmodified, on a major release of shadPS4.

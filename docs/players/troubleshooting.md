@@ -29,8 +29,11 @@ settings. It then runs inside gamescope, which must be installed.
 **A trailer opens in the browser.** The launcher plays trailers in its window with libmpv.
 Without libmpv, it opens them in the browser.
 
-**A backup or a restore doesn't start, or a backup can't be restored.** See
-[Backup and restore](backup.md#restore).
+**A backup or a restore doesn't start.** The message says why. See
+[Restore](backup.md#restore).
+
+**A backup in the backup browser can't be restored.** A newer version of the launcher made it.
+Update the launcher first. See [The backup browser](backup.md#the-backup-browser).
 
 **Everything is too small or too big on the TV.** Change Settings → Launcher → **Size of
 everything**. `MARAH_SCALE=<0.8 to 1.4>` sets it for one run.

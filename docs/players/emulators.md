@@ -87,7 +87,7 @@ shadPS4 asks: **Copy** keeps the old saves as well, **Do nothing** leaves them w
 
 ## Switch: Lichii
 
-Lichii runs on Linux only.
+Lichii plays Switch and Switch 2 games. It runs on Linux only.
 
 ### Lichii's data
 

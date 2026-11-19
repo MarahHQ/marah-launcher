@@ -6,7 +6,8 @@ couch, without a keyboard or a mouse.
 
 ![A short loop of the launcher in the Default theme with five sample PC games: Home, the Library, a game's Game Hub, back to Home, then down the one-page Settings from Launcher to Updates, and back to Home](docs/demo/demo-loop.webp)
 
-The demo shows the Default theme with five sample games. `scripts/record_demo.sh` records it.
+The demo shows the Default theme with five sample games. `scripts/record_demo.sh` records a
+new one.
 
 ## What it does
 
@@ -26,7 +27,7 @@ Each source of games is a plugin built into the launcher:
 | --- | --- | --- |
 | PS5 | PS5 games, with [KytyPS5](https://github.com/KytyPS5/KytyPS5) | Linux, macOS, Windows |
 | PS4 | PS4 games, with [shadPS4](https://github.com/shadps4-emu/shadPS4) | Linux, macOS, Windows |
-| Switch | Switch games, with [Lichii](https://github.com/zortos293/Lichii) | Linux |
+| Switch | Switch and Switch 2 games, with [Lichii](https://github.com/zortos293/Lichii) | Linux |
 | PC | Native games, and Windows games through umu-launcher (Proton) or Wine | Linux, macOS, Windows |
 | Steam | The games Steam installed, started through Steam | Linux |
 
@@ -35,7 +36,7 @@ offers to download. The **PlayStation Store** adds official art and details to P
 games.
 
 The launcher ships two themes, **Default** and **Classic**. A theme changes the whole layout,
-not only the colours. You can add more themes: a theme is data, and it runs no code.
+not only the colors. You can add more themes: a theme is data, and it runs no code.
 
 ## Install
 
@@ -111,7 +112,7 @@ make check     # the format check, clippy and every test, as CI runs them
 
 ## Limits
 
-- Switch and Steam games run on Linux only.
+- Switch games (Lichii) and Steam games run on Linux only.
 - On Linux, only Windows games run in a sandbox. Linux games, scripts and AppImages run with
   your access to your files. Install only releases you trust.
 - On macOS, the launcher needs the Accessibility permission to bring a game to the front and

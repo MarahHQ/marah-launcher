@@ -37,7 +37,7 @@ with a column of their icons on the left that lights the section you are in.
 | Game folders | Where your games are, `~/Games` by default. Installs go into the console's folder inside the first one. |
 | Packages to install | Where the emulators look for packages and disc images to install, `~/Downloads` by default. |
 | Rescan game folders | Looks for games again. |
-| Send ratings | Sends your "how it runs" answers to the community compatibility lists. See [Playing](playing.md#send-your-ratings). |
+| Send ratings | Sends your results ("how far did it get") to the community compatibility lists. See [Playing](playing.md#send-your-ratings). |
 
 Separate several folders with `;`. Start a path with `~` for your home folder.
 
