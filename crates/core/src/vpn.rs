@@ -107,9 +107,10 @@ impl VpnRule {
     /// Reads the VPNs off the UI thread, with the interface downloads may use among them.
     pub async fn read(&self) -> (Vec<Vpn>, Option<String>) {
         let network = self.network();
-        let finds = network.finds_vpns();
-        let vpns = tokio::task::spawn_blocking(move || network.vpns()).await.unwrap_or_default();
-        let route = pick(&vpns, &self.chosen(), finds);
+        let reader = network.clone();
+        let vpns = tokio::task::spawn_blocking(move || reader.vpns()).await.unwrap_or_default();
+        // After the read: a system plugin's VPN area says what the system is with each read.
+        let route = pick(&vpns, &self.chosen(), network.finds_vpns());
         (vpns, route)
     }
 
@@ -136,8 +137,12 @@ impl VpnCheck for VpnRule {
         if let Some(reason) = network.problem() {
             return Ok(VpnPass::Unbound { reason });
         }
-        let finds = network.finds_vpns();
         let (vpns, route) = self.read().await;
+        // A system plugin's VPN area says what the system is with its first read.
+        if let Some(reason) = network.problem() {
+            return Ok(VpnPass::Unbound { reason });
+        }
+        let finds = network.finds_vpns();
         if route.is_some() {
             return Ok(VpnPass::Open);
         }
@@ -298,7 +303,7 @@ impl VpnSubsystem {
             VpnCmd::Import(file) => {
                 let file = crate::folders::expand(&file.to_string_lossy(), self.inner.home.as_deref())
                     .ok_or_else(|| CoreError::Invalid(format!("{} isn't a full path", file.display())))?;
-                self.call(move |n| n.import(&file)).await.map(|_| ())
+                self.call(move |n| n.import(&file)).await
             }
         }
     }

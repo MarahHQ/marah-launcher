@@ -1,9 +1,10 @@
 //! The drives' flows over the core: the player's commands, a drive that was plugged in, the game
 //! folders' drives at the start, and the games of a drive that is away.
 //!
-//! - The adapter is the system plugin's when one provides `drives` and can use it, else the
-//!   mount folders ([`adopt`], at each read).
-//! - The drives are read again on the system's refresh tick. When the launcher is the whole
+//! - The adapter is the system plugin's when one provides the drives area and can use it, else
+//!   the mount folders ([`adopt`], at each read).
+//! - The drives are read by the system's one reader, on its tick ([`crate::system::read`]),
+//!   which then hands the list here ([`listed`]). When the launcher is the whole
 //!   screen, a drive that came is mounted, and a notice says so; a desktop does that itself.
 //! - Unmount and eject wait while a game runs from the drive, or a download or an install writes
 //!   there.
@@ -21,12 +22,13 @@ use launcher_api::{GameKey, SystemJob};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::udisks::PluginDrives;
+use super::udisks::{self, PluginDrives};
 use super::{Adapter, Drive, MountFolders};
 use crate::changes::Area;
 use crate::library::Entry;
 use crate::system::{JobKind, provider, start_job};
 use crate::{Core, CoreError, CoreResult};
+use launcher_api::{AreaData, AreaState, SystemArea};
 
 /// The longest the start waits for the game folders' drives to mount: a drive that doesn't
 /// answer must not hold the boot.
@@ -163,51 +165,51 @@ fn refuse_when_busy(core: &Core, drives: &[&Drive]) -> CoreResult<()> {
 }
 
 /// Uses the system plugin's drives when one provides them and can use them here; else the mount
-/// folders.
-/// The system's last answer to why drives can't be managed: `None` before its first read.
-fn stored_reason(core: &Core) -> Option<Option<String>> {
-    core.state().system.capabilities.get(&launcher_api::Capability::Drives).cloned()
-}
-
-async fn adopt(core: &Core) {
-    let provided = provider(core, |p| p.drives.clone()).await;
-    // Why the plugin can't manage drives: the system's read on this tick already asked; only
-    // before that read is it asked here.
-    let why = match &provided {
-        None => None,
-        Some((plugin, settings)) => match stored_reason(core) {
-            Some(stored) => stored,
-            None => {
-                let asked = async { Ok(settings.unavailable().await) };
-                core.kernel().guard(plugin, "drives.unavailable", asked).await.unwrap_or_else(|e| Some(e.to_string()))
-            }
-        },
+/// folders. Returns the plugin's list, as the system's reader just read it, when the plugin's
+/// adapter is in use.
+async fn adopt(core: &Core) -> Option<Vec<Drive>> {
+    let provided = provider(core, SystemArea::Drives).await;
+    // The system's reader read the area just before: its answer is kept.
+    let stored = core.state().system.area(SystemArea::Drives).cloned();
+    let (why, listed) = match (&provided, stored) {
+        (None, _) => (None, None),
+        (Some(_), Some(AreaState::Ready(AreaData::Drives { drives }))) => (None, Some(udisks::drives(drives))),
+        (Some(_), Some(AreaState::Ready(_)) | None) => (None, None),
+        (Some(_), Some(AreaState::Unsupported(why))) => (Some(why), None),
+        (Some(_), Some(AreaState::Absent)) => (Some(crate::system::absent(SystemArea::Drives)), None),
     };
     // The adapter stays while its plugin and the plugin's answer stay.
-    if !core.drives().adopt(provided.as_ref().map(|(plugin, _)| plugin.clone()), why.clone()) {
-        return;
-    }
-    let adapter: Arc<dyn Adapter> = match (provided, &why) {
-        (Some((plugin, settings)), None) => Arc::new(PluginDrives { kernel: core.kernel().clone(), plugin, settings }),
-        (_, why) => {
-            if let Some(why) = why {
-                tracing::debug!(%why, "the drives come from the mount folders");
+    if core.drives().adopt(provided.as_ref().map(|(plugin, _)| plugin.clone()), why.clone()) {
+        let adapter: Arc<dyn Adapter> = match (provided, &why) {
+            (Some((plugin, settings)), None) => {
+                Arc::new(PluginDrives { kernel: core.kernel().clone(), plugin, settings })
             }
-            let home = core.kernel().host().home.clone();
-            Arc::new(MountFolders::here(home.as_deref()))
-        }
-    };
-    core.drives().use_adapter(adapter);
+            (_, why) => {
+                if let Some(why) = why {
+                    tracing::debug!(%why, "the drives come from the mount folders");
+                }
+                let home = core.kernel().host().home.clone();
+                Arc::new(MountFolders::here(home.as_deref()))
+            }
+        };
+        core.drives().use_adapter(adapter);
+    }
+    listed
 }
 
-/// Reads the drives again. A drive that came is mounted, with a notice; the view hears of any
-/// change.
+/// Reads the drives again, through the system's one reader, which then lists them here.
 pub(crate) async fn refresh(core: &Core) {
-    adopt(core).await;
+    crate::system::read(core, SystemArea::Drives).await;
+}
+
+/// The system's reader just read the drives area: the list is kept. A drive that came is
+/// mounted, with a notice; the view hears of any change.
+pub(crate) async fn listed(core: &Core) {
+    let listed = adopt(core).await;
     let (before, read_before) = (core.drives().known(), core.drives().listed());
     let changes = {
         let _turn = core.disk_turn().await;
-        core.drives().refresh().await
+        core.drives().refresh(listed).await
     };
     let now = core.drives().known();
     if now != before {

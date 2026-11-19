@@ -394,7 +394,7 @@ pub fn write_raw_theme(parent: &Path, theme_id: &str, theme_section: &str, files
     std::fs::write(
         dir.join("theme.toml"),
         format!(
-            "id = \"{theme_id}\"\nkind = \"theme\"\nname = \"{theme_id}\"\nversion = \"1.0.0\"\nhost_api = \"^0.3\"\n\
+            "id = \"{theme_id}\"\nkind = \"theme\"\nname = \"{theme_id}\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
              capabilities = [\"theme\"]\n[runtime]\ntype = \"data\"\n[theme]\nui_api = \"^0.6\"\n{theme_section}\n"
         ),
     )

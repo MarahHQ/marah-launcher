@@ -1,4 +1,4 @@
-//! The adapter over a system plugin's `drives` capability ([`DriveSettings`]): on Linux, UDisks.
+//! The adapter over a system plugin's drives area ([`SystemArea::Drives`]): on Linux, UDisks.
 //! Its actions run in the background and end through their job; this adapter waits for that end.
 
 use std::path::PathBuf;
@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use launcher_api::{DriveSettings, PluginId, SystemDrive, SystemJob};
+use launcher_api::{AreaAction, AreaData, AreaSettings, AreaState, PluginId, SystemDrive, SystemJob};
 
 use super::{Adapter, Drive};
 use crate::{CoreError, CoreResult, Kernel};
@@ -14,7 +14,7 @@ use crate::{CoreError, CoreResult, Kernel};
 pub(crate) struct PluginDrives {
     pub kernel: Kernel,
     pub plugin: PluginId,
-    pub settings: Arc<dyn DriveSettings>,
+    pub settings: Arc<dyn AreaSettings>,
 }
 
 /// The longest a mount or an unmount may take, and an eject, which unmounts every part of a
@@ -23,16 +23,11 @@ const MOUNT_LIMIT: Duration = Duration::from_secs(30);
 const EJECT_LIMIT: Duration = Duration::from_secs(60);
 
 impl PluginDrives {
-    /// Starts an action, which reports through `watched`, and waits for its end, for at most
-    /// `limit`: then the job fails, with a plain reason.
-    async fn act(
-        &self,
-        method: &'static str,
-        watched: &Watched,
-        limit: Duration,
-        start: impl Future<Output = launcher_api::PluginResult<()>>,
-    ) -> CoreResult<String> {
-        self.kernel.guard(&self.plugin, method, start).await?;
+    /// Starts `action`, which reports through a job over `job`, and waits for its end, for at
+    /// most `limit`: then the job fails, with a plain reason.
+    async fn act(&self, action: AreaAction, job: Arc<dyn SystemJob>, limit: Duration) -> CoreResult<String> {
+        let watched = Watched::over(job);
+        self.kernel.guard(&self.plugin, "drives.act", self.settings.act(action, watched.clone())).await?;
         match self.kernel.ports().clock.timeout(limit, watched.wait()).await {
             Some(ended) => ended.map_err(CoreError::Invalid),
             None => {
@@ -42,6 +37,12 @@ impl PluginDrives {
             }
         }
     }
+}
+
+/// The drives the system didn't mount for itself, as the player sees them: those the player may
+/// mount and unmount.
+pub(crate) fn drives(found: Vec<SystemDrive>) -> Vec<Drive> {
+    found.into_iter().filter(|d| !d.system).map(drive).collect()
 }
 
 /// The drive the player sees: by its file system's UUID, named by its label, else its model.
@@ -71,28 +72,25 @@ impl Adapter for PluginDrives {
         "plugin"
     }
 
-    /// The drives the system didn't mount for itself: those the player may mount and unmount.
     async fn list(&self) -> CoreResult<Vec<Drive>> {
-        let found = self.kernel.guard(&self.plugin, "drives.drives", self.settings.drives()).await?;
-        Ok(found.into_iter().filter(|d| !d.system).map(drive).collect())
+        match self.kernel.guard(&self.plugin, "drives.state", self.settings.state()).await? {
+            AreaState::Ready(AreaData::Drives { drives: found }) => Ok(drives(found)),
+            AreaState::Unsupported(why) => Err(CoreError::Invalid(why)),
+            _ => Ok(Vec::new()),
+        }
     }
 
     async fn mount(&self, drive: &Drive, job: Arc<dyn SystemJob>) -> CoreResult<PathBuf> {
-        let watched = Watched::over(job);
-        let start = self.settings.mount(&drive.device, watched.clone());
-        Ok(PathBuf::from(self.act("drives.mount", &watched, MOUNT_LIMIT, start).await?))
+        let action = AreaAction::Mount { device: drive.device.clone() };
+        Ok(PathBuf::from(self.act(action, job, MOUNT_LIMIT).await?))
     }
 
     async fn unmount(&self, drive: &Drive, job: Arc<dyn SystemJob>) -> CoreResult<()> {
-        let watched = Watched::over(job);
-        let start = self.settings.unmount(&drive.device, watched.clone());
-        self.act("drives.unmount", &watched, MOUNT_LIMIT, start).await.map(|_| ())
+        self.act(AreaAction::Unmount { device: drive.device.clone() }, job, MOUNT_LIMIT).await.map(|_| ())
     }
 
     async fn eject(&self, drive: &Drive, job: Arc<dyn SystemJob>) -> CoreResult<()> {
-        let watched = Watched::over(job);
-        let start = self.settings.eject(&drive.disk, watched.clone());
-        self.act("drives.eject", &watched, EJECT_LIMIT, start).await.map(|_| ())
+        self.act(AreaAction::Eject { disk: drive.disk.clone() }, job, EJECT_LIMIT).await.map(|_| ())
     }
 }
 

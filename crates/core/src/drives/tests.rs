@@ -132,11 +132,11 @@ async fn the_list_has_each_mounted_drive_s_free_space_and_size() {
 async fn the_first_read_finds_what_is_there_then_each_read_says_what_came_and_went() {
     let (drives, fake) = with(Vec::new());
     fake.set(Some(vec![drive("A", None)]));
-    assert_eq!(drives.refresh().await, Changes::default(), "the first read: nothing came");
+    assert_eq!(drives.refresh(None).await, Changes::default(), "the first read: nothing came");
     assert_eq!(drives.known().len(), 1);
 
     fake.set(Some(vec![drive("B", None)]));
-    let changes = drives.refresh().await;
+    let changes = drives.refresh(None).await;
     assert_eq!(changes.plugged.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(), ["B"]);
     assert_eq!(changes.unplugged.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(), ["A"]);
 }
@@ -145,11 +145,11 @@ async fn the_first_read_finds_what_is_there_then_each_read_says_what_came_and_we
 async fn another_kind_of_adapter_finds_what_is_there_as_a_first_read_does() {
     let (drives, fake) = with(Vec::new());
     fake.set(Some(vec![drive("A", None)]));
-    drives.refresh().await;
+    drives.refresh(None).await;
     drives.use_adapter(fake.clone());
     let folders = MountFolders { parents: Vec::new(), roots: vec![std::env::temp_dir()] };
     drives.use_adapter(Arc::new(folders));
-    assert_eq!(drives.refresh().await, Changes::default(), "not A gone and a folder come");
+    assert_eq!(drives.refresh(None).await, Changes::default(), "not A gone and a folder come");
     assert_eq!(drives.known().len(), 1);
 }
 
@@ -157,19 +157,19 @@ async fn another_kind_of_adapter_finds_what_is_there_as_a_first_read_does() {
 async fn a_read_that_fails_changes_nothing() {
     let (drives, fake) = with(Vec::new());
     fake.set(Some(vec![drive("A", None)]));
-    drives.refresh().await;
+    drives.refresh(None).await;
     fake.set(None);
-    assert_eq!(drives.refresh().await, Changes::default(), "not every drive unplugged");
+    assert_eq!(drives.refresh(None).await, Changes::default(), "not every drive unplugged");
     assert_eq!(drives.known().len(), 1);
     fake.set(Some(vec![drive("A", None)]));
-    assert_eq!(drives.refresh().await, Changes::default(), "A was there all along");
+    assert_eq!(drives.refresh(None).await, Changes::default(), "A was there all along");
 }
 
 #[tokio::test]
 async fn mounting_goes_through_the_adapter_and_the_list_is_read_again() {
     let (drives, fake) = with(Vec::new());
     fake.set(Some(vec![drive("A", None)]));
-    drives.refresh().await;
+    drives.refresh(None).await;
     assert_eq!(drives.mount("A", job()).await.unwrap(), Path::new("/media/A"));
     assert_eq!(drives.known()[0].mount.as_deref(), Some(Path::new("/media/A")));
     assert_eq!(drives.mount("A", job()).await.unwrap(), Path::new("/media/A"), "mounted already: no second mount");
@@ -182,11 +182,11 @@ async fn mounting_goes_through_the_adapter_and_the_list_is_read_again() {
 async fn a_drive_that_comes_during_an_action_is_still_found_by_the_next_read() {
     let (drives, fake) = with(Vec::new());
     fake.set(Some(vec![drive("A", None)]));
-    drives.refresh().await;
+    drives.refresh(None).await;
     fake.set(Some(vec![drive("A", None), drive("B", None)]));
     drives.mount("A", job()).await.unwrap();
     assert_eq!(drives.known().len(), 1, "B waits for the next read");
-    let changes = drives.refresh().await;
+    let changes = drives.refresh(None).await;
     assert_eq!(changes.plugged.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(), ["B"]);
 }
 

@@ -9,9 +9,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use launcher_api::{
-    AudioLevel, AudioOutput, AudioSettings, Battery, BluetoothDevice, BluetoothSettings, Connection, DriveSettings,
-    InstallDisk, Location, NetworkSettings, NetworkStatus, OsInstall, OsUpdate, OsUpdates, PluginError, PluginResult,
-    PowerSettings, Programs, SystemDrive, SystemJob, WifiNetwork,
+    AreaAction, AreaData, AreaSettings, AreaState, AudioLevel, AudioOutput, Battery, BluetoothDevice, Connection,
+    InstallDisk, Location, NetworkStatus, OsUpdate, PluginError, PluginResult, Programs, SystemArea, SystemDrive,
+    SystemJob, WifiNetwork,
 };
 
 use crate::parse;
@@ -119,13 +119,13 @@ fn failed(error: PluginError) -> String {
     }
 }
 
-#[launcher_api::async_trait]
-impl NetworkSettings for Linux {
-    async fn unavailable(&self) -> Option<String> {
+/// Network and Wi-Fi.
+impl Linux {
+    async fn network_unavailable(&self) -> Option<String> {
         self.missing("nmcli", "NetworkManager").await
     }
 
-    async fn status(&self) -> PluginResult<NetworkStatus> {
+    async fn network_status(&self) -> PluginResult<NetworkStatus> {
         let mut status = parse::network(&self.run("nmcli", &["-t", "-f", "TYPE,STATE,CONNECTION", "device"]).await?);
         if status.connection == Connection::Wifi {
             let list =
@@ -181,9 +181,9 @@ impl NetworkSettings for Linux {
     }
 }
 
-#[launcher_api::async_trait]
-impl BluetoothSettings for Linux {
-    async fn unavailable(&self) -> Option<String> {
+/// Bluetooth.
+impl Linux {
+    async fn bluetooth_unavailable(&self) -> Option<String> {
         if let Some(missing) = self.missing("bluetoothctl", "BlueZ").await {
             return Some(missing);
         }
@@ -214,7 +214,7 @@ impl BluetoothSettings for Linux {
         Ok(parse::bluetooth(&all?, &paired?, &connected?))
     }
 
-    async fn scan(&self, seconds: u32, job: Arc<dyn SystemJob>) -> PluginResult<()> {
+    async fn scan_bluetooth(&self, seconds: u32, job: Arc<dyn SystemJob>) -> PluginResult<()> {
         job.progress(None, "Looking for devices: put yours in pairing mode");
         let me = self.clone();
         let handle = job.clone();
@@ -254,22 +254,22 @@ impl BluetoothSettings for Linux {
         Ok(())
     }
 
-    async fn connect(&self, address: &str) -> PluginResult<()> {
+    async fn connect_device(&self, address: &str) -> PluginResult<()> {
         self.act("bluetoothctl", &["--timeout", "8", "connect", address]).await
     }
 
-    async fn disconnect(&self, address: &str) -> PluginResult<()> {
+    async fn disconnect_device(&self, address: &str) -> PluginResult<()> {
         self.act("bluetoothctl", &["disconnect", address]).await
     }
 
-    async fn remove(&self, address: &str) -> PluginResult<()> {
+    async fn remove_device(&self, address: &str) -> PluginResult<()> {
         self.act("bluetoothctl", &["remove", address]).await
     }
 }
 
-#[launcher_api::async_trait]
-impl AudioSettings for Linux {
-    async fn unavailable(&self) -> Option<String> {
+/// Sound.
+impl Linux {
+    async fn audio_unavailable(&self) -> Option<String> {
         self.missing("pactl", "PipeWire's sound tools").await
     }
 
@@ -302,9 +302,9 @@ impl AudioSettings for Linux {
     }
 }
 
-#[launcher_api::async_trait]
-impl PowerSettings for Linux {
-    async fn unavailable(&self) -> Option<String> {
+/// Restart, shut down and the battery.
+impl Linux {
+    async fn power_unavailable(&self) -> Option<String> {
         self.missing("systemctl", "systemd").await
     }
 
@@ -324,9 +324,9 @@ impl PowerSettings for Linux {
     }
 }
 
-#[launcher_api::async_trait]
-impl OsUpdates for Linux {
-    async fn status(&self) -> PluginResult<OsUpdate> {
+/// Marah OS's updates.
+impl Linux {
+    async fn os_update(&self) -> PluginResult<OsUpdate> {
         if !tokio::fs::try_exists(MARAH_OS).await.unwrap_or(false) {
             return Err(PluginError::NotFound(format!("this isn't {}", launcher_api::brand::PRODUCT_OS_NAME)));
         }
@@ -343,8 +343,8 @@ impl OsUpdates for Linux {
     }
 }
 
-#[launcher_api::async_trait]
-impl OsInstall for Linux {
+/// Marah OS's installer, on its USB stick.
+impl Linux {
     async fn disks(&self) -> PluginResult<Vec<InstallDisk>> {
         if !tokio::fs::try_exists(INSTALLER).await.unwrap_or(false) {
             return Ok(Vec::new());
@@ -411,9 +411,9 @@ impl Linux {
     }
 }
 
-#[launcher_api::async_trait]
-impl DriveSettings for Linux {
-    async fn unavailable(&self) -> Option<String> {
+/// Drives.
+impl Linux {
+    async fn drives_unavailable(&self) -> Option<String> {
         match self.missing("udisksctl", "UDisks").await {
             Some(missing) => Some(missing),
             None => self.missing("lsblk", "util-linux").await,
@@ -465,6 +465,105 @@ impl DriveSettings for Linux {
     }
 }
 
+/// One of the areas Linux manages, through the same interface as every other.
+pub struct LinuxArea {
+    pub area: SystemArea,
+    pub linux: Arc<Linux>,
+}
+
+/// An area that can't be used here, and why, else its data.
+fn ready_unless(missing: Option<String>, data: impl FnOnce() -> AreaData) -> AreaState {
+    match missing {
+        Some(why) => AreaState::Unsupported(why),
+        None => AreaState::Ready(data()),
+    }
+}
+
+#[launcher_api::async_trait]
+impl AreaSettings for LinuxArea {
+    /// Each area's reads that don't need each other run at once. A read that fails leaves its
+    /// part of the data empty, and the rest still comes.
+    async fn state(&self) -> PluginResult<AreaState> {
+        let linux = &self.linux;
+        Ok(match self.area {
+            SystemArea::Network => {
+                let missing = linux.network_unavailable().await;
+                let (status, wifi) = match missing {
+                    Some(_) => (Err(PluginError::Other(String::new())), Ok(Vec::new())),
+                    None => tokio::join!(linux.network_status(), linux.wifi(false)),
+                };
+                ready_unless(missing, || AreaData::Network { status: status.ok(), wifi: wifi.unwrap_or_default() })
+            }
+            SystemArea::Bluetooth => {
+                let missing = linux.bluetooth_unavailable().await;
+                let (powered, devices) = match missing {
+                    Some(_) => (Ok(false), Ok(Vec::new())),
+                    None => tokio::join!(linux.powered(), linux.devices()),
+                };
+                ready_unless(missing, || AreaData::Bluetooth {
+                    powered: powered.unwrap_or(false),
+                    devices: devices.unwrap_or_default(),
+                })
+            }
+            SystemArea::Audio => {
+                let missing = linux.audio_unavailable().await;
+                let (outputs, level) = match missing {
+                    Some(_) => (Ok(Vec::new()), Err(PluginError::Other(String::new()))),
+                    None => tokio::join!(linux.outputs(), linux.level()),
+                };
+                ready_unless(missing, || AreaData::Audio { outputs: outputs.unwrap_or_default(), level: level.ok() })
+            }
+            SystemArea::Power => {
+                let (refused, battery) = tokio::join!(linux.power_unavailable(), linux.battery());
+                AreaState::Ready(AreaData::Power { battery: battery.ok().flatten(), refused })
+            }
+            SystemArea::OsUpdates => match linux.os_update().await {
+                Err(PluginError::NotFound(_)) => AreaState::Absent,
+                update => AreaState::Ready(AreaData::OsUpdates { update: update.ok() }),
+            },
+            SystemArea::OsInstall => match tokio::fs::try_exists(INSTALLER).await.unwrap_or(false) {
+                false => AreaState::Absent,
+                true => AreaState::Ready(AreaData::OsInstall { disks: linux.disks().await.unwrap_or_default() }),
+            },
+            SystemArea::Drives => match linux.drives_unavailable().await {
+                Some(why) => AreaState::Unsupported(why),
+                None => AreaState::Ready(AreaData::Drives { drives: linux.drives().await? }),
+            },
+            SystemArea::Vpn => AreaState::Absent,
+        })
+    }
+
+    async fn act(&self, action: AreaAction, job: Arc<dyn SystemJob>) -> PluginResult<()> {
+        use AreaAction as A;
+        let linux = &self.linux;
+        match action {
+            A::ScanWifi => linux.wifi(true).await.map(|_| ()),
+            A::JoinWifi { ssid, password } => linux.join(&ssid, password.as_deref(), job).await,
+            A::ForgetWifi { ssid } => linux.forget(&ssid).await,
+            A::SetBluetooth { on } => linux.set_powered(on).await,
+            A::ScanBluetooth { seconds } => linux.scan_bluetooth(seconds, job).await,
+            A::Pair { address } => linux.pair(&address, job).await,
+            A::ConnectDevice { address } => linux.connect_device(&address).await,
+            A::DisconnectDevice { address } => linux.disconnect_device(&address).await,
+            A::RemoveDevice { address } => linux.remove_device(&address).await,
+            A::SetOutput { name } => linux.set_output(&name).await,
+            A::SetVolume { volume } => linux.set_volume(volume).await,
+            A::SetMuted { muted } => linux.set_muted(muted).await,
+            A::Restart => linux.restart().await,
+            A::ShutDown => linux.shut_down().await,
+            A::CheckOsUpdate => linux.check_now().await,
+            A::InstallOs { disk } => linux.install(&disk, job).await,
+            A::ChoosePartitions => linux.choose_partitions().await,
+            A::Mount { device } => linux.mount(&device, job).await,
+            A::Unmount { device } => linux.unmount(&device, job).await,
+            A::Eject { disk } => linux.eject(&disk, job).await,
+            A::ImportVpn { .. } | A::ConnectVpn { .. } | A::DisconnectVpn { .. } => {
+                Err(PluginError::Unsupported("the VPNs are their own area".into()))
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -483,22 +582,26 @@ mod tests {
         }
     }
 
+    async fn state(area: SystemArea) -> AreaState {
+        let linux = Arc::new(Linux::new(Arc::new(Nothing)));
+        LinuxArea { area, linux }.state().await.unwrap()
+    }
+
     #[tokio::test]
     async fn without_the_tools_each_setting_says_which_one_is_missing() {
-        let linux = Linux::new(Arc::new(Nothing));
-        assert_eq!(
-            NetworkSettings::unavailable(&linux).await.as_deref(),
-            Some("NetworkManager (nmcli) isn't installed")
-        );
-        assert_eq!(
-            BluetoothSettings::unavailable(&linux).await.as_deref(),
-            Some("BlueZ (bluetoothctl) isn't installed")
-        );
-        assert_eq!(
-            AudioSettings::unavailable(&linux).await.as_deref(),
-            Some("PipeWire's sound tools (pactl) isn't installed")
-        );
-        assert_eq!(DriveSettings::unavailable(&linux).await.as_deref(), Some("UDisks (udisksctl) isn't installed"));
-        assert!(NetworkSettings::status(&linux).await.is_err());
+        let unsupported = |why: &str| AreaState::Unsupported(why.into());
+        assert_eq!(state(SystemArea::Network).await, unsupported("NetworkManager (nmcli) isn't installed"));
+        assert_eq!(state(SystemArea::Bluetooth).await, unsupported("BlueZ (bluetoothctl) isn't installed"));
+        assert_eq!(state(SystemArea::Audio).await, unsupported("PipeWire's sound tools (pactl) isn't installed"));
+        assert_eq!(state(SystemArea::Drives).await, unsupported("UDisks (udisksctl) isn't installed"));
+        assert!(Linux::new(Arc::new(Nothing)).network_status().await.is_err());
+    }
+
+    #[tokio::test]
+    async fn without_systemd_restart_is_refused_and_the_battery_still_reads() {
+        let AreaState::Ready(AreaData::Power { refused, .. }) = state(SystemArea::Power).await else {
+            panic!("power is ready: the battery reads without the tools");
+        };
+        assert_eq!(refused.as_deref(), Some("systemd (systemctl) isn't installed"));
     }
 }

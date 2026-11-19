@@ -124,21 +124,16 @@ pub enum Capability {
     /// A theme manifest declares only this. The theme's files come from [`crate::ThemePlugin`],
     /// not from `init`, so no emulator can provide it.
     Theme,
-    /// System plugins only, like the rest below: network and Wi-Fi. See [`crate::NetworkSettings`].
+    /// System plugins only, like the rest below: network and Wi-Fi. Each system capability is
+    /// one [`crate::SystemArea`], provided through [`crate::AreaSettings`].
     Network,
-    /// See [`crate::VpnSettings`].
     Vpn,
-    /// See [`crate::BluetoothSettings`].
     Bluetooth,
-    /// See [`crate::AudioSettings`].
     Audio,
-    /// See [`crate::PowerSettings`].
     Power,
-    /// See [`crate::OsUpdates`].
     OsUpdates,
-    /// See [`crate::OsInstall`].
     OsInstall,
-    /// See [`crate::DriveSettings`]. Not `storage`: that is a plugin's own data folder.
+    /// Not `storage`: that is a plugin's own data folder.
     Drives,
 }
 
@@ -594,7 +589,7 @@ mod tests {
         kind = "emulator"
         name = "Native example"
         version = "0.1.0"
-        host_api = "^0.3"
+        host_api = "^0.4"
         platforms = ["linux", "macos"]
         capabilities = ["catalog", "launcher"]
 
@@ -664,7 +659,7 @@ mod tests {
     fn an_emulator_names_its_console_in_any_case() {
         let with = |console: &str| {
             PluginManifest::from_toml(&format!(
-                "id = \"emu\"\nkind = \"emulator\"\nname = \"E\"\nversion = \"1.0.0\"\nhost_api = \"^0.3\"\n\
+                "id = \"emu\"\nkind = \"emulator\"\nname = \"E\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
                  console = \"{console}\"\n"
             ))
         };
@@ -680,7 +675,7 @@ mod tests {
     fn folder_and_system_rules_need_their_own_pattern() {
         use crate::{HostPath, Location};
         let m = PluginManifest::from_toml(
-            "id = \"pc\"\nkind = \"emulator\"\nname = \"PC\"\nversion = \"1.0.0\"\nhost_api = \"^0.3\"\n\
+            "id = \"pc\"\nkind = \"emulator\"\nname = \"PC\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
              [permissions]\nprocess = [\"folder:pc-games\", \"folder:not-granted\", \"system:wine\"]\n\
              [[permissions.filesystem]]\nfolder = \"pc-games\"",
         )
@@ -720,7 +715,7 @@ mod tests {
     fn a_folder_default_is_one_path_or_a_list_to_search() {
         let grant = |default: &str| {
             let m = PluginManifest::from_toml(&format!(
-                "id = \"emu\"\nkind = \"emulator\"\nname = \"E\"\nversion = \"1.0.0\"\nhost_api = \"^0.3\"\n\
+                "id = \"emu\"\nkind = \"emulator\"\nname = \"E\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
                  [[permissions.filesystem]]\nfolder = \"emu-build\"\n{default}\n"
             ))
             .unwrap();
@@ -743,7 +738,7 @@ mod tests {
     fn rejects_bad_ids_and_bad_versions() {
         let bad_id = KYTY.replace("\"emu-kyty\"", "\"Emu Native\"");
         assert!(PluginManifest::from_toml(&bad_id).is_err());
-        let bad_req = KYTY.replace("\"^0.3\"", "\"not a range\"");
+        let bad_req = KYTY.replace("\"^0.4\"", "\"not a range\"");
         assert!(PluginManifest::from_toml(&bad_req).is_err());
     }
 }

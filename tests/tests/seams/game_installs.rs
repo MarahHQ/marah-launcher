@@ -9,7 +9,7 @@ use launcher_api::*;
 use launcher_core::{Area, Clock, Command};
 use launcher_testkit::{FakeHost, StubPlugin, TestCore};
 
-const MANIFEST: &str = "id = \"emu-g\"\nkind = \"emulator\"\nname = \"G\"\nversion = \"1.0.0\"\nhost_api = \"^0.3\"\n\
+const MANIFEST: &str = "id = \"emu-g\"\nkind = \"emulator\"\nname = \"G\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
     capabilities = [\"catalog\", \"slots\", \"game_installer\"]\n\
     [[permissions.filesystem]]\nfolder = \"packages\"\n\
     [[permissions.filesystem]]\nfolder = \"games\"\nwrite = true\n";

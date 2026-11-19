@@ -10,7 +10,7 @@ use launcher_ui_api::VerdictVm;
 /// An emulator whose games need `requires` (TOML for its `[requires]` section).
 fn emulator(id: &str, requires: &str) -> StubPlugin {
     StubPlugin::from_toml(&format!(
-        "id = \"{id}\"\nkind = \"emulator\"\nname = \"{id}\"\nversion = \"1.0.0\"\nhost_api = \"^0.3\"\n\
+        "id = \"{id}\"\nkind = \"emulator\"\nname = \"{id}\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
          capabilities = [\"launcher\"]\n[requires]\n{requires}"
     ))
 }

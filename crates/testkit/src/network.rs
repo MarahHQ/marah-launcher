@@ -105,11 +105,11 @@ impl Network for FakeNetwork {
     }
 
     /// The file's name without its extension becomes a VPN, connected.
-    fn import(&self, file: &Path) -> Result<String, String> {
+    fn import(&self, file: &Path) -> Result<(), String> {
         self.call(format!("import {}", file.display()))?;
         let name = file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
         self.up(&name);
-        Ok(name)
+        Ok(())
     }
 
     fn connect(&self, name: &str) -> Result<(), String> {

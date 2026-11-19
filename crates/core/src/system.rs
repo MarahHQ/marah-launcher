@@ -1,18 +1,19 @@
-//! The machine's own settings, from the system plugins: network and Wi-Fi, Bluetooth, sound,
-//! power and battery, and on Marah OS its updates and its installer. For each capability the
-//! core uses the first active system plugin that provides it; without one, the capability is
-//! unavailable. The state is read again every few seconds and after each action, and long work
-//! (joining a network, scanning, pairing, installing) runs as a job the view model lists.
+//! The machine's own settings, from the system plugins: network and Wi-Fi, VPNs, Bluetooth,
+//! sound, power and battery, drives, and on Marah OS its updates and its installer. Each is a
+//! system area ([`SystemArea`]) behind the same interface. For each area the core uses the first
+//! active system plugin that provides it; without one, the area is absent. One reader
+//! ([`read`]) reads every area again every few seconds and after each action, and keeps what
+//! it read; an area is loading until its first read ends. Long work (joining a network,
+//! scanning, pairing, installing, mounting) runs as a job the view model lists.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use launcher_api::{
-    AudioLevel, AudioOutput, Battery, BluetoothDevice, Capability, InstallDisk, NetworkStatus, OsUpdate, PluginId,
-    PluginKind, Provided, SystemJob, WifiNetwork,
+    AreaAction, AreaData, AreaSettings, AreaState, Battery, PluginId, PluginKind, SystemArea, SystemJob,
 };
 
 use crate::changes::Area;
@@ -108,19 +109,9 @@ pub struct JobState {
 /// What the core knows of the machine.
 #[derive(Clone, Debug, Default)]
 pub struct SystemState {
-    pub network: Option<NetworkStatus>,
-    pub wifi: Vec<WifiNetwork>,
-    pub bluetooth_on: bool,
-    pub devices: Vec<BluetoothDevice>,
-    pub outputs: Vec<AudioOutput>,
-    pub level: Option<AudioLevel>,
-    pub battery: Option<Battery>,
-    pub os_update: Option<OsUpdate>,
-    pub disks: Vec<InstallDisk>,
-    /// Each capability a system plugin provides: `None` when it works, else why not.
-    pub capabilities: BTreeMap<Capability, Option<String>>,
-    /// Each capability whose first read ended, provided or not: the others are still loading.
-    pub read: BTreeSet<Capability>,
+    /// Each area as its last read left it. An area that isn't here is loading: its first read
+    /// hasn't ended. Loading lives here, in the core's reader, and no plugin reports it.
+    pub areas: BTreeMap<SystemArea, AreaState>,
     pub jobs: Vec<JobState>,
     pub(crate) next_job: u64,
     /// The lowest level a low battery notice warned of since the PC last charged.
@@ -128,12 +119,35 @@ pub struct SystemState {
 }
 
 impl SystemState {
-    /// Why `capability` can't be used: nobody provides it, or its plugin says why.
-    pub fn unavailable(&self, capability: Capability) -> Option<String> {
-        match self.capabilities.get(&capability) {
-            Some(reason) => reason.clone(),
-            None => Some(format!("{} can't change this on this system", launcher_api::brand::PRODUCT_NAME)),
+    /// The area as its last read left it; `None` while it is loading.
+    pub fn area(&self, area: SystemArea) -> Option<&AreaState> {
+        self.areas.get(&area)
+    }
+
+    /// The area's data, while it is ready.
+    pub fn data(&self, area: SystemArea) -> Option<&AreaData> {
+        match self.areas.get(&area) {
+            Some(AreaState::Ready(data)) => Some(data),
+            _ => None,
         }
+    }
+
+    /// Why the area can't be used: no plugin provides it, or its plugin says why. `None` while
+    /// it is ready or loading.
+    pub fn unavailable(&self, area: SystemArea) -> Option<String> {
+        match self.areas.get(&area)? {
+            AreaState::Absent => Some(absent(area)),
+            AreaState::Unsupported(why) => Some(why.clone()),
+            AreaState::Ready(_) => None,
+        }
+    }
+}
+
+/// What an absent area says: nobody provides it here.
+pub(crate) fn absent(area: SystemArea) -> String {
+    match area {
+        SystemArea::Drives => crate::drives::CANT_ACT.into(),
+        _ => format!("{} can't change this on this system", launcher_api::brand::PRODUCT_NAME),
     }
 }
 
@@ -155,17 +169,14 @@ fn low_battery(warned: Option<u8>, battery: Option<Battery>) -> (Option<u8>, Opt
     }
 }
 
-/// The first active system plugin that provides a capability, and that capability.
-pub(crate) async fn provider<T: ?Sized>(
-    core: &Core,
-    pick: impl Fn(&Provided) -> Option<Arc<T>>,
-) -> Option<(PluginId, Arc<T>)> {
+/// The first active system plugin that provides `area`, and its adapter for it.
+pub(crate) async fn provider(core: &Core, area: SystemArea) -> Option<(PluginId, Arc<dyn AreaSettings>)> {
     let kernel = core.kernel();
     for plugin in kernel.of_kind(PluginKind::System) {
         if let Ok(provided) = kernel.provided(&plugin).await
-            && let Some(capability) = pick(&provided)
+            && let Some(settings) = provided.areas.get(&area)
         {
-            return Some((plugin, capability));
+            return Some((plugin, settings.clone()));
         }
     }
     None
@@ -263,216 +274,135 @@ fn failed_to_start(job: &Arc<dyn SystemJob>, error: &CoreError) {
     job.failed(&error.to_string());
 }
 
+/// A job for a quick action, which ends before the action returns: nobody follows it.
+pub(crate) struct QuietJob;
+
+impl SystemJob for QuietJob {
+    fn progress(&self, _: Option<u8>, _: &str) {}
+    fn done(&self, _: &str) {}
+    fn failed(&self, _: &str) {}
+    fn cancelled(&self) -> bool {
+        false
+    }
+}
+
+/// The kernel's names for the calls on an area, for its spans and its errors.
+fn method(area: SystemArea, read: bool) -> &'static str {
+    match (area, read) {
+        (SystemArea::Network, true) => "network.state",
+        (SystemArea::Network, false) => "network.act",
+        (SystemArea::Vpn, true) => "vpn.state",
+        (SystemArea::Vpn, false) => "vpn.act",
+        (SystemArea::Bluetooth, true) => "bluetooth.state",
+        (SystemArea::Bluetooth, false) => "bluetooth.act",
+        (SystemArea::Audio, true) => "audio.state",
+        (SystemArea::Audio, false) => "audio.act",
+        (SystemArea::Power, true) => "power.state",
+        (SystemArea::Power, false) => "power.act",
+        (SystemArea::OsUpdates, true) => "os_updates.state",
+        (SystemArea::OsUpdates, false) => "os_updates.act",
+        (SystemArea::OsInstall, true) => "os_install.state",
+        (SystemArea::OsInstall, false) => "os_install.act",
+        (SystemArea::Drives, true) => "drives.state",
+        (SystemArea::Drives, false) => "drives.act",
+    }
+}
+
 /// The VPNs come from the system plugin that provides them, if one does; the app's port stays
-/// otherwise. Called at boot, before downloads resume, and at each read.
+/// otherwise. At boot, before downloads resume, it reads nothing of the machine: the VPN's
+/// facts come with its first read ([`crate::ports::PluginVpn`]).
 pub(crate) async fn adopt_vpn(core: &Core) {
-    if let Some((_, vpn)) = provider(core, |p| p.vpn.clone()).await {
-        core.vpn().use_network(Arc::new(crate::ports::PluginVpn(vpn)));
+    if let Some((_, settings)) = provider(core, SystemArea::Vpn).await {
+        core.vpn().use_network(Arc::new(crate::ports::PluginVpn::new(settings, None)));
     }
 }
 
-/// Reads every system capability again, all at once. Each part tells the view as soon as it is
-/// read, so a slow one (a network tool that hangs) holds none of the others.
+/// Reads every area again, all at once. Each area tells the view as soon as it is read, so a
+/// slow one (a network tool that hangs) holds none of the others.
 pub(crate) async fn refresh(core: &Core) {
-    futures::join!(
-        adopt_vpn(core),
-        read_network(core),
-        read_bluetooth(core),
-        read_audio(core),
-        read_power(core),
-        read_os_updates(core),
-        read_os_install(core),
-        read_drives(core),
-    );
+    futures::future::join_all(SystemArea::ALL.map(|area| read(core, area))).await;
 }
 
-/// Keeps what one part read. `reason` is `None` when no plugin provides `capability`, else why it
-/// can't be used (`Some(None)` when it can). `write` puts the part's state in and says whether
-/// it changed. Says whether the view must hear of it: the part changed, or this was its first
-/// read.
-fn publish(
-    core: &Core,
-    capability: Capability,
-    reason: Option<Option<String>>,
-    write: impl FnOnce(&mut SystemState) -> bool,
-) -> bool {
-    let mut state = core.state();
-    let system = &mut state.system;
-    let first = system.read.insert(capability);
-    let before = system.capabilities.get(&capability).cloned();
-    match reason {
-        Some(why) => system.capabilities.insert(capability, why),
-        None => system.capabilities.remove(&capability),
-    };
-    let wrote = write(system);
-    first || wrote || system.capabilities.get(&capability) != before.as_ref()
-}
-
-/// Sets `field` to `value`, and says whether it changed.
-fn set<T: PartialEq>(field: &mut T, value: T) -> bool {
-    let changed = *field != value;
-    *field = value;
-    changed
-}
-
-/// Tells the view of a part that changed.
-fn tell(core: &Core, changed: bool) {
-    if changed {
-        core.changed(Area::System);
+/// Asks the area's plugin what the area is now. An area nobody provides is absent, and so is
+/// Marah OS's installer anywhere but on its USB stick. `Err` when the read failed.
+async fn ask(core: &Core, area: SystemArea) -> CoreResult<(AreaState, Option<Arc<dyn AreaSettings>>)> {
+    if area == SystemArea::OsInstall && !core.kernel().host().place.stick {
+        return Ok((AreaState::Absent, None));
     }
+    let Some((plugin, settings)) = provider(core, area).await else { return Ok((AreaState::Absent, None)) };
+    let state = core.kernel().guard(&plugin, method(area, true), settings.state()).await?;
+    Ok((state, Some(settings)))
 }
 
-async fn read_network(core: &Core) {
-    let (reason, status, wifi) = match provider(core, |p| p.network.clone()).await {
-        None => (None, None, Vec::new()),
-        Some((plugin, network)) => {
-            let kernel = core.kernel();
-            let reason = kernel.guard(&plugin, "network.unavailable", async { Ok(network.unavailable().await) }).await;
-            let reason = reason.unwrap_or(None);
-            if reason.is_none() {
-                let (status, wifi) = futures::join!(
-                    kernel.guard(&plugin, "network.status", network.status()),
-                    kernel.guard(&plugin, "network.wifi", network.wifi(false)),
-                );
-                (Some(reason), status.ok(), wifi.unwrap_or_default())
-            } else {
-                (Some(reason), None, Vec::new())
-            }
-        }
-    };
-    let changed = publish(core, Capability::Network, reason, |system| {
-        // A scan found more networks than the plain read: keep them until the next scan.
-        let more = !wifi.is_empty() && set(&mut system.wifi, wifi);
-        set(&mut system.network, status) | more
-    });
-    tell(core, changed);
-}
-
-async fn read_bluetooth(core: &Core) {
-    let (reason, on, devices) = match provider(core, |p| p.bluetooth.clone()).await {
-        None => (None, false, Vec::new()),
-        Some((plugin, bluetooth)) => {
-            let kernel = core.kernel();
-            let reason =
-                kernel.guard(&plugin, "bluetooth.unavailable", async { Ok(bluetooth.unavailable().await) }).await;
-            let reason = reason.unwrap_or(None);
-            if reason.is_none() {
-                let (on, devices) = futures::join!(
-                    kernel.guard(&plugin, "bluetooth.powered", bluetooth.powered()),
-                    kernel.guard(&plugin, "bluetooth.devices", bluetooth.devices()),
-                );
-                (Some(reason), on.unwrap_or(false), devices.unwrap_or_default())
-            } else {
-                (Some(reason), false, Vec::new())
-            }
-        }
-    };
-    let changed = publish(core, Capability::Bluetooth, reason, |system| {
-        set(&mut system.bluetooth_on, on) | set(&mut system.devices, devices)
-    });
-    tell(core, changed);
-}
-
-async fn read_audio(core: &Core) {
-    let (reason, outputs, level) = match provider(core, |p| p.audio.clone()).await {
-        None => (None, Vec::new(), None),
-        Some((plugin, audio)) => {
-            let kernel = core.kernel();
-            let reason = kernel.guard(&plugin, "audio.unavailable", async { Ok(audio.unavailable().await) }).await;
-            let reason = reason.unwrap_or(None);
-            if reason.is_none() {
-                let (outputs, level) = futures::join!(
-                    kernel.guard(&plugin, "audio.outputs", audio.outputs()),
-                    kernel.guard(&plugin, "audio.level", audio.level()),
-                );
-                (Some(reason), outputs.unwrap_or_default(), level.ok())
-            } else {
-                (Some(reason), Vec::new(), None)
-            }
-        }
-    };
-    let changed = publish(core, Capability::Audio, reason, |system| {
-        set(&mut system.outputs, outputs) | set(&mut system.level, level)
-    });
-    tell(core, changed);
-}
-
-async fn read_power(core: &Core) {
-    let (reason, battery) = match provider(core, |p| p.power.clone()).await {
-        None => (None, None),
-        Some((plugin, power)) => {
-            let kernel = core.kernel();
-            let (reason, battery) = futures::join!(
-                kernel.guard(&plugin, "power.unavailable", async { Ok(power.unavailable().await) }),
-                kernel.guard(&plugin, "power.battery", power.battery()),
-            );
-            (Some(reason.unwrap_or(None)), battery.ok().flatten())
-        }
-    };
+/// The one reader of the machine: reads `area` and keeps what it read. A read that fails
+/// changes nothing; when it was the area's first, the area is unsupported, with the error, so
+/// it doesn't stay loading. Then each area's own rule runs: the low battery notice, the VPNs for
+/// the downloads, and the drives' list.
+pub(crate) async fn read(core: &Core, area: SystemArea) {
+    let asked = ask(core, area).await;
     let mut notice = None;
-    let changed = publish(core, Capability::Power, reason, |system| {
-        (system.battery_warned, notice) = low_battery(system.battery_warned, battery);
-        set(&mut system.battery, battery)
-    });
+    let (changed, now) = {
+        let mut state = core.state();
+        let system = &mut state.system;
+        let before = system.areas.get(&area).cloned();
+        let now = match (&asked, &before) {
+            (Ok((now, _)), _) => keep_wifi(before.as_ref(), now.clone()),
+            (Err(e), Some(before)) => {
+                tracing::debug!(area = area.name(), error = %e, "the area wasn't read: it stays as it was");
+                before.clone()
+            }
+            (Err(e), None) => AreaState::Unsupported(format!("Couldn't read it: {e}")),
+        };
+        if area == SystemArea::Power && asked.is_ok() {
+            let battery = match &now {
+                AreaState::Ready(AreaData::Power { battery, .. }) => *battery,
+                _ => None,
+            };
+            (system.battery_warned, notice) = low_battery(system.battery_warned, battery);
+        }
+        system.areas.insert(area, now.clone());
+        (before.as_ref() != Some(&now), now)
+    };
     // Before the change: a notice tells only the core's readers, and the change tells the app.
     if let Some(text) = notice {
         core.notices().info(text.to_owned());
     }
-    tell(core, changed);
-}
-
-async fn read_os_updates(core: &Core) {
-    let (reason, status) = match provider(core, |p| p.os_updates.clone()).await {
-        None => (None, None),
-        Some((plugin, updates)) => {
-            (Some(None), core.kernel().guard(&plugin, "os_updates.status", updates.status()).await.ok())
+    if changed {
+        core.changed(Area::System);
+    }
+    match area {
+        SystemArea::Vpn => {
+            if let Ok((_, Some(settings))) = asked {
+                core.vpn().use_network(Arc::new(crate::ports::PluginVpn::new(settings, Some(&now))));
+            }
+            if changed {
+                core.changed(Area::Vpn);
+            }
         }
-    };
-    let changed = publish(core, Capability::OsUpdates, reason, |system| set(&mut system.os_update, status));
-    tell(core, changed);
+        SystemArea::Drives => crate::drives::listed(core).await,
+        _ => {}
+    }
 }
 
-async fn read_os_install(core: &Core) {
-    let found = match core.kernel().host().place.stick {
-        true => provider(core, |p| p.os_install.clone()).await,
-        false => None,
-    };
-    let (reason, disks) = match found {
-        None => (None, Vec::new()),
-        Some((plugin, install)) => {
-            (Some(None), core.kernel().guard(&plugin, "os_install.disks", install.disks()).await.unwrap_or_default())
-        }
-    };
-    let changed = publish(core, Capability::OsInstall, reason, |system| set(&mut system.disks, disks));
-    tell(core, changed);
+/// An empty Wi-Fi list, read while the radio is busy, keeps the networks of the last read.
+fn keep_wifi(before: Option<&AreaState>, mut now: AreaState) -> AreaState {
+    if let (
+        Some(AreaState::Ready(AreaData::Network { wifi: kept, .. })),
+        AreaState::Ready(AreaData::Network { wifi, .. }),
+    ) = (before, &mut now)
+        && wifi.is_empty()
+    {
+        wifi.clone_from(kept);
+    }
+    now
 }
 
-/// Only whether drives can be managed here: the drives themselves come from
-/// [`crate::drives::refresh`], which takes longer.
-async fn read_drives(core: &Core) {
-    let reason = match provider(core, |p| p.drives.clone()).await {
-        None => None,
-        Some((plugin, drives)) => {
-            let reason = core.kernel().guard(&plugin, "drives.unavailable", async { Ok(drives.unavailable().await) });
-            Some(reason.await.unwrap_or(None))
-        }
-    };
-    let changed = publish(core, Capability::Drives, reason, |_| false);
-    tell(core, changed);
-}
-
-/// Reads the state again every [`REFRESH_EVERY`]: each part on its own, so a slow part makes
-/// none of the others wait, now or at the next tick.
+/// Reads each area again every [`REFRESH_EVERY`]: each on its own, so a slow area makes none of
+/// the others wait, now or at the next tick.
 pub(crate) fn schedule_refresh(core: &Core) {
-    every_tick(core, |core| async move { adopt_vpn(&core).await });
-    every_tick(core, |core| async move { read_network(&core).await });
-    every_tick(core, |core| async move { read_bluetooth(&core).await });
-    every_tick(core, |core| async move { read_audio(&core).await });
-    every_tick(core, |core| async move { read_power(&core).await });
-    every_tick(core, |core| async move { read_os_updates(&core).await });
-    every_tick(core, |core| async move { read_os_install(&core).await });
-    every_tick(core, |core| async move { read_drives(&core).await });
-    every_tick(core, |core| async move { crate::drives::refresh(&core).await });
+    for area in SystemArea::ALL {
+        every_tick(core, move |core| async move { read(&core, area).await });
+    }
     every_tick(core, |core| async move { crate::disks::refresh(&core).await });
     every_tick(core, |core| async move { crate::snapshot::refresh_files(&core).await });
 }
@@ -538,110 +468,94 @@ pub enum SystemCommand {
 /// Restart or Shut down: the games close first, only once there is a way to do it and the
 /// system doesn't refuse it here. When the system then fails, the closing screen goes.
 async fn power_off(core: &Core, purpose: crate::closing::Purpose) -> CoreResult<()> {
-    let (plugin, power) = provider(core, |p| p.power.clone()).await.ok_or(missing(Capability::Power))?;
-    if let Some(why) =
-        core.kernel().guard(&plugin, "power.unavailable", async { Ok(power.unavailable().await) }).await?
-    {
-        return Err(CoreError::Invalid(why));
+    let area = SystemArea::Power;
+    let (plugin, power) = provider(core, area).await.ok_or(missing(area))?;
+    match core.kernel().guard(&plugin, method(area, true), power.state()).await? {
+        AreaState::Ready(AreaData::Power { refused: None, .. }) => {}
+        AreaState::Ready(AreaData::Power { refused: Some(why), .. }) | AreaState::Unsupported(why) => {
+            return Err(CoreError::Invalid(why));
+        }
+        _ => return Err(missing(area)),
     }
     crate::closing::close_everything(core, purpose).await;
-    let done = match purpose {
-        crate::closing::Purpose::ShutDown => core.kernel().guard(&plugin, "power.shut_down", power.shut_down()).await,
-        _ => core.kernel().guard(&plugin, "power.restart", power.restart()).await,
+    let action = match purpose {
+        crate::closing::Purpose::ShutDown => AreaAction::ShutDown,
+        _ => AreaAction::Restart,
     };
+    let done = core.kernel().guard(&plugin, method(area, false), power.act(action, Arc::new(QuietJob))).await;
     if done.is_err() {
         crate::closing::cancelled(core);
     }
     done
 }
 
-fn missing(capability: Capability) -> CoreError {
-    CoreError::Invalid(format!("no system plugin provides {capability:?} here"))
+fn missing(area: SystemArea) -> CoreError {
+    CoreError::Invalid(format!("no system plugin provides {} here", area.name()))
+}
+
+/// Runs a quick action on its area, through the first plugin that provides the area.
+pub(crate) async fn act(core: &Core, action: AreaAction) -> CoreResult<()> {
+    let area = action.area();
+    let (plugin, settings) = provider(core, area).await.ok_or(missing(area))?;
+    core.kernel().guard(&plugin, method(area, false), settings.act(action, Arc::new(QuietJob))).await
+}
+
+/// Starts a long action on its area as a job the view lists. A job that can't start fails
+/// with the reason.
+async fn start(core: &Core, kind: JobKind, target: &str, action: AreaAction) -> CoreResult<()> {
+    let area = action.area();
+    let (plugin, settings) = provider(core, area).await.ok_or(missing(area))?;
+    let (_, job) = start_job(core, kind, target);
+    if let Err(e) = core.kernel().guard(&plugin, method(area, false), settings.act(action, job.clone())).await {
+        failed_to_start(&job, &e);
+    }
+    Ok(())
+}
+
+/// Changes the area's data at once, as an action just did: the next read confirms it.
+fn shown_at_once(core: &Core, area: SystemArea, change: impl FnOnce(&mut AreaData)) {
+    if let Some(AreaState::Ready(data)) = core.state().system.areas.get_mut(&area) {
+        change(data);
+    }
+    core.changed(Area::System);
 }
 
 pub(crate) async fn run(core: &Core, command: SystemCommand) -> CoreResult<()> {
+    use AreaAction as A;
     use SystemCommand as C;
     match command {
         C::Refresh => {}
-        C::ScanWifi => {
-            let (plugin, network) = provider(core, |p| p.network.clone()).await.ok_or(missing(Capability::Network))?;
-            let wifi = core.kernel().guard(&plugin, "network.wifi", network.wifi(true)).await?;
-            core.state().system.wifi = wifi;
-            core.changed(Area::System);
-            return Ok(());
-        }
+        C::ScanWifi => act(core, A::ScanWifi).await?,
         C::JoinWifi { ssid, password } => {
-            let (plugin, network) = provider(core, |p| p.network.clone()).await.ok_or(missing(Capability::Network))?;
-            let (_, job) = start_job(core, JobKind::JoinWifi, &ssid);
-            if let Err(e) = core
-                .kernel()
-                .guard(&plugin, "network.join", network.join(&ssid, password.as_deref(), job.clone()))
-                .await
-            {
-                failed_to_start(&job, &e);
-            }
-            return Ok(());
+            return start(core, JobKind::JoinWifi, &ssid.clone(), A::JoinWifi { ssid, password }).await;
         }
-        C::ForgetWifi(ssid) => {
-            let (plugin, network) = provider(core, |p| p.network.clone()).await.ok_or(missing(Capability::Network))?;
-            core.kernel().guard(&plugin, "network.forget", network.forget(&ssid)).await?;
-        }
-        C::SetBluetooth(on) => {
-            let (plugin, bt) = provider(core, |p| p.bluetooth.clone()).await.ok_or(missing(Capability::Bluetooth))?;
-            core.kernel().guard(&plugin, "bluetooth.set_powered", bt.set_powered(on)).await?;
-        }
+        C::ForgetWifi(ssid) => act(core, A::ForgetWifi { ssid }).await?,
+        C::SetBluetooth(on) => act(core, A::SetBluetooth { on }).await?,
         C::ScanBluetooth => {
-            let (plugin, bt) = provider(core, |p| p.bluetooth.clone()).await.ok_or(missing(Capability::Bluetooth))?;
-            let (_, job) = start_job(core, JobKind::ScanBluetooth, "");
-            if let Err(e) =
-                core.kernel().guard(&plugin, "bluetooth.scan", bt.scan(BLUETOOTH_SCAN_SECONDS, job.clone())).await
-            {
-                failed_to_start(&job, &e);
-            }
-            return Ok(());
+            return start(core, JobKind::ScanBluetooth, "", A::ScanBluetooth { seconds: BLUETOOTH_SCAN_SECONDS }).await;
         }
-        C::Pair(address) => {
-            let (plugin, bt) = provider(core, |p| p.bluetooth.clone()).await.ok_or(missing(Capability::Bluetooth))?;
-            let (_, job) = start_job(core, JobKind::Pair, &address);
-            if let Err(e) = core.kernel().guard(&plugin, "bluetooth.pair", bt.pair(&address, job.clone())).await {
-                failed_to_start(&job, &e);
-            }
-            return Ok(());
-        }
-        C::ConnectDevice(address) => {
-            let (plugin, bt) = provider(core, |p| p.bluetooth.clone()).await.ok_or(missing(Capability::Bluetooth))?;
-            core.kernel().guard(&plugin, "bluetooth.connect", bt.connect(&address)).await?;
-        }
-        C::DisconnectDevice(address) => {
-            let (plugin, bt) = provider(core, |p| p.bluetooth.clone()).await.ok_or(missing(Capability::Bluetooth))?;
-            core.kernel().guard(&plugin, "bluetooth.disconnect", bt.disconnect(&address)).await?;
-        }
-        C::RemoveDevice(address) => {
-            let (plugin, bt) = provider(core, |p| p.bluetooth.clone()).await.ok_or(missing(Capability::Bluetooth))?;
-            core.kernel().guard(&plugin, "bluetooth.remove", bt.remove(&address)).await?;
-        }
-        C::SetOutput(name) => {
-            let (plugin, audio) = provider(core, |p| p.audio.clone()).await.ok_or(missing(Capability::Audio))?;
-            core.kernel().guard(&plugin, "audio.set_output", audio.set_output(&name)).await?;
-        }
+        C::Pair(address) => return start(core, JobKind::Pair, &address.clone(), A::Pair { address }).await,
+        C::ConnectDevice(address) => act(core, A::ConnectDevice { address }).await?,
+        C::DisconnectDevice(address) => act(core, A::DisconnectDevice { address }).await?,
+        C::RemoveDevice(address) => act(core, A::RemoveDevice { address }).await?,
+        C::SetOutput(name) => act(core, A::SetOutput { name }).await?,
         C::SetVolume(volume) => {
-            let (plugin, audio) = provider(core, |p| p.audio.clone()).await.ok_or(missing(Capability::Audio))?;
             let volume = volume.min(100);
-            core.kernel().guard(&plugin, "audio.set_volume", audio.set_volume(volume)).await?;
-            // Shown at once: the next read confirms it.
-            if let Some(level) = core.state().system.level.as_mut() {
-                level.volume = volume;
-                level.muted = false;
-            }
-            core.changed(Area::System);
+            act(core, A::SetVolume { volume }).await?;
+            shown_at_once(core, SystemArea::Audio, |data| {
+                if let AreaData::Audio { level: Some(level), .. } = data {
+                    level.volume = volume;
+                    level.muted = false;
+                }
+            });
         }
         C::SetMuted(muted) => {
-            let (plugin, audio) = provider(core, |p| p.audio.clone()).await.ok_or(missing(Capability::Audio))?;
-            core.kernel().guard(&plugin, "audio.set_muted", audio.set_muted(muted)).await?;
-            if let Some(level) = core.state().system.level.as_mut() {
-                level.muted = muted;
-            }
-            core.changed(Area::System);
+            act(core, A::SetMuted { muted }).await?;
+            shown_at_once(core, SystemArea::Audio, |data| {
+                if let AreaData::Audio { level: Some(level), .. } = data {
+                    level.muted = muted;
+                }
+            });
         }
         C::Restart => return power_off(core, crate::closing::Purpose::Restart).await,
         C::ShutDown => return power_off(core, crate::closing::Purpose::ShutDown).await,
@@ -649,11 +563,7 @@ pub(crate) async fn run(core: &Core, command: SystemCommand) -> CoreResult<()> {
             crate::closing::log_out(core).await;
             return Ok(());
         }
-        C::CheckOsUpdate => {
-            let (plugin, updates) =
-                provider(core, |p| p.os_updates.clone()).await.ok_or(missing(Capability::OsUpdates))?;
-            core.kernel().guard(&plugin, "os_updates.check_now", updates.check_now()).await?;
-        }
+        C::CheckOsUpdate => act(core, A::CheckOsUpdate).await?,
         C::InstallOs(disk) => {
             if !core.kernel().host().place.stick {
                 return Err(CoreError::Invalid(format!(
@@ -661,21 +571,9 @@ pub(crate) async fn run(core: &Core, command: SystemCommand) -> CoreResult<()> {
                     launcher_api::brand::PRODUCT_OS_NAME
                 )));
             }
-            let (plugin, install) =
-                provider(core, |p| p.os_install.clone()).await.ok_or(missing(Capability::OsInstall))?;
-            let (_, job) = start_job(core, JobKind::InstallOs, &disk.display().to_string());
-            if let Err(e) =
-                core.kernel().guard(&plugin, "os_install.install", install.install(&disk, job.clone())).await
-            {
-                failed_to_start(&job, &e);
-            }
-            return Ok(());
+            return start(core, JobKind::InstallOs, &disk.display().to_string(), A::InstallOs { disk }).await;
         }
-        C::ChoosePartitions => {
-            let (plugin, install) =
-                provider(core, |p| p.os_install.clone()).await.ok_or(missing(Capability::OsInstall))?;
-            return core.kernel().guard(&plugin, "os_install.choose_partitions", install.choose_partitions()).await;
-        }
+        C::ChoosePartitions => return act(core, A::ChoosePartitions).await,
         C::CancelJob(id) => {
             let state = core.state();
             let job = state.system.jobs.iter().find(|j| j.id == id && j.phase == JobPhase::Running);

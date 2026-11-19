@@ -7,7 +7,7 @@
 //!   has them, and they answer at once, so the room checks call them on the spot.
 //! - An [`Adapter`]: the list of drives and the actions. The base adapter, [`MountFolders`],
 //!   lists the folders the system mounts drives in, on every system, and can't mount anything.
-//!   A system plugin with the `drives` capability brings a better one.
+//!   A system plugin with the drives area brings a better one.
 //!
 //! [`Drives::refresh`] reads the list again and says which drives came and went since the last
 //! read. The flows over the core (the commands, a plugged drive, the game folders' drives at the
@@ -26,7 +26,7 @@ use async_trait::async_trait;
 use launcher_api::SystemJob;
 
 pub use flows::DriveCmd;
-pub(crate) use flows::{away_games, handle, mount, mount_game_drives, refresh, remember_folders};
+pub(crate) use flows::{away_games, handle, listed, mount, mount_game_drives, refresh, remember_folders};
 
 use crate::{CoreError, CoreResult, DriveSpace};
 
@@ -171,7 +171,12 @@ impl Drives {
     /// Every drive there is now, each mounted one with its free space, and its size when the
     /// adapter didn't say.
     pub(crate) async fn list(&self) -> CoreResult<Vec<Drive>> {
-        let mut drives = self.adapter().list().await?;
+        let drives = self.adapter().list().await?;
+        self.fill(drives).await
+    }
+
+    /// `drives` with each mounted one's free space, and its size when the adapter didn't say.
+    async fn fill(&self, mut drives: Vec<Drive>) -> CoreResult<Vec<Drive>> {
         let space = self.space.clone();
         // The space is a system call with no async form: it runs on a blocking thread.
         let filled = tokio::task::spawn_blocking(move || {
@@ -200,11 +205,15 @@ impl Drives {
         lock(&self.last).clone().unwrap_or_default()
     }
 
-    /// Reads the list again, and says which drives came and went since the last read. The first
-    /// read finds what is there: nothing came. A read that fails changes nothing.
-    pub(crate) async fn refresh(&self) -> Changes {
+    /// Reads the list again, and says which drives came and went since the last read. `listed`
+    /// is the adapter's list when the caller read it already; the adapter is asked otherwise.
+    /// The first read finds what is there: nothing came. A read that fails changes nothing.
+    pub(crate) async fn refresh(&self, listed: Option<Vec<Drive>>) -> Changes {
         let _reading = self.reading.lock().await;
-        let read = self.list().await;
+        let read = match listed {
+            Some(drives) => self.fill(drives).await,
+            None => self.list().await,
+        };
         self.listed.store(true, std::sync::atomic::Ordering::SeqCst);
         let now = match read {
             Ok(now) => now,

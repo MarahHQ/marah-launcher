@@ -1,4 +1,5 @@
-//! The built-in system plugin: the machine's own settings through the system's own tools.
+//! The built-in system plugin: the machine's own settings through the system's own tools. Each
+//! area it manages ([`SystemArea`]) is one adapter over the same interface ([`AreaSettings`]).
 //!
 //! - Linux ([`linux`]): network and Wi-Fi, VPNs, Bluetooth, sound, restart and shut down, the
 //!   battery, drives (UDisks), and on Marah OS its updates and its USB stick's installer.
@@ -12,10 +13,12 @@ mod linux;
 mod parse;
 mod vpn;
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use launcher_api::{
-    Capability, CodePlugin, Plugin, PluginContext, PluginFactory, PluginManifest, PluginResult, Provided, inventory,
+    AreaSettings, Capability, CodePlugin, Plugin, PluginContext, PluginFactory, PluginManifest, PluginResult, Provided,
+    SystemArea, inventory,
 };
 
 const MANIFEST: &str = include_str!("../plugin.toml");
@@ -35,26 +38,18 @@ impl Plugin for HostSystem {
 #[launcher_api::async_trait]
 impl CodePlugin for HostSystem {
     async fn init(&self, ctx: PluginContext) -> PluginResult<Provided> {
-        let vpn = Some(Arc::new(vpn::Vpns::new(ctx.programs().clone())) as Arc<dyn launcher_api::VpnSettings>);
+        let mut areas: BTreeMap<SystemArea, Arc<dyn AreaSettings>> = BTreeMap::new();
+        areas.insert(SystemArea::Vpn, Arc::new(vpn::Vpns::new(ctx.programs().clone())));
         #[cfg(target_os = "linux")]
         {
             let linux = Arc::new(linux::Linux::new(ctx.programs().clone()));
-            Ok(Provided {
-                network: Some(linux.clone()),
-                vpn,
-                bluetooth: Some(linux.clone()),
-                audio: Some(linux.clone()),
-                power: Some(linux.clone()),
-                os_updates: Some(linux.clone()),
-                os_install: Some(linux.clone()),
-                drives: Some(linux),
-                ..Provided::default()
-            })
+            for area in SystemArea::ALL.into_iter().filter(|a| *a != SystemArea::Vpn) {
+                areas.insert(area, Arc::new(linux::LinuxArea { area, linux: linux.clone() }));
+            }
         }
         #[cfg(not(target_os = "linux"))]
-        {
-            Ok(Provided { vpn, power: Some(Arc::new(other::Power(ctx.programs().clone()))), ..Provided::default() })
-        }
+        areas.insert(SystemArea::Power, Arc::new(other::Power(ctx.programs().clone())));
+        Ok(Provided { areas, ..Provided::default() })
     }
 }
 
@@ -66,24 +61,14 @@ inventory::submit! { PluginFactory::code(|| Box::new(HostSystem)) }
 mod other {
     use std::sync::Arc;
 
-    use launcher_api::{Battery, Location, PluginError, PluginResult, PowerSettings, Programs};
+    use launcher_api::{
+        AreaAction, AreaData, AreaSettings, AreaState, Battery, Location, PluginError, PluginResult, Programs,
+        SystemJob,
+    };
 
     pub struct Power(pub Arc<dyn Programs>);
 
-    #[launcher_api::async_trait]
-    impl PowerSettings for Power {
-        async fn unavailable(&self) -> Option<String> {
-            Some("Restart or shut down from the system's own menu".into())
-        }
-
-        async fn restart(&self) -> PluginResult<()> {
-            Err(PluginError::Other("restart from the system's own menu".into()))
-        }
-
-        async fn shut_down(&self) -> PluginResult<()> {
-            Err(PluginError::Other("shut down from the system's own menu".into()))
-        }
-
+    impl Power {
         async fn battery(&self) -> PluginResult<Option<Battery>> {
             if !cfg!(target_os = "macos") {
                 return Ok(None);
@@ -91,6 +76,18 @@ mod other {
             let args = ["-g".to_owned(), "batt".to_owned()];
             let out = self.0.output(&Location::System("pmset".into()), &args, launcher_api::MAX_PROGRAM_TIME).await?;
             Ok(crate::parse::pmset(&String::from_utf8_lossy(&out)))
+        }
+    }
+
+    #[launcher_api::async_trait]
+    impl AreaSettings for Power {
+        async fn state(&self) -> PluginResult<AreaState> {
+            let refused = Some("Restart or shut down from the system's own menu".into());
+            Ok(AreaState::Ready(AreaData::Power { battery: self.battery().await?, refused }))
+        }
+
+        async fn act(&self, _action: AreaAction, _job: Arc<dyn SystemJob>) -> PluginResult<()> {
+            Err(PluginError::Unsupported("restart or shut down from the system's own menu".into()))
         }
     }
 }

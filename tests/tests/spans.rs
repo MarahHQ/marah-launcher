@@ -13,7 +13,7 @@ fn id(s: &str) -> PluginId {
 }
 
 fn manifest(id: &str, extra: &str) -> String {
-    format!("id = \"{id}\"\nkind = \"emulator\"\nname = \"{id}\"\nversion = \"1.0.0\"\nhost_api = \"^0.3\"\n{extra}")
+    format!("id = \"{id}\"\nkind = \"emulator\"\nname = \"{id}\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n{extra}")
 }
 
 #[test]
@@ -49,7 +49,7 @@ fn each_system_read_names_its_capability_and_method() {
         .filter_map(|fields| fields.into_iter().find(|(name, _)| name == "method").map(|(_, method)| method))
         .filter(|method| method != "init")
         .collect();
-    for method in ["network.status", "os_updates.status", "network.unavailable", "power.unavailable"] {
+    for method in ["network.state", "os_updates.state", "power.state", "drives.state"] {
         assert!(methods.iter().any(|m| m == method), "{method} in {methods:?}");
     }
     assert!(methods.iter().all(|m| m.contains('.')), "every call says its capability: {methods:?}");

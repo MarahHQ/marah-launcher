@@ -1,4 +1,4 @@
-//! The machine's VPNs: [`VpnSettings`], for "Download only through a VPN".
+//! The machine's VPNs: the VPN area ([`AreaSettings`]), for "Download only through a VPN".
 //!
 //! - Linux: a VPN is a WireGuard or OpenVPN interface in `/sys/class/net`, or another layer-3
 //!   tunnel. Tunnels that don't hide the player's address, such as Tailscale or Docker's, are
@@ -15,7 +15,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use launcher_api::async_trait;
-use launcher_api::{PluginError, PluginResult, Programs, Vpn, VpnSettings};
+use launcher_api::{
+    AreaAction, AreaData, AreaSettings, AreaState, PluginError, PluginResult, Programs, SystemJob, Vpn,
+};
 
 /// Interfaces that look like tunnels but don't hide the player's address from the internet.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))] // Linux reads it; the tests run everywhere.
@@ -25,7 +27,7 @@ const NOT_PRIVACY: [&str; 9] = ["tailscale", "zt", "docker", "virbr", "veth", "b
 pub struct Vpns {
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))] // Only Linux runs nmcli.
     programs: Arc<dyn Programs>,
-    /// NetworkManager is there, as the last [`VpnSettings::vpns`] found.
+    /// NetworkManager is there, as the last read of the VPNs found.
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))] // Only Linux has NetworkManager.
     nmcli: std::sync::OnceLock<bool>,
 }
@@ -202,9 +204,14 @@ impl Vpns {
     }
 }
 
+/// What every system says when asked to switch a VPN it can't.
+#[cfg_attr(target_os = "linux", allow(dead_code))] // macOS and Windows say it; Linux switches VPNs.
+fn cant_switch() -> PluginError {
+    PluginError::Unsupported("this system can't change a VPN: use the VPN's own app".into())
+}
+
 #[cfg(target_os = "linux")]
-#[async_trait]
-impl VpnSettings for Vpns {
+impl Vpns {
     async fn vpns(&self) -> Vec<Vpn> {
         let found = list_in(Path::new("/sys/class/net"), &addressed());
         let saved = self.nmcli(&["-t", "-f", "NAME,TYPE,ACTIVE", "connection", "show"]).await;
@@ -216,7 +223,7 @@ impl VpnSettings for Vpns {
         self.nmcli.get().copied().unwrap_or(false)
     }
 
-    async fn import(&self, file: &Path) -> PluginResult<String> {
+    async fn import(&self, file: &Path) -> PluginResult<()> {
         let kind = match file.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
             Some("conf") => "wireguard",
             Some("ovpn") => "openvpn",
@@ -229,8 +236,7 @@ impl VpnSettings for Vpns {
             .nth(1)
             .map(str::to_owned)
             .ok_or_else(|| PluginError::Other("NetworkManager didn't name the connection".into()))?;
-        self.connect(&name).await?;
-        Ok(name)
+        self.connect(&name).await
     }
 
     async fn connect(&self, name: &str) -> PluginResult<()> {
@@ -242,15 +248,31 @@ impl VpnSettings for Vpns {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(target_os = "linux")]
 #[async_trait]
-impl VpnSettings for Vpns {
-    fn finds_vpns(&self) -> bool {
-        false
+impl AreaSettings for Vpns {
+    async fn state(&self) -> PluginResult<AreaState> {
+        let vpns = self.vpns().await;
+        Ok(AreaState::Ready(AreaData::Vpn { finds_vpns: true, can_import: self.can_import(), vpns }))
     }
 
-    async fn vpns(&self) -> Vec<Vpn> {
-        addressed()
+    async fn act(&self, action: AreaAction, _job: Arc<dyn SystemJob>) -> PluginResult<()> {
+        match action {
+            AreaAction::ImportVpn { file } => self.import(&file).await,
+            AreaAction::ConnectVpn { name } => self.connect(&name).await,
+            AreaAction::DisconnectVpn { name } => self.disconnect(&name).await,
+            _ => Err(PluginError::Unsupported("not a VPN action".into())),
+        }
+    }
+}
+
+/// macOS can't tell VPNs from other networks: every network with an address, and the player
+/// picks the one the VPN uses.
+#[cfg(target_os = "macos")]
+#[async_trait]
+impl AreaSettings for Vpns {
+    async fn state(&self) -> PluginResult<AreaState> {
+        let vpns = addressed()
             .into_iter()
             .map(|name| Vpn {
                 kind: "Network".into(),
@@ -259,19 +281,24 @@ impl VpnSettings for Vpns {
                 switchable: false,
                 name,
             })
-            .collect()
+            .collect();
+        Ok(AreaState::Ready(AreaData::Vpn { finds_vpns: false, can_import: false, vpns }))
+    }
+
+    async fn act(&self, _action: AreaAction, _job: Arc<dyn SystemJob>) -> PluginResult<()> {
+        Err(cant_switch())
     }
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 #[async_trait]
-impl VpnSettings for Vpns {
-    fn problem(&self) -> Option<String> {
-        Some("Not available on Windows".into())
+impl AreaSettings for Vpns {
+    async fn state(&self) -> PluginResult<AreaState> {
+        Ok(AreaState::Unsupported("Not available on Windows".into()))
     }
 
-    async fn vpns(&self) -> Vec<Vpn> {
-        Vec::new()
+    async fn act(&self, _action: AreaAction, _job: Arc<dyn SystemJob>) -> PluginResult<()> {
+        Err(cant_switch())
     }
 }
 

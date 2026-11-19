@@ -585,7 +585,7 @@ impl launcher_api::StartupWork for Asker {
 /// The asker, as a plugin with the startup capability.
 fn asker(work: std::sync::Arc<Asker>) -> launcher_testkit::StubPlugin {
     launcher_testkit::StubPlugin::from_toml(
-        "id = \"asker\"\nkind = \"service\"\nname = \"Asker\"\nversion = \"1.0.0\"\nhost_api = \"^0.3.2\"\n\
+        "id = \"asker\"\nkind = \"service\"\nname = \"Asker\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
          capabilities = [\"startup\"]",
     )
     .provides(move |_| Ok(launcher_api::Provided { startup: Some(work.clone()), ..Default::default() }))

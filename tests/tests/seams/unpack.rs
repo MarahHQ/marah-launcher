@@ -65,7 +65,7 @@ async fn boot_with(host: FakeHost, archive: Vec<u8>, format: ArchiveFormat, proc
     let emu = ArchiveEmu { sha256: host.http().serve(URL, archive), format, dest: DEST, got: Arc::default() };
     let e = emu.clone();
     let plugin = StubPlugin::from_toml(&format!(
-        "id = \"emu\"\nkind = \"emulator\"\nname = \"Emu\"\nversion = \"1.0.0\"\nhost_api = \"^0.3\"\n\
+        "id = \"emu\"\nkind = \"emulator\"\nname = \"Emu\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
          capabilities = [\"downloader\", \"installer\"]\n[permissions]\nnetwork = [\"builds.example\"]\nprocess = {process}"
     ))
     .provides(move |_| {
@@ -209,7 +209,7 @@ async fn a_bare_appimage_is_extracted_by_running_it_on_linux_under_its_own_name(
     };
     let e = emu.clone();
     let plugin = StubPlugin::from_toml(
-        "id = \"emu\"\nkind = \"emulator\"\nname = \"Emu\"\nversion = \"1.0.0\"\nhost_api = \"^0.3\"\n\
+        "id = \"emu\"\nkind = \"emulator\"\nname = \"Emu\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
          capabilities = [\"downloader\", \"installer\"]\n[permissions]\nnetwork = [\"builds.example\"]\n\
          process = [\"builds/*/*.AppImage\"]",
     )
@@ -268,7 +268,7 @@ async fn a_tampered_appimage_is_deleted_before_anything_runs_and_other_systems_r
     host.http().serve(URL, archive.clone());
     let e = tampered.clone();
     let plugin = StubPlugin::from_toml(
-        "id = \"emu\"\nkind = \"emulator\"\nname = \"Emu\"\nversion = \"1.0.0\"\nhost_api = \"^0.3\"\n\
+        "id = \"emu\"\nkind = \"emulator\"\nname = \"Emu\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
          capabilities = [\"downloader\", \"installer\"]\n[permissions]\nnetwork = [\"builds.example\"]",
     )
     .provides(move |_| {

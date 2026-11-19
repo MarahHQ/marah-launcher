@@ -482,3 +482,59 @@ async fn the_parts_and_their_reads_run_at_once() {
     let first_ended = reads.iter().map(|r| first(r).2).min().unwrap();
     assert!(last_began < first_ended, "every read began before one ended: {calls:?}");
 }
+
+/// The one reader's rule for a read that fails: the first leaves the area unsupported, with the
+/// error, so it doesn't stay loading; a later one keeps what the last read said.
+#[tokio::test]
+async fn a_failed_read_keeps_the_last_state_and_a_failed_first_read_says_why() {
+    let system = machine();
+    system.with(|m| m.panics = vec!["level"]);
+    let t = FakeHost::new().plugin(system.plugin()).boot_core().await;
+    ask(SystemCommand::Refresh, &t).await;
+    let vm = t.core.view().system;
+    assert!(!vm.audio_available && !vm.audio_loading, "{vm:?}");
+    assert!(vm.audio_reason.starts_with("Couldn't read it"), "{}", vm.audio_reason);
+
+    system.with(|m| m.panics.clear());
+    ask(SystemCommand::Refresh, &t).await;
+    assert_eq!((t.core.view().system.audio_available, t.core.view().system.volume), (true, 40));
+
+    system.with(|m| {
+        m.panics = vec!["level"];
+        m.level.volume = 10;
+    });
+    ask(SystemCommand::Refresh, &t).await;
+    let vm = t.core.view().system;
+    assert_eq!((vm.audio_available, vm.volume), (true, 40), "the failed read changed nothing");
+}
+
+/// Restart and shut down that the system refuses here: the battery still shows, and Restart
+/// is refused before anything closes.
+#[tokio::test]
+async fn a_power_area_that_refuses_restart_still_shows_the_battery() {
+    let system = machine();
+    system.with(|m| m.unavailable = vec![("power", "Restart from the system's own menu".into())]);
+    let t = FakeHost::new().plugin(system.plugin()).boot_core().await;
+    ask(SystemCommand::Refresh, &t).await;
+    let vm = t.core.view().system;
+    assert!(!vm.power_available && vm.battery_shown, "{vm:?}");
+    assert_eq!(vm.power_reason, "Restart from the system's own menu");
+    let restart = t.core.dispatch(Command::System(SystemCommand::Restart)).await;
+    assert!(restart.unwrap_err().to_string().contains("system's own menu"));
+    assert_eq!(system.read(|m| m.restarts), 0);
+}
+
+/// A system plugin's VPN area says what the system is with its first read. Before it nothing is
+/// known: "Download only through a VPN" may be turned on. After it, a system that can't bind the
+/// downloads to a VPN says why, and the setting can't be turned on.
+#[tokio::test]
+async fn the_vpn_area_s_reason_shows_after_its_first_read() {
+    let system = machine();
+    system.with(|m| m.unavailable = vec![("vpn", "Not available on Windows".into())]);
+    let t = FakeHost::new().plugin(system.plugin_with(&["vpn"])).boot_core().await;
+    t.core.dispatch(Command::Vpn(launcher_core::VpnCmd::SetOnly(true))).await.unwrap();
+    t.core.dispatch(Command::Vpn(launcher_core::VpnCmd::SetOnly(false))).await.unwrap();
+    ask(SystemCommand::Refresh, &t).await;
+    assert_eq!(t.core.view().settings.vpn.problem, "Not available on Windows");
+    assert!(t.core.dispatch(Command::Vpn(launcher_core::VpnCmd::SetOnly(true))).await.is_err());
+}
