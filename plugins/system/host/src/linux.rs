@@ -334,7 +334,7 @@ impl OsInstall for Linux {
         if !Path::new(INSTALLER).exists() {
             return Ok(Vec::new());
         }
-        // The stick has the installer on its PATH as marah-os-install (docs/marah-os.md).
+        // The stick has the installer on its PATH as marah-os-install (docs/contributors/os-contract.md).
         Ok(parse::disks(&self.run(launcher_api::brand::OS_INSTALL_COMMAND, &["--disks"]).await?))
     }
 
@@ -367,7 +367,7 @@ impl OsInstall for Linux {
     }
 
     async fn choose_partitions(&self) -> PluginResult<()> {
-        // The installer knows how this stick reaches Anaconda (see docs/marah-os.md).
+        // The installer knows how this stick reaches Anaconda (see docs/contributors/os-contract.md).
         let (code, last) = self
             .exec(launcher_api::brand::OS_INSTALL_COMMAND, &["--choose-partitions"], true, &|| false, |_| {})
             .await?;

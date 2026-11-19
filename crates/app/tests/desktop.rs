@@ -1,5 +1,5 @@
 //! The desktop adapter against the system's real windows (the fourth seam in
-//! docs/architecture.md). Opt in with `MARAH_DESKTOP_TESTS=1`: the tests open windows and
+//! docs/contributors/architecture.md). Opt in with `MARAH_DESKTOP_TESTS=1`: the tests open windows and
 //! change which one is in front. With `MARAH_DESKTOP_REQUIRE=1` too, a skip fails the run:
 //! CI sets it where the runner can do everything (Linux under Xvfb).
 //!

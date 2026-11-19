@@ -1,4 +1,4 @@
-//! The seam tests (docs/development.md#tests), in one test binary: one module per area, with
+//! The seam tests (docs/contributors/development.md#tests), in one test binary: one module per area, with
 //! the shared helpers in `common`. One binary builds and links once, instead of once per file.
 //! `spans.rs` stays its own binary: `tracing` caches per-callsite interest across threads.
 

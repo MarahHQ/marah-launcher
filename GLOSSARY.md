@@ -24,9 +24,9 @@ library and so on.
 _Avoid_: section, domain
 
 **Backup**: one file in the backup folder that holds the app's settings and the backup items:
-`marah-backup-<date>.tar.gz`, with `backup.json` (its manifest, naming the computer that made
+`marah-backup-<date>-<time>.tar.gz`, with `backup.json` (its manifest, naming the computer that made
 it), `config.json` and `items/…` (`backup/archive.rs`). `BackupCmd::BackUp` makes one. A backup
-made by a newer Marah Launcher is listed but not restored.
+made by a newer version of the launcher is listed but not restored.
 
 **Backup browser** (`backup::Browser`, `kit/backup-browser.slint`): the sheet that "Restore from
 another folder" opens over every screen. It shows the places, the folders and backups of one
@@ -45,7 +45,8 @@ catalog address, else the bundled one. A refresh is always of one base copy.
 
 **Best for this PC** (`game_groups::best_first`): of a game's versions, the one this PC runs
 best: it can start here, then gets the furthest, then meets its emulator's recommended parts,
-then needs the least of the PC. The user guide's Catalog section lists the rule.
+then needs the least of the PC. [Finding games](docs/players/finding-games.md#best-for-this-pc)
+lists the rule.
 
 **Build manager** (`BuildManager`, emulator-kit): runs an emulator's builds over its flavor. It
 plans downloads, installs, updates, rolls back and removes builds, and picks the program a game
@@ -155,7 +156,7 @@ _Avoid_: handler, service
 peers and upload time of each topic, with no titles.
 
 **Game file** (`game_file::GameFile`): `launcher_game.json` in a game's own folder, with its art in
-`launcher_art/`: what Marah Launcher knows about the game, so the Library shows it whole without asking any
+`launcher_art/`: what the launcher knows about the game, so the Library shows it whole without asking any
 store, and the game takes its card with it to another computer.
 
 **Game group** (`GameGroups`): the offers that are one game on several consoles, its versions.
@@ -229,9 +230,9 @@ other kit files.
 catalogs' copies and their offers, and the library's saved choices (hidden games, kept covers,
 the player's results). It asks no plugin; the core hands it the plugins' answers.
 
-**Lichii config** (`config.rs`, emu-lichii): what Marah Launcher sets in Lichii's own settings. A game
-Marah Launcher starts with an official build runs in eden-cli with a settings file: Lichii's
-`qt-config.ini` with Marah Launcher's overrides (airplane mode) and the controllers over it. Your own
+**Lichii config** (`config.rs`, emu-lichii): what the launcher sets in Lichii's own settings. A
+game the launcher starts with an official build runs in eden-cli with a settings file: Lichii's
+`qt-config.ini` with the launcher's overrides (airplane mode) and the controllers over it. Your own
 build and Lichii's window read `qt-config.ini` alone.
 
 **Listed folders** (`ListedFolders`): more folders for a host folder grant (`listed_in`), from a
@@ -279,10 +280,10 @@ the core; the adapter and the fake decide nothing.
 
 **Place** (`BrowsePlace`, `PlaceKind`): a folder the backup browser lists on its side to go to:
 Home, Downloads, Desktop, Documents, the backup folder, a drive, or a recent folder. Not
-`Place` in `system.rs`, which says where Marah Launcher runs.
+`Place` in `system.rs`, which says where the launcher runs.
 
 **Platform** (`Platform`, launcher-ui-host): the app shell's port: running work off the UI thread,
-waking the shell, opening links and paths, quitting, the lines the Marah Launcher session reads, sounds,
+waking the shell, opening links and paths, quitting, the lines the launcher's login session reads, sounds,
 trailers, the local time, and the window's monitors and focus. The test fake records each call.
 
 **Plugin box** (`PluginBox`): a plugin as the host registers it: code or a theme.
