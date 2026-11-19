@@ -83,6 +83,47 @@ fn a_card_s_download_opens_the_game_hub_on_its_first_release() {
     }
 }
 
+/// On a Game Hub with versions and releases, a button in the row is lit only while the keys are
+/// on the row: Down to a version or to a release leaves Options dark, and Up lights it again.
+#[test]
+fn the_game_hub_lights_options_only_while_the_keys_are_on_its_row_in_every_theme() {
+    for theme in THEMES {
+        let mut host = in_theme(theme, |h| {
+            h.plugin(FakeCatalog::kyty().playable().build())
+                .plugin(FakeCatalog::new("emu-ps4").system("PS4").console("PS4").games([]).build())
+                .built_in(launcher_api::PluginBox::code(release_catalog::ReleaseCatalog::default()))
+        });
+        let topic = |console: &str, id: u32, title_id: &str| {
+            serde_json::json!({ "id": id.to_string(), "title": format!("[{console}] Astro Drift [EUR / v1.00]"),
+                "size": "20 GB", "magnet": format!("magnet:?xt=urn:btih:{id:040x}"),
+                "game_info": { "name": "Astro Drift", "title_id": title_id, "version": "1.00", "region": "EUR",
+                    "release_year": "2024", "publisher": "Sony" } })
+        };
+        host.serve_catalog(&[
+            ("ps5", serde_json::json!([topic("PS5", 1, "PPSA01234")])),
+            ("ps4", serde_json::json!([topic("PS4", 2, "CUSA01234")])),
+        ]);
+        host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
+        host.settle();
+        host.dispatch(Command::OpenGame("release-catalog:emu-ps4/CUSA01234".parse().unwrap()));
+        host.settle();
+        let detail = host.core().view().detail.expect("its details");
+        assert_eq!(detail.versions.len(), 2, "{theme}: a version on each console");
+        let release = format!("release-{}", detail.releases[0].id);
+        assert!(host.lit("game-options"), "{theme}: the keys start on the row, on Options");
+
+        host.navigate(Key::DownArrow);
+        assert!(!host.lit("game-options"), "{theme}: the keys are on a version, not on Options");
+        host.navigate(Key::DownArrow);
+        assert!(host.lit(&release), "{theme}: the keys are on the first release");
+        assert!(!host.lit("game-options"), "{theme}: and not on Options");
+
+        host.navigate(Key::UpArrow);
+        host.navigate(Key::UpArrow);
+        assert!(host.lit("game-options"), "{theme}: back on the row, on Options");
+    }
+}
+
 #[test]
 fn the_keys_move_through_the_settings_page_and_act_on_a_row_in_every_theme() {
     for theme in THEMES {
