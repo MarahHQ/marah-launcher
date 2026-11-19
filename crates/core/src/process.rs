@@ -97,7 +97,8 @@ impl ProcessSpawner for TokioSpawner {
         let mut err = BufReader::new(child.stderr.take().expect("stderr is piped")).lines();
         let (mut out_open, mut err_open) = (true, true);
         let mut tick = TokioClock.interval(Duration::from_millis(250));
-        while out_open || err_open {
+        // A program can close its output and run on: the cancel still stops it then.
+        loop {
             tokio::select! {
                 read = out.next_line(), if out_open => match read.map_err(failed)? {
                     Some(text) => line(&text),
@@ -107,6 +108,9 @@ impl ProcessSpawner for TokioSpawner {
                     Some(text) => line(&text),
                     None => err_open = false,
                 },
+                status = child.wait(), if !out_open && !err_open => {
+                    return Ok(status.map_err(failed)?.code().unwrap_or(-1));
+                },
                 _ = tick.next() => if cancelled() {
                     // A program the kill couldn't end yet ended by a signal, as far as its caller knows.
                     stop(&mut child).await;
@@ -114,7 +118,6 @@ impl ProcessSpawner for TokioSpawner {
                 },
             }
         }
-        Ok(child.wait().await.map_err(failed)?.code().unwrap_or(-1))
     }
 
     fn which(&self, name: &str) -> Option<PathBuf> {
@@ -362,6 +365,22 @@ mod tests {
         let cancelled = || REAL.now() - started > Duration::from_millis(300);
 
         let code = TokioSpawner.stream(sleeper(&pidfile), &|_| {}, &cancelled).await.unwrap();
+
+        assert_eq!(code, -1);
+        let pid = pid_in(&pidfile).await;
+        assert!(!alive(&pid).await, "the program still runs after the cancel");
+    }
+
+    #[tokio::test]
+    async fn stream_kills_a_program_that_closed_its_output_when_it_is_cancelled() {
+        let dir = tempfile::tempdir().unwrap();
+        let pidfile = dir.path().join("pid");
+        let quiet = sh(&format!("exec >/dev/null 2>&1; echo $$ > {}; exec sleep 30", pidfile.display()));
+        let started = REAL.now();
+        let cancelled = || REAL.now() - started > Duration::from_millis(300);
+
+        let run = TokioSpawner.stream(quiet, &|_| {}, &cancelled);
+        let code = REAL.timeout(Duration::from_secs(5), run).await.expect("the cancel stopped it").unwrap();
 
         assert_eq!(code, -1);
         let pid = pid_in(&pidfile).await;
