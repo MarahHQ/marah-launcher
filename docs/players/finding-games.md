@@ -26,8 +26,11 @@ clock.
 - While a download runs, it shows the download's progress.
 - When the launcher is the whole screen, with no desktop behind it, the top bar also has
   network, sound and Bluetooth icons. Each one opens a panel for its settings.
-- Wherever the launcher can manage drives (UDisks is installed), the top bar has a drive icon,
-  on a desktop too. It opens the Drives panel (see [Drives](#drives)).
+- The top bar has a drive icon, on a desktop too. It opens the Drives panel (see
+  [Drives](#drives)).
+- An icon for something this PC can't do shows dimmed, such as Bluetooth on a PC without an
+  adapter, or the drives without UDisks. It opens nothing. Point at it, or move to it with the
+  keys or the pad, to see why.
 - On a PC with a battery, it shows the battery level.
 
 When the PC runs on battery and the level falls to 20%, a notice says "Battery at 20%. Plug in

@@ -135,7 +135,9 @@ works. Under gamescope, the launcher tags its windows with `xprop`, as
 ## Settings → System
 
 The built-in system plugin (`plugins/system/host/`) does the work. It declares `network`,
-`vpn`, `bluetooth`, `audio`, `power`, `os_updates` and `os_install`. On macOS and Windows it
+`vpn`, `bluetooth`, `audio`, `power`, `os_updates`, `os_install` and `drives`, each a system
+area behind the same interface (`AreaSettings`, see
+[ADR-0004](../adr/0004-every-system-area-has-one-interface.md)). On macOS and Windows it
 provides only `vpn` and `power`. The programs it may run are `permissions.process` in
 `plugins/system/host/plugin.toml`.
 
@@ -149,8 +151,9 @@ provides only `vpn` and `power`. The programs it may run are `permissions.proces
 | System update, "check now" | `systemctl start --no-block marah-os-update.service` | The update service, and a polkit rule |
 | The install from the stick | `marah-os-install` | The stick's installer |
 
-A missing tool shows as unavailable with its name, such as "NetworkManager (nmcli) isn't
-installed" (`plugins/system/host/src/linux.rs`).
+A missing tool makes its area unsupported, with the tool's name, such as "NetworkManager (nmcli)
+isn't installed" (`plugins/system/host/src/linux.rs`). The area's status icon then shows
+disabled, with that reason on hover and focus.
 
 ### polkit rules
 
@@ -183,8 +186,8 @@ restarts the PC, because a game may be running. For the same reason the image ma
 `bootc-fetch-apply-updates.timer`, which restarts the PC by itself. The script also picks the
 edition by the graphics card.
 
-The launcher reads the state with `rpm-ostree status --json` (`OsUpdates::status`). Settings
-shows:
+The launcher reads the state with `rpm-ostree status --json`, as the OS updates area's state
+(`SystemArea::OsUpdates`). Settings shows:
 
 | State | Settings shows |
 | --- | --- |
@@ -192,7 +195,7 @@ shows:
 | None is staged | "Marah OS is up to date" |
 | The output can't be read | "Couldn't look for an update: rpm-ostree's status couldn't be read" |
 
-Without the release file, `OsUpdates::status` fails with "this isn't Marah OS", and the update
+Without the release file, the OS updates area is absent (`AreaState::Absent`), and the update
 row doesn't show.
 
 `crates/core/src/view.rs` has the text "Looking for an update…" for `OsUpdate::Checking`, but

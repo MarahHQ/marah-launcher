@@ -6,7 +6,7 @@ for theme authors who already have a theme running; start with
 [writing-a-theme.md](writing-a-theme.md). Terms follow [the glossary](../../GLOSSARY.md).
 
 The contract is the crate `launcher-ui-api` (`crates/ui-api`). Its version is
-`UI_API_VERSION`, now `0.6.0` (`crates/ui-api/src/lib.rs`). A theme's `ui_api` range must
+`UI_API_VERSION`, now `0.7.0` (`crates/ui-api/src/lib.rs`). A theme's `ui_api` range must
 include it.
 
 ## Contents
@@ -322,7 +322,7 @@ Tests in `contract.rs` hold every kit file to three rules:
 | `keyboard.slint` | `Osk`, `TextField`, `OnScreenKeyboard` | A text field, and the on-screen keyboard it opens for a controller. A field with `picking` shows a row of picks over the keys, such as a search's matches or recent searches. |
 | `lingering.slint` | `Lingering` | Keeps a screen or a sheet on screen while it goes out. |
 | `list-item.slint` | `ListItem` | A row: a label, a line under it, a value at the end. |
-| `loading.slint` | `LoadingLine`, `LoadingSpinner`, `LoadingRow`, `StatusSlot`, `StatusLoading` | What shows while a part of the machine is read for the first time: a status icon's thin line and its "Checking…" label, a panel's loading row, and the place that keeps a status icon in the top bar and closes, with its gap, when the icon goes. |
+| `loading.slint` | `LoadingLine`, `LoadingSpinner`, `LoadingRow`, `StatusSlot`, `StatusLoading`, `StatusState` | What shows while a system area is read for the first time: a status icon's thin line and its "Checking…" label, a panel's loading row, and the place that keeps a status icon in the top bar and closes, with its gap, when the icon goes. `StatusState` shows an area's state over its status icon: loading, or disabled with its reason. |
 | `look.slint` | `Look` | Shared sizes (`k`, `px`, `t`, `tpx`), `rtl`, colors made from tokens, `timed`, `motion-on`, `clock`, the kinds of motion, and words and colors for ratings, results, sorts and states. |
 | `motion.slint` | `Motion`, `Leaving`, `Popover`, `Sheet`, `Tooltip` | The kit's shared motion: its times, a part kept on screen while it fades out, a popover that grows from its anchor, a sheet whose card slides up over a fading wash, and a label that fades in on key focus or after a short hover. |
 | `notices.slint` | `Notices`, `NoticeStack` | The notices on screen. Delete closes the newest. |
@@ -347,7 +347,7 @@ Tests in `contract.rs` hold every kit file to three rules:
 | `slot-actions.slint` | `SlotActions` | Plugin actions as round buttons. |
 | `slot-badges.slint` | `SlotBadges` | Plugin badges as small tags with a dot in their tone. |
 | `slot-sections.slint` | `SlotSections` | Plugin sections as fact cards. |
-| `system-panel.slint` | `Sys`, `NetIcon`, `SoundIcon`, `BluetoothIcon`, `StorageIcon`, `BatteryIcon`, `SystemSheet` | The network, sound and Bluetooth icons and panels for when the launcher is the whole screen, the drives' icon and the Drives panel (`Sys.show(3)`) wherever drives can be managed (`Vm.system.drives-available`), on a desktop too, and the battery. A notice with a `drive` opens the Drives panel. |
+| `system-panel.slint` | `Sys`, `NetIcon`, `SoundIcon`, `BluetoothIcon`, `StorageIcon`, `BatteryIcon`, `SystemSheet` | The network, sound and Bluetooth icons and panels for when the launcher is the whole screen, the drives' icon and the Drives panel (`Sys.toggle(3)`), on a desktop too, and the battery. `Sys.toggle` and `Sys.show-status` open a status icon's panel, and open nothing for a disabled area. `Sys.loading`, `Sys.disabled` and `Sys.reason` read a panel's area. A notice with a `drive` opens the Drives panel. |
 | `trailer-player.slint` | `Trailers`, `TrailerPlayer` | A trailer in the window, with its keys. |
 | `widgets.slint` | `FocusRing`, `KeyCap`, `BackButton`, `Stars`, `Chip`, `Pill`, `Kicker`, `Switch`, `Shimmer`, `Cover` | Small widgets. |
 
@@ -445,40 +445,59 @@ Version 0.6.0 moved the backup browser out of Settings → Backup: it is the fol
 - `FolderBrowser` has `title`. `Backup` has `free`, the free space on the backup folder's drive.
 - `Folder` has `list`, each a `FolderPath`. `FolderRow` takes `at` and `on-page`, and opens the
   folder's list (`kit/folder-list.slint`) instead of a text box.
-- `System` has `drives-available`, `drives-reason` and `drives` (each a `DriveItem`, one per
+- `System` has `drives-available` and `drives` (each a `DriveItem`, one per
   drive, with its `actions` as buttons and the `busy` one). `Notice`
   has `drive`. A job's kind can be `mount`, `unmount` or `eject`.
-- A theme with its own top bar shows the drives' icon while `Vm.system.drives-available` or
-  `Vm.system.drives-loading`, on the whole screen and on a desktop, and counts it among its
-  machine icons so the keys reach it. Both built-in themes' `Nav.statuses` is 3 for the network,
+- A theme with its own top bar shows the drives' icon on the whole screen and on a desktop,
+  and counts it among its machine icons so the keys reach it. Both built-in themes' `Nav.statuses` is 3 for the network,
   sound and Bluetooth icons on the whole screen, plus 1 for the drives' icon. On a desktop the
   drives' icon is the only one.
-- Each part of `System` has a loading state: `network-loading`, `audio-loading`,
-  `bluetooth-loading`, `power-loading` and `drives-loading` are true until the part's first read
-  ends. While a part loads it is neither available nor unavailable: its `*-available` is false
-  and its `*-reason` is empty, so a theme never shows "unavailable" before the read.
-  `drives-listing` is true until the drives' first list read ends. `FolderBrowser` has
+- `drives-listing` is true until the drives' first list read ends. `FolderBrowser` has
   `places-loading`, true while the browser reads the drives for its places.
-
-#### Loading
-
-Every status icon that can show is in place from the first frame, so the top bar never shifts:
-
-- **The icon:** while its part loads, it dims, and a 2 px line (`LoadingLine`) sweeps under it.
-  With Animations off the line is dotted and stands still. Its accessible value is `loading`, and
-  "Checking…" shows under it on hover or key focus (`StatusLoading`). The battery shows an empty,
-  dim battery with "--%" and the same line.
-- **Input:** a loading icon can be focused and clicked. Its panel opens at once on a loading row
-  (`LoadingRow`, accessible label `loading`: "Reading drives…", "Reading the network…") that
-  the rows replace when the read ends. The folder browser's places show "Reading drives…" under
-  them while `places-loading`.
-- **An icon that goes:** a part that turns out unavailable (the drives, a PC with no battery)
-  fades its icon out, and its place (`StatusSlot`) closes with its gap, in the motion times. Put
-  each icon in a `StatusSlot` with the gap after it, and keep the slot while it fades out with
-  `Leaving`.
 
 A theme built for 0.5 that reads `Vm.backup.browser` or imports `kit/backup-browser.slint`
 changes those names, then sets `ui_api = "^0.6"`.
+
+Version 0.7.0 put every system area in one list
+([ADR-0004](../adr/0004-every-system-area-has-one-interface.md)):
+
+- `System` has `areas`, each an `AreaItem`: its `name`, its `state` (`loading`, `absent`,
+  `unsupported` or `ready`), its `reason` and whether it is `busy`. The list always holds every
+  area, in the order of the `Areas` global in `types.slint`: read one as
+  `Vm.system.areas[Areas.bluetooth]`.
+- `network-loading`, `audio-loading`, `bluetooth-loading`, `power-loading`, `drives-loading`
+  and their `*-reason` are gone: read the area's `state` and `reason`. `*-available` stays for
+  network, audio, Bluetooth and drives, and means the area is ready. `power-available` means
+  restart and shut down work here.
+- An area that can't be used here (absent or unsupported) no longer hides its icon: the icon
+  shows disabled (see [Status icons](#status-icons)).
+
+A theme built for 0.6 that reads `Vm.system.*-loading` or `*-reason` reads `Vm.system.areas`
+instead, then sets `ui_api = "^0.7"`.
+
+#### Status icons
+
+Every status icon that can show is in place from the first frame, so the top bar never shifts.
+The kit's `StatusState` (`kit/loading.slint`) shows an area's state over its icon. Put it in the
+icon's button with the area's place, and read its `dim`, `cursor` and `disabled`:
+
+- **Loading:** while its area loads, the icon dims, and a 2 px line (`LoadingLine`) sweeps under
+  it. With Animations off the line is dotted and stands still. Its accessible value is `loading`,
+  and "Checking…" shows under it on hover or key focus (`StatusLoading`). The battery shows an
+  empty, dim battery with "--%" and the same line. A loading icon can be focused and clicked. Its
+  panel opens at once on a loading row (`LoadingRow`, accessible label `loading`: "Reading
+  drives…", "Reading the network…") that the rows replace when the read ends. The folder
+  browser's places show "Reading drives…" under them while `places-loading`.
+- **Disabled:** an area that is absent or unsupported keeps its icon in place, dimmer, with the
+  plain pointer (`cursor`) in place of the hand. A click, Enter or the pad's ✕ opens nothing. The
+  icon still takes the keys' and the pad's focus and the pointer's hover, and then its reason
+  shows under it (accessible label `status-reason`). The built-in themes give it the accessible
+  value `disabled`, `accessible-enabled: false`, and the reason as its description. Left and
+  right in an open panel go past a disabled one.
+- **An icon that goes:** only what isn't there at all closes its place: a PC with no battery
+  fades the battery out, and its place (`StatusSlot`) closes with its gap, in the motion times.
+  Put each icon in a `StatusSlot` with the gap after it, and keep the slot while it fades out
+  with `Leaving`.
 
 ### Motion
 

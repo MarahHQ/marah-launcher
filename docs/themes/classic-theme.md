@@ -69,9 +69,9 @@ From `theme.toml`:
 | --- | --- |
 | `id`, `name` | `classic`, `Classic` |
 | `version` | `0.3.0` |
-| `host_api` | `^0.3` |
+| `host_api` | `^0.4` |
 | `activation` | `eager` |
-| `ui_api` | `^0.6` |
+| `ui_api` | `^0.7` |
 | `input` | `["gamepad", "pointer"]` |
 | `navigation` | `focus` |
 | breakpoints | `compact` (`max_width = 900`), then `regular` |
@@ -298,8 +298,8 @@ game yet" or "No games here".
 
 On the reading side: the "Home" and "Library" tabs. On the far side: the running game, the
 active download, the screen buttons (Search, Downloads, Emulators, Themes), the network, sound
-and Bluetooth icons when the launcher is the whole screen, the drives' icon wherever drives can
-be managed, the battery when the PC has one,
+and Bluetooth icons when the launcher is the whole screen, the drives' icon, the battery when
+the PC has one,
 Settings, and the clock. Search shows only when there is a Catalog.
 
 ## Accessible labels

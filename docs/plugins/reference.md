@@ -62,7 +62,7 @@ kind = "emulator"
 name = "PS5"
 emulator = "KytyPS5"
 version = "0.1.0"
-host_api = "^0.3.5"
+host_api = "^0.4"
 platforms = ["linux", "macos", "windows"]
 console = "PS5"
 capabilities = ["catalog", "downloader", "installer", "configurator", "launcher", "compatibility", "slots", "game_installer", "backup"]
@@ -114,7 +114,7 @@ cover = "cover.jpg"
 | `name` | yes | What the player sees: in the plugin lists, on the plugin page, and where a sentence means the console. An emulator names its console: `PS5`. |
 | `emulator` | no | For an emulator, the name of the program it installs and runs, such as `KytyPS5`. Sentences about the program use it. Leave it out when the program has no name of its own: `name` is used. |
 | `version` | yes | The plugin's semver version. |
-| `host_api` | yes | A semver range of the API versions the plugin works with, such as `^0.3`. The host refuses the plugin when the range doesn't include `API_VERSION`, now `0.3.5`. |
+| `host_api` | yes | A semver range of the API versions the plugin works with, such as `^0.4`. The host refuses the plugin when the range doesn't include `API_VERSION`, now `0.4.0`. |
 | `platforms` | no | `linux`, `macos`, `windows`. Empty means every system. |
 | `console` | no | For an emulator, the console it plays: ASCII letters, digits and `-`, kept in uppercase (`ps5` and `PS5` are one console). The host gives the emulator that console's releases. Not the systems the plugin runs on. |
 | `capabilities` | no | The capabilities `init` provides, in snake case. See [Capabilities](#capabilities). |
@@ -373,7 +373,7 @@ for each one in `Provided`.
 | `backup` | `backup` | `Backup` | `backup.rs` |
 | `startup` | `startup` | `StartupWork` | `startup.rs` |
 | `theme` | none | `ThemePlugin` | `plugin.rs` |
-| `network`, `vpn`, `bluetooth`, `audio`, `power`, `os_updates`, `os_install`, `drives` | the same names | `NetworkSettings`, `VpnSettings`, `BluetoothSettings`, `AudioSettings`, `PowerSettings`, `OsUpdates`, `OsInstall`, `DriveSettings` | `system.rs` |
+| `network`, `vpn`, `bluetooth`, `audio`, `power`, `os_updates`, `os_install`, `drives` | `areas`, keyed by `SystemArea` | `AreaSettings`, one for each area | `system.rs` |
 
 ### Catalog
 
@@ -577,33 +577,64 @@ its releases. The host shows them in Downloads. Default: none.
 ### System capabilities
 
 `network`, `vpn`, `bluetooth`, `audio`, `power`, `os_updates`, `os_install` and `drives` are
-for system plugins only. The host uses the first active system plugin that provides each one, and shows a
-capability that no plugin provides as unavailable. Quick calls answer within the call timeout.
-Long work, such as joining a network, a Bluetooth scan, pairing or installing the OS, starts in
-the background and reports through the `SystemJob` the host passes in: `progress`, `done`,
-`failed` and `cancelled`.
+for system plugins only. Each is a system area, a `SystemArea`, and every area has the same
+interface ([ADR-0004](../adr/0004-every-system-area-has-one-interface.md)):
 
-`DriveSettings` (`drives`, API 0.3.5) lists the drives and mounts, unmounts and ejects them. The
-capability is `drives`, not `storage`: storage is a plugin's own data folder.
+```rust
+#[async_trait]
+pub trait AreaSettings: Send + Sync {
+    async fn state(&self) -> PluginResult<AreaState>;
+    async fn act(&self, action: AreaAction, job: Arc<dyn SystemJob>) -> PluginResult<()>;
+}
 
-- `drives()` returns each drive with a file system as a `SystemDrive`: its device
+pub enum AreaState {
+    Absent,              // this machine has nothing to manage here
+    Unsupported(String), // it can't be used here, and why: "No Bluetooth adapter"
+    Ready(AreaData),     // it works, with the area's data
+}
+```
+
+A plugin puts one `AreaSettings` per area it manages in `Provided::areas`, keyed by the
+`SystemArea`. Each key's capability must be in the manifest.
+
+- `state()` reads the area. The host calls it on its tick, every 5 seconds, and after each
+  action. `AreaData` has one kind of data per area: `Network { status, wifi }`,
+  `Vpn { finds_vpns, can_import, vpns }`, `Bluetooth { powered, devices }`,
+  `Audio { outputs, level }`, `Power { battery, refused }`, `OsUpdates { update }`,
+  `OsInstall { disks }` and `Drives { drives }`.
+- `act()` runs one `AreaAction`, which belongs to one area (`AreaAction::area`). An adapter
+  returns `PluginError::Unsupported` for an action it can't run on this system.
+- Quick actions answer within the call timeout and leave the job alone. Long actions
+  (`AreaAction::long`: joining a network, a Bluetooth scan, pairing, installing the OS,
+  mounting, unmounting, ejecting) start in the background, return at once, and report through
+  the `SystemJob` the host passes in: `progress`, `done`, `failed` and `cancelled`.
+
+The host uses the first active system plugin that provides each area. It shows an area that no
+plugin provides as absent. Until an area's first read ends, the host shows it as loading: a
+plugin never reports that. A read that fails changes nothing; when it is the area's first, the
+host shows the area as unsupported, with the error.
+
+The drives area is `drives`, not `storage`: storage is a plugin's own data folder.
+
+- `Drives { drives }` lists each drive with a file system as a `SystemDrive`: its device
   (`/dev/sdb1`), its whole disk (`/dev/sdb`), its UUID, label, model, size, file system, whether
   the player can take it out (`usb`), where it is mounted, its free space, and `system` for a
   drive the system mounted for itself (`/`, `/home`, swap). The host never offers to unmount a
   `system` drive, and lists only the others.
-- `mount`, `unmount` and `eject` start in the background and end through the job. A mount's
-  `done` text is the folder the drive is mounted at. `eject` takes the whole disk: it unmounts
-  each part, then powers the disk off.
-- `unavailable()` says why drives can't be mounted here. While it says something, the host lists
-  the drives in the folders the system mounts them in, and can't mount one.
+- `Mount`, `Unmount` and `Eject` are long. A mount's `done` text is the folder the drive is
+  mounted at. `Eject` takes the whole disk: it unmounts each part, then powers the disk off.
+- While the area is unsupported, the host lists the drives in the folders the system mounts
+  them in, and can't mount one.
 
 The built-in This PC plugin provides it on Linux with UDisks: `lsblk --json --list -b` for the
 list, `udisksctl mount|unmount|power-off -b <device> --no-user-interaction` for the actions.
 `udisksctl` runs as the player, not through `polkit`: the UDisks service asks polkit itself.
 
-`VpnSettings` has three plain functions with default bodies that say what this system can do:
-`problem`, `finds_vpns` and `can_import`. Its errors are `PluginError`s. The host shows their
-text as it is.
+The power area's `refused` says why restart and shut down can't be used here, while the battery
+still shows. The VPN area is unsupported where downloads can't be bound to a VPN ("Not available
+on Windows"). Before its first read the host knows nothing of it, so "Download only through a
+VPN" still holds and the downloads wait. Errors are `PluginError`s. The host shows their text as
+it is.
 
 ## Backup
 

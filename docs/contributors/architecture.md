@@ -148,7 +148,7 @@ The core reaches the outside world through the traits in `crates/core/src/ports.
 | `Hardware` | `NoHardware` | `hardware::SystemHardware` | a fixed `Hardware` in `FakeHost` |
 | `DriveSpace` | `NoDriveSpace` | `disk::SystemDrives` | a fixed `DriveSpace` in `FakeHost` |
 | `Torrents` | `NoTorrents` | `torrents::RqbitTorrents` | `FakeTorrents` |
-| `Network` (VPNs) | `NoVpn` | none: a system plugin's `vpn` capability takes its place (`PluginVpn`) | `FakeNetwork` |
+| `Network` (VPNs) | `NoVpn` | none: a system plugin's VPN area takes its place (`PluginVpn`) | `FakeNetwork` |
 | `Archives` | `NoArchives` | `archives::HostArchives` | `FakeArchives` |
 | `Clock` | `TokioClock` | `TokioClock` | `FakeClock` |
 
@@ -226,7 +226,7 @@ routes a command to a flow when no one subsystem owns it.
 | `startup.rs` | The work the boot screen waits for: builds that install at the start, installs a crash stopped, and the plugins' startup work and questions. |
 | `closing.rs` | Closes the running games, then what their launches left running, before Log out, Restart and Shut down. |
 | `uninstall.rs` | Removes an installed game. |
-| `system.rs` | Runs the machine's settings through the system plugin. |
+| `system.rs` | The one reader of the system areas, and their commands. See [System areas](#system-areas). |
 | `backups.rs` | Settings → Backup's commands. |
 | `drives/flows.rs` | The drives' commands, a drive plugged in, the game folders' drives at the start, and the games of a drive that is away. |
 | `browser.rs` | The folder browser's commands (`BrowseCmd`). |
@@ -365,12 +365,13 @@ share a drive, and mounting, unmounting and ejecting. Two parts answer them:
   the spot, through `drives::free` and `drives::same_drive`.
 - An `Adapter`: the list and the actions. The base adapter, `MountFolders`, lists the folders a
   system mounts drives in (`/run/media/<user>`, `/media/<user>`, `/mnt`, `/Volumes`, `C:\` to
-  `Z:\`) and can't mount. When a system plugin provides `drives` and its `unavailable()` says
-  nothing, `PluginDrives` (`drives/udisks.rs`) takes over: on Linux, UDisks through
-  `udisksctl` and `lsblk`. Another kind of adapter starts the list again, as a first read does.
+  `Z:\`) and can't mount. When a system plugin provides the drives area and the area is ready,
+  `PluginDrives` (`drives/udisks.rs`) takes over: on Linux, UDisks through `udisksctl` and
+  `lsblk`. Another kind of adapter starts the list again, as a first read does.
 
-The system tick (`system::schedule_refresh`, every 5 s) reads the drives again and compares
-them with the last read. The first read only finds what is there; a read that fails changes
+The system areas' reader reads the drives area on its tick (every 5 s), then hands the list to
+`drives::listed`, which compares it with the last read. A drive command's refresh goes through
+the same reader. The first read only finds what is there; a read that fails changes
 nothing. When the launcher is the whole screen, a drive that came mounts on its own, as a system
 job, and a notice with the drive's id says so (`Notice::drive`).
 
@@ -385,6 +386,34 @@ job, and a notice with the drive's id says so (`Notice::drive`).
 - A game on a drive runs in the sandbox as any other: bubblewrap binds its folder at its own path
   (`/run/media/<user>/<drive>/…`), after the system's `/run` folders.
 
+## System areas
+
+Each part of the machine that a system plugin manages is a system area (`SystemArea` in
+`crates/api/src/system.rs`): network, VPN, Bluetooth, sound, power, OS updates, OS install and
+drives. Every area has the same interface, `AreaSettings`: `state()` returns `Absent`,
+`Unsupported(reason)` or `Ready(AreaData)`, and `act(action, job)` runs one `AreaAction`
+([ADR 0004](../adr/0004-every-system-area-has-one-interface.md)). `Provided::areas` is a map
+keyed by the area.
+
+The core has one reader, `system::read(core, area)`:
+
+- It asks the first active system plugin that provides the area. Nobody: the area is absent.
+  The OS installer is absent anywhere but on its USB stick.
+- It keeps the state in `SystemState::areas`. An area that isn't there is loading: loading lives
+  in the reader, and no plugin reports it.
+- A read that fails changes nothing. When it is the area's first, the area is unsupported, with
+  the error, so it doesn't stay loading.
+- Then each area's own rule runs: the low battery notice (power), the VPNs for the downloads
+  (`PluginVpn`), and the drives' list (`drives::listed`).
+
+`system::schedule_refresh` reads each area on its own tick, so a slow area holds none of the
+others. A refresh after a command reads every area but the drives, whose read waits for a turn
+of the disk: the drive commands read them. `SystemCommand` maps each command to an `AreaAction`. A long action runs as a job the view
+model lists. The view model lists every area in `SystemVm::areas`, in the order of `AREAS`, each
+with its state, reason and whether a job runs in it. The theme reads an area by its place in
+that list (`Areas` in `types.slint`). The kit's `StatusState` shows an area's state over its
+status icon: loading, or disabled where the area is absent or unsupported.
+
 ## Plugin loading
 
 `crates/api/src/plugin.rs` has one root trait and two kinds of plugin:
@@ -395,8 +424,8 @@ job, and a notice with the drive's id says so (`Notice::drive`).
 - `ThemePlugin: Plugin` adds `files()` and no code.
 
 The manifest's `kind` decides privileges only
-([ADR 0001](../adr/0001-capabilities-follow-the-capability-not-the-kind.md)). Each capability
-is one trait. A plugin returns the ones it has in `Provided`, and must provide exactly the ones
+([ADR 0001](../adr/0001-capabilities-follow-the-capability-not-the-kind.md)). Each data
+capability is one trait; the system capabilities share one, `AreaSettings`. A plugin returns the ones it has in `Provided`, and must provide exactly the ones
 its manifest declares. The core joins answers across plugins only through these traits: one
 library from every `Catalog`, one Catalog from every `Releases`. The capabilities and the
 built-in plugins that declare them are in [the plugin reference](../plugins/reference.md).
@@ -557,3 +586,4 @@ rules are tests in `crates/ui-api/src/contract.rs`.
 - [ADR 0001: Capabilities follow the capability, not the kind](../adr/0001-capabilities-follow-the-capability-not-the-kind.md)
 - [ADR 0002: The reads for a game's page stay as separate flows](../adr/0002-game-page-reads-stay-as-flows.md)
 - [ADR 0003: Themes stand alone, with a shared kit](../adr/0003-themes-stand-alone-with-a-shared-kit.md)
+- [ADR 0004: Every system area has one interface](../adr/0004-every-system-area-has-one-interface.md)
