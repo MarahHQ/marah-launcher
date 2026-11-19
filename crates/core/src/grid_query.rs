@@ -303,6 +303,11 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
     // The cards the player sees: under "All", one per game; under a system, that system's.
     let groups = &library.groups;
     let in_view = |e: &&Entry| query.system.as_ref().is_none_or(|s| &e.summary.platform == s);
+    // A game's versions this view shows: in the Catalog, the hidden ones only under "Hidden".
+    let versions_of = |key: &'a GameKey| -> Vec<&'a Offer> {
+        let versions = groups.versions(key).iter().filter_map(|k| offers.get(k).copied());
+        versions.filter(|o| !catalog || hidden_offer(library, o) == only_hidden).collect()
+    };
     let cards =
         |list: Vec<&Entry>| if catalog && query.system.is_none() { card_count(groups, &list) } else { list.len() };
     let hidden: Vec<&Entry> = entries.iter().copied().filter(|e| is_hidden(e)).filter(in_view).collect();
@@ -424,8 +429,8 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
         .filter(|e| !catalog || !query.installed || installed(e))
         .collect();
     // The Catalog's "All": one card per game, of the versions the filters leave.
-    let (in_system, versions) = if catalog && query.system.is_none() {
-        one_per_game(data, &offers, only_hidden, in_system)
+    let (in_system, mut versions) = if catalog && query.system.is_none() {
+        one_per_game(data, &versions_of, in_system)
     } else {
         (in_system, HashMap::new())
     };
@@ -454,12 +459,15 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
             None => library.detail(&e.key).and_then(|d| d.details.size_bytes),
         }
     };
-    // A game's newest version counts, of the ones this view shows: a hidden version is out but
-    // under "Hidden".
-    let added = |e: &Entry| {
-        let versions = groups.versions(&e.key).iter().filter_map(|k| offers.get(k));
-        let versions = versions.filter(|o| !catalog || hidden_offer(library, o) == only_hidden);
-        versions.map(|o| o.releases[0].added.clone()).max().unwrap_or_default()
+    // A game's newest version counts, of the ones this view shows: in "All", the versions its
+    // card stands for.
+    let added = |e: &'a Entry| {
+        let newest = |list: &[&Offer]| list.iter().map(|o| o.releases[0].added.clone()).max();
+        match versions.get(&e.key) {
+            Some(card) => newest(card),
+            None => newest(&versions_of(&e.key)),
+        }
+        .unwrap_or_default()
     };
     // The catalog's own date of its best release first, then the store's, then the year.
     let released = |e: &Entry| {
@@ -487,6 +495,7 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
     if !search.is_empty() {
         shown.sort_by_key(|e| std::cmp::Reverse(scores.get(&e.key).copied().unwrap_or_default()));
     }
+    versions.retain(|_, versions| versions.len() > 1);
     GridGames { shown, versions, all, systems, genres }
 }
 
@@ -503,14 +512,12 @@ fn card_count(groups: &GameGroups, entries: &[&Entry]) -> usize {
 }
 
 /// `entries` with one card per game, and the versions each card stands for. A game's versions
-/// are the ones this view shows, whatever the search and the filters leave: the hidden ones only
-/// under "Hidden" (`only_hidden`); the best for this PC first (see
-/// [`crate::game_groups::best_first`]). Its card is, of its versions among `entries`, the one the
-/// player has installed, else the best.
+/// are the ones this view shows (`versions_of`), whatever the search and the filters leave; the
+/// best for this PC first (see [`crate::game_groups::best_first`]). Its card is, of its versions
+/// among `entries`, the one the player has installed, else the best.
 fn one_per_game<'a>(
     data: &GridData<'a>,
-    offers: &HashMap<&GameKey, &'a Offer>,
-    only_hidden: bool,
+    versions_of: &dyn Fn(&'a GameKey) -> Vec<&'a Offer>,
     entries: Vec<&'a Entry>,
 ) -> (Vec<&'a Entry>, HashMap<&'a GameKey, Vec<&'a Offer>>) {
     let groups = &data.library.groups;
@@ -521,20 +528,13 @@ fn one_per_game<'a>(
         if !groups.game(&e.key).is_some_and(|g| games.insert(g)) {
             continue;
         }
-        let versions: Vec<&'a Offer> = groups
-            .versions(&e.key)
-            .iter()
-            .filter_map(|k| offers.get(k).copied())
-            .filter(|o| hidden_offer(data.library, o) == only_hidden)
-            .collect();
-        let best = crate::game_groups::best_first(data.library, data.ownership, &data.pc, &versions);
+        let best = crate::game_groups::best_first(data.library, data.ownership, &data.pc, &versions_of(&e.key));
         let picks: Vec<&'a Offer> = best.iter().map(|v| v.offer).filter(|o| listed.contains(&o.entry.key)).collect();
         let installed = picks.iter().find(|o| data.ownership.installed_game(o).is_some());
         let card = installed.unwrap_or(&picks[0]);
         cards.insert(&card.entry.key, best.into_iter().map(|v| v.offer).collect());
     }
     let shown = entries.into_iter().filter(|e| groups.game(&e.key).is_none() || cards.contains_key(&e.key)).collect();
-    cards.retain(|_, versions| versions.len() > 1);
     (shown, cards)
 }
 
@@ -1005,6 +1005,21 @@ mod tests {
         library.hidden.insert("cat:astro-ps5".into());
         let (keys, _) = shown_with(&library, &GridQuery::catalog(), this_pc());
         assert_eq!(keys, ["quest", "astro-pc"], "the PC version's own date: older than Quest's");
+    }
+
+    #[test]
+    fn a_hidden_version_doesn_t_move_its_game_in_the_added_order_and_a_shown_one_does() {
+        let added = GridQuery { sort: Sort::Added, ..GridQuery::catalog() };
+        let mut library = astro_on_two_consoles();
+        // Astro Bot's card is the PC version, older than Quest; its PS5 version is the newest.
+        assert_eq!(shown_with(&library, &added, this_pc()).0, ["astro-pc", "quest"], "the shown PS5 version moves it");
+        library.hidden.insert("cat:astro-ps5".into());
+        assert_eq!(shown_with(&library, &added, this_pc()).0, ["quest", "astro-pc"], "the hidden one doesn't");
+        // Under "Hidden", only the hidden versions count: Quest's own date is newer than Astro Bot's.
+        library.hidden.extend(["cat:quest".into(), "cat:astro-pc".into()]);
+        library.hidden.remove("cat:astro-ps5");
+        let hidden = GridQuery { hidden: true, ..added };
+        assert_eq!(shown_with(&library, &hidden, this_pc()).0, ["quest", "astro-pc"], "the shown PS5 version doesn't");
     }
 
     #[test]
