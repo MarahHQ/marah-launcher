@@ -8,6 +8,7 @@ import { NetIcon, SoundIcon, BluetoothIcon, BatteryIcon, Sys } from "../kit/syst
 import { SystemChips } from "chip-row.slint";
 import { Hint } from "../kit/shell.slint";
 import { Reveal } from "../kit/reveal.slint";
+import { Games } from "../kit/games.slint";
 
 // The top bar. In place of Home and Library tabs, it has one button back to the list of
 // systems, while a system's games show, and after it the Library's systems (in the Catalog,
@@ -116,7 +117,7 @@ export component TopBar inherits Rectangle {
     // Back to the list of systems while a system's games show, then the Library's systems (or
     // the Catalog's), in one row on the reading side, up to the far side's buttons. Right to
     // left, the way back is on the right.
-    property <bool> back: Nav.library;
+    property <bool> back: Games.library;
     property <bool> chips: root.back || Vm.screen == "catalog";
     HorizontalLayout {
         x: Look.rtl ? side.x + side.width + 24 * Look.px : 96 * Look.px;

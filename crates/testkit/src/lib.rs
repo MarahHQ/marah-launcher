@@ -9,7 +9,7 @@
 //! - [`ThemeDriver`]: drives a shown theme through its accessible labels, keys and clicks.
 //! - [`FakePlatform`]: the app shell's platform, which records each call.
 //! - [`MemStorage`]: a plugin's data folder in memory.
-//! - [`contract`]: checks any emulator plugin against the capability contracts.
+//! - [`contract`]: checks any emulator plugin or port adapter against the capability contracts.
 
 mod archives;
 mod catalog;
@@ -32,7 +32,7 @@ pub use archives::FakeArchives;
 pub use catalog::{FakeCatalog, FakeService, FakeStore};
 pub use clock::FakeClock;
 pub use driver::ThemeDriver;
-pub use emulator::{FAKE_EMULATOR_PERMISSIONS, FAKE_REPORT_FORM, FakeEmulator};
+pub use emulator::{CloseAnswer, FAKE_EMULATOR_PERMISSIONS, FAKE_REPORT_FORM, FakeEmulator};
 pub use fakes::{
     FIRST_PID, FakeHttp, FakeLoginSession, FakeOpener, FakeProcessTree, FakeSpawner, FakeWindows, Gate, Shown, Signal,
     SpawnedProcess,

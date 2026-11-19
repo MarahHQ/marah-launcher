@@ -148,7 +148,9 @@ export struct SettingsPanel { slot: Slot, fields: [Field] }
 
 // One release of a game a catalog offers. `size` like "7.6 GB" and `added` like "Oct 15, 2026",
 // empty when the catalog doesn't say; `new` when it was added in the last 14 days.
-// `download` is its download's state (see Torrent), empty for none, with its progress.
+// `download` is its download's state (see Torrent), empty for none, with its progress, and
+// `download-text` what its Download button says: "Download", "Downloading 43%", "Install in
+// Steam".
 // `system` is a PC release's system ("Linux", "Windows", "macOS"), and `not-here` why this
 // computer can't start it; both empty when there is nothing to say. `warning` is why it may
 // not install, such as a retail PS5 package; empty for none. `no-room` is why it doesn't fit
@@ -162,7 +164,7 @@ export struct SettingsPanel { slot: Slot, fields: [Field] }
 // `store`: the store that installs it ("Steam"), for a release its store installs: its
 // Download asks the store (the command Torrent Download with no folder), with no download
 // sheet. Empty for a torrent.
-export struct Release { id: string, store: string, version: string, region: string, size: string, added: string, new: bool, description: string, system: string, not-here: string, warning: string, no-room: string, download: string, download-progress: float, version-label: string, best: bool, seeders: string, leechers: string, counted: string, availability: string, availability-text: string }
+export struct Release { id: string, store: string, version: string, region: string, size: string, added: string, new: bool, description: string, system: string, not-here: string, warning: string, no-room: string, download: string, download-progress: float, download-text: string, version-label: string, best: bool, seeders: string, leechers: string, counted: string, availability: string, availability-text: string }
 
 // How one emulator's games run on this PC. level: good | slow | no | unknown. headline:
 // "Should run well", "May run slowly", "Won't start" or "Can't tell yet"; why: the reason.
@@ -196,6 +198,9 @@ export struct Torrent {
     version: string,
     region: string,
     state: string,
+    // Its state in words, from `state`, `install`, `unpack` and the flags: "Paused · waiting
+    // for your VPN", "Installed in Steam".
+    state-text: string,
     progress: float,
     detail: string,
     seeding: bool,
@@ -237,7 +242,7 @@ export struct GameDetail {
     system-name: string,
     system-color: color,
     description: string,
-    // `description` on one line, cut after a word to at most 80 characters, with "…".
+    // `description` on one line, cut after a word to at most 75 characters, with "…".
     summary: string,
     developer: string,
     genres: [string],
@@ -322,7 +327,7 @@ export struct GameDetail {
 }
 
 
-// state: queued | downloading | verifying | done | failed
+// state: queued | downloading | verifying | unpacking | paused | done | failed | cancelled
 export struct Download {
     id: int,
     plugin: string,
@@ -457,7 +462,9 @@ export struct BackupBrowser { open: bool, shown: string, parent: string, crumbs:
 export struct Backup { folder: string, running: bool, restoring: bool, progress: float, status: string, failed: bool, restart: bool, backups: [BackupFile], holds: string, large: string, default-folder: string, browser: BackupBrowser }
 
 // The launcher's own update. state: off | idle | checking | current | available |
-// downloading | ready | failed. text: what to tell the player.
+// downloading | ready | installed | system | failed. installed: the package manager put it in,
+// a restart starts it. system: it comes with Marah OS's next update. text: what to tell the
+// player.
 export struct LauncherUpdate { state: string, current: string, version: string, text: string, method: string }
 
 // The machine's settings, from the system plugins (see `SystemVm` in launcher-ui-api). A part
@@ -498,7 +505,7 @@ export struct Viewport { width: length, height: length, scale: float, size: floa
 
 // Everything the theme shows. The host sets it after every change; themes only read it.
 export global Vm {
-    // home | game-detail | catalog | downloads | settings | emulators | themes | plugin | game-settings | running
+    // home | library | game-detail | catalog | downloads | settings | emulators | themes | plugin | game-settings
     in-out property <string> screen: "home";
     // Which way the screens last moved: forward, back, or empty for neither.
     in-out property <string> nav-direction;

@@ -340,10 +340,59 @@ async fn a_new_base_copy_keeps_the_refreshed_releases_until_its_own_refresh_work
 }
 
 #[tokio::test]
+async fn an_open_catalog_page_shows_the_fetched_sources_once_the_background_fetch_ends() {
+    let t = boot(false).await;
+    // One read of the page: it gets the bundled list, and wakes the plugin's task.
+    let (sections, _) = page(&t).await;
+    assert_eq!(rows(&sections, "release-catalog:sources")[0], "List: the bundled list");
+    // The task tells the core when the fetch ends, and the core reads the page again.
+    let first_row = |core: &Core| {
+        let page = core.view().plugin_page.expect("the Game Catalog page");
+        let sources = page.sections.iter().find(|s| s.label == "release-catalog:sources").expect("the sources");
+        sources.rows.first().map(|r| format!("{}: {}", r.label, r.value))
+    };
+    t.until(Area::Plugins, |core| first_row(core).as_deref() == Some("List: fetched from xyz.dev")).await;
+    assert_eq!(t.http.sent().iter().filter(|u| *u == SOURCES).count(), 1);
+}
+
+#[tokio::test]
+async fn with_the_refresh_turned_off_the_sources_are_not_fetched_again_with_no_page_read() {
+    let t = boot(true).await;
+    list(&t).await;
+    assert!(until(&t, || t.http.sent().iter().any(|u| *u == SOURCES)).await, "the refresh fetches the sources");
+    // The fetch tells the core the page changed, and the core reads the page again.
+    t.clock.run_until_idle().await;
+    t.core
+        .dispatch(Command::SetConfig {
+            plugin: id("release-catalog"),
+            scope: ConfigScope::Emulator,
+            value: serde_json::json!({ "catalog_url": "https://xyz.dev/catalog", "sources_url": SOURCES,
+                "refresh_from_forums": false }),
+        })
+        .await
+        .unwrap();
+    let sources = |t: &TestCore| t.http.sent().iter().filter(|u| *u == SOURCES).count();
+    let before = sources(&t);
+
+    // Past the fresh time, with no read of the page: the kept copy stays.
+    t.clock.advance(std::time::Duration::from_secs(release_catalog::FRESH + 3600)).await;
+    assert_eq!(sources(&t), before, "no new fetch of the sources: {:?}", t.http.sent());
+}
+
+#[tokio::test]
 async fn a_console_named_like_the_kept_catalog_sources_keeps_its_own_copy() {
     let t = boot(false).await;
-    let (sections, _) = page(&t).await;
-    assert_eq!(rows(&sections, "release-catalog:sources")[0], "List: fetched from xyz.dev");
+    // The first read of the page gets the bundled list, and the fetch runs in the background.
+    let mut first = String::new();
+    for _ in 0..100 {
+        let (sections, _) = page(&t).await;
+        first = rows(&sections, "release-catalog:sources")[0].clone();
+        if first == "List: fetched from xyz.dev" {
+            break;
+        }
+        t.clock.advance(TICK).await;
+    }
+    assert_eq!(first, "List: fetched from xyz.dev");
 
     t.http.serve("https://xyz.dev/catalog/catalog-sources.json", base());
     let provided = t.core.kernel().provided(&id("release-catalog")).await.unwrap();
@@ -539,6 +588,8 @@ async fn with_downloads_only_through_a_vpn_the_refresh_waits_for_the_vpn() {
     let row = refresh_row(&t, "PS5: Waiting for the VPN").await;
     assert!(row.starts_with("PS5: Waiting for the VPN"), "{row}");
     assert!(!t.http.sent().iter().any(|u| **u == feed_url() || *u == pvc_url()), "no forum is asked");
+    // The sources address is no bulk download: it is fetched while the refresh waits.
+    assert!(t.http.sent().iter().any(|u| *u == SOURCES), "the sources are fetched: {:?}", t.http.sent());
 
     // The VPN connects: Refresh now runs it.
     t.network.up("wg-se");

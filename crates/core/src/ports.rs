@@ -644,9 +644,12 @@ pub type UnpackProgress = Arc<dyn Fn(u64, u64) + Send + Sync>;
 pub enum Escape {
     /// Its path is absolute or climbs out with `..`.
     Leaves,
-    /// It is a link whose target is absolute or climbs out with `..`.
+    /// It is a link whose target is absolute or climbs out with `..`, on its own or through
+    /// the archive's other links. A link loop counts too, and so does a hard link to one of the
+    /// archive's links or through one.
     LinksOut,
-    /// A link already on the disk sits where it would go.
+    /// A link sits where it would go or on its way in the archive's listing, or a link already
+    /// on the disk sits where it would go.
     ThroughLink,
     /// Once the links on the disk are followed, its path is outside the folder.
     LeavesThroughLink,
@@ -704,8 +707,9 @@ pub trait Archives: Send + Sync {
     /// Unpacks the archive cut into `parts` (in order) into the empty folder `into`, on a disk
     /// with `free` bytes (`None` when the disk doesn't say). Before it writes anything it
     /// refuses an archive that needs a password, an entry whose path leaves `into` (an absolute
-    /// path, `..`, or a link that points out), and an archive bigger than the free space. It
-    /// stops with [`ArchiveError::Cancelled`] soon after `cancel` is set.
+    /// path, `..`, or a link that points out), an entry at or under a link, which would be
+    /// written through it, and an archive bigger than the free space. It stops with
+    /// [`ArchiveError::Cancelled`] soon after `cancel` is set.
     async fn unpack(
         &self,
         kind: ArchiveKind,

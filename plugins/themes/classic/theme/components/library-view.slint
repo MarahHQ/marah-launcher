@@ -8,6 +8,7 @@ import { Card } from "card.slint";
 import { FocusRing } from "../kit/widgets.slint";
 import { Osk, TextField } from "../kit/keyboard.slint";
 import { Reveal } from "../kit/reveal.slint";
+import { Games } from "../kit/games.slint";
 
 // A Library filter: a system or a genre with its count. It is white when it is on, and ringed
 // under the keys. Right to left, the count is on the left of the name.
@@ -46,14 +47,14 @@ component FilterChip inherits Rectangle {
 
 // The Library view, for the Library and the Catalog: a header band with search, sort
 // and card size, the systems with the count on the far side, the genres, and the grid of cards
-// under it. The core searches, filters and sorts (`Nav.lib`) and sends a page at a time; the
+// under it. The core searches, filters and sorts (`Games.lib`) and sends a page at a time; the
 // grid asks for the next page as it nears the end, and scrolls to keep the selected card in
 // view.
 export component LibraryView inherits Rectangle {
     // The keys and the paging are this view's: it is the one on screen.
     in property <bool> active;
     // The header band ends under the genres, or under the systems when there are none.
-    property <length> top: (Nav.lib.genres.length > 1 ? 324 : 254) * Look.px;
+    property <length> top: (Games.lib.genres.length > 1 ? 324 : 254) * Look.px;
     property <length> card: Nav.compact ? 190 * Look.px : 240 * Look.px;
     property <length> gap: Nav.compact ? 22 * Look.px : 26 * Look.px;
     property <bool> keys: root.active;
@@ -61,16 +62,16 @@ export component LibraryView inherits Rectangle {
     // Tells the host which cards are on screen.
     function report() {
         if (root.active) {
-            Host.grid-window(Nav.catalog ? "catalog" : "library", grid.first-row * grid.columns,
+            Host.grid-window(Games.catalog ? "catalog" : "library", grid.first-row * grid.columns,
                 (grid.first-row + grid.screen-rows) * grid.columns - 1);
         }
     }
     changed active => { root.report(); root.tell-columns(); root.keep-origin(); }
     // The selected card's place on screen, for the Game Hub's cover to grow from.
     property <length> card-x: root.absolute-position.x
-        + root.at(96 * Look.px + Math.mod(Nav.shown, grid.columns) * (root.card + root.gap), root.card);
+        + root.at(96 * Look.px + Math.mod(Games.shown, grid.columns) * (root.card + root.gap), root.card);
     property <length> card-y: root.absolute-position.y + flick.y + flick.viewport-y + grid.y
-        + Math.floor(Nav.shown / grid.columns) * grid.pitch;
+        + Math.floor(Games.shown / grid.columns) * grid.pitch;
     changed card-x => { root.keep-origin(); }
     changed card-y => { root.keep-origin(); }
     function keep-origin() {
@@ -83,19 +84,19 @@ export component LibraryView inherits Rectangle {
     }
     // Tells the core how many columns the grid has.
     function tell-columns() {
-        if (root.active) { Commands.grid-columns(Nav.catalog ? "catalog" : "library", grid.columns); }
+        if (root.active) { Commands.grid-columns(Games.catalog ? "catalog" : "library", grid.columns); }
     }
 
     // How many games there were when the next page was asked for: one ask a page.
     property <int> asked-at: -1;
     function more() {
-        if (root.active && Nav.games.length < Nav.lib.total && Nav.games.length != root.asked-at) {
-            root.asked-at = Nav.games.length;
-            Nav.more();
+        if (root.active && Games.games.length < Games.lib.total && Games.games.length != root.asked-at) {
+            root.asked-at = Games.games.length;
+            Games.more();
         }
     }
     // A short grid asks for the next page at once.
-    property <int> count: Nav.games.length;
+    property <int> count: Games.games.length;
     changed count => { if (flick.near-end) { root.more(); } }
     init => { if (flick.near-end) { root.more(); } }
 
@@ -121,7 +122,7 @@ export component LibraryView inherits Rectangle {
         property <bool> placed;
         init => {
             // Within the grid as it is now: it may have got shorter meanwhile.
-            let saved = Math.min(0, Math.max(Nav.catalog ? Nav.catalog-scroll : Nav.library-scroll,
+            let saved = Math.min(0, Math.max(Games.catalog ? Nav.catalog-scroll : Nav.library-scroll,
                 self.height - self.viewport-height));
             self.viewport-y = saved;
             self.aim = -saved;
@@ -129,7 +130,7 @@ export component LibraryView inherits Rectangle {
             self.placed = true;
         }
         changed viewport-y => {
-            if (Nav.catalog) { Nav.catalog-scroll = self.viewport-y; } else { Nav.library-scroll = self.viewport-y; }
+            if (Games.catalog) { Nav.catalog-scroll = self.viewport-y; } else { Nav.library-scroll = self.viewport-y; }
         }
         // Where the last key move scrolls to, while no wheel or drag moved the grid after it:
         // the next key move counts from there, not from the middle of the glide.
@@ -141,10 +142,10 @@ export component LibraryView inherits Rectangle {
         changed near-end => { root.more(); }
         grid := Rectangle {
             property <int> columns: Math.max(1, Math.floor((root.width - 192 * Look.px + root.gap) / (root.card + root.gap)));
-            property <int> rows: Math.ceil(Nav.games.length / self.columns);
+            property <int> rows: Math.ceil(Games.games.length / self.columns);
             // The Catalog's cards have a line more: how easy the game is to download.
-            property <length> pitch: root.card * 1.5 + (Nav.compact ? 96 : 130) * Look.px + (Nav.catalog ? 28 * Look.px : 0);
-            property <int> sel-row: Math.floor(Nav.shown / self.columns);
+            property <length> pitch: root.card * 1.5 + (Nav.compact ? 96 : 130) * Look.px + (Games.catalog ? 28 * Look.px : 0);
+            property <int> sel-row: Math.floor(Games.shown / self.columns);
             changed columns => { Nav.columns = self.columns; root.report(); root.tell-columns(); }
             init => { Nav.columns = self.columns; root.report(); root.tell-columns(); }
             // The rows on screen: the host loads the covers near them, and no others.
@@ -170,7 +171,7 @@ export component LibraryView inherits Rectangle {
             }
             y: 26 * Look.px;
             height: self.rows * self.pitch;
-            for game[i] in Nav.games : slot := Rectangle {
+            for game[i] in Games.games : slot := Rectangle {
                 property <length> lx: 96 * Look.px + Math.mod(i, grid.columns) * (root.card + root.gap);
                 property <int> line: Math.floor(i / grid.columns);
                 // The cards come in as a wave, row by row and across each row. The wave is
@@ -192,7 +193,7 @@ export component LibraryView inherits Rectangle {
                     Origin.y = slot.absolute-position.y;
                     Origin.width = slot.width;
                     Origin.height = slot.width * 1.5;
-                    Nav.select-now(game.key);
+                    Games.select-now(game.key);
                     Commands.open-game(game.key);
                     Nav.zone = "grid";
                 }
@@ -204,7 +205,7 @@ export component LibraryView inherits Rectangle {
                 accessible-role: button;
                 accessible-label: "default-game";
                 accessible-value: game.title;
-                accessible-item-selected: i == Nav.selected;
+                accessible-item-selected: i == Games.selected;
                 accessible-action-default => { slot.open(); }
                 if slot.near : Card {
                     width: parent.width;
@@ -215,13 +216,13 @@ export component LibraryView inherits Rectangle {
             }
         }
     }
-    if Nav.games.length == 0 : Text {
+    if Games.games.length == 0 : Text {
         y: 420 * Look.px;
         width: root.width;
         horizontal-alignment: center;
-        text: Nav.catalog && Vm.catalog-loading ? "Loading catalog…"
-            : Nav.lib.query != "" ? "No game matches \"" + Nav.lib.query + "\""
-            : Nav.catalog ? "No catalog lists any game yet" : "No games here";
+        text: Games.catalog && Vm.catalog-loading ? "Loading catalog…"
+            : Games.lib.query != "" ? "No game matches \"" + Games.lib.query + "\""
+            : Games.catalog ? "No catalog lists any game yet" : "No games here";
         font-size: 24 * Look.px;
         color: Look.text3;
         accessible-role: text;
@@ -238,7 +239,7 @@ export component LibraryView inherits Rectangle {
         // How far down all the grid's games the screen goes: against every game the search and
         // filters leave, not only the pages loaded, so it doesn't jump back as a page comes in.
         // Only for a grid longer than the screen.
-        property <length> all-height: Math.ceil(Nav.lib.total / grid.columns) * grid.pitch;
+        property <length> all-height: Math.ceil(Games.lib.total / grid.columns) * grid.pitch;
         property <float> progress: Math.min(1, (flick.height - flick.viewport-y) / Math.max(1px, self.all-height));
         if self.all-height > flick.height : Rectangle {
             x: 96 * Look.px;
@@ -275,14 +276,14 @@ export component LibraryView inherits Rectangle {
                 input.focus();
                 // A letter typed in the grid starts the search with it.
                 if (Nav.first-letter != "") {
-                    input.text = Nav.lib.query + Nav.first-letter;
+                    input.text = Games.lib.query + Nav.first-letter;
                     Nav.first-letter = "";
-                    Nav.search(input.text);
+                    Games.search(input.text);
                 }
                 input.to-end();
             }
             // The core's search text, when it changes from elsewhere (a cleared search).
-            property <string> query: Nav.lib.query;
+            property <string> query: Games.lib.query;
             // Room for the Catalog's button at the far end.
             property <length> button-room: Nav.bar-button ? catalog-button.width + 18 * Look.px : 0;
             // Where the card sizes start, from the start side.
@@ -308,43 +309,43 @@ export component LibraryView inherits Rectangle {
                     width: parent.width - 86 * Look.px;
                     height: parent.height;
                     name: "library-search";
-                    title: Nav.catalog ? "Search the catalog" : "Search games";
+                    title: Games.catalog ? "Search the catalog" : "Search games";
                     // Over the keys: the best matches of the search, else the last searches.
                     picking: true;
-                    picks: Nav.lib.query == "" ? Nav.lib.recent : Nav.lib.matches;
-                    pick-action: Nav.lib.query == "" && Nav.lib.recent.length > 0 ? "Clear" : "";
-                    picks-note: Nav.lib.query == "" ? "Your last searches show here" : "No games match";
+                    picks: Games.lib.query == "" ? Games.lib.recent : Games.lib.matches;
+                    pick-action: Games.lib.query == "" && Games.lib.recent.length > 0 ? "Clear" : "";
+                    picks-note: Games.lib.query == "" ? "Your last searches show here" : "No games match";
                     picked(i) => {
-                        if (Nav.lib.query == "" && i < Nav.lib.recent.length) {
+                        if (Games.lib.query == "" && i < Games.lib.recent.length) {
                             // A last search: it runs again.
-                            Osk.put(Nav.lib.recent[i]);
+                            Osk.put(Games.lib.recent[i]);
                             Osk.finish();
-                        } else if (Nav.lib.query == "") {
+                        } else if (Games.lib.query == "") {
                             Commands.forget-searches();
                         } else {
                             // A match: its Game Hub opens, and the search is kept.
-                            let key = Nav.lib.games[i].key;
+                            let key = Games.lib.games[i].key;
                             Osk.finish();
-                            Nav.select-now(key);
+                            Games.select-now(key);
                             Commands.open-game(key);
                         }
                     }
                     horizontal-alignment: Look.rtl ? right : left;
                     font-size: 22 * Look.px;
                     text-color: Tokens.color-text;
-                    init => { self.text = Nav.lib.query; }
+                    init => { self.text = Games.lib.query; }
                     // The search runs once typing stops for a moment.
                     // Each key starts the wait again.
                     edited => { if (debounce.running) { debounce.restart(); } else { debounce.start(); } }
                     debounce := Timer {
                         interval: 300ms;
                         running: false;
-                        triggered => { self.stop(); Nav.search(input.text); }
+                        triggered => { self.stop(); Games.search(input.text); }
                     }
                     // Enter, or Done on the keyboard: the search runs now.
                     accepted => {
                         debounce.stop();
-                        if (input.text != Nav.lib.query) { Nav.search(input.text); }
+                        if (input.text != Games.lib.query) { Games.search(input.text); }
                         if (input.text != "") { Commands.remember-search(input.text); }
                         Nav.typing = false;
                         Nav.zone = "grid";
@@ -354,7 +355,7 @@ export component LibraryView inherits Rectangle {
                         reject
                     }
                 }
-                if Nav.lib.query == "" && input.text == "" : Text {
+                if Games.lib.query == "" && input.text == "" : Text {
                     x: root.within(62 * Look.px, parent.width - 86 * Look.px, parent.width);
                     width: parent.width - 86 * Look.px;
                     horizontal-alignment: Look.rtl ? right : left;
@@ -378,14 +379,14 @@ export component LibraryView inherits Rectangle {
                 border-color: self.focused ? #ffffff : Look.line;
                 accessible-role: button;
                 accessible-label: "library-sort";
-                accessible-value: Nav.lib.sort;
+                accessible-value: Games.lib.sort;
                 accessible-action-default => { Nav.activate-bar(1); }
                 sort-row := HorizontalLayout {
                     spacing: 10 * Look.px;
                     alignment: center;
                     if Look.rtl : Icon { name: "chevd"; color: Look.text3; width: 20 * Look.px; height: 20 * Look.px; y: (parent.height - 20 * Look.px) / 2; }
                     Text {
-                        text: Look.sort-label(Nav.lib.sort);
+                        text: Look.sort-label(Games.lib.sort);
                         font-size: 20 * Look.px;
                         color: Tokens.color-text;
                         vertical-alignment: center;
@@ -427,7 +428,7 @@ export component LibraryView inherits Rectangle {
             }
             // What the catalog plugin says of its button, such as when the catalog was last
             // refreshed, between the sort and the card sizes, on the side of the button.
-            if Nav.catalog && Vm.catalog-status.length > 0 : Text {
+            if Games.catalog && Vm.catalog-status.length > 0 : Text {
                 property <length> start: search.width + sort.width + 36 * Look.px;
                 width: Math.max(0, bar.density-at - 18 * Look.px - self.start);
                 x: root.within(self.start, self.width, bar.width);
@@ -483,22 +484,22 @@ export component LibraryView inherits Rectangle {
                 height: 44 * Look.px;
                 spacing: 12 * Look.px;
                 alignment: Look.rtl ? end : start;
-                for j in Nav.lib.systems.length : system := FilterChip {
-                    property <int> i: Look.rtl ? Nav.lib.systems.length - 1 - j : j;
-                    text: Nav.lib.systems[self.i].label;
-                    count: Nav.lib.systems[self.i].count;
-                    active: Nav.lib.systems[self.i].on;
+                for j in Games.lib.systems.length : system := FilterChip {
+                    property <int> i: Look.rtl ? Games.lib.systems.length - 1 - j : j;
+                    text: Games.lib.systems[self.i].label;
+                    count: Games.lib.systems[self.i].count;
+                    active: Games.lib.systems[self.i].on;
                     focused: root.keys && Nav.zone == "filters" && Nav.filter == self.i;
-                    clicked => { Nav.zone = "filters"; Nav.filter = system.i; Nav.system(Nav.lib.systems[system.i].id); }
+                    clicked => { Nav.zone = "filters"; Nav.filter = system.i; Games.system(Games.lib.systems[system.i].id); }
                 }
             }
-            property <bool> dated: Nav.catalog && Vm.catalog-updated != "";
+            property <bool> dated: Games.catalog && Vm.catalog-updated != "";
             Text {
                 x: Look.rtl ? 0 : parent.width - self.width;
                 y: system-row.dated ? 1 * Look.px : 0;
                 height: system-row.dated ? 24 * Look.px : parent.height;
-                text: !Nav.catalog ? Look.games(Nav.lib.total)
-                    : (Nav.lib.total == Nav.lib.all ? Look.games(Nav.lib.total) : Nav.lib.total + " of " + Look.games(Nav.lib.all))
+                text: !Games.catalog ? Look.games(Games.lib.total)
+                    : (Games.lib.total == Games.lib.all ? Look.games(Games.lib.total) : Games.lib.total + " of " + Look.games(Games.lib.all))
                         + " · " + Look.releases(Vm.catalog-releases);
                 font-size: 18 * Look.px;
                 color: Tokens.color-text-muted;
@@ -526,7 +527,7 @@ export component LibraryView inherits Rectangle {
         // The genres, from the store's catalog. The row scrolls to keep the focused chip in
         // view, and fades at an edge where more chips are hidden. Right to left, the row is
         // mirrored: the first chip is on the right, and the row scrolls to the left.
-        if Nav.lib.genres.length > 1 : genres := Rectangle {
+        if Games.lib.genres.length > 1 : genres := Rectangle {
             x: 96 * Look.px;
             y: 254 * Look.px;
             width: root.width - 192 * Look.px;
@@ -573,16 +574,16 @@ export component LibraryView inherits Rectangle {
                     spacing: 12 * Look.px;
                     alignment: start;
                     animate x { duration: Tokens.motion-normal; easing: ease-out-expo; }
-                    for j in Nav.lib.genres.length : genre := FilterChip {
-                        property <int> i: Look.rtl ? Nav.lib.genres.length - 1 - j : j;
-                        text: Nav.lib.genres[self.i].label;
-                        count: Nav.lib.genres[self.i].count;
-                        active: Nav.lib.genres[self.i].on;
+                    for j in Games.lib.genres.length : genre := FilterChip {
+                        property <int> i: Look.rtl ? Games.lib.genres.length - 1 - j : j;
+                        text: Games.lib.genres[self.i].label;
+                        count: Games.lib.genres[self.i].count;
+                        active: Games.lib.genres[self.i].on;
                         focused: root.keys && Nav.zone == "genres" && Nav.genre == self.i;
                         changed focused => {
                             if (self.focused) { genres.reveal(root.within(self.x, self.width, genres.length), self.width); }
                         }
-                        clicked => { Nav.zone = "genres"; Nav.genre = genre.i; Nav.genre-filter(Nav.lib.genres[genre.i].id); }
+                        clicked => { Nav.zone = "genres"; Nav.genre = genre.i; Games.genre(Games.lib.genres[genre.i].id); }
                     }
                 }
                 if genres.scroll > 0 : Rectangle {
@@ -642,9 +643,9 @@ export component LibraryView inherits Rectangle {
                     horizontal-alignment: Look.rtl ? right : left;
                     vertical-alignment: center;
                 }
-                for id[i] in Nav.sorts : option := Rectangle {
+                for id[i] in Games.sorts : option := Rectangle {
                     property <bool> focused: Nav.sort-focus == i;
-                    property <bool> current: Nav.lib.sort == id;
+                    property <bool> current: Games.lib.sort == id;
                     height: 50 * Look.px;
                     border-radius: 10 * Look.px;
                     background: self.focused ? #ffffff : ta.has-hover ? #ffffff14 : transparent;

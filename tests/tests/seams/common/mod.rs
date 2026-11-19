@@ -212,6 +212,14 @@ impl Composed {
         self.shell.render().unwrap();
     }
 
+    /// Serves the Game Catalog's `files` and waits until it reads them: see [`serve_catalog`].
+    /// It renders after the settings change and after the read, as the app does.
+    pub fn serve_catalog(&mut self, files: &[(&str, serde_json::Value)]) {
+        serve_catalog_files(&self.test, files);
+        self.dispatch(catalog_settings());
+        self.catalogs_fetched();
+    }
+
     /// Runs the core until `done` holds: see [`TestCore::until`]. It doesn't render.
     pub fn until(&self, area: Area, done: impl FnMut(&Core) -> bool) {
         self.rt.block_on(self.test.until(area, done));
@@ -291,6 +299,42 @@ pub async fn catalogs_fetched(core: &Core) {
     .await;
 }
 
+/// The Game Catalog's address in the seam tests: each console's catalog is
+/// `<CATALOG_URL>/<console>.json`, as `ps5.json`.
+pub const CATALOG_URL: &str = "https://xyz.dev/c";
+
+/// A catalog file in the published catalog's format, with these topics.
+pub fn catalog_file(topics: serde_json::Value) -> String {
+    let count = topics.as_array().expect("a list of topics").len();
+    serde_json::json!({ "complete": true, "translation": { "language": "en" }, "topic_count": count, "topics": topics })
+        .to_string()
+}
+
+/// Serves each console's catalog in `files`, (console, topics), at [`CATALOG_URL`], sets the
+/// Game Catalog's address to it with every release shown, and waits until each catalog is the
+/// copy fetched from there. A console not in `files` has no file there.
+pub async fn serve_catalog(t: &TestCore, files: &[(&str, serde_json::Value)]) {
+    serve_catalog_files(t, files);
+    t.core.dispatch(catalog_settings()).await.unwrap();
+    catalogs_fetched(&t.core).await;
+}
+
+fn serve_catalog_files(t: &TestCore, files: &[(&str, serde_json::Value)]) {
+    for (console, topics) in files {
+        t.http.serve(&format!("{CATALOG_URL}/{console}.json"), catalog_file(topics.clone()));
+    }
+}
+
+/// The Game Catalog's settings: its address is [`CATALOG_URL`], and it shows the releases
+/// without images too.
+fn catalog_settings() -> Command {
+    Command::SetConfig {
+        plugin: id("release-catalog"),
+        scope: ConfigScope::Emulator,
+        value: serde_json::json!({ "catalog_url": CATALOG_URL, "hide_without_images": false }),
+    }
+}
+
 /// Moves the core's clock one round of the game watcher (the fake host's `watch_every`) at a
 /// time until `done` is true, for at most five seconds of it, then shows it: the watcher's
 /// rounds are what change the desktop and the game's state.
@@ -351,7 +395,7 @@ pub fn write_raw_theme(parent: &Path, theme_id: &str, theme_section: &str, files
         dir.join("theme.toml"),
         format!(
             "id = \"{theme_id}\"\nkind = \"theme\"\nname = \"{theme_id}\"\nversion = \"1.0.0\"\nhost_api = \"^0.3\"\n\
-             capabilities = [\"theme\"]\n[runtime]\ntype = \"data\"\n[theme]\nui_api = \"^0.4\"\n{theme_section}\n"
+             capabilities = [\"theme\"]\n[runtime]\ntype = \"data\"\n[theme]\nui_api = \"^0.5\"\n{theme_section}\n"
         ),
     )
     .unwrap();

@@ -194,7 +194,7 @@ async fn read_work(core: &Core) -> Vec<(PluginId, StartupStep)> {
 
 /// The emulators whose build downloads or installs now.
 fn installing(core: &Core) -> Vec<PluginId> {
-    core.state().emulators.iter().filter(|(_, emu)| emu.busy).map(|(id, _)| id.clone()).collect()
+    core.builds().installing()
 }
 
 /// The bytes the downloads have, so a download that moves keeps the wait going.

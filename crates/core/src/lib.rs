@@ -10,6 +10,7 @@ mod archive_plan;
 mod archives;
 pub(crate) mod backup;
 mod backups;
+mod builds;
 mod bus;
 mod catalog_reads;
 mod changes;

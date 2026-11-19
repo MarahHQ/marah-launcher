@@ -11,10 +11,9 @@ use launcher_api::*;
 use launcher_core::{Area, Command, GameInstallCmd, TorrentAction, TorrentCmd, Torrents};
 use launcher_testkit::{FakeHost, StubPlugin, TestCore, until as until_in};
 
-use crate::common::{catalogs_fetched, id};
+use crate::common::serve_catalog;
 
 const HASH: &str = "c12fe1c06bba254a9dc9f519b335aa7c1367a88a";
-const URL: &str = "https://xyz.dev/c/ps5.json";
 const GAME: &[u8] = b"the game's package, the biggest file";
 const UPDATE: &[u8] = b"an update package";
 const DLC: &[u8] = b"a costume";
@@ -145,21 +144,11 @@ async fn setup_with(files: &[(&str, &[u8])], build: impl FnOnce(FakeHost, &Path)
         .built_in(PluginBox::code(release_catalog::ReleaseCatalog::default()))
         .boot_core()
         .await;
-    let catalog = serde_json::json!({ "complete": true, "translation": { "language": "en" }, "topic_count": 1,
-        "topics": [{ "id": "1", "title": "[PS5] Astro [EUR / v01.05]", "size": "1 GB",
-            "magnet": format!("magnet:?xt=urn:btih:{HASH}"),
-            "game_info": { "name": "Astro", "title_id": "PPSA01234", "region": "EUR", "version": "v01.05" } }] });
-    t.http.serve(URL, catalog.to_string());
     t.torrents.has(HASH, "Astro", files);
-    t.core
-        .dispatch(Command::SetConfig {
-            plugin: id("release-catalog"),
-            scope: ConfigScope::Emulator,
-            value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
-        })
-        .await
-        .unwrap();
-    catalogs_fetched(&t.core).await;
+    let topics = serde_json::json!([{ "id": "1", "title": "[PS5] Astro [EUR / v01.05]", "size": "1 GB",
+        "magnet": format!("magnet:?xt=urn:btih:{HASH}"),
+        "game_info": { "name": "Astro", "title_id": "PPSA01234", "region": "EUR", "version": "v01.05" } }]);
+    serve_catalog(&t, &[("ps5", topics)]).await;
     let offer = "release-catalog:emu-kyty/PPSA01234".parse().unwrap();
     t.core
         .dispatch(Command::Torrent(TorrentCmd::Download { offer, release: HASH.into(), folder: None }))

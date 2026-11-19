@@ -238,6 +238,12 @@ contracts, and the composed host (core, theme host and a theme). They are one te
 `tests/tests/seams/common/` builds and links once. `tests/tests/spans.rs` is its own binary,
 because `tracing` caches per-callsite interest across threads.
 
+A test that needs the Game Catalog to offer releases gives `common::serve_catalog` the topics
+of each console, or `Composed::serve_catalog` on the composed host. It serves each file at
+`common::CATALOG_URL`, sets the Game Catalog's address, and waits until the catalog is read.
+A test of the catalog file or its settings (`catalog_refresh.rs`, `releases/`) writes them out
+itself. An emulator that installs a download is `FakeCatalog::kyty().installs(title)`.
+
 `every_theme.rs` runs one suite against each built-in theme (Classic and Default). A new
 built-in theme goes into its `THEMES` list.
 
@@ -273,7 +279,7 @@ them (see [CI](#ci)).
 | `MARAH_DESKTOP_REQUIRE=1` | With the above: a skipped desktop test fails | |
 | `MARAH_KWIN_TESTS=1` | `cargo test -p launcher-app kwin_says`: asks KWin which window is in front | A KDE Plasma Wayland session |
 | `MARAH_TRAILER_TESTS=1` | `cargo test -p launcher-app libmpv_plays`: plays a video through libmpv | libmpv, and `ffmpeg` to make the video |
-| `MARAH_TORRENT_TESTS=1` | `cargo test -p launcher-app a_torrent_downloads`: a BitTorrent transfer between two sessions on this computer | |
+| `MARAH_TORRENT_TESTS=1` | `cargo test -p launcher-app a_torrent_downloads`: a BitTorrent transfer between two sessions on this computer. `cargo test -p launcher-app keeps_the_torrents_contract`: the torrents contract on the same kind of swarm | |
 | `MARAH_VPN_TESTS=1` | `cargo test -p system-host lists_this_computer_s_networks`: lists this computer's networks and connects nothing | |
 | `MARAH_REAL_RELEASES=1` | `cargo test -p launcher-app real -- --nocapture`: downloads and installs the newest KytyPS5 and shadPS4 releases | The network and hundreds of megabytes. Anonymous GitHub API calls can hit the rate limit. |
 | `MARAH_REAL_ARCHIVES=<folder>` | `cargo test -p launcher-tests --test seams real_archives::`: unpacks real release archives through the plugins | The archives. A missing one is skipped. |

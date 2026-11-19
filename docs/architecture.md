@@ -171,6 +171,7 @@ merges their changes into `Core::changes()`, and reads them all into one `Snapsh
 | `GameInstallsSubsystem` | `game_installs/` | Game installs from a download or a package, and the unpack of a download's archives. |
 | `LibrarySubsystem` | `library/` | The game records, the catalogs' copies and offers, hidden games, kept art and the player's results. |
 | `SessionsSubsystem` | `sessions/` | The running games: see [Sessions and windows](#sessions-and-windows). |
+| `BuildsSubsystem` | `builds.rs` | Each emulator's builds and panels as its plugin last gave them, the install claims, the saved install records (`app.installs.<plugin>`), the updates that wait for a game, and the install prompt. |
 | `Preferences` | `preferences.rs` | The app's one-value settings (`Pref`), saved as `app.<key>`. |
 | `NoticesSubsystem` | `notices.rs` | The notices, at most `MAX_NOTICES`. |
 | `VpnSubsystem` | `vpn.rs` | "Download only through a VPN" and the VPNs. |
@@ -193,9 +194,8 @@ A subsystem follows these rules:
   plain data.
 
 What no subsystem owns stays in `AppState` (`app_state.rs`), behind one mutex in `Core`: the
-stack of screens (see [Navigation](#navigation)), the grids' queries, each emulator's
-builds, the Settings panels, the install and result prompts, the machine's state, the stores'
-installs and the theme on screen.
+stack of screens (see [Navigation](#navigation)), the grids' queries, the Settings panels, the
+result prompt, the machine's state, the stores' installs and the theme on screen.
 
 ### Flows
 
@@ -205,7 +205,7 @@ routes a command to a flow when no one subsystem owns it.
 | Flow | Does |
 | --- | --- |
 | `navigation.rs` | Opens screens on the stack, goes back, selects games, and sets the grids' search, filters, sort and pages. |
-| `emulator_builds.rs` | Installs, updates and removes emulator builds, and checks for updates. |
+| `emulator_builds.rs` | Reads, installs, updates and removes emulator builds through the plugins, and checks for updates. Each install claims its emulator first (`BuildsSubsystem::claim`). A taken claim refuses the player's install and skips an automatic one. |
 | `plugin_downloads.rs` | Starts and resumes a plugin's download plans. |
 | `plugin_settings.rs` | Sets plugin settings and theme options, runs plugin actions, maps host folders, turns plugins on or off. |
 | `release_downloads.rs` | Resolves the Catalog's downloads and installs, and turns torrent and install events into work. |
@@ -258,6 +258,8 @@ ports are `ProcessSpawner`, `ProcessTree`, `Windows` and `Clock` (`SessionPorts`
 
 A launch needs the plugin first, so the core resolves it in `launch.rs`. It claims the subsystem
 (`SessionsSubsystem::claim`) before its checks, so two presses of Play can't both start a game.
+It then asks the builds subsystem whether an install of the game's emulator holds a claim
+(`BuildsSubsystem::busy`): no game starts while its emulator installs.
 It gets the plugin's `LaunchSpec`, checks the program against `permissions.process`, and hands
 the subsystem a `NewSession` to spawn.
 
@@ -567,12 +569,14 @@ per area. `spans.rs` is its own binary. The seams, from the highest:
    every task waits for a timer. A test waits for work with `TestCore::until(area, done)` or
    `FakeClock::run_until_idle`.
 2. **The capability contracts** (`launcher_testkit::contract`): `contract::emulator` checks
-   `FakeEmulator` (`contracts.rs`) and each real emulator plugin in its own seam file
-   (`kyty.rs`, `shadps4.rs`, `lichii.rs`, `pc.rs`, `steam.rs`). `contract::archives` checks
-   `FakeArchives`, and the app's `HostArchives` in `crates/app/src/archives.rs`.
-   `contract::process_tree` checks `FakeProcessTree`, and the app's `SystemProcesses` on Linux
-   in `crates/app/src/processes.rs`. `contract::windows` checks `FakeWindows`, and the
-   app's `SystemWindows` in the opt-in desktop test (`crates/app/tests/desktop.rs`).
+   `FakeEmulator` and a `FakeCatalog` with games and no build (`contracts.rs`), and each real
+   emulator plugin in its own seam file (`kyty.rs`, `shadps4.rs`, `lichii.rs`, `pc.rs`,
+   `steam.rs`). `contract::archives` checks `FakeArchives`, and the app's `HostArchives` in
+   `crates/app/src/archives.rs`. `contract::process_tree` checks `FakeProcessTree`, and the
+   app's `SystemProcesses` on Linux in `crates/app/src/processes.rs`. `contract::windows`
+   checks `FakeWindows`, and the app's `SystemWindows` in the opt-in desktop test
+   (`crates/app/tests/desktop.rs`). `contract::torrents` checks `FakeTorrents`, and the app's
+   `RqbitTorrents` in `crates/app/src/torrents.rs` with `MARAH_TORRENT_TESTS=1`.
 3. **The composed host**: the core and the `AppShell` the app ships, on Slint's testing backend
    with `FakePlatform`. A test drives the theme through `ThemeDriver` (accessible labels, keys,
    clicks) and checks the view through `core.view()`. `every_theme.rs` runs one suite against

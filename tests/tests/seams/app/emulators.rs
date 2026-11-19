@@ -138,6 +138,127 @@ async fn a_game_doesn_t_start_while_its_emulator_updates() {
 }
 
 #[tokio::test]
+async fn an_emulator_build_doesn_t_install_twice_at_once() {
+    let (t, emu) = core_with(FakeEmulator::new(vec!["A"])).await;
+    let gate = t.http.hold_after(&emu.build_url, 10);
+    let core = t.core.clone();
+    let first = tokio::spawn(async move { install(&core).await });
+    let busy = |core: &Core| core.view().emulators.emulators.iter().any(|e| e.plugin == id("emu-a") && e.busy);
+    t.until(Area::Downloads, busy).await;
+    let saved = |t: &TestCore| t.core.kernel().config().get(&["app", "installs", "emu-a"]);
+    assert!(!saved(&t).is_null(), "the install is saved while it runs");
+
+    // A second install would wait at the same gate: it must be refused at once.
+    for second in [
+        Command::InstallEmulator { plugin: id("emu-a"), version: None },
+        Command::InstallEmulator { plugin: id("emu-a"), version: Some("1.0".into()) },
+    ] {
+        let refused = tokio::time::timeout(Duration::from_secs(5), t.core.dispatch(second))
+            .await
+            .expect("the second install is refused, not run");
+        let err = refused.unwrap_err();
+        assert!(err.to_string().contains("emu-a is updating: wait for it"), "{err}");
+    }
+    assert!(busy(&t.core), "the first install still runs");
+    assert!(!saved(&t).is_null(), "its record stays saved");
+
+    gate.release();
+    first.await.unwrap();
+    assert!(!busy(&t.core));
+    assert!(saved(&t).is_null(), "the record goes once the install is done");
+    assert_eq!(installed(&t.core).await, ["1.0"]);
+}
+
+/// The boot step of `emu-a`: its detail and its state.
+fn step(t: &TestCore) -> (String, String) {
+    let step = t.core.view().boot.steps.into_iter().find(|s| s.label == "emu-a").expect("emu-a's boot step");
+    (step.detail, step.state)
+}
+
+#[tokio::test]
+async fn a_look_for_updates_skips_an_emulator_that_is_updating() {
+    let (t, emu) = core_with(FakeEmulator::new(vec!["A"])).await;
+    install(&t.core).await;
+    emu.release("2.0");
+    let gate = t.http.hold_after(&emu.build_url, 10);
+    let core = t.core.clone();
+    let update = tokio::spawn(async move { core.dispatch(Command::UpdateEmulator { plugin: id("emu-a") }).await });
+    let busy = |core: &Core| core.view().emulators.emulators.iter().any(|e| e.plugin == id("emu-a") && e.busy);
+    t.until(Area::Downloads, busy).await;
+
+    t.core.dispatch(Command::CheckUpdates).await.unwrap();
+    gate.release();
+    update.await.unwrap().unwrap();
+    assert!(t.core.view().notices.is_empty(), "{:?}", t.core.view().notices);
+    assert_ne!(step(&t).1, "failed", "{:?}", step(&t));
+    assert!(installed(&t.core).await.contains(&"2.0".to_owned()));
+}
+
+#[tokio::test]
+async fn an_update_that_waited_for_a_game_skips_an_emulator_that_is_updating() {
+    let (t, emu) = core_with(FakeEmulator::new(vec!["A"])).await;
+    let (_, process) = play(&t).await;
+    emu.release("2.0");
+    t.core.dispatch(Command::CheckUpdates).await.unwrap();
+    assert_eq!(installed(&t.core).await, ["1.0"], "the update waits for the game");
+    // The player updates by hand while the game runs.
+    let gate = t.http.hold_after(&emu.build_url, 10);
+    let core = t.core.clone();
+    let update = tokio::spawn(async move { core.dispatch(Command::UpdateEmulator { plugin: id("emu-a") }).await });
+    let busy = |core: &Core| core.view().emulators.emulators.iter().any(|e| e.plugin == id("emu-a") && e.busy);
+    t.until(Area::Downloads, busy).await;
+
+    process.exit(0);
+    until(&t, "the game closed", || t.core.view().running.is_none()).await;
+    gate.release();
+    update.await.unwrap().unwrap();
+    // A late update from the closed game would say the emulator is up to date.
+    for _ in 0..10 {
+        t.clock.advance(WATCH_EVERY).await;
+    }
+    assert!(t.core.view().notices.is_empty(), "{:?}", t.core.view().notices);
+    assert!(installed(&t.core).await.contains(&"2.0".to_owned()));
+}
+
+#[tokio::test]
+async fn an_install_record_that_no_install_holds_doesn_t_stop_updates() {
+    let (t, emu) = core_with(FakeEmulator::new(vec!["A"])).await;
+    install(&t.core).await;
+    // A resume that stopped before its first step leaves its record, and nothing holds it.
+    let saved = |t: &TestCore| t.core.kernel().config().get(&["app", "installs", "emu-a"]);
+    let record = serde_json::json!({ "version": "1.0", "from": null, "phase": "downloading" });
+    t.core.kernel().config().set(&["app", "installs", "emu-a"], record).unwrap();
+    emu.release("2.0");
+
+    t.core.dispatch(Command::CheckUpdates).await.unwrap();
+    assert!(installed(&t.core).await.contains(&"2.0".to_owned()));
+    assert!(saved(&t).is_null(), "the update's end takes the record");
+}
+
+#[tokio::test]
+async fn an_emulator_build_isn_t_removed_while_it_updates() {
+    let host = FakeHost::new();
+    let mut emu = FakeEmulator::new(vec!["A"]);
+    emu.build_sha = host.http().serve(&emu.build_url, vec![7u8; 20_000]);
+    let t = host.plugin(emu.plugin_named("emu-a", "name = \"PS5\"", FAKE_EMULATOR_PERMISSIONS)).boot_core().await;
+    install(&t.core).await;
+    emu.release("2.0");
+    let gate = t.http.hold_after(&emu.build_url, 10);
+    let core = t.core.clone();
+    let update = tokio::spawn(async move { core.dispatch(Command::UpdateEmulator { plugin: id("emu-a") }).await });
+    let busy = |core: &Core| core.view().emulators.emulators.iter().any(|e| e.plugin == id("emu-a") && e.busy);
+    t.until(Area::Downloads, busy).await;
+
+    let uninstall = Command::UninstallEmulator { plugin: id("emu-a"), version: "1.0".into() };
+    let err = t.core.dispatch(uninstall).await.unwrap_err();
+    // The refusal names the plugin as the launch refusal does, with the same word.
+    assert!(err.to_string().contains("PS5 is updating: wait for it"), "{err}");
+    gate.release();
+    update.await.unwrap().unwrap();
+    assert_eq!(installed(&t.core).await, ["2.0"], "the update ends as if no uninstall came");
+}
+
+#[tokio::test]
 async fn opening_another_plugin_replaces_the_open_one_so_back_goes_to_the_list() {
     let t = FakeHost::new()
         .plugin(FakeEmulator::new(vec!["A"]).plugin("emu-a"))

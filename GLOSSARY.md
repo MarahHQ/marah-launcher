@@ -51,6 +51,11 @@ then needs the least of the PC. The user guide's Catalog section lists the rule.
 plans downloads, installs, updates, rolls back and removes builds, and picks the program a game
 starts.
 
+**Builds subsystem** (`BuildsSubsystem`): the subsystem of the emulators' builds. It holds each
+emulator's builds and panels as its plugin last gave them, the install claims, the saved install
+records (`app.installs.<plugin>`), the updates that wait for a game to close, and the install
+prompt of a first play. The flow `emulator_builds.rs` makes the plugin calls.
+
 **Calendar** (`Calendar`, launcher-api): the time in seconds since 1970 that the host gives a
 plugin (`PluginContext::calendar`). It comes from the core's `Clock`, so a test that moves the
 clock moves it, and a cache's age can be tested.
@@ -117,8 +122,10 @@ release date or a compatibility tier.
 _Avoid_: attribute, property
 
 **Fake catalog** (`FakeCatalog`, launcher-testkit): an emulator plugin a test builds from a few
-choices: its games, its system, a launcher, a build to install and more. `FakeStore` builds a
-store the same way, and `FakeService` a service that fills slots.
+choices: its games, its system, a launcher, a build to install, a game installer and more.
+With games, slots, a launcher, a keymap and compatibility, and no build, it keeps
+`contract::emulator`. `FakeStore` builds a store the same way, and
+`FakeService` a service that fills slots.
 
 **Fake clock**: the clock in tests. Its time moves only when a test moves it, or when every task waits for a
 timer.
@@ -191,6 +198,11 @@ commands.
 
 **Host facades** (`Host`, emulator-kit): the narrow parts of a `PluginContext` the kit takes:
 storage, folders, programs, HTTP, settings and the log.
+
+**Install claim** (`InstallClaim`): an install, update or uninstall of one emulator's build in
+progress. The builds subsystem gives one emulator one claim at a time, so a second install of it
+is refused, and no game of it starts while the claim lives. An automatic install or update that
+finds the claim taken is skipped, with no notice.
 
 **Install event** (`InstallEvent`): what the game installs subsystem asks of the core: refresh
 the library for a new game, tell the player of a failure, or start the install of a download
@@ -380,8 +392,8 @@ _Avoid_: history, nav
 
 **Subsystem**: one area of the core's state with its own lock, saved records and ports. The core
 sends it commands, reads its snapshot and turns its events into work. The torrents, the game
-installs, the library, the preferences, the running games, the notices, the VPN setting and
-the launcher's update and the backups are subsystems.
+installs, the library, the preferences, the running games, the emulators' builds, the notices,
+the VPN setting and the launcher's update and the backups are subsystems.
 
 **System choice** (`SystemChoice`): a press on a grid's system chip, as `LibrarySystem` and
 `CatalogSystem` carry it: a system, such as `PS5`, or a grid filter. It reads as the chip's id.
