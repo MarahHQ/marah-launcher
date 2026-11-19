@@ -1,12 +1,13 @@
-//! The disks the catalogs' downloads go to: each console's download folder and the free space
-//! on the disk that holds it. A Game Hub says when a release doesn't fit. Also, for each
-//! download's sheet, the free space where its files go and where its game installs.
+//! The disks the catalogs' downloads go to: each console's download folder and the room on the
+//! disk that holds it. A Game Hub says when a release doesn't fit. Also, for each download's
+//! sheet, the room where its files go and where its game installs.
 //!
 //! The view reads these on every render, so they are read ahead: [`refresh`] runs when a Game
 //! Hub opens, the catalogs are read, a folder changes and a download starts or ends, and keeps
-//! the answer in the core's state.
+//! the answer in the core's state. Each answer is a [`Room`]: the view asks it the same question
+//! the command asks its own reading on the click.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -15,26 +16,24 @@ use launcher_api::PluginId;
 use crate::Core;
 use crate::changes::Area;
 use crate::folders::Purpose;
+use crate::room::Room;
 
-/// Where a console's downloads go, and the free space there.
+/// Where a console's downloads go, and the room there.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct DownloadFolder {
     /// The console's folder in the emulator's packages folder. It may not be there yet.
     pub path: PathBuf,
-    /// The free bytes on the disk that holds it; `None` when the system doesn't say.
-    pub free: Option<u64>,
+    /// The room on the disk that holds it.
+    pub room: Room,
 }
 
 /// Each console's download folder, by the emulator and the console a catalog's offers name.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Disks {
     folders: Arc<BTreeMap<(PluginId, String), DownloadFolder>>,
-    /// The free bytes where each download's files go, by its id.
-    downloads: Arc<BTreeMap<String, u64>>,
-    /// The free bytes in each emulator's game folder, the one the install sheet offers.
-    games: Arc<BTreeMap<PluginId, u64>>,
-    /// The downloads whose folder is on the same drive as their emulator's game folder.
-    one_drive: Arc<BTreeSet<String>>,
+    /// The room where each download's files go and in its emulator's game folder, the one the
+    /// install sheet offers, by the download's id.
+    downloads: Arc<BTreeMap<String, Room>>,
 }
 
 impl Disks {
@@ -44,22 +43,10 @@ impl Disks {
         self.folders.get(&(emulator.clone(), console.to_owned()))
     }
 
-    /// The free bytes on the disk of download `id`'s folder; `None` when the system doesn't
-    /// say.
-    pub fn download_free(&self, id: &str) -> Option<u64> {
-        self.downloads.get(id).copied()
-    }
-
-    /// The free bytes on the disk of `emulator`'s game folder; `None` when it has none or the
-    /// system doesn't say.
-    pub fn games_free(&self, emulator: &PluginId) -> Option<u64> {
-        self.games.get(emulator).copied()
-    }
-
-    /// Download `id`'s folder and its emulator's game folder are on one drive: the download
-    /// and the install share its free space.
-    pub fn one_drive(&self, id: &str) -> bool {
-        self.one_drive.contains(id)
+    /// The room for download `id`: where its files go and where its game installs. A download
+    /// the disks weren't read for has room.
+    pub fn room(&self, id: &str) -> Room {
+        self.downloads.get(id).copied().unwrap_or_default()
     }
 }
 
@@ -79,6 +66,7 @@ pub(crate) fn refresh(core: &Core) {
 }
 
 fn read(core: &Core) -> Disks {
+    let hardware = core.ports().hardware.as_ref();
     let library = core.library().snapshot();
     let mut folders = BTreeMap::new();
     for offer in library.offers.iter() {
@@ -91,43 +79,20 @@ fn read(core: &Core) -> Disks {
         let Some(host) = kernel.host_folders(&offer.emulator) else { continue };
         let console_name = crate::release_downloads::console(kernel, &offer.emulator, console);
         let Ok((_, path)) = host.place(Purpose::Download, &console_name, None) else { continue };
-        // The console's folder may not be there yet: the disk that holds it is the one the
-        // nearest folder above is on.
-        let free = path.ancestors().find(|p| p.is_dir()).and_then(|there| core.ports().hardware.free_bytes(there));
-        folders.insert(at, DownloadFolder { path, free });
+        let room = Room::read(hardware, &path, None);
+        folders.insert(at, DownloadFolder { path, room });
     }
-    let hardware = &core.ports().hardware;
-    let free_at = |path: &std::path::Path| crate::release_downloads::free_at(hardware.as_ref(), path);
-    let disk_at = |path: &std::path::Path| crate::release_downloads::disk_at(hardware.as_ref(), path);
     let mut downloads = BTreeMap::new();
-    let mut games = BTreeMap::new();
-    // Each emulator's game folder, read once.
-    let mut places: BTreeMap<PluginId, Option<PathBuf>> = BTreeMap::new();
-    let mut one_drive = BTreeSet::new();
+    // Each emulator's game folder, found once.
+    let mut games: BTreeMap<PluginId, Option<PathBuf>> = BTreeMap::new();
     for job in core.torrents().snapshot().jobs.values() {
-        if let Some(free) = free_at(&job.folder) {
-            downloads.insert(job.id.clone(), free);
-        }
-        let place = places.entry(job.emulator.clone()).or_insert_with(|| {
+        let game_folder = games.entry(job.emulator.clone()).or_insert_with(|| {
             let kernel = core.kernel();
             let console = crate::release_downloads::console_of(kernel, &job.emulator);
             let place = kernel.host_folders(&job.emulator).and_then(|h| h.place(Purpose::Install, &console, None).ok());
             place.map(|(_, path)| path)
         });
-        let Some(place) = place.as_deref() else { continue };
-        if !games.contains_key(&job.emulator)
-            && let Some(free) = free_at(place)
-        {
-            games.insert(job.emulator.clone(), free);
-        }
-        if disk_at(place).is_some_and(|d| disk_at(&job.folder) == Some(d)) {
-            one_drive.insert(job.id.clone());
-        }
+        downloads.insert(job.id.clone(), Room::read(hardware, &job.folder, game_folder.as_deref()));
     }
-    Disks {
-        folders: Arc::new(folders),
-        downloads: Arc::new(downloads),
-        games: Arc::new(games),
-        one_drive: Arc::new(one_drive),
-    }
+    Disks { folders: Arc::new(folders), downloads: Arc::new(downloads) }
 }

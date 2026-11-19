@@ -170,7 +170,7 @@ async fn restore(core: &Core, path: PathBuf) -> CoreResult<()> {
         current: found.into_iter().map(|i| i.source).collect(),
         now: crate::sessions::now_secs(),
         computer: hardware.computer_name(),
-        free: std::sync::Arc::new(move |at: &std::path::Path| crate::release_downloads::free_at(hardware.as_ref(), at)),
+        free: std::sync::Arc::new(move |at: &std::path::Path| crate::room::free_at(hardware.as_ref(), at)),
     };
     core.backup().restore(&path, &folder(core)?, plan).await
 }

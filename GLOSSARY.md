@@ -94,9 +94,9 @@ then its meta file.
 **Current build**: the downloaded build games start. The build before it stays for a rollback.
 Both are saved in the plugin's `versions.json`.
 
-**Disks** (`Disks`): each console's download folder and the free space on the disk that holds
-it, and for each download the free space where its files go and where its game installs, read
-ahead so the view doesn't ask the disk. The core reads them again when a Game Hub or Downloads
+**Disks** (`Disks`): each console's download folder and the room on the disk that holds it, and
+for each download the room where its files go and where its game installs, read ahead so the
+view doesn't ask the disk. The core reads them again when a Game Hub or Downloads
 opens, the catalogs are read, a folder changes, and a download starts or ends.
 
 **Download and install** (`InstallAfter`, `TorrentCmd::Begin`): the download sheet's first
@@ -335,6 +335,13 @@ Marah Launcher to finish").
 **Result**: how far a game got for the player, a `CompatLevel` (in-game, menus, boots or
 nothing). The core may ask after a game closes, and the library subsystem saves it under
 `app.results`.
+
+**Room** (`Room`, `Need`, launcher-core `room.rs`): the free space where a download's files go
+and where its game installs, and whether they are on one drive. Each `Need` asks it one
+question: a download, an install, or "Download and install", which on one drive needs room for
+the checked bytes twice. The view asks the room that `Disks` keeps; a command reads a new one
+on the click. Both get the same answer and the same words.
+_Avoid_: free space check, disk space
 
 **Route** (`Route`): a screen the player can go to: Home, the Library, a game's Game Hub, the
 Catalog, Downloads, Settings, and the rest. A running game is no route.

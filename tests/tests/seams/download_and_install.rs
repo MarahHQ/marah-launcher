@@ -367,6 +367,20 @@ async fn the_sheet_warns_when_the_download_drive_is_short() {
 }
 
 #[tokio::test]
+async fn the_sheet_s_warning_and_the_download_s_refusal_say_the_same_words() {
+    let s = setup_on(|h, home| h.disk(home.join("Downloads"), 4).disk(home.join("Games"), 5_000_000_000)).await;
+    let t = &s.t;
+    let warned = row(t).download_room;
+    assert_ne!(warned, "");
+
+    // Download is taken, and the download stops when it starts, for the reason the sheet gave.
+    begin(t, false, None).await.unwrap();
+    let failed = until(t, |r| r.state == "failed").await;
+    assert_eq!(failed.error, warned);
+    assert!(t.torrents.started().is_empty(), "nothing downloads");
+}
+
+#[tokio::test]
 async fn download_and_install_installs_by_itself_once_the_download_finishes() {
     let s = setup().await;
     let t = &s.t;
