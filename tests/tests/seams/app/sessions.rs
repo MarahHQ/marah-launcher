@@ -727,6 +727,24 @@ async fn what_a_launch_left_running_that_won_t_close_is_ended() {
     assert_eq!(steam.signals().first(), Some(&Signal::Terminate), "asked to close, by the host");
 }
 
+/// A plugin that panics or hangs when asked to close what its launch left running is cut off
+/// by the guard, as any plugin call is: the host ends what still runs, and Log out still ends.
+#[tokio::test]
+async fn a_plugin_that_panics_or_hangs_at_close_down_doesn_t_hold_log_out() {
+    for answer in [CloseAnswer::Panics, CloseAnswer::Hangs] {
+        let mut emu = FakeEmulator::new(vec!["A"]).handing_over("AppId=7 ");
+        emu.close_answer = answer;
+        let (t, emu) = core_with(emu).await;
+        let steam = played_with_steam_left_running(&t).await;
+
+        let out = log_out(&t);
+        until(&t, "Log out is ready", || t.core.log_out_ready()).await;
+        out.await.expect("the plugin's failure stays in the guard").unwrap();
+        assert_eq!(emu.closed_left_running(), 1, "{answer:?}");
+        assert_eq!(steam.signals().first(), Some(&Signal::Terminate), "{answer:?}: ended by the host");
+    }
+}
+
 /// A launch that left nothing running asks no plugin to close anything.
 #[tokio::test]
 async fn log_out_asks_no_plugin_when_no_launch_left_anything_running() {
