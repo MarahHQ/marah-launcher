@@ -273,7 +273,7 @@ global DriveActions {
 }
 
 // One round button of a drive's row: its icon, or a turning ring while its action runs. The
-// focused or hovered one says its name under it.
+// focused or hovered one says its name under it, drawn over the row: it moves nothing.
 component DriveButton inherits Rectangle {
     in property <string> action;
     in property <string> drive;
@@ -282,15 +282,16 @@ component DriveButton inherits Rectangle {
     // Another action runs on the drive: this one waits.
     in property <bool> waiting;
     callback clicked();
-    width: 44 * Look.px;
-    height: 66 * Look.px;
+    width: 32 * Look.px;
+    height: 32 * Look.px;
     property <bool> named: root.focused || ta.has-hover;
     circle := Rectangle {
-        y: 4 * Look.px;
-        width: 44 * Look.px;
-        height: 44 * Look.px;
+        width: parent.width;
+        height: parent.height;
         border-radius: self.height / 2;
         background: root.focused ? Tokens.color-focus : ta.has-hover && !root.waiting ? Tokens.color-tint.with-alpha(0.149) : Tokens.color-tint.with-alpha(0.071);
+        border-width: root.focused ? 2 * Look.px : 0;
+        border-color: Tokens.color-tint;
         opacity: root.waiting && !root.running ? 0.4 : 1;
         animate background { duration: Tokens.motion-fast; }
         accessible-role: button;
@@ -302,20 +303,20 @@ component DriveButton inherits Rectangle {
         if !root.running : Icon {
             name: DriveActions.icon(root.action);
             color: root.focused ? Look.ink : Tokens.color-text;
-            width: 24 * Look.px;
-            height: 24 * Look.px;
+            width: 18 * Look.px;
+            height: 18 * Look.px;
         }
         if !root.running && root.action == "use" : Icon {
             name: "plus";
             color: root.focused ? Look.ink : Tokens.color-text;
-            x: parent.width - 18 * Look.px;
-            y: 4 * Look.px;
-            width: 13 * Look.px;
-            height: 13 * Look.px;
+            x: parent.width - 13 * Look.px;
+            y: 3 * Look.px;
+            width: 10 * Look.px;
+            height: 10 * Look.px;
         }
         if root.running : Path {
-            width: 26 * Look.px;
-            height: 26 * Look.px;
+            width: 20 * Look.px;
+            height: 20 * Look.px;
             viewbox-width: 24;
             viewbox-height: 24;
             stroke: root.focused ? Look.ink : Tokens.color-text;
@@ -327,7 +328,7 @@ component DriveButton inherits Rectangle {
     }
     // Wider than the button: "Use for games" is one line under it.
     Text {
-        y: circle.y + circle.height + 3 * Look.px;
+        y: circle.height + 2 * Look.px;
         x: (parent.width - self.width) / 2;
         width: 120 * Look.px;
         text: DriveActions.label(root.action);
@@ -388,10 +389,12 @@ component DriveRow inherits Rectangle {
                 }
             }
         }
-        // Mirrored right to left: the first action stays nearest the text.
+        // Mirrored right to left: the first action stays nearest the text. Centred on the row.
         HorizontalLayout {
-            spacing: 6 * Look.px;
+            spacing: 8 * Look.px;
             alignment: end;
+            padding-top: (root.height - 32 * Look.px) / 2;
+            padding-bottom: (root.height - 32 * Look.px) / 2;
             for n[k] in root.count : DriveButton {
                 property <int> at: Look.rtl ? root.count - 1 - k : k;
                 action: root.drive.actions[self.at];

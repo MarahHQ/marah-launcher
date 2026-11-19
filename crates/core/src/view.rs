@@ -1165,13 +1165,11 @@ fn job_text(job: &crate::system::JobState) -> launcher_ui_api::SystemJobVm {
     vm
 }
 
-/// The Drives panel's drives, each with its buttons: Open, Use for games (unless it holds a game
-/// folder already), then Eject (a drive the player can take out) or Unmount, while it is
+/// The Drives panel's drives, each with its buttons: Open, Use for games, then Eject (a drive the player can take out) or Unmount, while it is
 /// mounted; Mount while it isn't. Mount, Eject and Unmount only where drives can be mounted
 /// (`can_act`).
 fn drive_items(s: &Snapshot, can_act: bool) -> Vec<launcher_ui_api::DriveItemVm> {
     use crate::system::{JobKind, JobPhase};
-    let games = s.files.roots.get(launcher_api::GAMES_FOLDER).map(Vec::as_slice).unwrap_or_default();
     let mut items = Vec::new();
     for drive in &s.drives {
         let mut detail: Vec<String> = Vec::new();
@@ -1187,11 +1185,9 @@ fn drive_items(s: &Snapshot, can_act: bool) -> Vec<launcher_ui_api::DriveItemVm>
         match &drive.mount {
             None if can_act => actions.push("mount"),
             None => {}
-            Some(at) => {
+            Some(_) => {
                 actions.push("open");
-                if !games.iter().any(|g| g.starts_with(at)) {
-                    actions.push("use");
-                }
+                actions.push("use");
                 if can_act {
                     actions.push(if drive.usb { "eject" } else { "unmount" });
                 }
