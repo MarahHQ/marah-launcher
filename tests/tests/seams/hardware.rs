@@ -1,7 +1,7 @@
 //! Seam 1, core app API: "This PC". Each emulator's manifest says what its games need; the
 //! core compares it with what the computer has.
 
-use crate::common::catalogs_fetched;
+use crate::common::serve_catalog;
 use launcher_core::{Area, Command, Core, Gpu, Specs};
 use launcher_testkit::FakeCatalog;
 use launcher_testkit::{FakeHost, StubPlugin, TestCore};
@@ -118,21 +118,11 @@ async fn astro_offer(build: impl FnOnce(FakeHost) -> FakeHost) -> (TestCore, tem
         .built_in(launcher_api::PluginBox::code(release_catalog::ReleaseCatalog::default()))
         .boot_core()
         .await;
-    let catalog = serde_json::json!({ "complete": true, "translation": { "language": "en" }, "topic_count": 1,
-        "topics": [{ "id": "1", "title": "[PS5] Astro [EUR / v01.05]", "size": "50 GB",
-            "magnet": format!("magnet:?xt=urn:btih:{HASH}"),
-            "game_info": { "name": "Astro", "title_id": "PPSA01234", "region": "EUR", "version": "v01.05" } }] });
-    t.http.serve("https://xyz.dev/c/ps5.json", catalog.to_string());
     wait_for_check(&t.core).await;
-    t.core
-        .dispatch(Command::SetConfig {
-            plugin: launcher_api::PluginId::new("release-catalog").unwrap(),
-            scope: launcher_api::ConfigScope::Emulator,
-            value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
-        })
-        .await
-        .unwrap();
-    catalogs_fetched(&t.core).await;
+    let topics = serde_json::json!([{ "id": "1", "title": "[PS5] Astro [EUR / v01.05]", "size": "50 GB",
+        "magnet": format!("magnet:?xt=urn:btih:{HASH}"),
+        "game_info": { "name": "Astro", "title_id": "PPSA01234", "region": "EUR", "version": "v01.05" } }]);
+    serve_catalog(&t, &[("ps5", topics)]).await;
     t.core.dispatch(Command::OpenGame("release-catalog:emu-kyty/PPSA01234".parse().unwrap())).await.unwrap();
     (t, home)
 }
@@ -199,20 +189,8 @@ async fn pc_offer_on_a_mac(topics: serde_json::Value) -> (TestCore, tempfile::Te
         .built_in(launcher_api::PluginBox::code(release_catalog::ReleaseCatalog::default()))
         .boot_core()
         .await;
-    let count = topics.as_array().unwrap().len();
-    let catalog = serde_json::json!({ "complete": true, "translation": { "language": "en" }, "topic_count": count,
-        "topics": topics });
-    t.http.serve("https://xyz.dev/c/pc.json", catalog.to_string());
     wait_for_check(&t.core).await;
-    t.core
-        .dispatch(Command::SetConfig {
-            plugin: launcher_api::PluginId::new("release-catalog").unwrap(),
-            scope: launcher_api::ConfigScope::Emulator,
-            value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
-        })
-        .await
-        .unwrap();
-    catalogs_fetched(&t.core).await;
+    serve_catalog(&t, &[("pc", topics)]).await;
     t.core.dispatch(Command::Navigate(launcher_core::Route::Catalog)).await.unwrap();
     let offers = t.core.view().catalog.games.games;
     assert_eq!(offers.len(), 1, "one game: {offers:?}");
@@ -288,25 +266,15 @@ async fn an_offer_says_not_enough_space_from_its_best_release_not_its_newest_upl
         .boot_core()
         .await;
     // The newest upload fits; the best release, the highest version, doesn't.
-    let catalog = serde_json::json!({ "complete": true, "translation": { "language": "en" }, "topic_count": 2,
-        "topics": [
-            { "id": "2", "title": "[PS5] Astro [EUR / v01.00]", "size": "5 GB", "published_at": "2026-10-10",
-              "magnet": format!("magnet:?xt=urn:btih:{}", "b".repeat(40)),
-              "game_info": { "name": "Astro", "title_id": "PPSA01234", "region": "EUR", "version": "v01.00" } },
-            { "id": "1", "title": "[PS5] Astro [EUR / v01.05]", "size": "50 GB", "published_at": "2026-09-01",
-              "magnet": format!("magnet:?xt=urn:btih:{HASH}"),
-              "game_info": { "name": "Astro", "title_id": "PPSA01234", "region": "EUR", "version": "v01.05" } }] });
-    t.http.serve("https://xyz.dev/c/ps5.json", catalog.to_string());
     wait_for_check(&t.core).await;
-    t.core
-        .dispatch(Command::SetConfig {
-            plugin: launcher_api::PluginId::new("release-catalog").unwrap(),
-            scope: launcher_api::ConfigScope::Emulator,
-            value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
-        })
-        .await
-        .unwrap();
-    catalogs_fetched(&t.core).await;
+    let topics = serde_json::json!([
+        { "id": "2", "title": "[PS5] Astro [EUR / v01.00]", "size": "5 GB", "published_at": "2026-10-10",
+          "magnet": format!("magnet:?xt=urn:btih:{}", "b".repeat(40)),
+          "game_info": { "name": "Astro", "title_id": "PPSA01234", "region": "EUR", "version": "v01.00" } },
+        { "id": "1", "title": "[PS5] Astro [EUR / v01.05]", "size": "50 GB", "published_at": "2026-09-01",
+          "magnet": format!("magnet:?xt=urn:btih:{HASH}"),
+          "game_info": { "name": "Astro", "title_id": "PPSA01234", "region": "EUR", "version": "v01.05" } }]);
+    serve_catalog(&t, &[("ps5", topics)]).await;
     t.core.dispatch(Command::OpenGame("release-catalog:emu-kyty/PPSA01234".parse().unwrap())).await.unwrap();
     assert_eq!(on_this_pc(&t), Some(("no".into(), "Not enough space".into(), "10.0 GB free".into())));
 }
