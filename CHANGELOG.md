@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.14.0](https://github.com/MarahHQ/marah-launcher/compare/v0.13.0...v0.14.0) (2026-11-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* **themes:** the shell and game-list behaviour live in the kit, and the theme contract is 0.5.0 ([#81](https://github.com/MarahHQ/marah-launcher/issues/81))
+
+### Features
+
+* **themes:** the core words a download's state and a release's Download button, and the kit shows them ([#91](https://github.com/MarahHQ/marah-launcher/issues/91)) ([0a3c399](https://github.com/MarahHQ/marah-launcher/commit/0a3c399edaeb8c32c6f28aeea3ae77c0b91120dc))
+* **themes:** the core words a release's title, its peers and its download sheet line, and the kit shows them ([#93](https://github.com/MarahHQ/marah-launcher/issues/93)) ([f358e59](https://github.com/MarahHQ/marah-launcher/commit/f358e59552cb391b8b0db0f6e3df613ab7f3334b))
+
+
+### Bug Fixes
+
+* **archives:** an archive whose links chain out of the folder, or with a file under a link, is refused before anything is written ([#69](https://github.com/MarahHQ/marah-launcher/issues/69)) ([d918b81](https://github.com/MarahHQ/marah-launcher/commit/d918b814f4df72aeff70b469cddcc1496bfc61fc))
+* **build:** the vendored oozextract is its own workspace, so the check runs in a worktree inside the checkout ([#82](https://github.com/MarahHQ/marah-launcher/issues/82)) ([4326b7b](https://github.com/MarahHQ/marah-launcher/commit/4326b7b344560d742f45bd049b2825627f70294a))
+* **catalog:** the catalog sources are fetched in the plugin's own task, and a failed fetch waits before it tries again ([#86](https://github.com/MarahHQ/marah-launcher/issues/86)) ([e716f09](https://github.com/MarahHQ/marah-launcher/commit/e716f0927557957a90e2ea612cba3836c25f3c62))
+* **core:** a plugin's file is written whole, so a reader or a crash never finds it half written ([#95](https://github.com/MarahHQ/marah-launcher/issues/95)) ([7258267](https://github.com/MarahHQ/marah-launcher/commit/725826795e8bbd11e45ab9fef40a9dfb651ebff9))
+* **core:** every plugin call at close down and in the system settings goes through the guard ([#84](https://github.com/MarahHQ/marah-launcher/issues/84)) ([46d065e](https://github.com/MarahHQ/marah-launcher/commit/46d065e2884825939e44d5d5aee03c47e15669c8))
+* **core:** the Catalog's off-screen grid is kept by navigation and the catalog read, not by the view ([#89](https://github.com/MarahHQ/marah-launcher/issues/89)) ([7c3fd23](https://github.com/MarahHQ/marah-launcher/commit/7c3fd230ad307acab337d212892541ce222ee499))
+* **emulators:** an emulator build doesn't install twice at once ([#71](https://github.com/MarahHQ/marah-launcher/issues/71)) ([c761e80](https://github.com/MarahHQ/marah-launcher/commit/c761e802c906d6b5417fcd70d8504d214d23b3e9))
+* **hub:** the Game Hub lights a button only while the keys are on the button row ([#92](https://github.com/MarahHQ/marah-launcher/issues/92)) ([f32db9a](https://github.com/MarahHQ/marah-launcher/commit/f32db9a2fc0141f197f13b7a9a4192e05552cb89))
+* **themes:** the shell and game-list behaviour live in the kit, and the theme contract is 0.5.0 ([#81](https://github.com/MarahHQ/marah-launcher/issues/81)) ([4f3f63f](https://github.com/MarahHQ/marah-launcher/commit/4f3f63faa42d44c740eb304a7f27abdc108352b2))
+
 ## [0.13.0](https://github.com/MarahHQ/marah-launcher/compare/v0.12.0...v0.13.0) (2026-11-18)
 
 
