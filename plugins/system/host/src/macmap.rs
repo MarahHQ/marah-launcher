@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use launcher_api::serde_json::{Map, Number, Value};
-use launcher_api::{AudioLevel, BluetoothDevice, Connection, NetworkStatus, SystemDrive, Vpn, WifiNetwork};
+use launcher_api::{AudioLevel, BluetoothDevice, Connection, NetworkStatus, SystemDrive, WifiNetwork};
 
 /// An XML property list as a JSON value: a `dict` is an object, an `array` an array, a
 /// `string`, `date` or `data` a string, `true` and `false` booleans. `None` when it isn't one.
@@ -251,7 +251,9 @@ pub fn drive(info: &Value, disk: &str) -> Option<SystemDrive> {
     // APFS says 0 in FreeSpace: its free space is the container's.
     let free = mount.as_ref().and(number("APFSContainerFree").or_else(|| number("FreeSpace")));
     let device = Some(text("DeviceNode")).filter(|d| !d.is_empty()).unwrap_or_else(|| format!("/dev/{id}"));
-    let uuid = [text("VolumeUUID"), text("DiskUUID")].into_iter().find(|u| !u.is_empty()).unwrap_or_default();
+    // The partition's UUID first: `info` leaves the volume's out while it isn't mounted. A disk
+    // with no partition map has only the volume's.
+    let uuid = [text("DiskUUID"), text("VolumeUUID")].into_iter().find(|u| !u.is_empty()).unwrap_or_default();
     Some(SystemDrive {
         device,
         disk: format!("/dev/{disk}"),
@@ -421,39 +423,6 @@ pub fn level(text: &str) -> Option<AudioLevel> {
     Some(AudioLevel { volume, muted: field("output muted") == Some("true") })
 }
 
-/// The VPNs in `scutil --nc list`, one to a line:
-/// `* (Disconnected)   <id> VPN (com.wireguard.macos) "Home"   [VPN:com.wireguard.macos]`.
-/// The `*` marks one that is on; macOS can start and stop those. macOS doesn't name their
-/// interface here, so a download can't go through one by its name.
-pub fn services(text: &str) -> Vec<Vpn> {
-    text.lines()
-        .filter_map(|line| {
-            let enabled = line.starts_with('*');
-            let status = line.split_once('(')?.1.split_once(')')?.0;
-            let (start, end) = (line.find('"')?, line.rfind('"')?);
-            let name = line.get(start + 1..end).filter(|n| !n.is_empty())?;
-            let kind = line.rsplit_once('[').and_then(|(_, k)| k.strip_suffix(']')).unwrap_or("VPN");
-            let kind = match kind.split_once(':') {
-                Some(("PPP", sub)) => sub,
-                Some((kind, _)) => kind,
-                None => kind,
-            };
-            Some(Vpn {
-                name: name.to_owned(),
-                kind: kind.to_owned(),
-                connected: status == "Connected",
-                interface: String::new(),
-                switchable: enabled,
-            })
-        })
-        .collect()
-}
-
-/// `scutil --nc status <name>`: its first word, such as `Connected` or `Connecting`.
-pub fn nc_status(text: &str) -> &str {
-    text.split_whitespace().next().unwrap_or_default().trim_end_matches(':')
-}
-
 /// Why an `osascript` call failed, for the player. macOS asks once whether the launcher may
 /// control System Events; after a "Don't Allow" the call fails with -1743.
 pub fn apple_event_error(text: &str) -> String {
@@ -595,6 +564,8 @@ mod tests {
         assert_eq!(drive.free, Some(687_654_321_088));
         assert_eq!(drive.filesystem, "apfs");
         assert_eq!(drive.label, "Library");
+        // The partition's UUID, which stays when the volume isn't mounted.
+        assert_eq!(drive.uuid, "11111111-2222-4333-8444-555555555556");
     }
 
     #[test]
@@ -736,30 +707,6 @@ mod tests {
             None
         );
         assert_eq!(level_of(""), None);
-    }
-
-    #[test]
-    fn scutil_lists_the_vpns_and_their_state() {
-        let text = "Available network connection services in the current set (*=enabled):\n\
-            * (Disconnected)   00000000-0000-4000-8000-000000000001 VPN (com.wireguard.macos) \"Home WG\"                      [VPN:com.wireguard.macos]\n\
-            * (Connected)      00000000-0000-4000-8000-000000000002 PPP --> L2TP       \"Office\"                       [PPP:L2TP]\n\
-            \x20 (Invalid)        00000000-0000-4000-8000-000000000003 IPSec              \"Old\"                          [IPSec]\n";
-        let vpns = services(text);
-        let named: Vec<_> =
-            vpns.iter().map(|v| (v.name.as_str(), v.kind.as_str(), v.connected, v.switchable)).collect();
-        assert_eq!(
-            named,
-            [("Home WG", "VPN", false, true), ("Office", "L2TP", true, true), ("Old", "IPSec", false, false)]
-        );
-        assert!(vpns.iter().all(|v| v.interface.is_empty()));
-        assert!(services("Available network connection services in the current set (*=enabled):\n").is_empty());
-    }
-
-    #[test]
-    fn scutil_s_status_is_its_first_word() {
-        assert_eq!(nc_status("Connected\nExtended Status <dictionary> {\n}\n"), "Connected");
-        assert_eq!(nc_status("Invalid: no service\n"), "Invalid");
-        assert_eq!(nc_status(""), "");
     }
 
     #[test]
