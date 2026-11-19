@@ -65,7 +65,20 @@ impl Storage for DirStorage {
         if let Some(parent) = full.parent() {
             tokio::fs::create_dir_all(parent).await.map_err(io)?;
         }
-        tokio::fs::write(&full, data).await.map_err(io)
+        // Into a file beside it, then renamed over it: a reader, or a start after a crash,
+        // finds the old file or the new one, never one half written.
+        static WRITES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = WRITES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let name = full.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let part = full.with_file_name(format!(".{name}.{}-{n}.writing", std::process::id()));
+        if let Err(e) = tokio::fs::write(&part, data).await {
+            let _ = tokio::fs::remove_file(&part).await;
+            return Err(io(e));
+        }
+        tokio::fs::rename(&part, &full).await.map_err(|e| {
+            let _ = std::fs::remove_file(&part);
+            io(e)
+        })
     }
 
     async fn write_at(&self, path: &RelPath, offset: u64, data: &[u8]) -> PluginResult<()> {
@@ -176,6 +189,30 @@ mod tests {
 
         let err = storage.read(&RelPath::new("link/secret").unwrap()).await.unwrap_err();
         assert!(matches!(err, PluginError::PermissionDenied(_)), "{err:?}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_reader_never_sees_a_file_half_written() {
+        let root = tempfile::tempdir().unwrap();
+        let storage = std::sync::Arc::new(DirStorage::new(root.path().to_path_buf()));
+        let p = RelPath::new("copy.json").unwrap();
+        let whole = |n: u8| vec![n; 256 * 1024];
+        storage.write(&p, &whole(0)).await.unwrap();
+        let writer = {
+            let (storage, p) = (storage.clone(), p.clone());
+            tokio::spawn(async move {
+                for n in 1..=50 {
+                    storage.write(&p, &whole(n)).await.unwrap();
+                }
+            })
+        };
+        while !writer.is_finished() {
+            let read = storage.read(&p).await.unwrap();
+            assert_eq!(read.len(), 256 * 1024, "a read saw a file half written");
+            assert!(read.iter().all(|b| *b == read[0]), "a read saw two writes at once");
+        }
+        writer.await.unwrap();
+        assert_eq!(storage.list(&RelPath::root()).await.unwrap(), vec!["copy.json"], "no file is left beside it");
     }
 
     #[tokio::test]
