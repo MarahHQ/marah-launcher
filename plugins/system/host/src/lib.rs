@@ -11,6 +11,8 @@ mod linux;
 // Mostly the Linux tools' output; macOS reads only pmset's. The tests run everywhere.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod parse;
+#[allow(dead_code)] // The areas move onto it in the next commit.
+mod tools;
 mod vpn;
 
 use std::collections::BTreeMap;
