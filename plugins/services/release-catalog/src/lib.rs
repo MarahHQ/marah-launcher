@@ -28,7 +28,7 @@
 //! meta file before; older ones are removed. A refresh that can't write its copy or its meta
 //! file failed: it changes no catalog, and it backs off like any failed refresh.
 //!
-//! The fetch and the refresh run in the plugin's own task, `refresh_task`, one at a time, so
+//! The fetches and the refresh run in the plugin's own task, `refresh_task`, one at a time, so
 //! the core's call never waits for the forums: the core gets the copy refreshed before, else the
 //! base, at once. The task runs when the core asks for a catalog with no refreshed copy of its
 //! base copy or one over [`FRESH`] old, and with no ask when a refreshed copy gets over
@@ -50,7 +50,9 @@
 //! the refresh is skipped. Either way the copy above is used, and the page says why. Where this
 //! computer can't bind traffic to a VPN, the refresh runs, and the page says why it ran
 //! without the VPN. The gate only says whether the VPN is connected: the refresh's requests
-//! don't go through the VPN.
+//! don't go through the VPN. The gate is for bulk downloads, the forums' feeds and lists: the
+//! fetches of the catalog address and the sources address don't ask it, also while the refresh
+//! waits.
 //!
 //! The plugin's page shows the blocks of the `emulator.panel` slot: "Catalog sources", and
 //! "Catalog refresh" with the last refresh of each console (time, new, removed) or why it
@@ -63,17 +65,23 @@
 //!
 //! The files are in the catalog collector's format: see [`mod@format`].
 //!
-//! The catalog sources (see [`sources`]) name the forums each catalog comes from. Which copy
-//! is used follows the same rules, with the **Sources address** setting in place of the
-//! catalog address: `sources/catalog-sources.json` (a folder of its own, so no console takes
-//! its place), else the copy bundled from the project's `assets/catalog-sources.json`. The
-//! refresh takes only each forum's `f=` number: its addresses are fixed in [`refresh::API`]
-//! and [`refresh::FEED`]. A forum whose address has no `f=` number is left out. The "Catalog
-//! sources" section names the copy in use, each catalog's forums and each forum left out.
+//! The catalog sources (see [`sources`]) name the forums each catalog comes from. Which copy is
+//! used follows the same rules, with the **Sources address** setting in place of the catalog
+//! address: `sources/catalog-sources.json` (a folder of its own, so no console takes its place),
+//! else the copy bundled from the project's `assets/catalog-sources.json`. As for a catalog, the
+//! core's call never waits for the sources address: the page and the refresh get the copy kept now.
+//! The plugin's task fetches it, before the catalogs, when the address is set and the copy is
+//! missing or over [`FRESH`] old: with the refresh on, also with no ask; with it off, only after a
+//! read of the plugin's page, which wakes the task. A fetch that failed tries again after the same back-off as a failed
+//! refresh, and a read doesn't make it try sooner. When the fetch brings a copy, or the reason it
+//! failed changes, the task tells the core, and the core asks for the page again. The refresh takes
+//! only each forum's `f=` number: its addresses are fixed in [`refresh::API`] and
+//! [`refresh::FEED`]. A forum whose address has no `f=` number is left out. The "Catalog sources"
+//! section names the copy in use, each catalog's forums and each forum left out.
 //!
 //! The code: [`topic`] is the typed model of a catalog file, which [`refresh`] brings up to
 //! date and [`mod@format`] turns into releases. `store.rs` keeps the copies and their meta files,
-//! and `schedule.rs` says when the fetch and the refresh run. `Catalogs` tracks what the core
+//! and `schedule.rs` says when the fetches and the refresh run. `Catalogs` tracks what the core
 //! asked for, and builds the slot items over them.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -171,14 +179,16 @@ impl CodePlugin for ReleaseCatalog {
 
 inventory::submit! { PluginFactory::code(|| Box::new(ReleaseCatalog::default())) }
 
-/// The fetch of the catalog address and the catalog refresh, in a task of their own: one for
-/// the plugin, so two never run at once, and no call of the core waits for one. It runs each
-/// time it is woken, and also when a kept copy gets too old or a held try is due (see
-/// [`Catalogs::next_wake`]): in a long session the catalogs stay fresh with no ask. When a
-/// fetch or a refresh changes a catalog or the reason it failed, it publishes
-/// [`RELEASES_CHANGED`], and the core asks for the catalogs again. It ends when the plugin
-/// shuts down or its catalogs are dropped. Each pass runs [`guarded`]: a pass that panics is
-/// logged, and the task waits [`RETRY`] before its next pass.
+/// The fetch of the sources address, the fetch of the catalog address and the catalog refresh,
+/// in a task of their own: one for the plugin, so two never run at once, and no call of the
+/// core waits for one. It runs each time it is woken, and also when a kept copy gets too old or
+/// a held try is due (see [`Catalogs::next_wake`]): in a long session the catalogs stay fresh
+/// with no ask. When a fetch or a refresh changes a catalog or the reason it failed, it
+/// publishes [`RELEASES_CHANGED`], and the core asks for the catalogs again. After a sources
+/// fetch that worked, or one whose reason it failed changed, it publishes [`SLOTS_CHANGED`],
+/// and the core asks for the plugin's page again. It ends when the plugin shuts down or its
+/// catalogs are dropped. Each pass runs [`guarded`]: a pass that panics is logged, and the
+/// task waits [`RETRY`] before its next pass.
 async fn refresh_task(catalogs: Weak<Catalogs>, wake: Arc<Notify>) {
     let mut wait = None;
     loop {
@@ -193,7 +203,11 @@ async fn refresh_task(catalogs: Weak<Catalogs>, wake: Arc<Notify>) {
         let pass = guarded({
             let catalogs = catalogs.clone();
             async move {
-                // The fetch first: the refresh is of the copy it brings, and the core gets that
+                // The sources first: the refresh reads the forums they name.
+                if catalogs.sources_due().await {
+                    catalogs.page_changed();
+                }
+                // Then the fetch: the refresh is of the copy it brings, and the core gets that
                 // copy with no wait for the forums.
                 if catalogs.fetch_due().await {
                     catalogs.changed();
@@ -431,7 +445,7 @@ fn catalog_url(settings: &Settings, console: &str) -> Option<String> {
 /// The catalog sources in use, with only the forums that have an `f=` number.
 struct SourcesInUse {
     sources: sources::Sources,
-    /// Which copy: fetched now, fetched before, or bundled.
+    /// Which copy: the one fetched last, one fetched before a fetch that failed, or bundled.
     copy: ReleaseSource,
     /// The host of the sources address. Empty with no address set.
     host: String,
@@ -510,10 +524,14 @@ struct Asks {
     forced: BTreeSet<Console>,
     /// **Refresh now** asked, and its refresh hasn't ended yet: the Catalog says "Refreshing…".
     refreshing: bool,
+    /// The core asked for the plugin's page, which shows the catalog sources, since the task's
+    /// last sources fetch took the ask: one read makes at most one fetch. The core's own read
+    /// after [`SLOTS_CHANGED`] sets it too, but finds the copy fresh or the try held.
+    page: bool,
 }
 
-/// How the last fetch and the last refresh of each console ended, by file name. A try that
-/// works removes its entries.
+/// How the last fetch and the last refresh of each console ended, by file name, and how the
+/// last fetch of the catalog sources ended. A try that works removes its entries.
 #[derive(Default)]
 struct Tries {
     /// Each fetch of a catalog address that failed, and when it tries again. It is of the
@@ -525,6 +543,11 @@ struct Tries {
     refresh_held: HashMap<String, Hold>,
     /// Why the last refresh of each console didn't run or failed.
     not_run: HashMap<String, String>,
+    /// The fetch of the sources address that failed, and when it tries again. It is of the
+    /// address.
+    sources_held: Option<Hold>,
+    /// Why the last fetch of the catalog sources failed, with the address.
+    sources_problem: Option<(String, String)>,
 }
 
 /// A console's catalog with no refresh: see [`Catalogs::base`].
@@ -681,7 +704,8 @@ impl Catalogs {
         Ok(!same)
     }
 
-    /// The catalog sources, from the copy the rules in this module's notes pick.
+    /// The catalog sources, from the copy the rules in this module's notes pick. It doesn't
+    /// fetch.
     async fn sources(&self) -> SourcesInUse {
         let url = self.settings().await.sources_url.trim().to_owned();
         let host = https_host(&url).unwrap_or_default();
@@ -697,40 +721,86 @@ impl Catalogs {
         SourcesInUse { sources, copy, host, problem, unusable }
     }
 
-    /// The catalog sources from `url`: the kept copy while it is fresh, else a new fetch, else
-    /// the kept copy, else the bundled one.
+    /// The catalog sources from `url`, as kept now. It doesn't fetch: it is the copy fetched
+    /// before from `url`, if any, else the bundled one. The refresh task fetches (see
+    /// [`Catalogs::sources_due`]).
     async fn address_sources(&self, url: &str) -> (sources::Sources, ReleaseSource, Option<String>) {
-        let kept = self.kept_sources.latest::<Kept>(SOURCES).await.filter(|k| k.url == url);
-        let read_kept = || async { sources::read(&self.kept_sources.read_plain(SOURCES).await?) };
-        let made = kept.as_ref().map(|k| time(k.fetched));
-        if schedule::fresh(self.now(), made, &self.timing)
-            && let Ok(list) = read_kept().await
+        let problem = self.tries().sources_problem.as_ref().filter(|(at, _)| at == url).map(|(_, why)| why.clone());
+        if self.kept_sources.latest::<Kept>(SOURCES).await.is_some_and(|k| k.url == url)
+            && let Ok(list) = sources::read(&self.kept_sources.read_plain(SOURCES).await.unwrap_or_default())
         {
-            return (list, ReleaseSource::Fetched, None);
+            let copy = if problem.is_some() { ReleaseSource::Cached } else { ReleaseSource::Fetched };
+            return (list, copy, problem);
         }
-        let problem = match self.fetch_sources(url).await {
-            Ok(list) => return (list, ReleaseSource::Fetched, None),
-            Err(e) => e,
-        };
-        self.ctx.log().warn(&format!("{url}: {problem}"));
-        if kept.is_some()
-            && let Ok(list) = read_kept().await
-        {
-            return (list, ReleaseSource::Cached, Some(problem));
-        }
-        (bundled_sources(self.ctx.log()), ReleaseSource::Bundled, Some(problem))
+        (bundled_sources(self.ctx.log()), ReleaseSource::Bundled, problem)
     }
 
-    /// Fetches the catalog sources from `url` and reads them. The copy is kept only when it
-    /// reads.
-    async fn fetch_sources(&self, url: &str) -> Result<sources::Sources, String> {
+    /// Fetches the catalog sources from `url`, and keeps the copy when it reads. It fails when
+    /// the copy or its meta file can't be written.
+    async fn fetch_sources(&self, url: &str) -> Result<(), String> {
         let body = self.get(url).await?;
-        let list = sources::read(&body)?;
+        sources::read(&body)?;
         let kept = Kept { fetched: self.unix_secs(), url: url.to_owned(), body: String::new() };
-        if let Err(e) = self.kept_sources.write(SOURCES, CopyFile::Plain(&body), &kept).await {
-            self.ctx.log().warn(&format!("could not keep the catalog sources: {e}"));
+        self.kept_sources
+            .write(SOURCES, CopyFile::Plain(&body), &kept)
+            .await
+            .map_err(|e| format!("could not keep the catalog sources: {e}"))
+    }
+
+    /// The fetch of the catalog sources from `url`, as the schedule sees it, with the hold of
+    /// its last try.
+    async fn sources_work(&self, url: &str) -> (Option<SystemTime>, Option<Hold>) {
+        let kept = self.kept_sources.latest::<Kept>(SOURCES).await.filter(|k| k.url == url);
+        let held = self.tries().sources_held.clone();
+        (kept.map(|k| time(k.fetched)), held)
+    }
+
+    /// The sources address, when the catalog sources are fetched: it is set, and the refresh is
+    /// on or `page`, the core asked for the plugin's page. Else `None`.
+    fn sources_address(settings: &Settings, page: bool) -> Option<String> {
+        let url = settings.sources_url.trim();
+        let wanted = settings.refresh_from_forums || page;
+        (wanted && !url.is_empty()).then(|| url.to_owned())
+    }
+
+    /// The fetch of the catalog sources, when [`Catalogs::sources_address`] gives an address
+    /// and the fetch is due (see [`schedule`]). It takes the page's ask (see [`Asks::page`]).
+    /// `true` after a fetch that worked, and when the reason the fetch failed changed: the page
+    /// shows both. A reason is logged once, when it changes.
+    async fn sources_due(&self) -> bool {
+        let page = std::mem::take(&mut self.asks().page);
+        let Some(url) = Self::sources_address(&self.settings().await, page) else { return false };
+        let (made, held) = self.sources_work(&url).await;
+        let work = Work { of: &url, made, held: held.as_ref(), forced: false };
+        if !schedule::next(self.now(), &work, &self.timing).run {
+            return false;
         }
-        Ok(list)
+        let fetched = self.fetch_sources(&url).await;
+        let outcome = if fetched.is_ok() { Outcome::Done } else { Outcome::Failed };
+        let mut tries = self.tries();
+        tries.sources_held = schedule::hold_after(self.now(), &work, outcome, &self.timing);
+        match fetched {
+            Ok(()) => {
+                tries.sources_problem = None;
+                true
+            }
+            Err(why) => {
+                let new = (url.clone(), why);
+                if tries.sources_problem.as_ref() == Some(&new) {
+                    return false;
+                }
+                self.ctx.log().warn(&format!("{url}: {}", new.1));
+                tries.sources_problem = Some(new);
+                true
+            }
+        }
+    }
+
+    /// Tells the core the plugin's page changed: it asks for the page's blocks again.
+    fn page_changed(&self) {
+        if let Err(e) = self.ctx.events().publish(SLOTS_CHANGED, Value::Null) {
+            self.ctx.log().warn(&format!("could not tell the core the catalog page changed: {e}"));
+        }
     }
 
     /// The "Catalog sources" section: the copy in use, each catalog's forums and each forum left
@@ -872,13 +942,19 @@ impl Catalogs {
         self.refreshed.latest(console).await
     }
 
-    /// How long until the task has work with no ask (see [`schedule::sleep`]): for each console
-    /// the core asked for, when its fetch is due, and with the refresh on, when its refresh is
-    /// due. `None` with no such work: then only an ask wakes the task.
+    /// How long until the task has work with no ask (see [`schedule::sleep`]): with the refresh
+    /// on and the sources address set, when the sources fetch is due; for each console the core
+    /// asked for, when its fetch is due, and with the refresh on, when its refresh is due. `None`
+    /// with no such work: then only an ask wakes the task. A page read wakes the task itself.
     async fn next_wake(&self) -> Option<Duration> {
         let settings = self.settings().await;
         let now = self.now();
         let mut wakes = Vec::new();
+        if let Some(url) = Self::sources_address(&settings, false) {
+            let (made, held) = self.sources_work(&url).await;
+            let work = Work { of: &url, made, held: held.as_ref(), forced: false };
+            wakes.push(schedule::next(now, &work, &self.timing).wake);
+        }
         for console in self.shown(&settings) {
             let name = console.file_name();
             if let Some(url) = catalog_url(&settings, &name) {
@@ -1288,6 +1364,9 @@ impl Slots for Catalogs {
             SlotId::EmulatorPanel => {
                 let on = self.settings().await.refresh_from_forums;
                 let mut items = vec![self.sources_section().await, self.refresh_section(on).await];
+                // The task fetches the sources address, if that is due.
+                self.asks().page = true;
+                self.wake.notify_one();
                 if on {
                     items.push(SlotItem {
                         id: "refresh-now".into(),

@@ -1,6 +1,6 @@
-//! When the fetch of a catalog address and the refresh of a catalog run: the due-time and
-//! back-off rules, with no clock of their own. The plugin's task passes the time in, and runs
-//! what the plan says.
+//! When the fetch of an address (a catalog address or the sources address) and the refresh of
+//! a catalog run: the due-time and back-off rules, with no clock of their own. The plugin's
+//! task passes the time in, and runs what the plan says.
 //!
 //! - A copy is used for [`Timing::fresh`] after it was made. Then its work is due again.
 //! - A try that failed holds its work: it doesn't run again before the hold's time. The first
@@ -25,7 +25,7 @@ pub struct Timing {
 /// Work that failed or waits for the VPN, and when it tries again.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Hold {
-    /// What the work was of: the catalog address for a fetch, the base copy for a refresh.
+    /// What the work was of: the address for a fetch, the base copy for a refresh.
     pub of: String,
     /// It waits for the VPN: a pass asks the VPN gate again before the hold's time.
     pub waiting: bool,
@@ -35,10 +35,10 @@ pub struct Hold {
     pub delay: Duration,
 }
 
-/// One console's fetch or refresh, as the schedule sees it.
+/// One fetch or refresh, as the schedule sees it.
 #[derive(Clone, Copy, Debug)]
 pub struct Work<'a> {
-    /// What the work is of: the catalog address for a fetch, the base copy for a refresh.
+    /// What the work is of: the address for a fetch, the base copy for a refresh.
     pub of: &'a str,
     /// When the work made its copy of `of`. `None` with no such copy.
     pub made: Option<SystemTime>,
