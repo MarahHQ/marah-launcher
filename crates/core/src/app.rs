@@ -628,7 +628,19 @@ impl Core {
     /// grid stands as [`Core::keep_catalog_grid`] kept it.
     pub fn view(&self) -> AppView {
         let _span = tracing::debug_span!("view_build").entered();
+        self.inner.timings.game_lists.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.inner.timings.views.time(|| view::build(&self.snapshot()))
+    }
+
+    /// The view models for the current state, after changes in `areas` only since `previous`
+    /// was built: its game lists stand when none of the areas moves them, and the rest is built
+    /// again. With a change in any other area, as [`Core::view`].
+    pub fn view_after(&self, previous: AppView, areas: &[Area]) -> AppView {
+        if areas.iter().copied().any(view::moves_game_lists) {
+            return self.view();
+        }
+        let _span = tracing::debug_span!("view_build", partial = true).entered();
+        self.inner.timings.views.time(|| view::build_with(&self.snapshot(), Some(view::GameLists::of(previous))))
     }
 
     /// Keeps the Catalog's grid as it is built now, to stand on the other screens: the Catalog

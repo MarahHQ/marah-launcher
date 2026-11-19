@@ -66,7 +66,7 @@ _Avoid_: feature, extension point
 one place that says what a forum's topics are for: the console, the system and Wine packing.
 
 **Change**: the core's note that its state in one area changed. The core and its tests read changes; the
-app renders on any of them.
+app renders on any of them, and builds again only the parts of the view the areas move.
 _Avoid_: update, state event
 
 **Clock**: the time the core runs on: what time it is, and its waits. The app's clock is real time.

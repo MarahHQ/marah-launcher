@@ -251,6 +251,11 @@ impl ShownGrid {
         }
     }
 
+    /// A grid is kept.
+    pub fn kept(&self) -> bool {
+        self.0.is_some()
+    }
+
     /// Forgets the last grid: the Catalog went.
     pub fn clear(&mut self) {
         self.0 = None;

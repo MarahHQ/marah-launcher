@@ -213,3 +213,116 @@ fn the_window_moves_once_to_the_monitor_picked_in_settings() {
         host.platform.calls().into_iter().filter(|c| matches!(c, PlatformCall::MoveToMonitor { .. })).collect();
     assert_eq!(moves, [PlatformCall::MoveToMonitor { monitor: "DP-2".into(), fullscreen: true }]);
 }
+
+/// A shell showing the Classic theme's Home over a library and a system plugin, booted, with
+/// the machine read and one render behind it, and the plugin's machine.
+fn shown_with_system() -> (Composed, launcher_testkit::FakeSystem) {
+    let system = launcher_testkit::FakeSystem::new();
+    let mut host = composed(|h| {
+        h.plugin(FakeCatalog::new("emu-a").playable().games(["Alpha", "Beta"]).build()).plugin(system.plugin())
+    });
+    host.ui.start().unwrap();
+    host.dispatch(Command::Library(LibraryCmd::Refresh));
+    host.until(Area::System, |core| core.view().system.audio_available);
+    // The work of the start ends: the details, the files, the machine's reads.
+    host.run_until_idle();
+    host.run_work();
+    host.render().unwrap();
+    host.platform.clear_wakes();
+    (host, system)
+}
+
+/// The volume the theme shows, as bound.
+fn shown_volume(host: &Composed) -> Option<f64> {
+    use slint_interpreter::Value;
+    let Ok(Value::Struct(system)) = host.instance().get_global_property("Vm", "system") else { return None };
+    match system.get_field("volume") {
+        Some(Value::Number(volume)) => Some(*volume),
+        _ => None,
+    }
+}
+
+/// The sound's level changes on the machine, and the core reads it again.
+fn change_the_volume(host: &mut Composed, system: &launcher_testkit::FakeSystem, volume: u8) {
+    system.with(|m| m.level.volume = volume);
+    host.rt.block_on(host.core().dispatch(Command::System(launcher_core::system::SystemCommand::Refresh))).unwrap();
+    host.run_work();
+}
+
+#[test]
+fn fifty_changes_in_one_frame_render_once() {
+    let (mut host, _system) = shown_with_system();
+    let before = host.renders();
+    for n in 0..50 {
+        host.core().report(format!("change {n}"));
+    }
+    host.run_work();
+    assert_eq!(host.platform.wakes(), [RENDER_GAP], "one wake for the whole burst");
+    host.poll();
+    assert_eq!(host.renders(), before, "not before its frame");
+    host.advance(RENDER_GAP);
+    host.poll();
+    host.poll();
+    assert_eq!(host.renders(), before + 1, "one render for fifty changes");
+}
+
+#[test]
+fn a_system_change_doesn_t_build_the_game_lists_again() {
+    let (mut host, system) = shown_with_system();
+    let (renders, lists) = (host.renders(), host.core().timings().game_lists);
+    change_the_volume(&mut host, &system, 31);
+    host.advance(RENDER_GAP);
+    host.poll();
+    assert_eq!(host.renders(), renders + 1, "the change renders");
+    assert_eq!(host.core().timings().game_lists, lists, "the game lists stand as they were");
+    assert_eq!(shown_volume(&host), Some(31.0), "the new volume shows");
+
+    // A change in the library builds them again.
+    host.core().report("and a notice".into());
+    host.dispatch(Command::Library(LibraryCmd::Refresh));
+    assert!(host.core().timings().game_lists > lists, "the library changed: the lists are built again");
+}
+
+/// The areas that changed since `changes` began, each once.
+fn areas(changes: &mut tokio::sync::broadcast::Receiver<launcher_core::Change>) -> Vec<Area> {
+    let mut areas = Vec::new();
+    while let Ok(change) = changes.try_recv() {
+        if !areas.contains(&change.area) {
+            areas.push(change.area);
+        }
+    }
+    areas
+}
+
+/// A view built after a change in an area that doesn't move the game lists, over the view
+/// before it, is the view built whole.
+#[test]
+fn a_view_built_after_a_change_that_keeps_the_game_lists_is_the_whole_view() {
+    let (mut host, system) = shown_with_system();
+    let core = host.core().clone();
+    let open = launcher_core::BrowseCmd::Open { at: None, purpose: launcher_core::BrowsePurpose::Pick("games".into()) };
+    type Change<'a> = Box<dyn Fn(&mut Composed) + 'a>;
+    let changes: [(Area, Change); 4] = [
+        (Area::System, Box::new(|host| change_the_volume(host, &system, 12))),
+        (Area::Notices, Box::new(|host| host.core().report("a notice".into()))),
+        (
+            Area::Browser,
+            Box::new(|host| host.rt.block_on(host.core().dispatch(Command::Browse(open.clone()))).unwrap()),
+        ),
+        (
+            Area::Backup,
+            Box::new(|host| {
+                host.rt.block_on(host.core().dispatch(Command::Backup(launcher_core::BackupCmd::Refresh))).unwrap()
+            }),
+        ),
+    ];
+    for (area, change) in changes {
+        host.run_until_idle();
+        let mut changed = core.changes();
+        let before = core.view();
+        change(&mut host);
+        host.run_until_idle();
+        assert_eq!(areas(&mut changed), [area], "only {area:?} changed");
+        assert_eq!(core.view_after(before, &[area]), core.view(), "{area:?}");
+    }
+}

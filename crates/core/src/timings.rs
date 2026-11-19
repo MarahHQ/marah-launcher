@@ -51,6 +51,8 @@ pub(crate) struct Timings {
     pub files: Stat,
     /// [`crate::Core::view`]: the snapshot and the build.
     pub views: Stat,
+    /// The builds of the game lists: each view but those a change outside them kept them for.
+    pub game_lists: AtomicU64,
     /// The UI thread's waits for the state lock, when another thread held it.
     pub ui_lock_waits: Stat,
     /// The thread the UI runs on, once the app says.
@@ -67,6 +69,7 @@ impl Timings {
             snapshots: self.snapshots.read(),
             files: self.files.read(),
             views: self.views.read(),
+            game_lists: self.game_lists.load(Ordering::Relaxed),
             ui_lock_waits: self.ui_lock_waits.read(),
         }
     }
@@ -101,6 +104,8 @@ pub struct CoreTimings {
     pub files: Timed,
     /// The views built: each a snapshot and a build.
     pub views: Timed,
+    /// How many views built the game lists, the dearest part, again.
+    pub game_lists: u64,
     /// The UI thread's waits for the core's state lock while another thread held it.
     pub ui_lock_waits: Timed,
 }

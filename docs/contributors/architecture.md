@@ -88,14 +88,21 @@ changed. The shell renders: the view builds from one snapshot and binds into the
    names themes send, such as `Command::Back`.
 3. The owner changes its state and names the `Area` that changed, through its `Notifier`. That
    sends a `Change` on `Core::changes()` and publishes `Event::StateChanged` on the
-   `EventBus`. The core and its tests read the area. The app renders on any change.
-4. `main.rs` reads the core's events and calls `AppShell::on_core_changed`. An atomic flag keeps
-   at most one call waiting on the UI thread.
-5. The shell renders at most once per `RENDER_GAP` (8 ms). Images that arrive later render on
-   their own, at most once per `IMAGES_GAP` (100 ms).
+   `EventBus`. The core, its tests and the shell read the area.
+4. `main.rs` reads the core's events and calls `AppShell::on_core_events`. An atomic flag keeps
+   at most one call waiting on the UI thread. So does the platform for the polls that work which
+   ended asks for.
+5. The shell renders at most once per `RENDER_GAP` (16 ms) from the end of the last render, or
+   as long as that render took when it took longer: renders take at most half the UI thread's
+   time. Images that arrive later render on their own, at most once per `IMAGES_GAP` (100 ms).
 6. `ThemeHost::render` calls `Core::view`. That takes a `Snapshot` and runs `view::build` over
    it, which returns an `AppView`. `bind::vm_values` turns the `AppView` into Slint values: each
-   field becomes the `Vm` property of the same name in kebab case.
+   field becomes the `Vm` property of the same name in kebab case. When every change since the
+   last render is in an area that doesn't move the game lists (`view::moves_game_lists`:
+   `System`, `Notices`, `LauncherUpdate`, `Backup`, `Browser`), the shell calls
+   `ThemeHost::render_after`, and `Core::view_after` keeps the last view's game lists (Home, the
+   Game Hub, the Catalog, the downloads) and builds the rest. Any other event builds the whole
+   view.
 
 The areas (`Area` in `changes.rs`) are `Navigation`, `Library`, `Catalogs`, `Downloads`,
 `Installs`, `Torrents`, `Sessions`, `Notices`, `Settings`, `Plugins`, `System`, `Vpn`,

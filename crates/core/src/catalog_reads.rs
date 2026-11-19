@@ -95,7 +95,21 @@ pub(crate) async fn refresh_releases(core: &Core) {
     }
     let offers: Vec<Offer> = copies.iter().flat_map(offers).collect();
     let installed = crate::library_reads::installed_offers(core, core.library().snapshot().library(), &offers);
+    // Off the Catalog, a render while the grid over the new offers is built shows the grid kept:
+    // with none kept yet, the one over the offers before, which costs little to build.
+    let off_catalog = {
+        let state = core.state();
+        state.stack.route() != &crate::app::Route::Catalog && !state.catalog_grid.kept()
+    };
+    if off_catalog {
+        core.keep_catalog_grid();
+    }
     let added = core.library().set_catalogs(copies, buttons, offers, installed);
+    // Off the Catalog its grid stands, kept: kept before the app hears of the new catalogs, a
+    // render in between doesn't build the whole grid on the UI thread.
+    if core.state().stack.route() != &crate::app::Route::Catalog {
+        core.keep_catalog_grid();
+    }
     if added > 0 {
         let s = if added == 1 { "" } else { "s" };
         core.notices().opening(

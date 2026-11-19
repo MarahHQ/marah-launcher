@@ -7,7 +7,8 @@
 //! named from its file, "Mario Strikers Battle League", is the offer "Mario Strikers: Battle
 //! League Football". The view asks it about every offer, so it builds its maps once.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 
 use launcher_api::{GameKey, PluginId, Release};
 
@@ -63,11 +64,7 @@ impl<'a> Ownership<'a> {
         let mut by_name = HashMap::new();
         let mut by_words = Vec::new();
         let mut by_loose: HashMap<_, Vec<&Entry>> = HashMap::new();
-        let offer_names: std::collections::HashSet<String> = library
-            .offers
-            .iter()
-            .flat_map(|o| o.releases.iter().filter_map(|r| name(&o.entry.summary.platform, &r.title)))
-            .collect();
+        let offer_names = offer_names(&library.offers);
         // A game named after its dashed folder: the offer name its folder gives, first, so the
         // title it lost a number from doesn't take another game's offer.
         let mut named_by_folder = std::collections::HashSet::new();
@@ -281,6 +278,29 @@ fn folder_name(folder: &str, console: &str, offers: &std::collections::HashSet<S
         .rev()
         .filter_map(|kept| name(console, &parts[..parts.len() - numbers + kept].join(" ")))
         .find(|name| offers.contains(name))
+}
+
+/// The names of the offers' releases ([`name`]), made once for each list of offers: the view
+/// builds an [`Ownership`] at each render, and the catalogs' tens of thousands of releases
+/// change only when the catalogs are read. The list it kept them for stays until another comes,
+/// so its address can't be another list's.
+fn offer_names(offers: &Arc<Vec<Offer>>) -> Arc<HashSet<String>> {
+    /// A list of offers, and its names.
+    type Kept = (Arc<Vec<Offer>>, Arc<HashSet<String>>);
+    static KEPT: Mutex<Option<Kept>> = Mutex::new(None);
+    if let Some((kept, names)) = KEPT.lock().unwrap_or_else(|p| p.into_inner()).as_ref()
+        && Arc::ptr_eq(kept, offers)
+    {
+        return names.clone();
+    }
+    let names: Arc<HashSet<String>> = Arc::new(
+        offers
+            .iter()
+            .flat_map(|o| o.releases.iter().filter_map(|r| name(&o.entry.summary.platform, &r.title)))
+            .collect(),
+    );
+    *KEPT.lock().unwrap_or_else(|p| p.into_inner()) = Some((offers.clone(), names.clone()));
+    names
 }
 
 /// A game's name to find it by: its console and its title, as letters and digits.

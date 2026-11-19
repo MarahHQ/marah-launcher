@@ -11,6 +11,7 @@ use launcher_ui_api::*;
 use serde_json::Value;
 
 use crate::app::{Grid, Route};
+use crate::changes::Area;
 use crate::game_installs::InstallsSnapshot;
 use crate::grid_query::{GridData, GridGames, GridQuery};
 use crate::library::{Entry, LibrarySnapshot, PluginImage, image_ref};
@@ -385,8 +386,37 @@ fn notice_vm(s: &Snapshot, notice: &crate::notices::Notice) -> NoticeVm {
     }
 }
 
+/// The parts of the view that list games: the dearest to build, over thousands of games.
+pub(crate) struct GameLists {
+    pub home: HomeVm,
+    pub detail: Option<GameDetailVm>,
+    pub catalog: CatalogVm,
+    pub downloads: DownloadsVm,
+}
+
+impl GameLists {
+    /// The game lists of `view`.
+    pub fn of(view: AppView) -> Self {
+        GameLists { home: view.home, detail: view.detail, catalog: view.catalog, downloads: view.downloads }
+    }
+}
+
+/// Whether a change in `area` can change the game lists ([`GameLists`]). The other areas reach
+/// only the machine's settings, the notices, the launcher's update, the backups and the folder
+/// browser, so a change there builds the rest of the view and keeps the lists as they were.
+pub(crate) fn moves_game_lists(area: Area) -> bool {
+    !matches!(area, Area::System | Area::Notices | Area::LauncherUpdate | Area::Backup | Area::Browser)
+}
+
 /// The view models for the snapshot `s`.
 pub(crate) fn build(s: &Snapshot) -> AppView {
+    build_with(s, None)
+}
+
+/// The view models for the snapshot `s`, with `lists` as its game lists when given: they stand
+/// for the snapshot's own when no change since they were built moves them
+/// ([`moves_game_lists`]).
+pub(crate) fn build_with(s: &Snapshot, lists: Option<GameLists>) -> AppView {
     let state = &s.state;
     let route = state.stack.route().clone();
     let (screen, game) = match &route {
@@ -401,8 +431,18 @@ pub(crate) fn build(s: &Snapshot) -> AppView {
         Route::Plugin(_) => (ScreenId::Plugin, None),
         Route::GameSettings(g) => (ScreenId::GameSettings, Some(g.clone())),
     };
-    let owned = s.ownership();
-    let data = s.grid_data(&owned);
+    let lists = lists.unwrap_or_else(|| {
+        let owned = s.ownership();
+        let data = s.grid_data(&owned);
+        GameLists {
+            home: home_vm(s, &data),
+            // The detail page of the game the player last opened stays available under
+            // overlays. With no detail page open, the selected game's details, once loaded.
+            detail: s.detail_game.as_ref().and_then(|key| detail_vm(s, &owned, key)),
+            catalog: catalog_vm(s, &data, route == Route::Catalog),
+            downloads: downloads_vm(s, &owned),
+        }
+    });
     let notices = &s.notices;
     let mut view = AppView {
         screen,
@@ -414,12 +454,10 @@ pub(crate) fn build(s: &Snapshot) -> AppView {
             crate::stack::Move::None => "",
         }
         .into(),
-        home: home_vm(s, &data),
-        // The detail page of the game the player last opened stays available under overlays.
-        // With no detail page open, the selected game's details, once loaded.
-        detail: s.detail_game.as_ref().and_then(|key| detail_vm(s, &owned, key)),
-        catalog: catalog_vm(s, &data, route == Route::Catalog),
-        downloads: downloads_vm(s, &owned),
+        home: lists.home,
+        detail: lists.detail,
+        catalog: lists.catalog,
+        downloads: lists.downloads,
         settings: settings_vm(s),
         emulators: emulators_vm(s),
         plugin_page: match &route {

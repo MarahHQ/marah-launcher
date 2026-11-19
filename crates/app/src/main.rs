@@ -153,8 +153,12 @@ fn run(args: args::Args, launched: Instant) -> Result<(), String> {
     handle.spawn(platform::quit_on_signal());
 
     let restart = Arc::new(AtomicBool::new(false));
-    let system =
-        platform::SystemPlatform { runtime: handle.clone(), player: audio::Player::start(), restart: restart.clone() };
+    let system = platform::SystemPlatform {
+        runtime: handle.clone(),
+        player: audio::Player::start(),
+        restart: restart.clone(),
+        polling: Arc::default(),
+    };
     core.mark_ui_thread();
     let thumbs = args.data_dir.join("cache/thumbs");
     let options = ShellOptions { dev: args.dev, monitor: args.monitor.clone(), thumbs: thumbs.clone() };
@@ -188,17 +192,24 @@ fn run(args: args::Args, launched: Instant) -> Result<(), String> {
         },
     );
 
-    // Core events: at most one waiting on the UI thread; the shell coalesces the renders.
+    // Core events: at most one call waiting on the UI thread; the shell coalesces the renders,
+    // and reads which areas changed itself. An event other than a change makes the next render
+    // a whole one, so it isn't lost while a call waits.
     let pending = Arc::new(AtomicBool::new(false));
+    let unnamed = Arc::new(AtomicBool::new(false));
     let mut events = core.events();
     handle.spawn(async move {
-        while events.next().await.is_some() {
+        while let Some(event) = events.next().await {
+            if event != launcher_api::Event::StateChanged {
+                unnamed.store(true, Ordering::SeqCst);
+            }
             if !pending.swap(true, Ordering::SeqCst) {
-                let pending = pending.clone();
+                let (pending, unnamed) = (pending.clone(), unnamed.clone());
                 // Refused only once the app closes: no render is due then.
                 let _ = slint_interpreter::invoke_from_event_loop(move || {
                     pending.store(false, Ordering::SeqCst);
-                    with_app(|app| app.shell.on_core_changed());
+                    let only_changes = !unnamed.swap(false, Ordering::SeqCst);
+                    with_app(|app| app.shell.on_core_events(only_changes));
                 });
             }
         }

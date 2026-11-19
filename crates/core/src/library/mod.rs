@@ -389,6 +389,13 @@ impl LibrarySubsystem {
         out
     }
 
+    /// As [`Self::change`], with only the core's readers told: the caller tells the app.
+    fn change_quietly<R>(&self, area: Area, change: impl FnOnce(&mut State) -> R) -> R {
+        let out = change(&mut self.state());
+        self.inner.notifier.noted(area);
+        out
+    }
+
     /// The games, the offers and the saved choices, as they are now.
     pub fn snapshot(&self) -> LibrarySnapshot {
         let (hidden, results) = (self.inner.records.hidden(), self.inner.records.results());
@@ -612,6 +619,8 @@ impl LibrarySubsystem {
 
     /// The catalogs as just read, their buttons, and the offers grouped from them, with the
     /// offer each installed game is. Returns how many releases are new since the last read.
+    /// The app isn't told: the caller keeps the Catalog's grid first (see
+    /// `catalog_reads::refresh_releases`), then tells it.
     pub fn set_catalogs(
         &self,
         copies: Vec<CatalogCopy>,
@@ -619,7 +628,7 @@ impl LibrarySubsystem {
         offers: Vec<Offer>,
         installed: Vec<InstalledOffer>,
     ) -> usize {
-        let (added, keep) = self.change(Area::Catalogs, |s| {
+        let (added, keep) = self.change_quietly(Area::Catalogs, |s| {
             let added = crate::releases::added_releases(&s.catalogs, &copies);
             s.catalogs = Arc::new(copies);
             s.catalogs_read = true;
