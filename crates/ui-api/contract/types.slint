@@ -36,7 +36,7 @@ export struct Slot {
 }
 
 // What can be done with a game, the same for every game, worked out by the core:
-// - `primary`: the main action, "play", "get" or "" for none. Installed games play; others
+// - `primary`, the main action: "play", "get" or "" for none. Installed games play; others
 //   are got. Uninstall is never the main action: offer it in the game's menu.
 // - `play`: the command Session Launch with the game's key starts it (a Catalog game: the
 //   installed game it is).
@@ -156,8 +156,8 @@ export struct SettingsPanel { slot: Slot, fields: [Field] }
 // from `seeders` and `leechers`: "5 seeders · 1 leecher"; empty when it has no count of seeders.
 // `sheet-text` is what its download sheet says of it, from `version`, `region`, `size` and the
 // game's emulator: "Version 1.02 · Europe · 7.6 GB · runs with KytyPS5".
-// `system` is a PC release's system ("Linux", "Windows", "macOS"), and `not-here` why this
-// computer can't start it; both empty when there is nothing to say. `warning` is why it may
+// `system` is a PC release's system: "Linux", "Windows" or "macOS". `not-here` is why this
+// computer can't start it. Both are empty when there is nothing to say. `warning` is why it may
 // not install, such as a retail PS5 package; empty for none. `no-room` is why it doesn't fit
 // in the download folder; empty when it fits, the disk doesn't say, or it has a download.
 // `version-label` is its place by version, from the lowest: "Version 3 of 3 (newest)". `best`
@@ -183,7 +183,7 @@ export struct Verdict { plugin: string, emulator: string, level: string, headlin
 // actions" in docs/themes.md; play launches `game`; while it unpacks, cancel stops the
 // unpacking).
 // `install`: installing, done, failed or cancelled; empty before Install.
-// `unpack`: its archives, waiting, unpacking, unpacked, failed or cancelled; empty for none.
+// `unpack`, its archives: waiting, unpacking, unpacked, failed or cancelled; empty for none.
 // `waiting-vpn`: "Download only through a VPN" paused it; it starts again by itself once the
 // VPN is connected. `install-note`: what its emulator installs from, for the install sheet;
 // `install-folder`: the game folder the sheet offers (`~` for the home folder);
@@ -365,6 +365,7 @@ export struct Emulator {
     system-name: string,
     icon: image,
     cover: image,
+    // loaded, active or failed.
     status: string,
     // It installs builds of its own. An emulator that only starts games (PC) has none.
     has-builds: bool,
@@ -377,7 +378,8 @@ export struct Emulator {
     controllers: string,
 }
 
-// kind: emulator | service (code that launches no games, such as a store's details) | theme.
+// kind: emulator | service (code that launches no games, such as a store's details) | system
+// (the machine's settings and devices) | theme.
 // enabled: the player has it on. note: a warning about it, or "" (one made for other systems
 // says which). version: the plugin's; build: an emulator's build in use, "" when none;
 // build-label: the build with the program's name once ("shadPS4 v.0.20.0"), "" when none.
@@ -469,7 +471,8 @@ export struct Backup { folder: string, running: bool, restoring: bool, progress:
 // The launcher's own update. state: off | idle | checking | current | available |
 // downloading | ready | installed | system | failed. installed: the package manager put it in,
 // a restart starts it. system: it comes with Marah OS's next update. text: what to tell the
-// player.
+// player. method: swap | installer (both at the next start) | package (the system's package
+// manager, now) | system (Marah OS's update).
 export struct LauncherUpdate { state: string, current: string, version: string, text: string, method: string }
 
 // The machine's settings, from the system plugins (see `SystemVm` in launcher-ui-api). A part
