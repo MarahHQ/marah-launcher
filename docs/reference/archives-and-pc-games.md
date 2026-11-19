@@ -150,8 +150,8 @@ even when the link stays inside.
 The link rules match names that differ only in case, on every system. macOS and Windows find
 `d/l` by the name `D/l`, so link `D/l` to `..` and link `x` to `d/l/..` chain out there, and
 the plan refuses `x`. Linux tells the two names apart, so there the plan refuses a little more
-than it must. The plan does not match a name in another Unicode form: `é` as one character
-and `e` plus a combining accent are one name on macOS, but two names to the plan.
+than it must. The rules also match a name in another Unicode form: `é` as one character and
+`e` plus a combining accent are one name on macOS, and one name to the plan.
 
 The adapter checks the disk again during the second pass, as a second guard. `Work::place` in
 `crates/app/src/archives.rs` refuses to write where a link is already on the disk

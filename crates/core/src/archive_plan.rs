@@ -183,14 +183,15 @@ fn fold(path: &Path) -> PathBuf {
     path.iter().map(fold_name).collect()
 }
 
-// TODO: macOS also matches a name in another Unicode form: `é` as one character and `e` plus a
-// combining accent are one name there, but not here. That needs a Unicode normalization crate,
-// which launcher-core does not have. Lower case is also not exactly the file system's own fold.
-/// One name in lower case. Each character on its own, so that a final `Σ` folds to `σ` as it
-/// does inside a name, not to `ς`.
+/// One name in lower case and in one Unicode form (NFC), so `é` as one character and `e` plus a
+/// combining accent are one name, as on macOS. Each character folds on its own, so that a final
+/// `Σ` folds to `σ` as it does inside a name, not to `ς`. Lower case is close to the file
+/// systems' own fold, not the same.
 fn fold_name(name: &OsStr) -> OsString {
+    const NFC: icu_normalizer::ComposingNormalizerBorrowed<'static> =
+        icu_normalizer::ComposingNormalizerBorrowed::new_nfc();
     match name.to_str() {
-        Some(name) => name.chars().flat_map(char::to_lowercase).collect::<String>().into(),
+        Some(name) => NFC.normalize(&name.chars().flat_map(char::to_lowercase).collect::<String>()).into_owned().into(),
         None => name.to_os_string(),
     }
 }
@@ -425,6 +426,16 @@ mod tests {
         // A Greek capital sigma folds the same at the end of a name as inside it.
         let refused = plan_unpack(vec![link("οσ", "b"), file("ΟΣ/f", 1)], &dest(), None).unwrap_err();
         assert_eq!(refused, escapes("ΟΣ/f", Escape::ThroughLink));
+    }
+
+    #[test]
+    fn link_names_in_another_unicode_form_are_the_same_link() {
+        // macOS finds `é` as one character by the name `e` plus a combining accent.
+        let (one, two) = ("caf\u{e9}", "cafe\u{301}");
+        let refused = plan_unpack(vec![link(one, "b"), file(&format!("{two}/f"), 1)], &dest(), None).unwrap_err();
+        assert_eq!(refused, escapes(&format!("{two}/f"), Escape::ThroughLink));
+        let chained = vec![link(&format!("d/{two}"), ".."), link("x", &format!("D/{one}/.."))];
+        assert_eq!(plan_unpack(chained, &dest(), None).unwrap_err(), escapes("x", Escape::LinksOut));
     }
 
     #[test]
