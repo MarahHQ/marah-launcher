@@ -148,7 +148,9 @@ export struct SettingsPanel { slot: Slot, fields: [Field] }
 
 // One release of a game a catalog offers. `size` like "7.6 GB" and `added` like "Oct 15, 2026",
 // empty when the catalog doesn't say; `new` when it was added in the last 14 days.
-// `download` is its download's state (see Torrent), empty for none, with its progress.
+// `download` is its download's state (see Torrent), empty for none, with its progress, and
+// `download-text` what its Download button says: "Download", "Downloading 43%", "Install in
+// Steam".
 // `system` is a PC release's system ("Linux", "Windows", "macOS"), and `not-here` why this
 // computer can't start it; both empty when there is nothing to say. `warning` is why it may
 // not install, such as a retail PS5 package; empty for none. `no-room` is why it doesn't fit
@@ -162,7 +164,7 @@ export struct SettingsPanel { slot: Slot, fields: [Field] }
 // `store`: the store that installs it ("Steam"), for a release its store installs: its
 // Download asks the store (the command Torrent Download with no folder), with no download
 // sheet. Empty for a torrent.
-export struct Release { id: string, store: string, version: string, region: string, size: string, added: string, new: bool, description: string, system: string, not-here: string, warning: string, no-room: string, download: string, download-progress: float, version-label: string, best: bool, seeders: string, leechers: string, counted: string, availability: string, availability-text: string }
+export struct Release { id: string, store: string, version: string, region: string, size: string, added: string, new: bool, description: string, system: string, not-here: string, warning: string, no-room: string, download: string, download-progress: float, download-text: string, version-label: string, best: bool, seeders: string, leechers: string, counted: string, availability: string, availability-text: string }
 
 // How one emulator's games run on this PC. level: good | slow | no | unknown. headline:
 // "Should run well", "May run slowly", "Won't start" or "Can't tell yet"; why: the reason.
@@ -196,6 +198,9 @@ export struct Torrent {
     version: string,
     region: string,
     state: string,
+    // Its state in words, from `state`, `install`, `unpack` and the flags: "Paused · waiting
+    // for your VPN", "Installed in Steam".
+    state-text: string,
     progress: float,
     detail: string,
     seeding: bool,

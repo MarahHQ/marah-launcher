@@ -548,6 +548,9 @@ pub struct ReleaseVm {
     /// Its download's state (see [`TorrentVm::state`]); empty when it has none.
     pub download: String,
     pub download_progress: f32,
+    /// What its Download button says, from `store`, `download` and `download_progress`:
+    /// "Download", "Downloading 43%", "Install in Steam".
+    pub download_text: String,
     /// Its place among the game's releases, numbered by version from the lowest: "Version 3
     /// of 3 (newest)" for the highest version.
     pub version_label: String,
@@ -625,6 +628,9 @@ pub struct TorrentVm {
     /// `resolving`, `ready` (the files are listed: the player starts it), `checking`,
     /// `downloading`, `paused`, `complete`, `failed` or `cancelled`.
     pub state: String,
+    /// Its state in words, from `state`, `install`, `unpack` and the flags: "Paused · waiting
+    /// for your VPN", "Installed in Steam".
+    pub state_text: String,
     /// 0.0 to 1.0.
     pub progress: f32,
     #[serde(skip)]

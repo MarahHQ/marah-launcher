@@ -926,22 +926,9 @@ export component DownloadsPage inherits Rectangle {
                             horizontal-alignment: root.align;
                         }
                         Text {
-                            // A store's install says the store does it: "Downloading in Steam".
-                            text: (t.install == "installing" ? "Installing"
-                                : t.install == "done" ? "Installed"
-                                : t.install == "failed" ? "Install failed"
-                                : card.not-started ? "Install didn't start"
-                                : t.state == "queued" ? "Queued"
-                                : t.unpack == "unpacking" ? "Unpacking"
-                                : t.unpack == "failed" ? "Unpacking failed"
-                                : t.state == "resolving" ? "Reading its files"
-                                : t.state == "ready" ? (t.install-after ? "Ready" : "Ready: choose the files, then download")
-                                : t.state == "checking" ? "Checking"
-                                : t.state == "downloading" ? "Downloading"
-                                : t.state == "paused" ? (t.waiting-vpn ? "Paused · waiting for your VPN" : "Paused")
-                                : t.state == "complete" ? (t.seeding ? "Complete · sharing" : t.verifying ? "Complete · checking" : "Complete")
-                                : t.state == "failed" ? "Failed"
-                                : "Cancelled · the files stay") + (t.store != "" ? " in " + t.store : "");
+                            // The core words it; a store's install says the store does it:
+                            // "Downloading in Steam".
+                            text: t.state-text;
                             font-size: 17 * Look.px;
                             color: card.failed ? Tokens.color-danger : card.done ? Tokens.color-success : Tokens.color-accent-soft;
                             accessible-role: text;

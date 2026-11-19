@@ -259,8 +259,8 @@ and struct holds. Read that file as the reference.
 | Window and input | `viewport`, `input-mode`, `pad-key`, `power-menu`, `pad-name` |
 
 An optional part comes with a `has-` flag: read `detail` only when `has-detail` is true. Text
-for the player, such as sizes and dates, comes ready to show (display text, built in the
-core's `display.rs`).
+for the player, such as sizes, dates and a download's state, comes ready to show (display
+text, built in the core's `display.rs`).
 
 ## Host: what to ask for
 
