@@ -6,7 +6,7 @@ for theme authors who already have a theme running; start with
 [writing-a-theme.md](writing-a-theme.md). Terms follow [the glossary](../../GLOSSARY.md).
 
 The contract is the crate `launcher-ui-api` (`crates/ui-api`). Its version is
-`UI_API_VERSION`, now `0.5.1` (`crates/ui-api/src/lib.rs`). A theme's `ui_api` range must
+`UI_API_VERSION`, now `0.6.0` (`crates/ui-api/src/lib.rs`). A theme's `ui_api` range must
 include it.
 
 ## Contents
@@ -131,7 +131,7 @@ and struct holds. Read that file as the reference.
 | Settings | `vpn`, `backup`, `settings`, `theme-options`, `themes`, `folders`, `sounds`, `animations`, `fullscreen`, `return-on-exit`, `auto-update`, `auto-install`, `scale`, `can-start-at-login`, `start-at-login`, `start-at-login-error`, `hardware`, `launcher-update`, `system`, `monitors`, `monitor` |
 | Plugins | `emulators`, `plugins`, `emulator-plugins`, `theme-plugins`, `has-plugin-page`, `plugin-page` |
 | Trailers | `can-play-trailers`, `has-trailer`, `trailer`, `trailer-frame` |
-| Prompts | `has-install-prompt`, `install-prompt`, `has-result-prompt`, `result-prompt`, `has-question`, `question`, `ratings` |
+| Prompts | `has-install-prompt`, `install-prompt`, `has-result-prompt`, `result-prompt`, `has-question`, `question`, `ratings`, `browser` (the folder browser) |
 | Start | `boot`, `art-ready` |
 | Status | `task`, `clock`, `has-running`, `running`, `closing`, `has-closing-game`, `closing-game`, `notices`, `notice-cards` |
 | Window and input | `viewport`, `input-mode`, `pad-key`, `power-menu`, `pad-name` |
@@ -196,7 +196,9 @@ A variant with a sub-enum takes that enum, written as JSON the same way. The doc
 | `Torrent` | `{"Download": {"offer": key, "release": id, "folder": path}}` (`folder` optional), `{"Act": {"id": id, "action": action}}`, `{"Pick": {"id": id, "file": n, "on": bool}}` (`file` `null` for every file), `{"Begin": {"id": id, "install": bool, "folder": path}}` (`install` and `folder` optional), `{"SeedDownloads": bool}`. See [Torrent actions](#torrent-actions). |
 | `GameInstall` | `{"Download": {"id": id, "folder": path}}` (`folder` optional), `{"Package": {"plugin": id, "source": {"folder": name, "root": n, "path": path}}}` (a `HostPath`), `{"RemoveUnpacked": {"id": id}}`, `{"Cancel": {"id": id}}`. |
 | `Vpn` | `{"SetOnly": bool}`, `{"Choose": name}`, `{"Connect": name}`, `{"Disconnect": name}`, `{"Import": path}`. |
-| `Backup` | `"Refresh"`, `{"BackUp": {"large": bool}}`, `{"Restore": file}`, `{"RestoreFile": path}`, `{"Delete": file}`, `{"Browse": path or null}`, `"CloseBrowser"`, `{"ShowHidden": bool}`, `{"Filter": text}`. |
+| `Backup` | `"Refresh"`, `{"BackUp": {"large": bool}}`, `{"Restore": file}`, `{"RestoreFile": path}`, `{"Delete": file}`, `{"Browse": path or null}`, `"CloseBrowser"`, `{"ShowHidden": bool}`, `{"Filter": text}`. `Browse`, `CloseBrowser`, `ShowHidden` and `Filter` drive the folder browser for a restore, as `Browse` does. |
+| `Browse` | The folder browser: `{"Open": {"at": path or null, "purpose": "Restore" or {"Pick": folder}}}`, `{"Go": path}`, `"Close"`, `{"ShowHidden": bool}`, `{"Filter": text}`, `{"Mount": drive}` (mounts a drive from the places, then opens it), `"Use"` (a pick: adds the folder shown to the named folder, and closes). |
+| `Drive` | The drives, by a drive's id (`DriveRow.drive`): `"Refresh"`, `{"Mount": id}`, `{"Unmount": id}`, `{"Eject": id}`. Unmount and Eject are refused while a game runs from the drive, or a download or an install uses it; Eject only for a drive the player can take out. |
 | `Notice` | `"DismissAll"`, `{"Dismiss": id}`, `{"Open": id}`. |
 | `LauncherUpdate` | `"Check"`, `"Download"`. |
 | `System` | `SystemCommand` (`crates/core/src/system.rs`): `"Refresh"`, `"ScanWifi"`, `{"JoinWifi": {"ssid": name, "password": text or null}}`, `{"ForgetWifi": name}`, `{"SetBluetooth": bool}`, `"ScanBluetooth"`, `{"Pair": address}`, `{"ConnectDevice": address}`, `{"DisconnectDevice": address}`, `{"RemoveDevice": address}`, `{"SetOutput": name}`, `{"SetVolume": 0-100}`, `{"SetMuted": bool}`, `"Restart"`, `"ShutDown"`, `"LogOut"`, `"CheckOsUpdate"`, `{"InstallOs": path}`, `"ChoosePartitions"`, `{"CancelJob": id}`. |
@@ -206,7 +208,8 @@ A variant with a sub-enum takes that enum, written as JSON the same way. The doc
 | `SetConfigField` | `{"plugin": id, "scope": scope, "key": field, "value": text}`. |
 | `RunAction` | `{"plugin": id, "action": name, "game": key or null, "args": json}`. |
 | `SetPluginEnabled` | `{"plugin": id, "enabled": bool}`. A theme stays on. |
-| `SetFolders` | `{"name": folder, "paths": text}`, the folders separated by `;`. |
+| `SetFolders` | `{"name": folder, "paths": text}`, the folders separated by `;`, or a list of paths. |
+| `AddFolder`, `RemoveFolder` | `{"name": folder, "path": path}`: adds a folder to the folders a named folder means (the default ones when the player chose none), or takes one out. The folder and its files stay. |
 | `Download` | `{"plugin": id, "request": {"type": "emulator_build", "version": text or null}}`. |
 | `PauseDownload`, `ResumeDownload`, `CancelDownload` | A download's id (a number). |
 | `InstallEmulator` | `{"plugin": id, "version": text or null}`. |
@@ -301,12 +304,13 @@ Tests in `contract.rs` hold every kit file to three rules:
 
 | File | Exports | What it gives |
 | --- | --- | --- |
-| `backup-browser.slint` | `Browser`, `BackupBrowser` | The backup browser: places, folders and backups, details, its own keys, and one dialog before a restore. |
 | `button.slint` | `Button` | A small round button. Primary and the current choice are white; others light up on hover and focus. |
 | `closing.slint` | `Closing`, `ClosingScreen` | Covers the screen while Log out, Restart or Shut down closes what runs. It takes every key: hide your key hints while `Closing.shows`. |
 | `commands.slint` | `Commands` | One function for each thing the player asks of the core. |
 | `cover-wall.slint` | `CoverWall` | A slowly drifting wall of the library's covers, dimmed, as the boot and closing screens show it. |
 | `downloads.slint` | `Dl`, `DownloadsPage` | The Downloads screen, its keys, the download sheet, and the install and remove sheets. |
+| `folder-browser.slint` | `Browser`, `FolderBrowser` | The folder browser, for a restore or to pick a folder: places (a drive that isn't mounted mounts from here), folders and backups, details, its own keys, "Use this folder" when it picks, and one dialog before a restore. |
+| `folder-list.slint` | `FolderList`, `FolderListSheet` | A named folder's list, which a `FolderRow` opens: each folder with the free space on its drive and Remove, then Add folder (the folder browser) and Type a path. |
 | `game-detail.slint` | `Hub`, `GameDetailPage` | The Game Hub: buttons, releases, fact cards, technical details and screenshots. |
 | `game-menu.slint` | `GameMenu`, `MenuRow`, `GameMenuSheet` | A game's menu, with Uninstall asking first. |
 | `game-settings.slint` | `GameSettingsPage` | One game's own settings, on the same frame as Settings (`SettingsFrame`). |
@@ -341,7 +345,7 @@ Tests in `contract.rs` hold every kit file to three rules:
 | `slot-actions.slint` | `SlotActions` | Plugin actions as round buttons. |
 | `slot-badges.slint` | `SlotBadges` | Plugin badges as small tags with a dot in their tone. |
 | `slot-sections.slint` | `SlotSections` | Plugin sections as fact cards. |
-| `system-panel.slint` | `Sys`, `NetIcon`, `SoundIcon`, `BluetoothIcon`, `BatteryIcon`, `SystemSheet` | The network, sound and Bluetooth icons and panels for when the launcher is the whole screen, and the battery. |
+| `system-panel.slint` | `Sys`, `NetIcon`, `SoundIcon`, `BluetoothIcon`, `StorageIcon`, `BatteryIcon`, `SystemSheet` | The network, sound and Bluetooth icons and panels for when the launcher is the whole screen, the drives' icon and the Drives panel (`Sys.show(3)`) while a USB drive is plugged in (`Vm.system.usb-drives`), and the battery. A notice with a `drive` opens the Drives panel. |
 | `trailer-player.slint` | `Trailers`, `TrailerPlayer` | A trailer in the window, with its keys. |
 | `widgets.slint` | `FocusRing`, `KeyCap`, `BackButton`, `Stars`, `Chip`, `Pill`, `Kicker`, `Switch`, `Shimmer`, `Cover` | Small widgets. |
 
@@ -353,9 +357,10 @@ theme: put your screens inside it and give it the focus (`forward-focus`).
 
 `ShellKeys` answers the keys in this order and stops at the first that takes the key:
 
-1. Before any element sees the key: the closing screen takes every key. Then the backup browser
-   (`Browser.key`), Send ratings (`Sending.key`) and the on-screen keyboard (`Osk.key`), while
-   each is open. Ctrl+P, for the power menu, still gets past the first two.
+1. Before any element sees the key: the closing screen takes every key. Then the folder browser
+   (`Browser.key`), a folder's list (`FolderList.key`), Send ratings (`Sending.key`) and the
+   on-screen keyboard (`Osk.key`), while each is open. Ctrl+P, for the power menu, still gets
+   past the first three.
 2. A held Enter does nothing: it would play, download or install a second time.
 3. The power menu (`PowerMenu.key`), and Ctrl+P to open it.
 4. A plugin's question at the start (`Question.key`), the Welcome screen, and the boot screen
@@ -393,7 +398,8 @@ on its releases, set `Hub.to-releases` before you open it.
 The shell also does these things:
 
 - Put `Overlays` over your screens, the size of the window, with `logo` set to your emblem. It
-  shows the prompts, the game menu, the trailer, the screenshot viewer, the backup browser, the
+  shows the prompts, the game menu, the trailer, the screenshot viewer, a folder's list, the
+  folder browser, the
   OS installer, the power menu and the closing screen while each is open.
 - Put `QuestionPrompt` over your boot screen while `Vm.has-question`. The start waits for the
   answer, and `ShellKeys` gives it every key. A theme without it leaves the player unable to
@@ -427,6 +433,23 @@ and `Games` use. A theme with its own copy of that file adds both, then sets
 
 Version 0.5.1 added `line-text` and `not-here-text` to `Release`. It only adds fields, so a
 theme on `^0.5.0` still loads.
+
+Version 0.6.0 moved the backup browser out of Settings → Backup: it is the folder browser now.
+
+- `Vm.backup.browser` is `Vm.browser`, of the struct `FolderBrowser` (was `BackupBrowser`), with
+  `purpose`, `folder` and `folder-title`. `BrowsePlace` has `drive` and `mounted`.
+- `kit/backup-browser.slint` is `kit/folder-browser.slint`, and its component `BackupBrowser`
+  is `FolderBrowser`. Its accessible label is `folder-browser`.
+- `Folder` has `list`, each a `FolderPath`. `FolderRow` takes `at` and `on-page`, and opens the
+  folder's list (`kit/folder-list.slint`) instead of a text box.
+- `System` has `drives-available`, `drives-reason`, `drives` (each a `DriveRow`) and
+  `usb-drives`. `Notice` has `drive`. A job's kind can be `mount`, `unmount` or `eject`.
+- A theme with its own top bar counts the drives' icon among its machine icons while
+  `Vm.system.usb-drives > 0`, so the keys reach it: both built-in themes' `Nav.statuses` is 4
+  then, 3 otherwise.
+
+A theme built for 0.5 that reads `Vm.backup.browser` or imports `kit/backup-browser.slint`
+changes those names, then sets `ui_api = "^0.6"`.
 
 ## Tokens
 

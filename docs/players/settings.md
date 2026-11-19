@@ -34,12 +34,19 @@ with a column of their icons on the left that lights the section you are in.
 
 | Setting | What it does |
 | --- | --- |
-| Game folders | Where your games are, `~/Games` by default. Installs go into the console's folder inside the first one. |
+| Game folders | Where your games are, `~/Games` by default. Installs go into the console's folder inside the first one. ✕ opens the list of folders. |
 | Packages to install | Where the emulators look for packages and disc images to install, `~/Downloads` by default. |
 | Rescan game folders | Looks for games again. |
 | Send ratings | Sends your results ("how far did it get") to the community compatibility lists. See [Playing](playing.md#send-your-ratings). |
 
-Separate several folders with `;`. Start a path with `~` for your home folder.
+✕ on a folder setting opens its list. Each folder shows the free space on its drive, or "Not
+there" while its drive is out.
+
+- **Remove** takes a folder out of the list. The folder and its files stay.
+- **Add folder** opens the folder browser. Go to a folder, on this PC or on a drive, then choose
+  **Use this folder** (△). A drive that isn't mounted shows "Mount" in the browser's places:
+  choose it to mount the drive and open it.
+- **Type a path** adds a folder by its path. Start a path with `~` for your home folder.
 
 ## Updates
 

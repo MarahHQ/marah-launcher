@@ -71,7 +71,7 @@ From `theme.toml`:
 | `version` | `0.3.0` |
 | `host_api` | `^0.3` |
 | `activation` | `eager` |
-| `ui_api` | `^0.5.1` |
+| `ui_api` | `^0.6` |
 | `input` | `["gamepad", "pointer"]` |
 | `navigation` | `focus` |
 | breakpoints | `compact` (`max_width = 900`), then `regular` |
@@ -177,7 +177,7 @@ the pad's buttons; with a keyboard, the keys. The face buttons are drawn as path
 `PadArrows`), because no font the theme ships has them.
 
 The hints hide over the Library's and the Catalog's cards (they would cover the titles), while
-a trailer plays with its controls hidden, over the backup browser, over the splash's keys, and
+a trailer plays with its controls hidden, over the folder browser, over the splash's keys, and
 over the closing screen.
 
 ### Sounds
@@ -298,7 +298,8 @@ game yet" or "No games here".
 
 On the reading side: the "Home" and "Library" tabs. On the far side: the running game, the
 active download, the screen buttons (Search, Downloads, Emulators, Themes), the network, sound
-and Bluetooth icons when the launcher is the whole screen, the battery when the PC has one,
+and Bluetooth icons when the launcher is the whole screen, the drives' icon there while a USB
+drive is plugged in, the battery when the PC has one,
 Settings, and the clock. Search shows only when there is a Catalog.
 
 ## Accessible labels

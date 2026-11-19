@@ -163,16 +163,37 @@ fn a_theme_built_for_0_4_is_refused_for_its_version_and_not_compiled() {
     assert_eq!(host.ui.current(), Some(&id("classic")), "the theme on screen stays");
 }
 
-/// Version 0.5.1 of the contract only added fields, so a theme built for 0.5.0 still loads.
+/// Version 0.6.0 of the contract moved the backup browser to `Vm.browser` and
+/// `kit/folder-browser.slint`. A theme built for 0.5 may use `Vm.backup.browser` or import
+/// `kit/backup-browser.slint`: it is refused for its version, and never gets as far as a compile
+/// error.
 #[test]
-fn a_theme_built_for_0_5_0_loads_on_0_5_1() {
+fn a_theme_built_for_0_5_is_refused_for_its_version_and_not_compiled() {
     let dir = tempfile::tempdir().unwrap();
-    write_theme(dir.path(), "older", "ui_api = \"^0.5.0\"", &[]);
+    let old_shell = "import { Browser } from \"kit/backup-browser.slint\";\nexport component Shell inherits Window {}";
+    write_theme(dir.path(), "old", "ui_api = \"^0.5.1\"", &[("shell.slint", old_shell)]);
     let mut host = composed(|h| h.discover(dir.path()));
     host.ui.start().unwrap();
 
-    host.ui.switch(&id("older")).unwrap();
-    assert_eq!(host.ui.current(), Some(&id("older")));
+    let error = host.ui.switch(&id("old")).unwrap_err();
+    assert!(matches!(&error, ThemeError::UiApi { .. }), "{error}");
+    assert_eq!(
+        error.to_string(),
+        format!("theme old needs UI API ^0.5.1, this host has {}", launcher_ui_api::UI_API_VERSION)
+    );
+    assert_eq!(host.ui.current(), Some(&id("classic")), "the theme on screen stays");
+}
+
+/// A theme built for 0.6.0 loads on this host.
+#[test]
+fn a_theme_built_for_0_6_0_loads() {
+    let dir = tempfile::tempdir().unwrap();
+    write_theme(dir.path(), "current", "ui_api = \"^0.6.0\"", &[]);
+    let mut host = composed(|h| h.discover(dir.path()));
+    host.ui.start().unwrap();
+
+    host.ui.switch(&id("current")).unwrap();
+    assert_eq!(host.ui.current(), Some(&id("current")));
 }
 
 #[test]

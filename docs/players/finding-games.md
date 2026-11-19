@@ -25,13 +25,35 @@ clock.
 - While a game runs, the top bar shows the game with **Resume** and **Stop**.
 - While a download runs, it shows the download's progress.
 - When the launcher is the whole screen, with no desktop behind it, the top bar also has
-  network, sound and Bluetooth icons. Each one opens a panel for its settings.
+  network, sound and Bluetooth icons. Each one opens a panel for its settings. While a USB drive
+  is plugged in, a drive icon shows too: it opens the Drives panel (see
+  [Drives](#drives)).
 - On a PC with a battery, it shows the battery level.
 
 When the PC runs on battery and the level falls to 20%, a notice says "Battery at 20%. Plug in
 soon." At 10%, a second notice says "Battery at 10%. Save your game and plug in." Each notice
 shows once, and shows again after you plug in the PC. The launcher can't show a notice over a
 running game: the notice waits until you go back to the launcher.
+
+### Drives
+
+When the launcher is the whole screen, nothing else mounts a drive for you. The launcher does it:
+
+- Plug in a USB drive. The launcher mounts it, and a notice says "Drive STICK found". Click the
+  notice to open the Drives panel.
+- The Drives panel lists each drive with its size and free space. For each drive it offers:
+  - **Mount**, for a drive that isn't mounted, such as a second disk inside the PC.
+  - **Open**: the folder browser on the drive, to pick a folder with games.
+  - **Use for games**: adds the drive to Settings → Games → Game folders.
+  - **Eject** for a USB drive, or **Unmount** for a drive inside the PC. Take the drive out
+    after the panel says "You can take it out now".
+- The launcher doesn't unmount or eject a drive while a game runs from it, or while a download
+  or an install writes to it. The message says which one to close or wait for.
+- A game folder on a USB drive remembers the drive. At the next start, the launcher mounts the
+  drive before it looks for games. While the drive is out, its games stay in the Library.
+
+Mounting needs UDisks (the `udisks2` package). On a desktop, the desktop mounts drives itself,
+and the launcher only lists the drives it mounted.
 
 ## Library
 

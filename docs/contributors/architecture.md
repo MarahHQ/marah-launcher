@@ -174,6 +174,8 @@ their changes into `Core::changes()`, and reads them all into one `Snapshot`.
 | `VpnSubsystem` | `vpn.rs` | "Download only through a VPN" and the VPNs. |
 | `LauncherUpdateSubsystem` | `launcher_update.rs` | The launcher's own update. The protocol is in [releasing.md](releasing.md). |
 | `BackupSubsystem` | `backup/` | Settings → Backup. See [Backup and restore](#backup-and-restore). |
+| `Drives` | `drives/` | The drives: the list as last read, the adapter in use, and mounting, unmounting and ejecting. See [Drives](#drives). |
+| `Browsing` | `browser.rs` | The folder browser while it is open. See [The folder browser](#the-folder-browser). |
 
 The emulator downloads run in `Downloads` (`downloads.rs`): one long-lived task that the core
 feeds through a channel.
@@ -215,6 +217,8 @@ routes a command to a flow when no one subsystem owns it.
 | `uninstall.rs` | Removes an installed game. |
 | `system.rs` | Runs the machine's settings through the system plugin. |
 | `backups.rs` | Settings → Backup's commands. |
+| `drives/flows.rs` | The drives' commands, a drive plugged in, the game folders' drives at the start, and the games of a drive that is away. |
+| `browser.rs` | The folder browser's commands (`BrowseCmd`). |
 
 [ADR 0002](../adr/0002-game-page-reads-stay-as-flows.md) records why the reads for a game's page
 stay separate flows.
@@ -284,8 +288,8 @@ its data. The work splits in three:
   and hands the paths to the subsystem. A restore writes to a place even when the grant is read
   only: the host writes, and the plugin named the place.
 - **The subsystem writes and reads the file.** `BackupSubsystem` (`backup/mod.rs`) knows no
-  plugin. It keeps the list of backups, the job in progress and the backup browser's state. Its
-  area is `Area::Backup`.
+  plugin. It keeps the list of backups and the job in progress. Its area is `Area::Backup`. The
+  folder browser's state is in `browser.rs`.
 
 The backup folder is `app.backup_folder` (`Pref::BackupFolder`), else `DEFAULT_FOLDER` in
 `backups.rs`: the `backups_folder` of `brand.toml`, in the home folder. A backup's file name is
@@ -318,21 +322,57 @@ A restore runs in this order:
    At the next start, `Core::start` puts them back (`backup::apply_pending`) before any
    subsystem starts.
 
-### The backup browser
+### The folder browser
 
-"Restore from another folder" opens the backup browser: a sheet over every screen, drawn by the
-kit file `kit/backup-browser.slint` in the launcher's own window, with no system dialog. So it
-works on a desktop, in the whole-screen session and on the OS. The core holds its state
-(`backup::Browser`) and the view shows it as `Vm.backup.browser`. The theme drives it with
-`BackupCmd`: `Browse`, `ShowHidden`, `Filter`, `RestoreFile` and `CloseBrowser`.
+"Restore from another folder" and Settings' **Add folder** open the folder browser: a sheet over
+every screen, drawn by the kit file `kit/folder-browser.slint` in the launcher's own window,
+with no system dialog. So it works on a desktop, in the whole-screen session and on the OS. The
+core holds its state (`browser::Browser`, in `Browsing`) and the view shows it as `Vm.browser`.
+The theme drives it with `BrowseCmd`: `Open` (with a purpose), `Go`, `ShowHidden`, `Filter`,
+`Mount`, `Use` and `Close`, and restores with `BackupCmd::RestoreFile`. `BackupCmd::Browse`,
+`ShowHidden`, `Filter` and `CloseBrowser` still work: they open and drive it for a restore.
 
+- The purpose (`browser::Purpose`): `Restore` lists folders and backups; `Pick(name)` lists
+  folders only, and `Use` adds the folder shown to the named host folder (`AddFolder`).
 - The places (`BrowsePlace`, `PlaceKind`): Home, then Downloads, Desktop and Documents when they
-  exist, the backup folder, each drive with its size, then the recent folders.
+  exist, for a restore the backup folder, each drive with its size, then for a restore the recent
+  folders. A drive that isn't mounted has no path: `Mount` mounts it, then the browser opens it.
 - A recent folder is one a restore came from. The core keeps the last `RECENT` (5) in
   `app.backup_recent` (`Pref::BackupRecent`). The browser opens at the newest of them, else at
   the backup folder.
 - The entries (`BrowseEntry`): the folder's folders with backups, its other folders, then its
   backups, newest first.
+
+## Drives
+
+The drives module (`crates/core/src/drives/`) is the one place for drive questions: which drives
+there are, the free space and the size of the drive that holds a folder, whether two folders
+share a drive, and mounting, unmounting and ejecting. Two parts answer them:
+
+- The `DriveSpace` port: quick system calls on a path (`statvfs`, `GetDiskFreeSpaceExW` and the
+  device id, in `crates/app/src/disk.rs`). The room checks (`room.rs`, `disks.rs`) call them on
+  the spot, through `drives::free` and `drives::same_drive`.
+- An `Adapter`: the list and the actions. The base adapter, `MountFolders`, lists the folders a
+  system mounts drives in (`/run/media/<user>`, `/media/<user>`, `/mnt`, `/Volumes`, `C:\` to
+  `Z:\`) and can't mount. When a system plugin provides `drives` and its `unavailable()` says
+  nothing, `PluginDrives` (`drives/udisks.rs`) takes over: on Linux, UDisks through
+  `udisksctl` and `lsblk`. Another kind of adapter starts the list again, as a first read does.
+
+The system tick (`system::schedule_refresh`, every 5 s) reads the drives again and compares
+them with the last read. The first read only finds what is there; a read that fails changes
+nothing. When the launcher is the whole screen, a drive that came mounts on its own, as a system
+job, and a notice with the drive's id says so (`Notice::drive`).
+
+- Unmount and eject wait while a game runs from the drive, or a download or an install uses it.
+  Eject is only for a drive the player can take out: it unmounts each part of the disk, then
+  powers it off.
+- `SetFolders` keeps the drive's id of each folder on a mounted drive, in `app.folder_drives`.
+  At the first library read of a run, `mount_game_drives` mounts those drives, for at most
+  `BOOT_MOUNT_LIMIT` (10 s), before the games are read.
+- While a game folder's drive is away, the plugin lists nothing from it. `away_games` keeps the
+  games the library had in a folder whose root isn't there, so they don't drop.
+- A game on a drive runs in the sandbox as any other: bubblewrap binds its folder at its own path
+  (`/run/media/<user>/<drive>/…`), after the system's `/run` folders.
 
 ## Plugin loading
 

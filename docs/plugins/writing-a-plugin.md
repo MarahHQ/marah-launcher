@@ -128,7 +128,7 @@ cover = "cover.jpg"
 ```
 
 - `id` names the plugin's data folder and its settings. It stays the same for the plugin's life.
-- `host_api` is a semver range. It must include the host's `API_VERSION`, `0.3.4` now
+- `host_api` is a semver range. It must include the host's `API_VERSION`, `0.3.5` now
   (`crates/api/src/lib.rs`).
 - `capabilities` must match what `init` returns, or the host refuses the plugin.
 - `[permissions]` is the plugin's whole reach: hosts for HTTP, programs it may start, and named
