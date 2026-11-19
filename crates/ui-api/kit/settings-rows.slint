@@ -6,6 +6,7 @@ import { Icon } from "icon.slint";
 import { Switch } from "widgets.slint";
 import { Osk, TextField } from "keyboard.slint";
 import { LauncherRows, DownloadsRows, SystemRows, BackupRows, PowerRows } from "settings-layout.slint";
+import { FolderList } from "folder-list.slint";
 
 // The rows of a settings sheet (Settings, a plugin's page and a game's own settings), and where
 // the keys are in it. A sheet is a list of sections; each has rows. Every sheet is one page:
@@ -642,25 +643,36 @@ export component FieldRow inherits Row {
     }
 }
 
-// A host folder as a row: Enter opens it for typing, several folders separated with ;.
+// A host folder as a row: Enter opens its list (folder-list.slint), with each folder, Remove,
+// "Add folder" and "Type a path". The path typed here is added to the list.
 export component FolderRow inherits Row {
     in property <Folder> folder;
     in property <int> section;
     in property <int> index;
+    // Its place in `Vm.folders`, or with `on-page` in `Vm.plugin-page.folders`.
+    in property <int> at;
+    in property <bool> on-page;
     property <bool> typing: Prefs.editing && root.focused;
     label: root.folder.title != "" ? root.folder.title : root.folder.name;
-    hint: root.folder.help != "" ? root.folder.help : "For " + root.folder.requested-by + (root.folder.write ? " · can write here" : "") + " · separate several folders with ;";
+    hint: root.folder.help != "" ? root.folder.help : "For " + root.folder.requested-by + (root.folder.write ? " · can write here" : "");
     focused: Prefs.is(root.section, root.index);
     accessible-role: button;
     accessible-label: "folder:" + root.folder.name;
     accessible-value: root.folder.text;
     clicked => { Prefs.section = root.section; Prefs.row = root.index; Prefs.act(0); }
     detail: root.typing ? "" : root.folder.shown != "" ? root.folder.shown : "—";
-    if root.typing : Editor { horizontal-stretch: 2; title: root.label; done(text) => { Commands.set-folder(root.folder.name, text); } }
+    if root.typing : Editor { horizontal-stretch: 2; title: "Add to " + root.label; done(text) => { Commands.add-folder(root.folder.name, text); } }
     property <int> seen: Prefs.serial;
     changed seen => {
         if (root.focused && Prefs.pending == 0 && !Prefs.editing) {
-            Prefs.edit-text = root.folder.text;
+            FolderList.show(root.at, root.on-page);
+        }
+    }
+    // "Type a path" in the list: this row takes it.
+    property <int> asked: FolderList.asks-path;
+    changed asked => {
+        if (root.focused) {
+            Prefs.edit-text = "";
             Prefs.editing = true;
         }
     }

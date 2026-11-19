@@ -536,17 +536,17 @@ fn restore_from_another_folder_opens_the_browser_over_settings_and_closing_it_st
     let mut host = backup_tab(backups.path());
     host.dispatch(Command::Backup(launcher_core::BackupCmd::Browse(Some(elsewhere.path().into()))));
     host.settle();
-    assert_eq!(host.count("backup-browser"), 1, "the browser opens over the tab");
+    assert_eq!(host.count("folder-browser"), 1, "the browser opens over the tab");
     assert_eq!(host.values("browser-folder"), ["old-pc"]);
     host.press_first("browser-folder");
     host.settle();
-    assert_eq!(host.value("backup-browser"), elsewhere.path().join("old-pc").display().to_string());
+    assert_eq!(host.value("folder-browser"), elsewhere.path().join("old-pc").display().to_string());
     assert_eq!(host.values("browser-crumb").last().map(String::as_str), Some("old-pc"), "the path shows to go up");
     // The places, then Back there closes it.
     host.navigate(Key::LeftArrow);
     host.navigate(Key::Escape);
     host.settle();
-    assert_eq!(host.count("backup-browser"), 0, "Back closes the browser");
+    assert_eq!(host.count("folder-browser"), 0, "Back closes the browser");
     assert_eq!(host.count("back-up"), 1, "and stays in Settings");
 }
 

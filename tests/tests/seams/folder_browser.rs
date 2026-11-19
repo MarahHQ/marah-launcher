@@ -1,0 +1,133 @@
+//! Seam 1, core app API: the folder browser to pick a folder, and a named folder's list. The
+//! browser lists folders only when it picks, mounts a drive from its places and opens it, and
+//! "Use this folder" adds the folder to the list. The list says the free space on each folder's
+//! drive, and a folder can be added and taken out.
+
+use std::path::Path;
+
+use launcher_api::SystemDrive;
+use launcher_core::{BrowseCmd, BrowsePurpose, Command};
+use launcher_testkit::{FakeHost, FakeSystem, StubPlugin, TestCore};
+
+/// A plugin that asks for the game folders.
+fn games_plugin() -> StubPlugin {
+    StubPlugin::from_toml(
+        "id = \"pc\"\nkind = \"emulator\"\nname = \"PC games\"\nversion = \"1.0.0\"\nhost_api = \"^0.3\"\n\
+         [[permissions.filesystem]]\nfolder = \"games\"",
+    )
+}
+
+async fn browse(t: &TestCore, command: BrowseCmd) -> launcher_core::CoreResult<()> {
+    t.core.dispatch(Command::Browse(command)).await
+}
+
+fn pick(at: Option<&Path>) -> BrowseCmd {
+    BrowseCmd::Open { at: at.map(Path::to_path_buf), purpose: BrowsePurpose::Pick("games".into()) }
+}
+
+fn games(t: &TestCore) -> serde_json::Value {
+    t.core.kernel().config().get(&["app", "folders", "games"])
+}
+
+#[tokio::test]
+async fn a_pick_lists_folders_only_and_use_adds_the_folder_shown_to_the_list() {
+    let (mine, other) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let t = FakeHost::new().plugin(games_plugin()).boot_core().await;
+    t.core.dispatch(Command::SetFolders { name: "games".into(), paths: vec![mine.path().into()] }).await.unwrap();
+    std::fs::create_dir_all(other.path().join("PC")).unwrap();
+    let backup = format!("{}2026-01-01-000000.tar.gz", launcher_api::brand::FILES_BACKUP_PREFIX);
+    std::fs::write(other.path().join(backup), b"").unwrap();
+
+    browse(&t, pick(None)).await.unwrap();
+    let shown = t.core.view().browser;
+    assert_eq!((shown.purpose.as_str(), shown.folder.as_str()), ("pick", "games"));
+    assert_eq!(shown.folder_title, "Game folders");
+    assert_eq!(shown.shown, mine.path().display().to_string(), "it opens at the first game folder");
+    assert!(shown.places.iter().all(|p| p.kind != "backups" && p.kind != "recent"), "{:?}", shown.places);
+
+    browse(&t, BrowseCmd::Go(other.path().into())).await.unwrap();
+    let names: Vec<(String, bool)> = t.core.view().browser.entries.into_iter().map(|e| (e.name, e.folder)).collect();
+    assert_eq!(names, [("PC".to_owned(), true)], "no backup when it picks");
+
+    browse(&t, BrowseCmd::Use).await.unwrap();
+    assert!(!t.core.view().browser.open, "Use closes it");
+    let both = [mine.path().display().to_string(), other.path().display().to_string()];
+    assert_eq!(games(&t), serde_json::json!(both));
+    browse(&t, pick(Some(other.path()))).await.unwrap();
+    browse(&t, BrowseCmd::Use).await.unwrap();
+    assert_eq!(games(&t), serde_json::json!(both), "a folder that is there already isn't added again");
+}
+
+#[tokio::test]
+async fn use_is_refused_when_the_browser_restores() {
+    let at = tempfile::tempdir().unwrap();
+    let t = FakeHost::new().plugin(games_plugin()).boot_core().await;
+    assert!(browse(&t, BrowseCmd::Use).await.is_err(), "nothing open");
+    browse(&t, BrowseCmd::Open { at: Some(at.path().into()), purpose: BrowsePurpose::Restore }).await.unwrap();
+    let refused = browse(&t, BrowseCmd::Use).await.unwrap_err().to_string();
+    assert!(refused.contains("not to pick a folder"), "{refused}");
+}
+
+#[tokio::test]
+async fn a_drive_that_isn_t_mounted_is_a_place_that_mounts_then_opens() {
+    let (media, start) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let system = FakeSystem::new();
+    system.with(|m| {
+        m.mount_at = Some(media.path().to_path_buf());
+        m.drives = vec![SystemDrive {
+            device: "/dev/sda1".into(),
+            disk: "/dev/sda".into(),
+            uuid: "1A2B-3C4D".into(),
+            label: "STICK".into(),
+            size: 64_000_000_000,
+            filesystem: "exfat".into(),
+            usb: true,
+            ..SystemDrive::default()
+        }];
+    });
+    let t = FakeHost::new().plugin(system.plugin()).plugin(games_plugin()).boot_core().await;
+    t.core.dispatch(Command::Drive(launcher_core::DriveCmd::Refresh)).await.unwrap();
+
+    browse(&t, pick(Some(start.path()))).await.unwrap();
+    let stick = t.core.view().browser.places.into_iter().find(|p| p.kind == "drive" && p.name == "STICK").unwrap();
+    assert!(!stick.mounted && stick.path.is_empty());
+    assert_eq!((stick.drive.as_str(), stick.detail.as_str()), ("1A2B-3C4D", "64.0 GB"));
+
+    browse(&t, BrowseCmd::Mount(stick.drive)).await.unwrap();
+    assert_eq!(system.read(|m| m.drive_actions.clone()), ["mount /dev/sda1"]);
+    let shown = t.core.view().browser;
+    assert_eq!(shown.shown, media.path().join("STICK").display().to_string(), "the browser opens the drive");
+    assert!(shown.places.iter().any(|p| p.name == "STICK" && p.mounted));
+}
+
+#[tokio::test]
+async fn the_list_says_each_folder_s_free_space_and_a_folder_comes_and_goes() {
+    let (there, gone) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap().path().join("away"));
+    let t = FakeHost::new().free_space(120_500_000_000).plugin(games_plugin()).boot_core().await;
+    // A folder typed as Settings always took it: separated by ;.
+    t.core
+        .dispatch(
+            serde_json::from_value(serde_json::json!({ "SetFolders": { "name": "games", "paths": there.path() } }))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let add = Command::AddFolder { name: "games".into(), path: gone.clone() };
+    t.core.dispatch(add).await.unwrap();
+
+    let folder = t.core.view().settings.folders.into_iter().find(|f| f.name == "games").unwrap();
+    let list: Vec<(String, String, bool)> = folder.list.into_iter().map(|p| (p.path, p.free, p.there)).collect();
+    assert_eq!(
+        list,
+        [
+            (there.path().display().to_string(), "120.5 GB free".to_owned(), true),
+            (gone.display().to_string(), "Not there".to_owned(), false),
+        ]
+    );
+
+    t.core.dispatch(Command::RemoveFolder { name: "games".into(), path: gone.clone() }).await.unwrap();
+    assert_eq!(games(&t), serde_json::json!([there.path().display().to_string()]));
+    let again = t.core.dispatch(Command::RemoveFolder { name: "games".into(), path: gone }).await;
+    assert!(again.is_err(), "not in the list any more");
+    assert!(there.path().is_dir(), "Remove leaves the folder");
+}

@@ -39,6 +39,8 @@ pub enum Area {
     LauncherUpdate,
     /// Settings → Backup: the backups and the job in progress.
     Backup,
+    /// The folder browser.
+    Browser,
 }
 
 /// The core's state in `area` changed.

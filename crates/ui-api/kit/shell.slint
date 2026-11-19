@@ -9,7 +9,8 @@ import { PluginList } from "plugin-list.slint";
 import { Closing, ClosingScreen } from "closing.slint";
 import { GameMenu, GameMenuSheet } from "game-menu.slint";
 import { PowerMenu, PowerMenuSheet } from "power-menu.slint";
-import { Browser, BackupBrowser } from "backup-browser.slint";
+import { Browser, FolderBrowser } from "folder-browser.slint";
+import { FolderList, FolderListSheet } from "folder-list.slint";
 import { Viewer, ShotViewer } from "shot-viewer.slint";
 import { Trailers, TrailerPlayer } from "trailer-player.slint";
 import { Notices } from "notices.slint";
@@ -129,7 +130,7 @@ export global Screens {
 }
 
 // The shell's keys, in the order every theme answers them: the overlays first (the closing
-// screen, the backup browser, the on-screen keyboard, the power menu, Welcome, Install OS, a
+// screen, the folder browser, the on-screen keyboard, the power menu, Welcome, Install OS, a
 // system panel, a notice, a trailer, the result prompt, the game menu, the screenshot viewer,
 // the install prompt), then the app's own keys, then the screen's. A gamepad's d-pad and
 // buttons arrive as arrow, Return, Escape and Tab keys.
@@ -189,10 +190,15 @@ export component ShellKeys inherits FocusScope {
         Osk.pad = Vm.pad-key;
         // The launcher is going: nothing more to do.
         if (Closing.shows) { return accept; }
-        // "Restore from another folder": a sheet over everything, with keys of its own,
+        // The folder browser: a sheet over everything, with keys of its own,
         // whichever screen behind has the focus. The power menu still opens over it.
         if (Browser.open && !PowerMenu.open && !(event.modifiers.control && (event.text == "p" || event.text == "P"))) {
             return Browser.key(event.text, event.repeat, event.modifiers.control) ? accept : reject;
+        }
+        // A folder's list, from Settings or a plugin's page: the same.
+        if (FolderList.open && !PowerMenu.open && !(event.modifiers.control && (event.text == "p" || event.text == "P"))) {
+            if (event.repeat && event.text == Key.Return) { return accept; }
+            return FolderList.key(event.text) ? accept : reject;
         }
         // "Send ratings", from Settings: the same, with keys of its own over the sheet behind.
         if (Vm.ratings.open && !PowerMenu.open && !(event.modifiers.control && (event.text == "p" || event.text == "P"))) {
@@ -295,7 +301,7 @@ export component ShellKeys inherits FocusScope {
 
 // What opens over the screens, each while it is open, the later over the earlier: the install
 // prompt, the screenshot viewer, a trailer, the game menu, the result prompt, Send ratings, the
-// backup browser, Install OS, the power menu, and the closing screen over everything. Put it over
+// folder browser, Install OS, the power menu, and the closing screen over everything. Put it over
 // your screens, the size of the window. `ShellKeys` sends each one its keys.
 export component Overlays inherits Rectangle {
     // The theme's emblem, for the closing screen's steps about no game.
@@ -306,7 +312,8 @@ export component Overlays inherits Rectangle {
     if GameMenu.open : GameMenuSheet { width: parent.width; height: parent.height; }
     if Vm.has-result-prompt : ResultPrompt { width: parent.width; height: parent.height; }
     if Vm.ratings.open : SendRatings { width: parent.width; height: parent.height; }
-    if Browser.open : BackupBrowser { width: parent.width; height: parent.height; }
+    if FolderList.open : FolderListSheet { width: parent.width; height: parent.height; }
+    if Browser.open : FolderBrowser { width: parent.width; height: parent.height; }
     if Setup.shown : InstallOs { width: parent.width; height: parent.height; }
     if PowerMenu.open : PowerMenuSheet { width: parent.width; height: parent.height; }
     // Log out, Restart or Shut down closing what runs: over everything.

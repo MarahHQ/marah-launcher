@@ -203,6 +203,40 @@ pub(crate) fn set_folders(core: &Core, name: &str, paths: &[std::path::PathBuf])
     Ok(())
 }
 
+/// The folders the named host folder means now: the player's, or the default ones, as the first
+/// plugin that asks for it sees them. Empty when no plugin asks for it.
+pub(crate) fn folder_roots(core: &Core, name: &str) -> Vec<std::path::PathBuf> {
+    let kernel = core.kernel();
+    let host = kernel.host();
+    kernel
+        .order()
+        .iter()
+        .filter_map(|id| kernel.manifest(id).ok())
+        .find_map(|m| m.permissions.folder(name).cloned())
+        .map(|grant| crate::folders::roots(kernel.config(), host.home.as_deref(), host.platform, &grant))
+        .unwrap_or_default()
+}
+
+/// Adds `path` to the folders `name` means. One that is there already isn't added again.
+pub(crate) fn add_folder(core: &Core, name: &str, path: &std::path::Path) -> CoreResult<()> {
+    let mut paths = folder_roots(core, name);
+    if !paths.iter().any(|p| p == path) {
+        paths.push(path.to_path_buf());
+    }
+    set_folders(core, name, &paths)
+}
+
+/// Takes `path` out of the folders `name` means. Its files stay.
+pub(crate) fn remove_folder(core: &Core, name: &str, path: &std::path::Path) -> CoreResult<()> {
+    let mut paths = folder_roots(core, name);
+    let before = paths.len();
+    paths.retain(|p| p != path);
+    if paths.len() == before {
+        return Err(CoreError::Invalid(format!("{} isn't one of the folders", path.display())));
+    }
+    set_folders(core, name, &paths)
+}
+
 pub(crate) fn set_theme_option(core: &Core, key: String, value: String) -> CoreResult<()> {
     let theme = core.state().theme.clone().ok_or_else(|| CoreError::Invalid("no theme is active".into()))?;
     let mut options = core.theme_options(&theme);

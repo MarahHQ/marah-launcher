@@ -291,8 +291,8 @@ fn the_backup_tab_backs_up_and_lists_the_file_in_every_theme() {
         host.settle();
         assert_eq!(host.count("backup"), 1, "{theme}: the new backup is listed");
         host.press_first("backup-browse");
-        assert_eq!(host.count("backup-browser"), 1, "{theme}: Restore from another folder opens the browser");
-        assert_eq!(host.value("backup-browser"), backups.path().display().to_string(), "{theme}: at the backup folder");
+        assert_eq!(host.count("folder-browser"), 1, "{theme}: Restore from another folder opens the browser");
+        assert_eq!(host.value("folder-browser"), backups.path().display().to_string(), "{theme}: at the backup folder");
     }
 }
 
@@ -306,7 +306,12 @@ fn a_settings_text_box_opens_the_on_screen_keyboard_and_circle_closes_it_in_ever
         host.navigate(Key::RightArrow);
         assert_eq!(host.count("folder:games"), 1, "{theme}");
         host.pad(PadButton::South);
-        assert_eq!(host.count("osk"), 1, "{theme}: the text box opened the keyboard");
+        assert_eq!(host.count("folder-list"), 1, "{theme}: the folder's list opened");
+        for _ in 0..host.values("folder-path").len() + 1 {
+            host.pad(PadButton::Down);
+        }
+        host.pad(PadButton::South);
+        assert_eq!(host.count("osk"), 1, "{theme}: Type a path opened the keyboard");
         host.pad(PadButton::East);
         assert_eq!(host.count("osk"), 0, "{theme}: Circle closed it");
     }
@@ -339,7 +344,7 @@ fn the_backup_browser_s_keys_move_open_and_go_up_in_every_theme() {
     for theme in THEMES {
         let backups = tempfile::tempdir().unwrap();
         let mut host = browsing(theme, backups.path());
-        assert_eq!(host.count("backup-browser"), 1, "{theme}: over everything");
+        assert_eq!(host.count("folder-browser"), 1, "{theme}: over everything");
         assert_eq!(host.values("browser-folder"), ["old-pc", "photos"], "{theme}: the folder with a backup first");
         assert_eq!(host.focused("browser-folder"), ["old-pc"], "{theme}");
         assert_eq!(host.description("browser-folder"), "1 backup", "{theme}");
@@ -348,12 +353,12 @@ fn the_backup_browser_s_keys_move_open_and_go_up_in_every_theme() {
         assert_eq!(host.focused("browser-folder"), ["photos"], "{theme}");
         host.navigate(Key::UpArrow);
         host.navigate(Key::Return);
-        assert!(host.value("backup-browser").ends_with("old-pc"), "{theme}: Enter opens the folder");
+        assert!(host.value("folder-browser").ends_with("old-pc"), "{theme}: Enter opens the folder");
         assert_eq!(host.count("browser-backup"), 1, "{theme}");
         assert_eq!(host.values("browser-crumb").last().map(String::as_str), Some("old-pc"), "{theme}");
 
         host.navigate(Key::Escape);
-        assert_eq!(host.value("backup-browser"), backups.path().display().to_string(), "{theme}: ○ goes up a folder");
+        assert_eq!(host.value("folder-browser"), backups.path().display().to_string(), "{theme}: ○ goes up a folder");
 
         // The places: Left goes there, Enter goes to one, ○ there closes.
         host.navigate(Key::LeftArrow);
@@ -363,8 +368,8 @@ fn the_backup_browser_s_keys_move_open_and_go_up_in_every_theme() {
         assert_eq!(host.focused("browser-folder").len(), 1, "{theme}: back in the files");
         host.navigate(Key::LeftArrow);
         host.navigate(Key::Escape);
-        assert_eq!(host.count("backup-browser"), 0, "{theme}: closed");
-        assert!(!host.core().view().settings.backup.browser.open, "{theme}");
+        assert_eq!(host.count("folder-browser"), 0, "{theme}: closed");
+        assert!(!host.core().view().browser.open, "{theme}");
     }
 }
 
@@ -384,7 +389,7 @@ fn typing_filters_the_backup_browser_and_escape_clears_it_first_in_every_theme()
         host.navigate(Key::Escape);
         assert_eq!(host.count("browser-filter"), 0, "{theme}: ○ clears the text first");
         assert_eq!(host.count("browser-folder"), 2, "{theme}");
-        assert_eq!(host.count("backup-browser"), 1, "{theme}: and stays open");
+        assert_eq!(host.count("folder-browser"), 1, "{theme}: and stays open");
     }
 }
 
@@ -401,7 +406,7 @@ fn a_restore_from_the_backup_browser_asks_once_then_restores_in_every_theme() {
         assert_eq!(host.count("browser-confirm"), 1, "{theme}: △ asks first");
         host.navigate(Key::Escape);
         assert_eq!(host.count("browser-confirm"), 0, "{theme}");
-        assert_eq!(host.count("backup-browser"), 1, "{theme}: the browser stays");
+        assert_eq!(host.count("folder-browser"), 1, "{theme}: the browser stays");
 
         // Enter asks too; Right goes to Cancel, Enter on it says no.
         host.navigate(Key::Return);
@@ -417,7 +422,7 @@ fn a_restore_from_the_backup_browser_asks_once_then_restores_in_every_theme() {
         host.navigate(Key::Return);
         host.until(launcher_core::Area::Backup, |core| core.view().settings.backup.restart);
         host.settle();
-        assert_eq!(host.count("backup-browser"), 0, "{theme}: a restore closes the browser");
+        assert_eq!(host.count("folder-browser"), 0, "{theme}: a restore closes the browser");
     }
 }
 
@@ -428,7 +433,7 @@ fn one_click_opens_and_a_double_click_opens_only_one_folder_in_every_theme() {
         let mut host = browsing(theme, backups.path());
         // One click on a folder opens it.
         host.click("browser-folder");
-        assert!(host.value("backup-browser").ends_with("old-pc"), "{theme}: one click opens");
+        assert!(host.value("folder-browser").ends_with("old-pc"), "{theme}: one click opens");
         host.wait(std::time::Duration::from_millis(500));
         // One click on a backup asks to restore it.
         host.click("browser-backup");
@@ -450,11 +455,11 @@ fn one_click_opens_and_a_double_click_opens_only_one_folder_in_every_theme() {
             host.pump();
         }
         host.settle();
-        assert!(host.value("backup-browser").ends_with("old-pc"), "{theme}");
+        assert!(host.value("folder-browser").ends_with("old-pc"), "{theme}");
         assert_eq!(host.count("browser-confirm"), 0, "{theme}: the second click waited");
         host.wait(std::time::Duration::from_millis(500));
         host.press_first("browser-close");
-        assert_eq!(host.count("backup-browser"), 0, "{theme}");
+        assert_eq!(host.count("folder-browser"), 0, "{theme}");
     }
 }
 
@@ -605,5 +610,38 @@ fn a_plugin_s_question_shows_over_the_boot_screen_and_the_keys_answer_it() {
         assert_eq!(*work.answers.lock().unwrap(), [answer], "{theme}");
         assert!(host.values("question").is_empty(), "{theme}: the question is gone");
         assert!(host.core().view().question.is_none(), "{theme}: asked once a run");
+    }
+}
+
+/// Settings → Game folders: the folder's row opens its list, "Add folder" opens the folder browser
+/// to pick one, and △ uses the folder shown: it joins the list.
+#[test]
+fn add_folder_picks_a_folder_in_the_browser_in_every_theme() {
+    for theme in THEMES {
+        let picked = tempfile::tempdir().unwrap();
+        let mut host = in_theme(theme, |h| h.built_in(launcher_api::PluginBox::code(emu_kyty::KytyPlugin)));
+        host.dispatch(Command::Navigate(Route::Settings));
+        host.settle();
+        host.settings_tab("Games");
+        host.navigate(Key::RightArrow);
+        host.pad(PadButton::South);
+        assert_eq!(host.count("folder-list"), 1, "{theme}");
+        for _ in 0..host.values("folder-path").len() {
+            host.pad(PadButton::Down);
+        }
+        assert_eq!(host.focused("folder-add").len(), 1, "{theme}: Add folder");
+        host.pad(PadButton::South);
+        host.settle();
+        assert_eq!(host.count("folder-list"), 0, "{theme}: the list closed");
+        assert_eq!(host.count("folder-browser"), 1, "{theme}: the browser opened");
+        assert_eq!(host.count("browser-use"), 1, "{theme}: Use this folder shows when it picks");
+
+        host.dispatch(Command::Browse(launcher_core::BrowseCmd::Go(picked.path().into())));
+        host.settle();
+        text(&mut host, "/");
+        host.settle();
+        assert_eq!(host.count("folder-browser"), 0, "{theme}: △ used the folder");
+        let games = host.core().kernel().config().get(&["app", "folders", "games"]);
+        assert!(games.as_array().unwrap().iter().any(|p| p == picked.path().to_str().unwrap()), "{theme}: {games}");
     }
 }

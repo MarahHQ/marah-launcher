@@ -26,7 +26,7 @@ import { Closing } from "kit/closing.slint";
 import { Lingering } from "kit/lingering.slint";
 import { GameMenu } from "kit/game-menu.slint";
 import { PowerMenu } from "kit/power-menu.slint";
-import { Browser } from "kit/backup-browser.slint";
+import { Browser } from "kit/folder-browser.slint";
 import { Viewer } from "kit/shot-viewer.slint";
 import { Trailers } from "kit/trailer-player.slint";
 import { Notices, NoticeStack } from "kit/notices.slint";
@@ -71,7 +71,7 @@ export component Shell inherits Window {
     // A game starts: the start sound. The screen stays as it is.
     property <bool> has-running: Vm.has-running;
     changed has-running => { if (root.has-running) { Host.play-sound("start"); } }
-    // The backup browser opened: its keys come here, whatever had the focus.
+    // The folder browser opened: its keys come here, whatever had the focus.
     property <bool> browsing: Browser.open;
     changed browsing => { if (root.browsing) { keys.focus(); } }
     // A text box closed: the keys come back here.
@@ -234,7 +234,7 @@ export component Shell inherits Window {
         && (Nav.zone == "bar" || Nav.zone == "filters" || Nav.zone == "genres") && !Nav.typing;
     if (root.overlay || root.grid-header || !(Games.library || Vm.screen == "catalog"))
         && !(Vm.has-trailer && Vm.trailer.playing && !Trailers.controls)
-        // The backup browser shows its own keys.
+        // The folder browser shows its own keys.
         && !Browser.open
         // Over the launch splash's keys, the keys are the game's.
         && !Splash.keys

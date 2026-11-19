@@ -891,17 +891,22 @@ pub struct BackupVm {
     pub large: String,
     /// The backup folder when the player chose none, with the home folder as `~`.
     pub default_folder: String,
-    /// "Restore from another folder".
-    pub browser: BackupBrowserVm,
 }
 
-/// "Restore from another folder": a folder's folders and backups, and the places to go to.
+/// The folder browser: a folder's folders (and for a restore its backups), and the places to go
+/// to. It is open for a restore ("Restore from another folder") or to pick a folder.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct BackupBrowserVm {
+pub struct FolderBrowserVm {
     pub open: bool,
+    /// `restore` or `pick`.
+    pub purpose: String,
+    /// For a pick: the name of the folder the pick goes to (`games`), and its title ("Game
+    /// folders"). Empty for a restore.
+    pub folder: String,
+    pub folder_title: String,
     /// The folder shown, with the home folder as `~`.
     pub shown: String,
-    /// Its parent, a full path for Backup Browse. Empty at the top.
+    /// Its parent, a full path for Browse Go. Empty at the top.
     pub parent: String,
     /// The folder's path, one part each from `~` or the top; the last is the folder.
     pub crumbs: Vec<BrowseCrumbVm>,
@@ -909,11 +914,11 @@ pub struct BackupBrowserVm {
     /// The index in `places` of the place that is the folder shown; -1 when none is.
     pub place: i32,
     /// The folders with backups, the other folders, then the backups newest first: those whose
-    /// name holds `filter`.
+    /// name holds `filter`. For a pick, the folders only.
     pub entries: Vec<BrowseEntryVm>,
-    /// Hidden folders are listed (Backup ShowHidden).
+    /// Hidden folders are listed (Browse ShowHidden).
     pub hidden: bool,
-    /// The text that filters the entries (Backup Filter). Empty for all.
+    /// The text that filters the entries (Browse Filter). Empty for all.
     pub filter: String,
 }
 
@@ -921,7 +926,7 @@ pub struct BackupBrowserVm {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct BrowseCrumbVm {
     pub name: String,
-    /// A full path, for Backup Browse.
+    /// A full path, for Browse Go.
     pub path: String,
 }
 
@@ -929,12 +934,16 @@ pub struct BrowseCrumbVm {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct BrowsePlaceVm {
     pub name: String,
-    /// A full path, for Backup Browse.
+    /// A full path, for Browse Go. Empty for a drive that isn't mounted.
     pub path: String,
     /// home | downloads | desktop | documents | backups | drive | recent.
     pub kind: String,
     /// A drive's size, such as "32.0 GB"; a recent folder's path. Empty for the others.
     pub detail: String,
+    /// A drive's id, for Browse Mount. Empty for the other places.
+    pub drive: String,
+    /// A drive is mounted; true for the other places.
+    pub mounted: bool,
 }
 
 /// A folder, or a backup, in the browser's folder.
@@ -942,7 +951,7 @@ pub struct BrowsePlaceVm {
 pub struct BrowseEntryVm {
     /// The folder's or the file's name.
     pub name: String,
-    /// A full path: for Backup Browse (a folder) or Backup RestoreFile (a backup).
+    /// A full path: for Browse Go (a folder) or Backup RestoreFile (a backup).
     pub path: String,
     pub folder: bool,
     /// A folder's: "2 backups", "empty", "can't be read", or empty. Empty for a backup.
@@ -1018,6 +1027,8 @@ pub struct FolderVm {
     pub paths: Vec<String>,
     /// `paths` joined with "; ", for a text field.
     pub text: String,
+    /// Each of `paths`, with the free space on its drive.
+    pub list: Vec<FolderPathVm>,
     /// What to show: `text`, or the default when it is empty, with the home folder as `~`.
     pub shown: String,
     /// The plugins' default, if any. Empty when there is none.
@@ -1029,6 +1040,20 @@ pub struct FolderVm {
     pub requested_by_text: String,
     /// Some plugin may write to it.
     pub write: bool,
+}
+
+/// One folder a named host folder means.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct FolderPathVm {
+    /// A full path, for the commands AddFolder and RemoveFolder.
+    pub path: String,
+    /// As Settings shows it, with the home folder as `~`.
+    pub shown: String,
+    /// The free space on its drive, such as "120.5 GB free"; "Not there" when the folder isn't
+    /// there (its drive is out), empty when the system doesn't say.
+    pub free: String,
+    /// The folder is there.
+    pub there: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1232,6 +1257,8 @@ pub struct AppView {
     pub notices: Vec<String>,
     /// The notices the theme shows, newest last. The core keeps at most `MAX_NOTICES`.
     pub notice_cards: Vec<NoticeVm>,
+    /// The folder browser, over everything while it is open.
+    pub browser: FolderBrowserVm,
     /// A game was started whose emulator isn't installed: the player is asked first.
     #[serde(serialize_with = "mark::has")]
     pub install_prompt: Option<InstallPromptVm>,

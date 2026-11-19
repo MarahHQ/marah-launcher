@@ -132,6 +132,7 @@ fn rows() -> Vec<Row> {
         doc(("RunningVm", "state"), ("Running", "state")),
         doc(("VpnVm", "kind"), ("VpnItem", "kind")),
         doc(("BrowsePlaceVm", "kind"), ("BrowsePlace", "kind")),
+        doc(("FolderBrowserVm", "purpose"), ("FolderBrowser", "purpose")),
         doc(("LauncherUpdateVm", "state"), ("LauncherUpdate", "state")),
         doc(("LauncherUpdateVm", "method"), ("LauncherUpdate", "method")),
         doc(("SystemVm", "connection"), ("System", "connection")),

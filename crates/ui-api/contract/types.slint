@@ -357,7 +357,11 @@ export struct ThemeChoice { id: string, name: string, current: bool }
 // `text` is the folders joined with the system's path separator.
 // title: what to call it ("" for its name); help: a line about it, or "".
 // shown: `text` (or the default) as Settings shows it, with the home folder as ~.
-export struct Folder { name: string, title: string, help: string, text: string, shown: string, default: string, requested-by: string, write: bool }
+// list: each folder it means, with a full path for the commands AddFolder and RemoveFolder, as
+// Settings shows it (`shown`), the free space on its drive ("120.5 GB free"; "Not there" while
+// its drive is out; "" when the system doesn't say), and whether it is there.
+export struct FolderPath { path: string, shown: string, free: string, there: bool }
+export struct Folder { name: string, title: string, help: string, text: string, list: [FolderPath], shown: string, default: string, requested-by: string, write: bool }
 
 // system: the id of the system it plays ("PS5"), what LibrarySystem takes; "" for none.
 // system-name: its full name ("PlayStation 5"); "" for none.
@@ -453,25 +457,29 @@ export struct BackupFile { file: string, date: string, size: string, items: stri
 // or a restore runs (restoring: a restore), `progress` from 0 to 1. status: what the last one
 // did, or why it failed (failed). restart: a restore finished, and Marah Launcher starts again to finish
 // it. backups: newest first.
-// "Restore from another folder", a sheet over everything while open. shown: the folder, with
-// the home folder as `~`. parent: its parent's full path, empty at the top. crumbs: the folder's
-// path, one part each, from `~` or the top (the last is the folder). places: where it goes, each
-// with a full path for the command Backup Browse; kind: home | downloads | desktop | documents |
-// backups | drive | recent; detail: a drive's size, a recent folder's path. entries: the folders
-// with backups, the other folders, then the backups newest first, each with a full path for
-// Backup Browse or Backup RestoreFile; only those whose name holds `filter`. A folder's detail:
-// "2 backups", "empty", "can't be read", or empty. A backup's computer: the computer that made
-// it, empty when it doesn't say; newer: a newer Marah Launcher made it and this one doesn't restore it.
-// hidden: hidden folders are listed. place: the index in places of the folder shown, -1 when
-// it is no place.
+
+// The folder browser (`Vm.browser`), a sheet over everything while open. purpose: restore
+// ("Restore from another folder") | pick (a folder for the named folder `folder`, whose title is
+// `folder-title`, such as "Game folders"). shown: the folder, with the home folder as `~`.
+// parent: its parent's full path, empty at the top. crumbs: the folder's path, one part each,
+// from `~` or the top (the last is the folder). places: where it goes, each with a full path for
+// the command Browse Go; kind: home | downloads | desktop | documents | backups | drive |
+// recent; detail: a drive's size, a recent folder's path. A drive's `drive` is its id, for
+// Browse Mount; one that isn't `mounted` has no path. entries: for a restore the folders with
+// backups, the other folders, then the backups newest first, each with a full path for Browse
+// Go or Backup RestoreFile; for a pick the folders only; only those whose name holds `filter`.
+// A folder's detail: "2 backups" (a restore), "empty", "can't be read", or empty. A backup's
+// computer: the computer that made it, empty when it doesn't say; newer: a newer Marah Launcher
+// made it and this one doesn't restore it. hidden: hidden folders are listed. place: the index
+// in places of the folder shown, -1 when it is no place.
 export struct BrowseCrumb { name: string, path: string }
-export struct BrowsePlace { name: string, path: string, kind: string, detail: string }
+export struct BrowsePlace { name: string, path: string, kind: string, detail: string, drive: string, mounted: bool }
 export struct BrowseEntry { name: string, path: string, folder: bool, detail: string, date: string, size: string, items: string, computer: string, newer: bool }
-export struct BackupBrowser { open: bool, shown: string, parent: string, crumbs: [BrowseCrumb], places: [BrowsePlace], place: int, entries: [BrowseEntry], hidden: bool, filter: string }
+export struct FolderBrowser { open: bool, purpose: string, folder: string, folder-title: string, shown: string, parent: string, crumbs: [BrowseCrumb], places: [BrowsePlace], place: int, entries: [BrowseEntry], hidden: bool, filter: string }
 
 // holds: what a backup holds on this computer now. large: the large items a backup takes only
 // when asked, empty when no plugin has one. default-folder: the folder when none is chosen.
-export struct Backup { folder: string, running: bool, restoring: bool, progress: float, status: string, failed: bool, restart: bool, backups: [BackupFile], holds: string, large: string, default-folder: string, browser: BackupBrowser }
+export struct Backup { folder: string, running: bool, restoring: bool, progress: float, status: string, failed: bool, restart: bool, backups: [BackupFile], holds: string, large: string, default-folder: string }
 
 // The launcher's own update. state: off | idle | checking | current | available |
 // downloading | ready | installed | system | failed. installed: the package manager put it in,
@@ -618,6 +626,8 @@ export global Vm {
     in-out property <[string]> notices;
     // The notices, newest last: at most 3, as a new one drops the oldest.
     in-out property <[Notice]> notice-cards;
+    // The folder browser, over everything while it is open.
+    in-out property <FolderBrowser> browser;
     // "How far did it get?" for a game that just closed: its title. Answer with the command
     // ReportResult: ingame, menus, boots, nothing, or null for Not now.
     in-out property <bool> has-result-prompt;

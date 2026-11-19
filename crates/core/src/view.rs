@@ -427,6 +427,7 @@ pub(crate) fn build(s: &Snapshot) -> AppView {
         running: running_vm(s),
         notices: notices.iter().map(|n| n.message.clone()).collect(),
         notice_cards: notices.iter().map(|n| notice_vm(s, n)).collect(),
+        browser: browser_vm(s),
         question: state.startup.question.as_ref().map(|(_, q)| QuestionVm {
             title: q.title.clone(),
             text: q.text.clone(),
@@ -1414,14 +1415,26 @@ fn backup_vm(s: &Snapshot) -> launcher_ui_api::BackupVm {
                 )
             })
             .unwrap_or_default(),
-        browser: backup.browser.as_deref().map(|b| browser_vm(b, home.as_deref())).unwrap_or_default(),
     }
 }
 
-fn browser_vm(browser: &crate::backup::Browser, home: Option<&str>) -> launcher_ui_api::BackupBrowserVm {
+/// The folder browser, while it is open.
+fn browser_vm(s: &Snapshot) -> launcher_ui_api::FolderBrowserVm {
+    let Some(browser) = s.browser.as_deref() else { return Default::default() };
+    let home = s.plugins.host().home.as_deref().map(|h| h.display().to_string());
+    let home = home.as_deref();
     let full = |p: &std::path::Path| p.display().to_string();
-    launcher_ui_api::BackupBrowserVm {
+    let (purpose, folder) = match &browser.purpose {
+        crate::browser::Purpose::Restore => ("restore", String::new()),
+        crate::browser::Purpose::Pick(name) => ("pick", name.clone()),
+    };
+    let folder_title =
+        launcher_api::shared_folder(&folder).map(|f| f.title.to_owned()).unwrap_or_else(|| folder.clone());
+    launcher_ui_api::FolderBrowserVm {
         open: true,
+        purpose: purpose.into(),
+        folder,
+        folder_title,
         shown: crate::display::short_home(&full(&browser.at), home),
         parent: browser.at.parent().map(full).unwrap_or_default(),
         crumbs: crumbs(&browser.at, home),
@@ -1434,6 +1447,8 @@ fn browser_vm(browser: &crate::backup::Browser, home: Option<&str>) -> launcher_
                 path: full(&p.path),
                 kind: p.kind.as_str().to_owned(),
                 detail: p.detail.clone(),
+                drive: p.drive.clone().unwrap_or_default(),
+                mounted: !p.path.as_os_str().is_empty(),
             })
             .collect(),
         entries: browser
@@ -1519,6 +1534,7 @@ fn folders_vm(s: &Snapshot) -> Vec<FolderVm> {
                     title: String::new(),
                     help: String::new(),
                     text: paths.join("; "),
+                    list: roots.iter().map(|p| folder_path_vm(s, p)).collect(),
                     shown: String::new(),
                     paths,
                     default: String::new(),
@@ -1560,6 +1576,23 @@ fn folders_vm(s: &Snapshot) -> Vec<FolderVm> {
             f
         })
         .collect()
+}
+
+/// One folder of a named host folder, with the free space on its drive.
+fn folder_path_vm(s: &Snapshot, path: &std::path::Path) -> launcher_ui_api::FolderPathVm {
+    let home = s.plugins.host().home.as_deref().map(|h| h.display().to_string());
+    let there = s.files.free.contains_key(path);
+    let free = match s.files.free.get(path) {
+        Some(Some(bytes)) => format!("{} free", crate::browser::drive_size_text(*bytes)),
+        Some(None) => String::new(),
+        None => "Not there".into(),
+    };
+    launcher_ui_api::FolderPathVm {
+        path: path.display().to_string(),
+        shown: crate::display::short_home(&path.display().to_string(), home.as_deref()),
+        free,
+        there,
+    }
 }
 
 fn emulators_vm(s: &Snapshot) -> EmulatorsVm {

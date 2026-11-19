@@ -15,6 +15,7 @@ mod default_theme;
 mod download_and_install;
 mod drives;
 mod every_theme;
+mod folder_browser;
 mod folders;
 mod game_files;
 mod game_installs;

@@ -136,6 +136,22 @@ pub enum Command {
         #[serde(deserialize_with = "crate::typed_text::folder_list")]
         paths: Vec<std::path::PathBuf>,
     },
+    /// Adds a folder to the folders a named host folder means: to the player's, or to the
+    /// default ones when the player chose none. One that is there already isn't added again.
+    AddFolder {
+        name: String,
+        #[serde(deserialize_with = "crate::typed_text::path")]
+        path: std::path::PathBuf,
+    },
+    /// Takes a folder out of the folders a named host folder means. The folder and its files
+    /// stay. With none left, the plugins' default comes back.
+    RemoveFolder {
+        name: String,
+        path: std::path::PathBuf,
+    },
+    /// The folder browser: open it to restore a backup or to pick a folder, move it, mount a
+    /// drive from it, use the folder it shows.
+    Browse(crate::BrowseCmd),
     /// Sets one of the player's preferences: sounds, full screen, size, the monitor and so
     /// on. [`Pref`] says what values each takes; a size outside its range goes to its nearest
     /// end, and a value of the wrong type is refused.
@@ -249,6 +265,8 @@ pub(crate) struct Inner {
     pub backup: crate::backup::BackupSubsystem,
     /// The drives: which there are, their room, and mounting them.
     pub drives: crate::drives::Drives,
+    /// The folder browser, while it is open.
+    pub browsing: crate::browser::Browsing,
     /// Held while the catalogs are read: see [`crate::catalog_reads::refresh_releases`].
     pub reading_catalogs: tokio::sync::Mutex<()>,
 }
@@ -377,9 +395,11 @@ impl Core {
                 ports.drives.clone(),
                 Arc::new(crate::drives::MountFolders::here(kernel.host().home.as_deref())),
             );
+            let browsing = crate::browser::Browsing::new(Notifier::new(changes.clone(), kernel.events().clone()));
             Inner {
                 backup,
                 drives,
+                browsing,
                 preferences,
                 kernel,
                 ports,
@@ -486,6 +506,11 @@ impl Core {
         &self.inner.drives
     }
 
+    /// The folder browser.
+    pub(crate) fn browsing(&self) -> &crate::browser::Browsing {
+        &self.inner.browsing
+    }
+
     /// The launcher's own update.
     pub(crate) fn launcher_update(&self) -> &crate::launcher_update::LauncherUpdateSubsystem {
         &self.inner.launcher_update
@@ -539,6 +564,7 @@ impl Core {
             notices: self.notices().snapshot(),
             launcher_update: self.launcher_update().snapshot(),
             backup: self.backup().snapshot(),
+            browser: self.browsing().snapshot(),
             backup_folder: crate::backups::folder(self).ok(),
             vpn: self.vpn().snapshot(),
             downloads: self.inner.downloads.jobs(),
@@ -674,6 +700,9 @@ impl Core {
                 plugin_settings::run_action(self, &plugin, &action, game, args).await
             }
             Command::SetFolders { name, paths } => plugin_settings::set_folders(self, &name, &paths),
+            Command::AddFolder { name, path } => plugin_settings::add_folder(self, &name, &path),
+            Command::RemoveFolder { name, path } => plugin_settings::remove_folder(self, &name, &path),
+            Command::Browse(command) => crate::browser::handle(self, command).await,
             Command::SetPluginEnabled { plugin, enabled } => {
                 plugin_settings::set_plugin_enabled(self, &plugin, enabled).await
             }

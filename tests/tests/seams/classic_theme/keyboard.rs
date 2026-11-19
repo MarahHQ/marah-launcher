@@ -392,8 +392,8 @@ fn a_settings_text_box_opened_with_the_controller_types_on_the_keyboard_too() {
     host.ui.start().unwrap();
     host.resize(1600.0, 900.0);
     host.settle();
-    // Settings, on its first tab. The Games tab, down to the game folders' row;
-    // Cross opens it for typing.
+    // Settings, on its first tab. The Games tab, down to the game folders' row; Cross opens its
+    // list, and Cross on "Type a path" opens the row for typing.
     host.dispatch(Command::Navigate(launcher_core::Route::Settings));
     host.settle();
     assert_eq!(host.core().view().screen, launcher_ui_api::ScreenId::Settings);
@@ -402,15 +402,22 @@ fn a_settings_text_box_opened_with_the_controller_types_on_the_keyboard_too() {
     host.navigate(slint::platform::Key::RightArrow);
     assert_eq!(host.count("folder:games"), 1);
     host.pad(PadButton::South);
+    let list = host.values("folder-path").len();
+    for _ in 0..list + 1 {
+        host.pad(PadButton::Down);
+    }
+    host.pad(PadButton::South);
     assert_eq!(host.count("osk"), 1, "the text box opened the keyboard");
-    let before = host.values("osk-text")[0].clone();
+    assert_eq!(host.values("osk-text")[0], "", "a new path starts empty");
+    let before = host.values("folder:games")[0].clone();
     let typed = full_path("/x");
     osk_type(&mut host, &typed);
-    assert_eq!(host.values("editor"), [format!("{before}{typed}")]);
+    assert_eq!(host.values("editor"), std::slice::from_ref(&typed));
 
-    // R2: Done sets the folders.
+    // R2: Done adds the folder to the list.
     host.pad(PadButton::RightTrigger);
-    assert_eq!(host.values("folder:games"), [format!("{before}{typed}")]);
+    let after = if before.is_empty() { typed } else { format!("{before}; {typed}") };
+    assert_eq!(host.values("folder:games"), [after]);
     assert_eq!(host.count("osk"), 0);
     assert_eq!(host.count("editor"), 0, "the row is closed");
 }

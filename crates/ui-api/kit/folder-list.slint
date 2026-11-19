@@ -1,0 +1,207 @@
+import { Vm, Host, Folder } from "../types.slint";
+import { Commands } from "commands.slint";
+import { Tokens } from "../tokens.slint";
+import { Look } from "look.slint";
+import { Icon } from "icon.slint";
+import { Reveal } from "reveal.slint";
+
+// A named folder's list, such as Settings → Game folders: a sheet over everything while
+// `FolderList.open`. Each folder it means, with the free space on its drive and Remove (the folder
+// and its files stay), then "Add folder", which opens the folder browser to pick one, and "Type a
+// path", which types one in the folder's row. A folder row in Settings or on a plugin's page
+// opens it (`FolderRow`); each shell sends it the keys first (`ShellKeys`).
+//
+// Keys: Up and Down move; ✕ (Enter) acts on the row; ○ (Escape) closes.
+export global FolderList {
+    in-out property <bool> open;
+    // Which folder: its index in `Vm.folders`, or in `Vm.plugin-page.folders` with `on-page`.
+    in-out property <int> index;
+    in-out property <bool> on-page;
+    in-out property <int> row;
+    // Goes up by one each time "Type a path" is picked: the folder's row takes the path.
+    in-out property <int> asks-path;
+    out property <Folder> folder: root.on-page ? Vm.plugin-page.folders[root.index] : Vm.folders[root.index];
+    // Its folders, then "Add folder", then "Type a path".
+    out property <int> rows: root.folder.list.length + 2;
+
+    public function show(index: int, on-page: bool) {
+        root.index = index;
+        root.on-page = on-page;
+        root.row = 0;
+        root.open = true;
+        Host.play-sound("select");
+    }
+    public function close() {
+        root.open = false;
+        Host.play-sound("back");
+    }
+    // What ✕ does on row `r`.
+    public function act(r: int) {
+        root.row = r;
+        let count = root.folder.list.length;
+        if (r < count) {
+            Commands.remove-folder(root.folder.name, root.folder.list[r].path);
+            root.row = Math.max(0, r - 1);
+            Host.play-sound("select");
+        } else if (r == count) {
+            root.open = false;
+            Commands.pick-folder(root.folder.name);
+            Host.play-sound("select");
+        } else {
+            // The folder's row in the sheet behind takes the path, as a text field.
+            root.open = false;
+            root.asks-path += 1;
+            Host.play-sound("select");
+        }
+    }
+    // A key while the list is open: it takes every key, so nothing behind it moves.
+    public function key(text: string) -> bool {
+        if (text == Key.Escape || text == Key.Backspace) {
+            root.close();
+        } else if (text == Key.DownArrow) {
+            if (root.row + 1 < root.rows) { root.row += 1; Host.play-sound("move"); }
+        } else if (text == Key.UpArrow) {
+            if (root.row > 0) { root.row -= 1; Host.play-sound("move"); }
+        } else if (text == Key.Return || text == " ") {
+            root.act(root.row);
+        }
+        true
+    }
+}
+
+// One row of the list.
+component ListRow inherits Rectangle {
+    in property <string> icon;
+    in property <string> label;
+    in property <string> detail;
+    in property <string> action;
+    in property <bool> focused;
+    in property <bool> dim;
+    in property <string> name;
+    in property <string> value;
+    callback clicked();
+    height: 60 * Look.px;
+    border-radius: 12 * Look.px;
+    background: root.focused ? Tokens.color-focus : ta.has-hover ? Look.fill : transparent;
+    accessible-role: button;
+    accessible-label: root.name;
+    accessible-value: root.value;
+    accessible-description: root.detail;
+    accessible-item-selected: root.focused;
+    accessible-action-default => { root.clicked(); }
+    ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+    HorizontalLayout {
+        padding-left: 16 * Look.px;
+        padding-right: 16 * Look.px;
+        spacing: 12 * Look.px;
+        VerticalLayout {
+            alignment: center;
+            Icon { name: root.icon; width: 24 * Look.px; height: 24 * Look.px; color: root.focused ? Look.ink : Tokens.color-text-muted; }
+        }
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+            Text {
+                text: root.label;
+                font-size: 19 * Look.tpx;
+                font-weight: root.focused ? 600 : 400;
+                color: root.focused ? Look.ink : root.dim ? Look.text3 : Tokens.color-text;
+                horizontal-alignment: Look.rtl ? right : left;
+                overflow: elide;
+            }
+            if root.detail != "" : Text {
+                text: root.detail;
+                font-size: 15 * Look.tpx;
+                color: root.focused ? Look.ink : Look.text3;
+                horizontal-alignment: Look.rtl ? right : left;
+            }
+        }
+        if root.action != "" : Text {
+            text: root.action;
+            font-size: 16 * Look.tpx;
+            font-weight: 600;
+            color: root.focused ? Look.ink : Tokens.color-text-muted;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component FolderListSheet inherits Rectangle {
+    reveal := Reveal { }
+    background: reveal.in-view ? Tokens.color-overlay.with-alpha(0.7) : Tokens.color-overlay.with-alpha(0);
+    animate background { duration: Tokens.motion-normal; }
+    // Closed by a click outside it.
+    TouchArea { clicked => { FolderList.close(); } }
+    accessible-role: groupbox;
+    accessible-label: "folder-list";
+    accessible-value: FolderList.folder.name;
+
+    card := Rectangle {
+        width: Math.min(root.width - 96 * Look.px, 760 * Look.tpx);
+        height: Math.min(root.height - 96 * Look.px, body.preferred-height);
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2 + (1 - reveal.move) * 24 * Look.px;
+        opacity: reveal.fade;
+        border-radius: 22 * Look.px;
+        background: @linear-gradient(180deg, Tokens.color-surface 0%, Tokens.color-panel 100%);
+        border-width: 1px;
+        border-color: Look.line;
+        drop-shadow-blur: 48 * Look.px;
+        drop-shadow-color: Tokens.color-shade.with-alpha(0.6);
+        clip: true;
+        TouchArea {}
+        body := VerticalLayout {
+            padding: 24 * Look.px;
+            spacing: 6 * Look.px;
+            Text {
+                text: FolderList.folder.title != "" ? FolderList.folder.title : FolderList.folder.name;
+                font-size: 26 * Look.tpx;
+                font-weight: 700;
+                color: Tokens.color-text;
+                horizontal-alignment: Look.rtl ? right : left;
+            }
+            if FolderList.folder.help != "" : Text {
+                text: FolderList.folder.help;
+                font-size: 16 * Look.tpx;
+                color: Tokens.color-text-muted;
+                wrap: word-wrap;
+                horizontal-alignment: Look.rtl ? right : left;
+            }
+            Rectangle { height: 10 * Look.px; }
+            for path[i] in FolderList.folder.list : ListRow {
+                icon: path.there ? "folder" : "usb";
+                label: path.shown;
+                detail: path.free;
+                dim: !path.there;
+                action: "Remove";
+                focused: FolderList.row == i;
+                name: "folder-path";
+                value: path.shown;
+                clicked => { FolderList.act(i); }
+            }
+            ListRow {
+                icon: "folder";
+                label: "Add folder";
+                detail: "Pick a folder on this PC or on a drive";
+                focused: FolderList.row == FolderList.folder.list.length;
+                name: "folder-add";
+                clicked => { FolderList.act(FolderList.folder.list.length); }
+            }
+            ListRow {
+                icon: "document";
+                label: "Type a path";
+                focused: FolderList.row == FolderList.folder.list.length + 1;
+                name: "folder-type";
+                clicked => { FolderList.act(FolderList.folder.list.length + 1); }
+            }
+            Rectangle { height: 6 * Look.px; }
+            Text {
+                text: "Remove takes a folder out of the list. The folder and its files stay.";
+                font-size: 15 * Look.tpx;
+                color: Look.text3;
+                wrap: word-wrap;
+                horizontal-alignment: Look.rtl ? right : left;
+            }
+        }
+    }
+}

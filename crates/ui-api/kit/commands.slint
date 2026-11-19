@@ -126,13 +126,25 @@ export global Commands {
     public function restore-backup(file: string) { Host.command("Backup", "{\"Restore\":" + Json.text(file) + "}"); }
     public function refresh-backups() { Host.command("Backup", "\"Refresh\""); }
     public function delete-backup(file: string) { Host.command("Backup", "{\"Delete\":" + Json.text(file) + "}"); }
-    // The browser of "Restore from another folder": a full path; "" opens it where the last
-    // restore came from, else at the backup folder.
-    public function browse-backups(path: string) { Host.command("Backup", "{\"Browse\":" + Json.text-or-null(path) + "}"); }
-    public function close-backup-browser() { Host.command("Backup", "\"CloseBrowser\""); }
-    public function show-hidden-backups(on: bool) { Host.command("Backup", "{\"ShowHidden\":" + Json.flag(on) + "}"); }
+    // The folder browser for "Restore from another folder": a full path; "" opens it where the
+    // last restore came from, else at the backup folder.
+    public function browse-backups(path: string) {
+        Host.command("Browse", "{\"Open\":{\"at\":" + Json.text-or-null(path) + ",\"purpose\":\"Restore\"}}");
+    }
+    // The folder browser to pick a folder for the named folder `name` ("games"), where its
+    // first folder is.
+    public function pick-folder(name: string) {
+        Host.command("Browse", "{\"Open\":{\"at\":null,\"purpose\":{\"Pick\":" + Json.text(name) + "}}}");
+    }
+    // The open browser: to a full path, closed, its hidden folders shown or not, a drive (its
+    // id) mounted and opened, the folder it shows used for its pick.
+    public function browse-to(path: string) { Host.command("Browse", "{\"Go\":" + Json.text(path) + "}"); }
+    public function close-browser() { Host.command("Browse", "\"Close\""); }
+    public function show-hidden-folders(on: bool) { Host.command("Browse", "{\"ShowHidden\":" + Json.flag(on) + "}"); }
+    public function browse-mount(drive: string) { Host.command("Browse", "{\"Mount\":" + Json.text(drive) + "}"); }
+    public function use-folder() { Host.command("Browse", "\"Use\""); }
     // Only the entries whose name holds `text`; "" for all.
-    public function filter-backups(text: string) { Host.command("Backup", "{\"Filter\":" + Json.text(text) + "}"); }
+    public function filter-folders(text: string) { Host.command("Browse", "{\"Filter\":" + Json.text(text) + "}"); }
     public function restore-backup-file(path: string) { Host.command("Backup", "{\"RestoreFile\":" + Json.text(path) + "}"); }
     // "" goes back to ~/Marah Launcher Backups.
     public function set-backup-folder(path: string) { Host.command("Pref", "[\"backup_folder\"," + Json.text-or-null(path) + "]"); }
@@ -163,6 +175,13 @@ export global Commands {
     // A folder's name, and its folders as the player typed them, separated by ";".
     public function set-folder(name: string, folders: string) {
         Host.command("SetFolders", "{\"name\":" + Json.text(name) + ",\"paths\":" + Json.text(folders) + "}");
+    }
+    // A folder's name, and one folder, a full path, to add to its list or take out of it.
+    public function add-folder(name: string, path: string) {
+        Host.command("AddFolder", "{\"name\":" + Json.text(name) + ",\"path\":" + Json.text(path) + "}");
+    }
+    public function remove-folder(name: string, path: string) {
+        Host.command("RemoveFolder", "{\"name\":" + Json.text(name) + ",\"path\":" + Json.text(path) + "}");
     }
     public function dismiss-notices() { Host.command("Notice", "\"DismissAll\""); }
     public function dismiss-notice(id: int) { Host.command("Notice", "{\"Dismiss\":" + id + "}"); }

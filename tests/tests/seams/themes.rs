@@ -322,10 +322,22 @@ fn the_default_settings_screen_edits_a_folder_with_the_keys() {
         host.instance().window().dispatch_event(WindowEvent::KeyReleased { text });
     };
 
-    // The focus starts on the folder's row. Enter opens its text box; Enter again saves it.
+    // The focus starts on the folder's row. Enter opens its list: each folder, then "Add
+    // folder" and "Type a path". Enter on "Type a path" opens the row's text box; Enter again
+    // adds the folder to the list.
     press(&host, Key::Return.into());
     host.pump();
     host.settle();
+    assert_eq!(host.count("folder-list"), 1);
+    let before: Vec<String> = host.core().view().settings.folders[0].list.iter().map(|p| p.path.clone()).collect();
+    assert_eq!(host.count("folder-path"), before.len());
+    for _ in 0..before.len() + 1 {
+        press(&host, Key::DownArrow.into());
+    }
+    press(&host, Key::Return.into());
+    host.pump();
+    host.settle();
+    assert_eq!(host.count("folder-list"), 0, "Type a path closes the list");
     let typed = full_path("/games");
     for c in typed.chars() {
         press(&host, c.to_string().into());
@@ -333,7 +345,8 @@ fn the_default_settings_screen_edits_a_folder_with_the_keys() {
     press(&host, Key::Return.into());
     host.pump();
     host.settle();
-    assert_eq!(host.core().kernel().config().get(&["app", "folders", "games"]), serde_json::json!([typed]));
+    let after = [before, vec![typed]].concat();
+    assert_eq!(host.core().kernel().config().get(&["app", "folders", "games"]), serde_json::json!(after));
 
     // The keys reach the sheet again: Down moves on to the Rescan row, and Enter there scans.
     press(&host, Key::DownArrow.into());

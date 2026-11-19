@@ -38,6 +38,8 @@ pub(crate) struct Snapshot<'a> {
     pub notices: Arc<Vec<Notice>>,
     pub launcher_update: LauncherUpdateSnapshot,
     pub backup: crate::backup::BackupSnapshot,
+    /// The folder browser, while it is open.
+    pub browser: Option<std::sync::Arc<crate::browser::Browser>>,
     /// Settings → Backup's folder; `None` with no home folder and none chosen.
     pub backup_folder: Option<std::path::PathBuf>,
     pub vpn: VpnSnapshot,
@@ -123,6 +125,9 @@ pub(crate) struct Files {
     /// The host folders' paths, by the folder's name, as the first plugin that asks for each
     /// sees them.
     pub roots: HashMap<String, Vec<PathBuf>>,
+    /// The free bytes on the drive of each of `roots` that is there; `None` when the system
+    /// doesn't say.
+    pub free: HashMap<PathBuf, Option<u64>>,
 }
 
 /// The loaded plugins: their manifests, which are on, and how each is.
@@ -243,7 +248,15 @@ pub(crate) fn files(
         let (_, path) = kernel.host_folders(emulator)?.place(Purpose::Install, &console, None).ok()?;
         Some((emulator.clone(), path))
     };
+    let drives = kernel.ports().drives.clone();
+    let free = roots
+        .values()
+        .flatten()
+        .filter(|p| p.is_dir())
+        .map(|p| (p.clone(), crate::drives::free(drives.as_ref(), p)))
+        .collect();
     Files {
+        free,
         game_folders: games.filter(|key| folder_there(key)).cloned().collect(),
         has_log: detail.is_some_and(|key| crate::sessions::log_path(&host.data_dir, key).is_file()),
         install_folders: torrents.jobs.values().filter_map(|j| install_folder(&j.emulator)).collect(),

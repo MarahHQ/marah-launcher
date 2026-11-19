@@ -26,7 +26,7 @@ use async_trait::async_trait;
 use launcher_api::SystemJob;
 
 pub use flows::DriveCmd;
-pub(crate) use flows::{away_games, handle, mount_game_drives, refresh, remember_folders};
+pub(crate) use flows::{away_games, handle, mount, mount_game_drives, refresh, remember_folders};
 
 use crate::{CoreError, CoreResult, DriveSpace};
 

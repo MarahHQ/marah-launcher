@@ -22,6 +22,7 @@ export component GamesSection inherits VerticalLayout {
             folder: folder;
             section: 1;
             index: i;
+            at: i;
             first: i == 0;
             reveal(y, h) => { root.reveal(y, h); }
         }
@@ -589,7 +590,7 @@ export component SystemSection inherits VerticalLayout {
 // Settings → Backup: one file with the settings and what each emulator names (its keys,
 // firmware and saves), in the backup folder, and each backup there. A backup's row is a menu:
 // Left and Right choose Restore, Delete or Cancel, and Restore and Delete ask again. "Restore
-// from another folder" opens the backup browser, a sheet over everything (backup-browser.slint).
+// from another folder" opens the folder browser, a sheet over everything (folder-browser.slint).
 export component BackupSection inherits VerticalLayout {
     callback reveal(length, length);
     // "Include large items" holds for the next backup only: it is no setting.
