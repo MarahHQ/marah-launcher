@@ -480,7 +480,7 @@ A theme built for 0.6 that reads `Vm.system.*-loading`, `*-reason` or `*-availab
 
 Every status icon that can show is in place from the first frame, so the top bar never shifts.
 The kit's `StatusState` (`kit/loading.slint`) shows an area's state over its icon. Put it in the
-icon's button with the area's place, and read its `dim`, `cursor` and `disabled`:
+icon's button with the area's place, and read its `dim`, `cursor`, `disabled` and `lit`:
 
 - **Loading:** while its area loads, the icon dims, and a 2 px line (`LoadingLine`) sweeps under
   it. With Animations off the line is dotted and stands still. Its accessible value is `loading`,
@@ -490,9 +490,12 @@ icon's button with the area's place, and read its `dim`, `cursor` and `disabled`
   drives…", "Reading the network…") that the rows replace when the read ends. The folder
   browser's places show "Reading drives…" under them while `places-loading`.
 - **Disabled:** an area that is absent or unsupported keeps its icon in place, dimmer, with the
-  plain pointer (`cursor`) in place of the hand. A click, Enter or the pad's ✕ opens nothing. The
-  icon still takes the keys' and the pad's focus and the pointer's hover, and then its reason
-  shows under it (accessible label `status-reason`). The built-in themes give it the accessible
+  plain pointer (`cursor`) in place of the hand and no hover fill. A click, Enter or the pad's ✕
+  opens nothing. The icon still takes the keys' and the pad's focus and the pointer's hover, and
+  then its reason shows under it on one line, on a chip that stays inside the window (`TipChip`
+  in `kit/motion.slint`, accessible label `status-reason`). Its focus is a ring that `StatusState`
+  draws round the dim icon: give the solid focus fill, and the glyph's colour on it, only while
+  `lit` (focused and not disabled). The built-in themes give it the accessible
   value `disabled`, `accessible-enabled: false`, and the reason as its description. Left and
   right in an open panel go past a disabled one.
 - **An icon that goes:** only what isn't there at all closes its place: a PC with no battery

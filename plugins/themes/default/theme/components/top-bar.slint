@@ -81,7 +81,9 @@ component StatusButton inherits Rectangle {
     width: 52 * Look.px;
     height: 52 * Look.px;
     border-radius: 26 * Look.px;
-    background: root.focused ? #ffffff : root.current ? #ffffff24 : ta.has-hover && !status.disabled ? #ffffff14 : transparent;
+    // A disabled icon's focus is the ring `StatusState` draws, not this fill.
+    out property <bool> lit: status.lit;
+    background: status.lit ? #ffffff : root.current ? #ffffff24 : ta.has-hover && !status.disabled ? #ffffff14 : transparent;
     accessible-role: button;
     accessible-label: root.label;
     accessible-value: status.loading ? "loading" : status.disabled ? "disabled" : root.value;
@@ -267,7 +269,7 @@ export component TopBar inherits Rectangle {
                     current: Sys.open == 0;
                     focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 4;
                     clicked => { Sys.toggle(0); }
-                    NetIcon { tint: parent.focused ? Look.ink : Tokens.color-text; }
+                    NetIcon { tint: parent.lit ? Look.ink : Tokens.color-text; }
                 }
             }
             if Vm.system.whole-screen : StatusSlot {
@@ -280,7 +282,7 @@ export component TopBar inherits Rectangle {
                     current: Sys.open == 1;
                     focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 5;
                     clicked => { Sys.toggle(1); }
-                    SoundIcon { color: parent.focused ? Look.ink : Tokens.color-text; }
+                    SoundIcon { color: parent.lit ? Look.ink : Tokens.color-text; }
                 }
             }
             if Vm.system.whole-screen : StatusSlot {
@@ -293,7 +295,7 @@ export component TopBar inherits Rectangle {
                     current: Sys.open == 2;
                     focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 6;
                     clicked => { Sys.toggle(2); }
-                    BluetoothIcon { color: parent.focused ? Look.ink : Tokens.color-text; }
+                    BluetoothIcon { color: parent.lit ? Look.ink : Tokens.color-text; }
                 }
             }
             // Everywhere: its panel mounts, opens, uses and ejects every drive. Where drives
@@ -307,7 +309,7 @@ export component TopBar inherits Rectangle {
                     current: Sys.open == 3;
                     focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 4 + Nav.statuses - 1;
                     clicked => { Sys.toggle(3); }
-                    StorageIcon { color: parent.focused ? Look.ink : Tokens.color-text; }
+                    StorageIcon { color: parent.lit ? Look.ink : Tokens.color-text; }
                 }
             }
             if battery-place.shown : StatusSlot {

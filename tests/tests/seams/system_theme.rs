@@ -749,6 +749,47 @@ fn the_drives_icon_shows_disabled_when_drives_turn_out_unavailable() {
     }
 }
 
+/// A disabled icon's reason is on one line, on a chip that stays inside the window: a long reason
+/// under the drives' icon, near the window's edge, moves in, and is as tall as a short one.
+#[test]
+fn a_disabled_icon_s_reason_is_one_line_inside_the_window() {
+    use slint::platform::Key;
+    const LONG: &str = "Drives can't be managed here: this system has no udisks service running";
+    for theme in ["classic", "default"] {
+        let system = machine();
+        system.with(|m| {
+            m.unavailable.push(("bluetooth", "No adapter".into()));
+            m.unavailable.push(("drives", LONG.into()));
+        });
+        let mut host = shown(&system, WHOLE_SCREEN);
+        host.ui.switch(&id(theme)).unwrap();
+        // The drives are read on their own tick.
+        host.advance(std::time::Duration::from_secs(31));
+        host.settle();
+        assert_eq!([host.value("status:bluetooth"), host.value("status:drives")], ["disabled", "disabled"], "{theme}");
+        let window = host.shown().window();
+        let right = window.size().width as f32 / window.scale_factor();
+        let chip = |host: &Composed| {
+            let chip = host.first("status-reason");
+            (chip.absolute_position().x, chip.size().width, chip.size().height)
+        };
+
+        // From Settings, back to the drives' icon, then past it to Bluetooth's.
+        host.send_key(Key::Backtab);
+        host.send_key(Key::Backtab);
+        host.settle();
+        assert_eq!(host.values("status-reason"), [LONG], "{theme}");
+        let (x, width, long_height) = chip(&host);
+        assert!(x >= 0.0 && x + width <= right, "{theme}: the chip is inside the window: {x} + {width} > {right}");
+        host.send_key(Key::Backtab);
+        host.settle();
+        assert_eq!(host.values("status-reason"), ["No adapter"], "{theme}");
+        let (_, short_width, short_height) = chip(&host);
+        assert!(short_width < width, "{theme}: the chip is as wide as its reason");
+        assert_eq!(long_height, short_height, "{theme}: the long reason is on one line");
+    }
+}
+
 /// An unsupported area's icon takes the keys' and the pad's focus, says why, and its ✕ and Enter
 /// open nothing. Left and right from the panel beside it go past it.
 #[test]

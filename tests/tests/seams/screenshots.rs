@@ -1377,9 +1377,10 @@ shots! {
 }
 
 /// The top bar's status icons in each built-in theme, one area in each state: the network is
-/// ready, the sound still reads, and Bluetooth is disabled (no adapter), as
-/// `<theme>-status-areas.png`; then with the keys on Bluetooth's icon, which shows why, as
-/// `<theme>-status-disabled-focused.png`.
+/// ready, the sound still reads, and Bluetooth and the drives are disabled (no adapter, a long
+/// reason), as `<theme>-status-areas.png`; then with the keys on Bluetooth's icon, which shows
+/// why, as `<theme>-status-disabled-focused.png`; then on the drives' icon, last but one in the
+/// bar, whose long reason moves in from the window's edge, as `<theme>-status-disabled-edge.png`.
 fn shoot_status_areas(window: &MinimalSoftwareWindow, out: &Path) {
     use launcher_core::system::Place;
     use slint::platform::Key;
@@ -1392,7 +1393,10 @@ fn shoot_status_areas(window: &MinimalSoftwareWindow, out: &Path) {
                 name: "Home".into(),
                 signal: Some(80),
             };
-            m.unavailable = vec![("bluetooth", "This PC has no Bluetooth adapter".into())];
+            m.unavailable = vec![
+                ("bluetooth", "This PC has no Bluetooth adapter".into()),
+                ("drives", "Drives can't be managed here: this system has no udisks service running".into()),
+            ];
             // The sound's read doesn't end while the shots are taken.
             m.slow = vec![("audio.unavailable", Duration::from_secs(600))];
         });
@@ -1409,10 +1413,13 @@ fn shoot_status_areas(window: &MinimalSoftwareWindow, out: &Path) {
         // The machine's own tick reads it: a Refresh would wait for the sound's read.
         follow(&mut host);
         follow(&mut host);
+        // The drives are read on their own tick.
+        host.advance(Duration::from_secs(31));
+        follow(&mut host);
         let vm = host.core().view().system;
         assert_eq!(
-            [&vm.area("network").state, &vm.area("audio").state, &vm.area("bluetooth").state],
-            ["ready", "loading", "unsupported"],
+            [&vm.area("network").state, &vm.area("audio").state, &vm.area("bluetooth").state, &vm.area("drives").state],
+            ["ready", "loading", "unsupported", "unsupported"],
             "{theme}"
         );
         shoot(window, &out.join(format!("{theme}-status-areas.png")));
@@ -1422,6 +1429,9 @@ fn shoot_status_areas(window: &MinimalSoftwareWindow, out: &Path) {
         }
         follow(&mut host);
         shoot(window, &out.join(format!("{theme}-status-disabled-focused.png")));
+        key(&mut host, Key::Tab);
+        follow(&mut host);
+        shoot(window, &out.join(format!("{theme}-status-disabled-edge.png")));
     }
 }
 

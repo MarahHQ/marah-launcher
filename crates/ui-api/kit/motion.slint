@@ -1,3 +1,4 @@
+import { Vm } from "../types.slint";
 import { Tokens } from "../tokens.slint";
 import { Look } from "look.slint";
 import { Reveal } from "reveal.slint";
@@ -123,4 +124,57 @@ export component Tooltip inherits Text {
     accessible-role: text;
     accessible-label: root.shown ? root.name : "";
     accessible-value: root.shown ? self.text : "";
+}
+
+// A `Tooltip` on a chip: one line on the system panel's surface, so it reads over any art. It
+// shows and fades as a `Tooltip` does. It sits centred under the element it labels, whose place
+// in the window is `anchor-x` and whose width is `anchor-width`, and it moves in from the
+// window's edge rather than go past it. A text too long for it ends in "…".
+export component TipChip inherits Rectangle {
+    in property <string> text;
+    in property <bool> shown;
+    in property <bool> hovered;
+    in property <string> name;
+    in property <length> anchor-x;
+    in property <length> anchor-width;
+    property <length> pad-x: 12 * Look.tpx;
+    property <length> pad-y: 5 * Look.tpx;
+    property <length> margin: 16 * Look.px;
+    // Its left edge in the window, centred under the element.
+    property <length> centred: root.anchor-x + (root.anchor-width - self.width) / 2;
+    // The window's width is 0 until the first render: it stays centred until then.
+    property <length> window-width: Vm.viewport.width;
+    // At most 600 px, and never wider than the window.
+    property <length> widest: root.window-width > 0 ? Math.min(600 * Look.tpx, root.window-width - 2 * root.margin) : 600 * Look.tpx;
+    width: Math.min(label.preferred-width + 2 * root.pad-x, root.widest);
+    height: label.preferred-height + 2 * root.pad-y;
+    x: (root.window-width > 0 ? Math.max(root.margin, Math.min(root.centred, root.window-width - root.margin - self.width))
+        : root.centred) - root.anchor-x;
+    border-radius: self.height / 2;
+    background: Tokens.color-surface.with-alpha(0.949);
+    border-width: 1px;
+    border-color: Look.line;
+    drop-shadow-blur: 12 * Look.px;
+    drop-shadow-color: Tokens.color-shade.with-alpha(0.502);
+    opacity: root.shown ? 1 : 0;
+    animate opacity {
+        duration: root.shown ? Motion.tip-in : Motion.tip-out;
+        delay: root.shown && root.hovered ? Motion.tip-wait : 0ms;
+    }
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.shown ? root.name : "";
+    accessible-value: root.shown ? root.text : "";
+    label := Text {
+        x: root.pad-x;
+        width: parent.width - 2 * root.pad-x;
+        text: root.text;
+        font-size: 12 * Look.tpx;
+        color: Tokens.color-text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        wrap: no-wrap;
+        overflow: elide;
+        // The chip says it: the label isn't read twice.
+        accessible-role: none;
+    }
 }
