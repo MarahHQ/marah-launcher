@@ -5,7 +5,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use crate::common::native;
+use crate::common::{native, serve_catalog};
 use emu_pc::{GAME_FILE, GameManifest, PcPlugin};
 use launcher_api::*;
 use launcher_core::{Area, Command, SessionCmd};
@@ -378,9 +378,6 @@ async fn a_game_a_catalog_download_installed_has_the_offer_s_art_and_the_repack_
         "magnet": format!("magnet:?xt=urn:btih:{HASH}"), "game_info": { "name": "Pocket Tanks Deluxe" },
         "steam": { "appid": 1, "name": "Pocket Tanks", "header": format!("{ART}/header.jpg"),
             "assets": { "portrait": format!("{ART}/portrait.jpg"), "hero": format!("{ART}/hero.jpg") } } }]);
-    let catalog = serde_json::json!({ "complete": true, "translation": { "language": "en" }, "topic_count": 1,
-        "topics": topics });
-    t.http.serve("https://xyz.dev/c/pc.json", catalog.to_string());
     t.http.serve(&format!("{ART}/portrait.jpg"), JPG);
     // A portable Wine repack: its folder is "Pocket Tanks", its game_info.txt names the game.
     let info = b"Pocket Tanks\n1.6\npockettanks.exe\n\n\nPocket Tanks Deluxe\n";
@@ -393,21 +390,9 @@ async fn a_game_a_catalog_download_installed_has_the_offer_s_art_and_the_repack_
             ("Pocket Tanks/game_info/data/pockettanks.exe", &exe()),
         ],
     );
-    let address = serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false });
-    let set = Command::SetConfig {
-        plugin: PluginId::new("release-catalog").unwrap(),
-        scope: ConfigScope::Emulator,
-        value: address,
-    };
-    t.core.dispatch(set).await.unwrap();
+    serve_catalog(t, &[("pc", topics)]).await;
     t.core.dispatch(Command::Navigate(launcher_core::Route::Catalog)).await.unwrap();
-    // The Catalog shows the bundled copy first: wait for the one fetched from the address.
-    t.until(Area::Catalogs, |core| {
-        let catalog = core.view().catalog;
-        let fetched = !catalog.sources.is_empty() && catalog.sources.iter().all(|s| s.contains(": fetched from "));
-        fetched && !catalog.games.games.is_empty()
-    })
-    .await;
+    t.until(Area::Catalogs, |core| !core.view().catalog.games.games.is_empty()).await;
     let offer: GameKey = t.core.view().catalog.games.games[0].key.parse().unwrap();
     t.core
         .dispatch(Command::Torrent(launcher_core::TorrentCmd::Download { offer, release: HASH.into(), folder: None }))

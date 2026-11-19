@@ -117,8 +117,10 @@ release date or a compatibility tier.
 _Avoid_: attribute, property
 
 **Fake catalog** (`FakeCatalog`, launcher-testkit): an emulator plugin a test builds from a few
-choices: its games, its system, a launcher, a build to install and more. `FakeStore` builds a
-store the same way, and `FakeService` a service that fills slots.
+choices: its games, its system, a launcher, a build to install, a game installer and more.
+With games, slots, a launcher, a keymap and compatibility, and no build, it keeps
+`contract::emulator`. `FakeStore` builds a store the same way, and
+`FakeService` a service that fills slots.
 
 **Fake clock**: the clock in tests. Its time moves only when a test moves it, or when every task waits for a
 timer.
