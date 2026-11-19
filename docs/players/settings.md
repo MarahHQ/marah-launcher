@@ -106,6 +106,9 @@ row reads **Restart Marah Launcher**, and the session starts the launcher again.
 
 The power menu (hold the PS button, or Ctrl+P) has the same items, from any screen.
 
+At the end of the page, under Power, the About card says what the launcher is: its plugins and
+emulators, and its license. Made with Slint is under it.
+
 ## Themes
 
 The Themes screen lists the built-in themes, Default and Classic, and the themes the launcher

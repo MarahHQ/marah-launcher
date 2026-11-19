@@ -22,7 +22,7 @@ import { FolderList } from "folder-list.slint";
 //   3   DOWNLOADS: "Download only through a VPN", one row per VPN (one that says none when
 //       there is none), "Add a VPN" where the system can, then "Keep sharing finished
 //       downloads". Where the system can't bind downloads to a VPN: the switch and sharing.
-//   4   THIS PC: processor, memory, graphics, then one verdict per emulator, and About. It only
+//   4   THIS PC: processor, memory, graphics, then one verdict per emulator. It only
 //       shows: it has no rows to focus, so Up and Down pass it by. The rail, L1 or R1 read it:
 //       Up and Down scroll the page, and the key away from the rows goes back to the rail
 //   5   SYSTEM, when Marah Launcher is the whole screen: Internet, Sound, Bluetooth (each opens its
@@ -31,7 +31,8 @@ import { FolderList } from "folder-list.slint";
 //       "Restart Marah Launcher" after a restore, then one row per backup, which restores it
 //   6/7 POWER, the last tab (7 after SYSTEM): "Quit Marah Launcher" ("Restart Marah Launcher" when Marah Launcher is the
 //       whole screen: the session starts it again), then Log out (the Marah Launcher session on a
-//       desktop), Restart and Shut down, which ask again before they act
+//       desktop), Restart and Shut down, which ask again before they act. Under its rows, the
+//       last thing on the page: the About card and Made with Slint
 // On a theme's page:
 //   0   "Use this theme"
 //   1   its options, when it is the one in use

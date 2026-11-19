@@ -692,3 +692,38 @@ fn the_backup_folder_is_chosen_like_a_game_folder_in_every_theme() {
         host.navigate(Key::Escape);
     }
 }
+
+/// The About card and Made with Slint are the last thing on Settings' page, under Power's rows,
+/// on a desktop and on the whole screen. The keys reach the end, and the rail lights Power there.
+#[test]
+fn the_about_card_comes_last_on_settings_in_every_theme() {
+    for place in [
+        launcher_core::system::Place::default(),
+        launcher_core::system::Place { whole_screen: true, ..Default::default() },
+    ] {
+        for theme in THEMES {
+            let mut host = in_theme(theme, |h| h.place(place));
+            host.dispatch(Command::Navigate(Route::Settings));
+            host.settle();
+            host.settings_tab("Power");
+            let y = |host: &Composed, label: &str| host.first(label).absolute_position().y;
+            let quit = if place.whole_screen { "restart-marah-launcher" } else { "quit" };
+            assert!(y(&host, "about") > y(&host, quit), "{theme}: the card is under Power's first row");
+            // Down to Power's last row: the card comes into view, and the rail lights Power.
+            for _ in 0..4 {
+                host.navigate(Key::DownArrow);
+            }
+            let window = host.instance().window();
+            let height = window.size().height as f32 / window.scale_factor();
+            let card = host.first("about");
+            assert!(
+                card.absolute_position().y + card.size().height <= height + 1.0,
+                "{theme}: the end of the page shows the card"
+            );
+            let lit =
+                i_slint_backend_testing::ElementHandle::find_by_accessible_label(host.instance(), "settings-tab:Power")
+                    .any(|e| e.accessible_checked() == Some(true));
+            assert!(lit, "{theme}: the rail lights Power at the end");
+        }
+    }
+}

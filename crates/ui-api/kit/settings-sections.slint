@@ -397,8 +397,6 @@ export component DownloadsSection inherits VerticalLayout {
 
 // What this computer has, and how each emulator's games run on it. It only shows.
 export component PcSection inherits VerticalLayout {
-    // The theme's logo, for the About card.
-    in property <image> logo;
     callback reveal(length, length);
 
         // What this computer has, then how each emulator's games run on it. The rows
@@ -452,7 +450,6 @@ export component PcSection inherits VerticalLayout {
             accessible-role: text;
             accessible-label: "pc-verdict";
             accessible-value: run.emulator + ": " + run.headline + (run.why != "" ? " · " + run.why : "");
-            // The last row brings the About card under it into view too.
 
             Value {
                 text: run.headline;
@@ -460,35 +457,6 @@ export component PcSection inherits VerticalLayout {
             }
         }
 
-        Rectangle { height: 24 * Look.px; }
-        Rectangle {
-            border-radius: 14 * Look.px;
-            background: Tokens.color-tint.with-alpha(0.043);
-            HorizontalLayout {
-                padding: 18 * Look.px;
-                spacing: 16 * Look.px;
-                Image { source: root.logo; width: 60 * Look.px; height: 60 * Look.px; image-fit: contain; }
-                VerticalLayout {
-                    alignment: center;
-                    spacing: 4 * Look.px;
-                    horizontal-stretch: 1;
-                    Text { text: Brand.name; font-size: 19 * Look.tpx; font-weight: 600; color: Tokens.color-text; }
-                    Text { text: Vm.plugins.length + (Vm.plugins.length == 1 ? " plugin · " : " plugins · ") + Vm.emulators.length + (Vm.emulators.length == 1 ? " emulator" : " emulators"); font-size: 15 * Look.tpx; color: Look.text3; }
-                    Text { text: "Games from every emulator, in one place"; font-size: 15 * Look.tpx; color: Look.text3; }
-                    Text { text: "Free software under the GNU GPL, version 3 or later"; font-size: 15 * Look.tpx; color: Look.text3; }
-                }
-            }
-        }
-        // Made with Slint, which the launcher uses under its GPL option. Its logo for a dark
-        // background, as every theme's Settings is dark.
-        Rectangle { height: 12 * Look.px; }
-        HorizontalLayout {
-            alignment: center;
-            AboutSlint {
-                init => { Palette.color-scheme = ColorScheme.dark; }
-                height: 110 * Look.px;
-            }
-        }
 }
 
 // When Marah Launcher is the whole screen: the machine's settings. Internet, Sound and Bluetooth open their panels, as their icons in the top bar do.
@@ -717,7 +685,7 @@ export component BackupSection inherits VerticalLayout {
         accessible-description: self.armed ? "armed:" + self.names[self.choice] : self.choice >= 0 ? "menu:" + self.names[self.choice] : "";
         accessible-action-default => { self.act(0); }
         changed focused => { if (!self.focused) { self.choice = -1; self.armed = false; } }
-        reveal(y, h) => { root.reveal(y, h + (self.last ? 180 * Look.px : 0)); }
+        reveal(y, h) => { root.reveal(y, h + (self.last ? 300 * Look.px : 0)); }
         clicked => { Prefs.section = Prefs.backup-section; Prefs.row = BackupRows.first-backup + i; self.act(0); }
         property <int> seen: Prefs.serial;
         changed seen => { if (self.focused) { self.act(Prefs.pending); } }
@@ -744,6 +712,45 @@ export component BackupSection inherits VerticalLayout {
     }
 }
 
+// What the launcher is, and Made with Slint: the last thing on Settings' page, under Power's rows.
+// It only shows. Power's last row brings it into view.
+export component AboutCard inherits VerticalLayout {
+    // The theme's logo.
+    in property <image> logo;
+        Rectangle { height: 24 * Look.px; }
+        Rectangle {
+            accessible-role: text;
+            accessible-label: "about";
+            accessible-value: Brand.name;
+            border-radius: 14 * Look.px;
+            background: Tokens.color-tint.with-alpha(0.043);
+            HorizontalLayout {
+                padding: 18 * Look.px;
+                spacing: 16 * Look.px;
+                Image { source: root.logo; width: 60 * Look.px; height: 60 * Look.px; image-fit: contain; }
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 4 * Look.px;
+                    horizontal-stretch: 1;
+                    Text { text: Brand.name; font-size: 19 * Look.tpx; font-weight: 600; color: Tokens.color-text; }
+                    Text { text: Vm.plugins.length + (Vm.plugins.length == 1 ? " plugin · " : " plugins · ") + Vm.emulators.length + (Vm.emulators.length == 1 ? " emulator" : " emulators"); font-size: 15 * Look.tpx; color: Look.text3; }
+                    Text { text: "Games from every emulator, in one place"; font-size: 15 * Look.tpx; color: Look.text3; }
+                    Text { text: "Free software under the GNU GPL, version 3 or later"; font-size: 15 * Look.tpx; color: Look.text3; }
+                }
+            }
+        }
+        // Made with Slint, which the launcher uses under its GPL option. Its logo for a dark
+        // background, as every theme's Settings is dark.
+        Rectangle { height: 12 * Look.px; }
+        HorizontalLayout {
+            alignment: center;
+            AboutSlint {
+                init => { Palette.color-scheme = ColorScheme.dark; }
+                height: 110 * Look.px;
+            }
+        }
+}
+
 // Leaving Marah Launcher, and the machine's power. Log out, Restart and Shut down ask again: the first press arms them, the second acts.
 export component PowerSection inherits VerticalLayout {
     callback reveal(length, length);
@@ -760,7 +767,7 @@ export component PowerSection inherits VerticalLayout {
             accessible-role: button;
             accessible-label: Vm.system.whole-screen ? "restart-marah-launcher" : "quit";
             accessible-action-default => { Host.quit(); }
-            reveal(y, h) => { root.reveal(y, h); }
+            reveal(y, h) => { root.reveal(y, h + (self.last ? 300 * Look.px : 0)); }
             clicked => { Prefs.section = Prefs.power-section; Prefs.row = 0; Host.quit(); }
             property <int> seen: Prefs.serial;
             changed seen => { if (self.focused && Prefs.pending == 0) { Host.quit(); } }
@@ -779,7 +786,7 @@ export component PowerSection inherits VerticalLayout {
             accessible-value: self.armed ? "armed" : "";
             accessible-action-default => { self.act(); }
             changed focused => { if (!self.focused) { self.armed = false; } }
-            reveal(y, h) => { root.reveal(y, h + (self.last ? 180 * Look.px : 0)); }
+            reveal(y, h) => { root.reveal(y, h + (self.last ? 300 * Look.px : 0)); }
             clicked => { Prefs.section = Prefs.power-section; Prefs.row = PowerRows.logout; self.act(); }
             property <int> seen: Prefs.serial;
             changed seen => { if (self.focused && Prefs.pending == 0) { self.act(); } }
@@ -802,7 +809,7 @@ export component PowerSection inherits VerticalLayout {
             accessible-value: self.armed ? "armed" : "";
             accessible-action-default => { self.act(); }
             changed focused => { if (!self.focused) { self.armed = false; } }
-            reveal(y, h) => { root.reveal(y, h + (self.last ? 180 * Look.px : 0)); }
+            reveal(y, h) => { root.reveal(y, h + (self.last ? 300 * Look.px : 0)); }
             clicked => { Prefs.section = Prefs.power-section; Prefs.row = PowerRows.restart + i; self.act(); }
             property <int> seen: Prefs.serial;
             changed seen => { if (self.focused && Prefs.pending == 0) { self.act(); } }
