@@ -66,7 +66,7 @@ pub(crate) async fn refresh_library(core: &Core) -> CoreResult<()> {
             library.push(Entry { key, summary });
         }
     }
-    let away = crate::drives::away_games(core, &library);
+    let away = crate::drives::away_games(core, &library).await;
     library.extend(away);
     crate::library::sort_by_title(&mut library);
     // The home screen shows the selected game with its details. With no selection, or one

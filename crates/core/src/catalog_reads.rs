@@ -104,7 +104,7 @@ pub(crate) async fn refresh_releases(core: &Core) {
             format!("{added} new release{s} in the Catalog"),
         );
     }
-    crate::disks::refresh(core);
+    crate::disks::refresh_soon(core);
     core.changed(Area::Catalogs);
     describe_catalog_page(core);
     // A catalog refresh waits for the VPN: the VPN check reads the catalogs again when it is back.

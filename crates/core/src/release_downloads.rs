@@ -53,7 +53,7 @@ pub(crate) async fn torrent(core: &Core, command: TorrentCmd) -> CoreResult<()> 
         TorrentCmd::Download { offer, release, folder } => {
             core.torrents().set_download_error(None);
             let started = download_release(core, &offer, &release, folder.as_deref()).await;
-            crate::disks::refresh(core);
+            crate::disks::refresh(core).await;
             // The sheet that asked says why nothing downloads, and so does a notice, for
             // when the player closed the sheet.
             if let Err(e) = &started {
@@ -85,7 +85,7 @@ pub(crate) async fn torrent(core: &Core, command: TorrentCmd) -> CoreResult<()> 
             if let Err(e) = &begun {
                 core.installs().set_install_error(&id, e.to_string());
             }
-            crate::disks::refresh(core);
+            crate::disks::refresh(core).await;
             begun
         }
         command @ (TorrentCmd::SeedDownloads(_) | TorrentCmd::Pick { .. }) => core.torrents().handle(command).await,
@@ -159,7 +159,7 @@ pub(crate) fn torrent_event(core: &Core, event: TorrentEvent) {
     match event {
         TorrentEvent::Finished { id, title } => {
             let job = core.torrents().job(&id);
-            crate::disks::refresh(core);
+            crate::disks::refresh_soon(core);
             if let Some(after) = core.torrents().claim_install_after(&id) {
                 start_install_after(core, id, title, after);
                 return;
@@ -175,7 +175,7 @@ pub(crate) fn torrent_event(core: &Core, event: TorrentEvent) {
             );
         }
         TorrentEvent::Stopped { title } => {
-            crate::disks::refresh(core);
+            crate::disks::refresh_soon(core);
             core.notices().opening(
                 launcher_ui_api::NoticeKind::Error,
                 crate::Route::Downloads,

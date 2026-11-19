@@ -172,7 +172,7 @@ pub(crate) async fn set_plugin_enabled(core: &Core, plugin: &PluginId, enabled: 
     Ok(())
 }
 
-pub(crate) fn set_folders(core: &Core, name: &str, paths: &[std::path::PathBuf]) -> CoreResult<()> {
+pub(crate) async fn set_folders(core: &Core, name: &str, paths: &[std::path::PathBuf]) -> CoreResult<()> {
     if !launcher_api::PathGrant::valid_name(name) {
         return Err(CoreError::Invalid(format!("{name:?} is not a folder name")));
     }
@@ -200,7 +200,7 @@ pub(crate) fn set_folders(core: &Core, name: &str, paths: &[std::path::PathBuf])
     saved.map_err(|e| CoreError::Io(e.to_string()))?;
     core.library().move_folders(name, &before, &folder_roots(core, name));
     crate::drives::remember_folders(core, &paths);
-    crate::disks::refresh(core);
+    crate::disks::refresh(core).await;
     core.changed(Area::Settings);
     Ok(())
 }
@@ -220,23 +220,23 @@ pub(crate) fn folder_roots(core: &Core, name: &str) -> Vec<std::path::PathBuf> {
 }
 
 /// Adds `path` to the folders `name` means. One that is there already isn't added again.
-pub(crate) fn add_folder(core: &Core, name: &str, path: &std::path::Path) -> CoreResult<()> {
+pub(crate) async fn add_folder(core: &Core, name: &str, path: &std::path::Path) -> CoreResult<()> {
     let mut paths = folder_roots(core, name);
     if !paths.iter().any(|p| p == path) {
         paths.push(path.to_path_buf());
     }
-    set_folders(core, name, &paths)
+    set_folders(core, name, &paths).await
 }
 
 /// Takes `path` out of the folders `name` means. Its files stay.
-pub(crate) fn remove_folder(core: &Core, name: &str, path: &std::path::Path) -> CoreResult<()> {
+pub(crate) async fn remove_folder(core: &Core, name: &str, path: &std::path::Path) -> CoreResult<()> {
     let mut paths = folder_roots(core, name);
     let before = paths.len();
     paths.retain(|p| p != path);
     if paths.len() == before {
         return Err(CoreError::Invalid(format!("{} isn't one of the folders", path.display())));
     }
-    set_folders(core, name, &paths)
+    set_folders(core, name, &paths).await
 }
 
 pub(crate) fn set_theme_option(core: &Core, key: String, value: String) -> CoreResult<()> {

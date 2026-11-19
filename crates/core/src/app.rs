@@ -700,9 +700,9 @@ impl Core {
             Command::RunAction { plugin, action, game, args } => {
                 plugin_settings::run_action(self, &plugin, &action, game, args).await
             }
-            Command::SetFolders { name, paths } => plugin_settings::set_folders(self, &name, &paths),
-            Command::AddFolder { name, path } => plugin_settings::add_folder(self, &name, &path),
-            Command::RemoveFolder { name, path } => plugin_settings::remove_folder(self, &name, &path),
+            Command::SetFolders { name, paths } => plugin_settings::set_folders(self, &name, &paths).await,
+            Command::AddFolder { name, path } => plugin_settings::add_folder(self, &name, &path).await,
+            Command::RemoveFolder { name, path } => plugin_settings::remove_folder(self, &name, &path).await,
             Command::Browse(command) => crate::browser::handle(self, command).await,
             Command::SetPluginEnabled { plugin, enabled } => {
                 plugin_settings::set_plugin_enabled(self, &plugin, enabled).await

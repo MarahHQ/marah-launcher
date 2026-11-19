@@ -226,13 +226,13 @@ pub(crate) async fn handle(core: &Core, command: BrowseCmd) -> CoreResult<()> {
             let open = core.browsing().snapshot().ok_or_else(|| CoreError::Invalid(CLOSED.into()))?;
             let at = crate::drives::mount(core, &drive).await?;
             // The drive is mounted now: its place has a folder.
-            let places = places(core, &open.purpose);
+            let places = places(core, &open.purpose).await;
             go(core, at, open.purpose.clone(), places).await
         }
         BrowseCmd::Use => {
             let open = core.browsing().snapshot().ok_or_else(|| CoreError::Invalid(CLOSED.into()))?;
             match &open.purpose {
-                Purpose::Pick(name) => crate::plugin_settings::add_folder(core, name, &open.at)?,
+                Purpose::Pick(name) => crate::plugin_settings::add_folder(core, name, &open.at).await?,
                 Purpose::BackupFolder => {
                     crate::backups::set_folder(core, serde_json::json!(open.at.display().to_string())).await?
                 }
@@ -248,7 +248,19 @@ pub(crate) async fn handle(core: &Core, command: BrowseCmd) -> CoreResult<()> {
 
 /// Opens the browser for `purpose`, at `at` or where that purpose starts.
 pub(crate) async fn open(core: &Core, at: Option<PathBuf>, purpose: Purpose) -> CoreResult<()> {
-    let start = match (at, &purpose) {
+    // Which folders are there is a file system read: it runs on a blocking thread.
+    let (reader, wanted) = (core.clone(), purpose.clone());
+    let start = tokio::task::spawn_blocking(move || start(&reader, at, &wanted)).await;
+    let start = start.map_err(|e| CoreError::Invalid(format!("no folder to start from: {e}")))??;
+    // One read of the drives for the browser: its places, and the drives a Mount finds.
+    crate::drives::refresh(core).await;
+    let places = places(core, &purpose).await;
+    go(core, start, purpose, places).await
+}
+
+/// Where the browser opens for `purpose`: `at`, or where that purpose starts.
+fn start(core: &Core, at: Option<PathBuf>, purpose: &Purpose) -> CoreResult<PathBuf> {
+    Ok(match (at, purpose) {
         (Some(at), _) => at,
         (None, Purpose::Restore) => crate::backups::recent(core)
             .into_iter()
@@ -269,16 +281,13 @@ pub(crate) async fn open(core: &Core, at: Option<PathBuf>, purpose: Purpose) -> 
             .or_else(|| core.kernel().host().home.clone())
             .or_else(|| std::env::temp_dir().ancestors().last().map(Path::to_path_buf))
             .ok_or_else(|| CoreError::Invalid("no folder to start from".into()))?,
-    };
-    // One read of the drives for the browser: its places, and the drives a Mount finds.
-    crate::drives::refresh(core).await;
-    let places = places(core, &purpose);
-    go(core, start, purpose, places).await
+    })
 }
 
 /// Opens the browser at `at` for `purpose`, with `places` to go to.
 async fn go(core: &Core, at: PathBuf, purpose: Purpose, places: Vec<BrowsePlace>) -> CoreResult<()> {
-    if !at.is_absolute() || !at.is_dir() {
+    let folder = tokio::fs::metadata(&at).await.is_ok_and(|m| m.is_dir());
+    if !at.is_absolute() || !folder {
         return Err(CoreError::Invalid(format!("{} isn't a folder", at.display())));
     }
     core.browsing().open(purpose, at, places).await
@@ -287,7 +296,13 @@ async fn go(core: &Core, at: PathBuf, purpose: Purpose, places: Vec<BrowsePlace>
 /// Where the browser can go: Home, the Downloads, Desktop and Documents folders that are there,
 /// for a restore the backup folder, each drive, then for a restore the folders restores came from
 /// that no other place is. The drives are the ones last read (`Drives::known`).
-fn places(core: &Core, purpose: &Purpose) -> Vec<BrowsePlace> {
+/// The folders are read on a blocking thread.
+async fn places(core: &Core, purpose: &Purpose) -> Vec<BrowsePlace> {
+    let (core, purpose) = (core.clone(), purpose.clone());
+    tokio::task::spawn_blocking(move || places_now(&core, &purpose)).await.unwrap_or_default()
+}
+
+fn places_now(core: &Core, purpose: &Purpose) -> Vec<BrowsePlace> {
     let mut out = Vec::new();
     let mut add = |name: String, path: PathBuf, kind: PlaceKind| {
         out.push(BrowsePlace { name, path, kind, detail: String::new(), drive: None, usb: false });

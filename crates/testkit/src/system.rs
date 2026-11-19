@@ -63,6 +63,11 @@ pub struct FakeMachine {
     pub hangs: Vec<&'static str>,
     /// Calls that panic, by method name.
     pub panics: Vec<&'static str>,
+    /// Calls that take this long on the fake clock, by method name ("status",
+    /// "drives.unavailable", …).
+    pub slow: Vec<(&'static str, std::time::Duration)>,
+    /// Each read the core made, by method name, with when it began and ended on the fake clock.
+    pub calls: Vec<(&'static str, tokio::time::Instant, tokio::time::Instant)>,
     /// Long work held until the test calls [`FakeSystem::finish_jobs`].
     pub hold_jobs: bool,
     held: Vec<(Arc<dyn SystemJob>, Result<String, String>)>,
@@ -133,14 +138,22 @@ impl FakeSystem {
     }
 
     /// Hangs or panics when the test said so for `method`.
+    /// Hangs, panics or takes long when the test said so for `method`, and keeps when it began
+    /// and ended.
     async fn call(&self, method: &'static str) {
+        let began = tokio::time::Instant::now();
         let (hang, panic) = self.read(|m| (m.hangs.contains(&method), m.panics.contains(&method)));
+        let slow = self.read(|m| m.slow.iter().find(|(name, _)| *name == method).map(|(_, time)| *time));
         if panic {
             panic!("the fake system's {method} panicked on purpose");
         }
         if hang {
             tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
         }
+        if let Some(time) = slow {
+            tokio::time::sleep(time).await;
+        }
+        self.with(|m| m.calls.push((method, began, tokio::time::Instant::now())));
     }
 
     fn unavailable(&self, capability: &str) -> Option<String> {
@@ -165,6 +178,7 @@ impl FakeSystem {
 #[async_trait]
 impl NetworkSettings for FakeSystem {
     async fn unavailable(&self) -> Option<String> {
+        self.call("network.unavailable").await;
         FakeSystem::unavailable(self, "network")
     }
 
@@ -217,6 +231,7 @@ impl VpnSettings for FakeSystem {
 #[async_trait]
 impl BluetoothSettings for FakeSystem {
     async fn unavailable(&self) -> Option<String> {
+        self.call("bluetooth.unavailable").await;
         FakeSystem::unavailable(self, "bluetooth")
     }
 
@@ -283,6 +298,7 @@ impl BluetoothSettings for FakeSystem {
 #[async_trait]
 impl AudioSettings for FakeSystem {
     async fn unavailable(&self) -> Option<String> {
+        self.call("audio.unavailable").await;
         FakeSystem::unavailable(self, "audio")
     }
 
@@ -318,6 +334,7 @@ impl AudioSettings for FakeSystem {
 #[async_trait]
 impl PowerSettings for FakeSystem {
     async fn unavailable(&self) -> Option<String> {
+        self.call("power.unavailable").await;
         FakeSystem::unavailable(self, "power")
     }
 
@@ -379,6 +396,7 @@ impl OsInstall for FakeSystem {
 impl DriveSettings for FakeSystem {
     async fn unavailable(&self) -> Option<String> {
         self.with(|m| m.drive_reason_reads += 1);
+        self.call("drives.unavailable").await;
         FakeSystem::unavailable(self, "drives")
     }
 

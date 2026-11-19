@@ -493,7 +493,9 @@ fn the_drives_icon_and_its_panel_list_every_drive_in_every_theme() {
         host.settle();
         assert_eq!(host.count("status:drives"), 1, "{theme}: no drive yet, and the icon is there");
     }
+    // A start with the drives there: a drive plugged in while it runs would be mounted at once.
     with_drives(&system, media.path());
+    let mut host = shown(&system, WHOLE_SCREEN);
     host.dispatch(Command::Drive(launcher_core::DriveCmd::Refresh));
     refreshed(&mut host);
     for theme in ["classic", "default"] {

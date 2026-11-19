@@ -108,6 +108,9 @@ pub(crate) struct Drives {
     adapter: Mutex<Arc<dyn Adapter>>,
     /// The list at the last read; `None` before the first one.
     last: Mutex<Option<Vec<Drive>>>,
+    /// One read at a time: two at once could end in the wrong order, and an older list would
+    /// then stand over a newer one.
+    reading: tokio::sync::Mutex<()>,
     /// The plugin the adapter came from, and why it couldn't manage drives: `None` before the
     /// first choice.
     adopted: Mutex<Option<Adoption>>,
@@ -119,7 +122,13 @@ type Adoption = (Option<launcher_api::PluginId>, Option<String>);
 
 impl Drives {
     pub(crate) fn new(space: Arc<dyn DriveSpace>, adapter: Arc<dyn Adapter>) -> Self {
-        Self { space, adapter: Mutex::new(adapter), last: Mutex::new(None), adopted: Mutex::new(None) }
+        Self {
+            space,
+            adapter: Mutex::new(adapter),
+            last: Mutex::new(None),
+            reading: tokio::sync::Mutex::new(()),
+            adopted: Mutex::new(None),
+        }
     }
 
     fn adapter(&self) -> Arc<dyn Adapter> {
@@ -157,13 +166,18 @@ impl Drives {
     /// adapter didn't say.
     pub(crate) async fn list(&self) -> CoreResult<Vec<Drive>> {
         let mut drives = self.adapter().list().await?;
-        for drive in &mut drives {
-            if let Some(mount) = &drive.mount {
-                drive.free = drive.free.or_else(|| free(self.space.as_ref(), mount));
-                drive.size = drive.size.or_else(|| size(self.space.as_ref(), mount));
+        let space = self.space.clone();
+        // The space is a system call with no async form: it runs on a blocking thread.
+        let filled = tokio::task::spawn_blocking(move || {
+            for drive in &mut drives {
+                if let Some(mount) = &drive.mount {
+                    drive.free = drive.free.or_else(|| free(space.as_ref(), mount));
+                    drive.size = drive.size.or_else(|| size(space.as_ref(), mount));
+                }
             }
-        }
-        Ok(drives)
+            drives
+        });
+        filled.await.map_err(|e| CoreError::Invalid(format!("the drives' free space wasn't read: {e}")))
     }
 
     /// The list as it was last read; empty before the first read.
@@ -174,6 +188,7 @@ impl Drives {
     /// Reads the list again, and says which drives came and went since the last read. The first
     /// read finds what is there: nothing came. A read that fails changes nothing.
     pub(crate) async fn refresh(&self) -> Changes {
+        let _reading = self.reading.lock().await;
         let now = match self.list().await {
             Ok(now) => now,
             Err(e) => {
@@ -194,6 +209,7 @@ impl Drives {
     /// came and went stay for the next [`Drives::refresh`] to find: a drive taken out stays
     /// listed, and one plugged in isn't listed yet.
     async fn reread(&self) {
+        let _reading = self.reading.lock().await;
         let Ok(now) = self.list().await else { return };
         let mut last = lock(&self.last);
         let Some(last) = last.as_mut() else { return };

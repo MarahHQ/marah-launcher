@@ -13,6 +13,7 @@ use launcher_api::{
 use crate::ports::{ProcessSpawner, SpawnCommand};
 use crate::{ConfigService, DirStorage};
 
+#[derive(Clone)]
 pub(crate) struct HostPrograms {
     pub plugin: PluginId,
     pub permissions: Permissions,
@@ -48,16 +49,25 @@ impl HostPrograms {
         };
         Ok(path.is_file().then_some(path))
     }
+
+    /// [`HostPrograms::locate`] on a blocking thread: a search of `PATH` and the checks of the
+    /// folder grants read the file system.
+    async fn find_path(&self, program: &Location) -> PluginResult<Option<PathBuf>> {
+        let (me, program) = (self.clone(), program.clone());
+        let found = tokio::task::spawn_blocking(move || me.locate(&program)).await;
+        found.map_err(|e| PluginError::Storage(format!("the program wasn't looked for: {e}")))?
+    }
 }
 
 #[async_trait]
 impl Programs for HostPrograms {
     async fn find(&self, program: &Location) -> PluginResult<Option<String>> {
-        Ok(self.locate(program)?.map(|p| p.display().to_string()))
+        Ok(self.find_path(program).await?.map(|p| p.display().to_string()))
     }
 
     async fn output(&self, program: &Location, args: &[String], timeout: Duration) -> PluginResult<Vec<u8>> {
-        let path = self.locate(program)?.ok_or_else(|| PluginError::NotFound(format!("{program} isn't there")))?;
+        let path =
+            self.find_path(program).await?.ok_or_else(|| PluginError::NotFound(format!("{program} isn't there")))?;
         let cwd = path.parent().map(ToOwned::to_owned).unwrap_or_else(|| self.data_dir.clone());
         let timeout = timeout.min(MAX_PROGRAM_TIME);
         let command = SpawnCommand {
@@ -91,10 +101,12 @@ impl Programs for HostPrograms {
         if elevated && !self.permissions.allows_polkit(program) {
             return Err(PluginError::PermissionDenied(format!("{} may not run {program} through polkit", self.plugin)));
         }
-        let path = self.locate(program)?.ok_or_else(|| PluginError::NotFound(format!("{program} isn't there")))?;
+        let path =
+            self.find_path(program).await?.ok_or_else(|| PluginError::NotFound(format!("{program} isn't there")))?;
         let cwd = path.parent().map(ToOwned::to_owned).unwrap_or_else(|| self.data_dir.clone());
         let (program, args) = if elevated {
-            let pkexec = self.spawner.which("pkexec");
+            let spawner = self.spawner.clone();
+            let pkexec = tokio::task::spawn_blocking(move || spawner.which("pkexec")).await.ok().flatten();
             let pkexec = pkexec.ok_or_else(|| PluginError::NotFound("pkexec isn't there".into()))?;
             (pkexec, std::iter::once(path.display().to_string()).chain(args.iter().cloned()).collect())
         } else {

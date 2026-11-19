@@ -57,9 +57,11 @@ impl Disks {
 }
 
 /// Reads the download folder of every emulator and console the catalogs offer, with the free
-/// space there, and keeps them. Says so when they changed.
-pub(crate) fn refresh(core: &Core) {
-    let disks = read(core);
+/// space there, and keeps them. Says so when they changed. The reads (folders, free space) run
+/// on a blocking thread, not on the async workers.
+pub(crate) async fn refresh(core: &Core) {
+    let reader = core.clone();
+    let Ok(disks) = tokio::task::spawn_blocking(move || read(&reader)).await else { return };
     let changed = {
         let mut state = core.state();
         let changed = state.disks != disks;
@@ -69,6 +71,12 @@ pub(crate) fn refresh(core: &Core) {
     if changed {
         core.changed(Area::Hardware);
     }
+}
+
+/// [`refresh`], from code that can't wait for it: it ends soon after.
+pub(crate) fn refresh_soon(core: &Core) {
+    let core = core.clone();
+    tokio::spawn(async move { refresh(&core).await });
 }
 
 fn read(core: &Core) -> Disks {

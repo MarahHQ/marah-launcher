@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use launcher_api::SystemJob;
+use launcher_api::{GameKey, SystemJob};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -275,12 +275,13 @@ pub(crate) async fn mount_game_drives(core: &Core) {
     }
     let work = async {
         refresh(core).await;
-        let wanted: BTreeSet<&String> = remembered
-            .iter()
-            .filter(|(path, id)| folder_away(core, Path::new(path), Some(id)))
-            .map(|(_, id)| id)
-            .collect();
-        for id in wanted {
+        // Whether each folder is there is a file system read: it runs on a blocking thread.
+        let reader = core.clone();
+        let wanted = tokio::task::spawn_blocking(move || {
+            let away = remembered.iter().filter(|(path, id)| folder_away(&reader, Path::new(path), Some(id)));
+            away.map(|(_, id)| id.clone()).collect::<BTreeSet<String>>()
+        });
+        for id in &wanted.await.unwrap_or_default() {
             match core.drives().find(id) {
                 Ok(drive) if drive.mount.is_none() => {
                     if let Err(e) = mount(core, id).await {
@@ -301,7 +302,14 @@ pub(crate) async fn mount_game_drives(core: &Core) {
 /// A plugin lists nothing from a folder that isn't there, and a drive taken out, or not mounted
 /// yet, must not drop its games. A kept game folder names its root by its place in the list,
 /// which follows the list's changes (`LibrarySubsystem::move_folders`).
-pub(crate) fn away_games(core: &Core, listed: &[Entry]) -> Vec<Entry> {
+/// The folders are read on a blocking thread, not on the async workers.
+pub(crate) async fn away_games(core: &Core, listed: &[Entry]) -> Vec<Entry> {
+    let listed: BTreeSet<GameKey> = listed.iter().map(|e| e.key.clone()).collect();
+    let core = core.clone();
+    tokio::task::spawn_blocking(move || away_games_now(&core, &listed)).await.unwrap_or_default()
+}
+
+fn away_games_now(core: &Core, listed: &BTreeSet<GameKey>) -> Vec<Entry> {
     let folders = core.library().game_folders();
     let remembered = folder_drives(core);
     let kernel = core.kernel();
@@ -315,5 +323,5 @@ pub(crate) fn away_games(core: &Core, listed: &[Entry]) -> Vec<Entry> {
         })
     };
     let library = core.library().snapshot();
-    library.library().filter(|e| !listed.iter().any(|l| l.key == e.key) && root_away(e)).cloned().collect()
+    library.library().filter(|e| !listed.contains(&e.key) && root_away(e)).cloned().collect()
 }

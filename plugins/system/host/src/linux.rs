@@ -138,8 +138,10 @@ impl NetworkSettings for Linux {
     async fn wifi(&self, rescan: bool) -> PluginResult<Vec<WifiNetwork>> {
         let rescan = if rescan { "yes" } else { "no" };
         let args = ["-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi", "list", "--rescan", rescan];
-        let list = parse::wifi(&self.run("nmcli", &args).await?);
-        let saved = parse::saved_wifi(&self.run("nmcli", &["-t", "-f", "NAME,TYPE", "connection", "show"]).await?);
+        // The list and the saved networks don't need each other: both are read at once.
+        let (list, saved) =
+            tokio::join!(self.run("nmcli", &args), self.run("nmcli", &["-t", "-f", "NAME,TYPE", "connection", "show"]));
+        let (list, saved) = (parse::wifi(&list?), parse::saved_wifi(&saved?));
         Ok(list
             .into_iter()
             .map(|w| WifiNetwork {
@@ -185,8 +187,13 @@ impl BluetoothSettings for Linux {
         if let Some(missing) = self.missing("bluetoothctl", "BlueZ").await {
             return Some(missing);
         }
-        let adapter = std::fs::read_dir(&self.bluetooth_class)
-            .is_ok_and(|d| d.flatten().any(|e| e.file_name().to_string_lossy().starts_with("hci")));
+        let class = self.bluetooth_class.clone();
+        // A read of /sys: on a blocking thread, not on the async workers.
+        let adapter = tokio::task::spawn_blocking(move || {
+            std::fs::read_dir(&class)
+                .is_ok_and(|d| d.flatten().any(|e| e.file_name().to_string_lossy().starts_with("hci")))
+        });
+        let adapter = adapter.await.unwrap_or(false);
         (!adapter).then(|| "This PC has no Bluetooth adapter".into())
     }
 
@@ -199,10 +206,12 @@ impl BluetoothSettings for Linux {
     }
 
     async fn devices(&self) -> PluginResult<Vec<BluetoothDevice>> {
-        let all = self.run("bluetoothctl", &["devices"]).await?;
-        let paired = self.run("bluetoothctl", &["devices", "Paired"]).await?;
-        let connected = self.run("bluetoothctl", &["devices", "Connected"]).await?;
-        Ok(parse::bluetooth(&all, &paired, &connected))
+        let (all, paired, connected) = tokio::join!(
+            self.run("bluetoothctl", &["devices"]),
+            self.run("bluetoothctl", &["devices", "Paired"]),
+            self.run("bluetoothctl", &["devices", "Connected"]),
+        );
+        Ok(parse::bluetooth(&all?, &paired?, &connected?))
     }
 
     async fn scan(&self, seconds: u32, job: Arc<dyn SystemJob>) -> PluginResult<()> {
@@ -265,9 +274,9 @@ impl AudioSettings for Linux {
     }
 
     async fn outputs(&self) -> PluginResult<Vec<AudioOutput>> {
-        let sinks = self.run("pactl", &["-f", "json", "list", "sinks"]).await?;
-        let default = self.run("pactl", &["get-default-sink"]).await?;
-        Ok(parse::outputs(&sinks, &default))
+        let (sinks, default) =
+            tokio::join!(self.run("pactl", &["-f", "json", "list", "sinks"]), self.run("pactl", &["get-default-sink"]));
+        Ok(parse::outputs(&sinks?, &default?))
     }
 
     async fn set_output(&self, name: &str) -> PluginResult<()> {
@@ -275,9 +284,11 @@ impl AudioSettings for Linux {
     }
 
     async fn level(&self) -> PluginResult<AudioLevel> {
-        let volume = self.run("pactl", &["get-sink-volume", "@DEFAULT_SINK@"]).await?;
-        let mute = self.run("pactl", &["get-sink-mute", "@DEFAULT_SINK@"]).await?;
-        Ok(parse::level(&volume, &mute))
+        let (volume, mute) = tokio::join!(
+            self.run("pactl", &["get-sink-volume", "@DEFAULT_SINK@"]),
+            self.run("pactl", &["get-sink-mute", "@DEFAULT_SINK@"]),
+        );
+        Ok(parse::level(&volume?, &mute?))
     }
 
     async fn set_volume(&self, volume: u8) -> PluginResult<()> {
@@ -306,14 +317,17 @@ impl PowerSettings for Linux {
     }
 
     async fn battery(&self) -> PluginResult<Option<Battery>> {
-        Ok(parse::battery(&self.power_supply))
+        // Reads of /sys: on a blocking thread, not on the async workers.
+        let supply = self.power_supply.clone();
+        let battery = tokio::task::spawn_blocking(move || parse::battery(&supply)).await;
+        battery.map_err(|e| PluginError::Storage(format!("the battery wasn't read: {e}")))
     }
 }
 
 #[launcher_api::async_trait]
 impl OsUpdates for Linux {
     async fn status(&self) -> PluginResult<OsUpdate> {
-        if !Path::new(MARAH_OS).exists() {
+        if !tokio::fs::try_exists(MARAH_OS).await.unwrap_or(false) {
             return Err(PluginError::NotFound(format!("this isn't {}", launcher_api::brand::PRODUCT_OS_NAME)));
         }
         let json = self.run("rpm-ostree", &["status", "--json"]).await?;
@@ -332,7 +346,7 @@ impl OsUpdates for Linux {
 #[launcher_api::async_trait]
 impl OsInstall for Linux {
     async fn disks(&self) -> PluginResult<Vec<InstallDisk>> {
-        if !Path::new(INSTALLER).exists() {
+        if !tokio::fs::try_exists(INSTALLER).await.unwrap_or(false) {
             return Ok(Vec::new());
         }
         // The stick has the installer on its PATH as marah-os-install (docs/contributors/os-contract.md).

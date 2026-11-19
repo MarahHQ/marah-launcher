@@ -450,3 +450,35 @@ async fn a_low_battery_notice_comes_while_a_game_runs() {
 async fn dismiss_all(t: &launcher_testkit::TestCore) {
     t.core.dispatch(Command::Notice(launcher_core::NoticeCmd::DismissAll)).await.unwrap();
 }
+
+/// A slow read holds none of the other parts: the drives, Bluetooth, the sound and the battery
+/// are there while the network still reads, and the network comes when its read ends.
+#[tokio::test]
+async fn a_slow_network_read_holds_none_of_the_other_parts() {
+    let system = machine();
+    system.with(|m| m.slow.push(("status", std::time::Duration::from_secs(20))));
+    let t = FakeHost::new().call_timeout(std::time::Duration::from_secs(60)).plugin(system.plugin()).boot_core().await;
+    t.clock.advance(std::time::Duration::from_secs(1)).await;
+    let vm = t.core.view().system;
+    assert!(vm.drives_available, "the drives are read");
+    assert!(vm.bluetooth_on && vm.volume == 40 && vm.battery_percent == 18, "the other parts are read: {vm:?}");
+    assert_eq!(vm.connection, "none", "the network still reads");
+    t.clock.advance(std::time::Duration::from_secs(20)).await;
+    assert_eq!(t.core.view().system.connection, "wired", "its read ended");
+}
+
+/// The parts are read at once, and so are the independent reads inside one: each read begins
+/// before any of them ends.
+#[tokio::test]
+async fn the_parts_and_their_reads_run_at_once() {
+    let system = machine();
+    let reads = ["status", "wifi", "powered", "devices", "outputs", "level", "battery", "drives.unavailable"];
+    system.with(|m| m.slow = reads.iter().map(|r| (*r, std::time::Duration::from_secs(1))).collect());
+    let t = FakeHost::new().call_timeout(std::time::Duration::from_secs(60)).plugin(system.plugin()).boot_core().await;
+    t.clock.advance(std::time::Duration::from_secs(2)).await;
+    let calls = system.read(|m| m.calls.clone());
+    let first = |name: &str| *calls.iter().find(|(method, _, _)| *method == name).unwrap_or_else(|| panic!("{name}"));
+    let last_began = reads.iter().map(|r| first(r).1).max().unwrap();
+    let first_ended = reads.iter().map(|r| first(r).2).min().unwrap();
+    assert!(last_began < first_ended, "every read began before one ended: {calls:?}");
+}

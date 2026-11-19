@@ -201,16 +201,16 @@ async fn a_drive_plugged_in_just_now_mounts_from_the_browser() {
 async fn the_view_reads_the_drives_free_space_ahead_not_on_each_build() {
     let folder = tempfile::tempdir().unwrap();
     let host = FakeHost::new().free_space(120_500_000_000).plugin(games_plugin());
-    let calls = host.drive_calls();
     let t = host.boot_core().await;
     t.core.dispatch(Command::SetFolders { name: "games".into(), paths: vec![folder.path().into()] }).await.unwrap();
-    let before = calls.load(std::sync::atomic::Ordering::SeqCst);
-    for _ in 0..5 {
-        let view = t.core.view();
-        assert_eq!(view.settings.folders[0].list[0].free, "120.5 GB free");
-        assert_eq!(view.settings.backup.free, "", "no backup folder there");
-    }
-    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), before, "no drive was asked");
+    // The drives panic if a build asks them anything.
+    launcher_testkit::no_drive_calls(|| {
+        for _ in 0..5 {
+            let view = t.core.view();
+            assert_eq!(view.settings.folders[0].list[0].free, "120.5 GB free");
+            assert_eq!(view.settings.backup.free, "", "no backup folder there");
+        }
+    });
 }
 
 /// A drive inside the PC is a place without the USB mark: its icon is a disk.
