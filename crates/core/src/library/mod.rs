@@ -201,6 +201,14 @@ impl LibrarySnapshot {
         }
     }
 
+    /// Every game the library keeps a record of, in no order, with its details once they are in.
+    pub fn records(&self) -> impl Iterator<Item = (&GameKey, Option<&Detail>)> {
+        self.games.iter().map(|(key, record)| match &record.detail {
+            DetailState::Read(detail) => (key, Some(detail.as_ref())),
+            _ => (key, None),
+        })
+    }
+
     pub fn badges(&self, key: &GameKey) -> &[SlotItem] {
         self.games.get(key).map_or(&[], |r| &r.badges)
     }

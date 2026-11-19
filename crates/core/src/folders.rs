@@ -33,6 +33,7 @@ pub(crate) fn roots(
     platform: Option<launcher_api::Platform>,
     grant: &PathGrant,
 ) -> Vec<PathBuf> {
+    crate::snapshot::disk_read();
     let saved = config.get(&["app", "folders", &grant.folder]);
     if let Some(list) = saved.as_array() {
         return list.iter().filter_map(Value::as_str).map(PathBuf::from).filter(|p| p.is_absolute()).collect();

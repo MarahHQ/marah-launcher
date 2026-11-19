@@ -103,6 +103,7 @@ pub use ports::{
 pub use preferences::{MAX_SCALE, MIN_SCALE, Pref, PrefKind, PrefSpec, PreferencesSnapshot};
 pub use ratings::RatingsCmd;
 pub use sessions::SessionCmd;
+pub use snapshot::no_disk_reads;
 pub use storage::DirStorage;
 pub use themes::{DataTheme, DirFiles};
 pub use timings::{CoreTimings, Timed};

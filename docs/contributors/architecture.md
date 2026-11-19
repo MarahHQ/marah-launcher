@@ -99,11 +99,15 @@ changed. The shell renders: the view builds from one snapshot and binds into the
 
 The areas (`Area` in `changes.rs`) are `Navigation`, `Library`, `Catalogs`, `Downloads`,
 `Installs`, `Torrents`, `Sessions`, `Notices`, `Settings`, `Plugins`, `System`, `Vpn`,
-`Hardware`, `LauncherUpdate` and `Backup`.
+`Hardware`, `LauncherUpdate`, `Backup`, `Browser` and `Files`.
 
 `Snapshot` (`snapshot.rs`) holds one read of each subsystem, a copy of `AppState`, the plugins'
 manifests, the theme's option values, the time by the core's clock, and what the view needs from
-the disk. `view::build` (`view.rs`) is pure: it takes no lock, does no I/O and keeps no state.
+the disk. That last part is read ahead, on a blocking thread (`snapshot::refresh_files`): when the
+library, the folders, the drives or the sessions change, and on the system's 5 s tick. So a
+snapshot reads nothing from the disk, and a slow drive can't hold a render; a test checks it with
+`no_disk_reads`. `view::build` (`view.rs`) is pure: it takes no lock, does no I/O and keeps no
+state.
 Display text, such as sizes and dates, comes from `display.rs`. The view's rules live in pure
 modules over the snapshot, each with its own tests: `ownership.rs`, `grid_query.rs`,
 `search.rs`, `settings_schema.rs`, `disks.rs`, `game_groups.rs`, `game_words.rs` and

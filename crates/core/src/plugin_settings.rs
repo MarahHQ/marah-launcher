@@ -211,6 +211,8 @@ pub(crate) async fn set_folders(core: &Core, name: &str, paths: &[std::path::Pat
     if name == GAMES && changed && core.library().booted() {
         crate::library_reads::scan(core, came).await;
     }
+    // Settings shows the folders from the files read ahead: they are read before it hears.
+    crate::snapshot::refresh_files(core).await;
     core.changed(Area::Settings);
     Ok(())
 }

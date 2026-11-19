@@ -128,14 +128,10 @@ fn the_first_10_seconds_of_a_start_render_in_time() {
     timed("renders", &ui.renders);
     timed("core views", &core.views);
     timed("snapshots", &core.snapshots);
-    timed("snapshot files", &core.files);
+    timed("files read ahead, off the UI thread", &core.files);
     timed("polls", &ui.polls);
     timed("ticks", &ui.ticks);
     timed("UI lock waits", &core.ui_lock_waits);
-    eprintln!(
-        "the share of the renders in files: {:.0} %",
-        100.0 * core.files.total.as_secs_f64() / ui.renders.total.as_secs_f64()
-    );
 
     // With the whole library in: what each render costs from now on.
     let runs = 20;
@@ -144,7 +140,7 @@ fn the_first_10_seconds_of_a_start_render_in_time() {
     }
     let (after, core_after) = (host.shell.timings().renders.since(&ui.renders), host.core().timings());
     eprintln!("with the library in, a render: mean {:.2} ms", ms(after.mean()));
-    let files = core_after.files.since(&core.files);
     let views = core_after.views.since(&core.views);
-    eprintln!("  of it, the view {:.2} ms, the files {:.2} ms", ms(views.mean()), ms(files.mean()));
+    let snapshots = core_after.snapshots.since(&core.snapshots);
+    eprintln!("  of it, the view {:.2} ms, its snapshot {:.2} ms", ms(views.mean()), ms(snapshots.mean()));
 }

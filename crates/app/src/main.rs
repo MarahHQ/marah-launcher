@@ -295,7 +295,6 @@ fn log_timings(core: &Core, shell: &AppShell, launched: Instant) {
         snapshot_mean_ms = ms(core.snapshots.mean()),
         snapshot_worst_ms = ms(core.snapshots.worst),
         files_mean_ms = ms(core.files.mean()),
-        files_share = core.files.total.as_secs_f64() / ui.renders.total.as_secs_f64().max(f64::EPSILON),
         poll_worst_ms = ms(ui.polls.worst),
         tick_worst_ms = ms(ui.ticks.worst),
         lock_waits = core.ui_lock_waits.count,

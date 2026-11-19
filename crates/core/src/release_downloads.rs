@@ -109,6 +109,8 @@ async fn begin(core: &Core, id: &str, install: bool, folder: Option<std::path::P
         }
         if folder.is_some() {
             folders.remember(Purpose::Install, &console, &path);
+            // The next download's card offers it: the view reads it ahead.
+            crate::snapshot::refresh_files(core).await;
         }
         Some(InstallAfter { folder, started: false })
     } else {
@@ -381,6 +383,8 @@ async fn start_install(core: &Core, id: &str, folder: Option<&Path>) -> CoreResu
     }
     if folder.is_some() {
         folders.remember(Purpose::Install, &console, &path);
+        // The next download's card offers it: the view reads it ahead.
+        crate::snapshot::refresh_files(core).await;
     }
     if let Some((plugin, source)) = core.installs().install_download(id, into.clone()) {
         install_game(core, &plugin, source, Some(into)).await?;

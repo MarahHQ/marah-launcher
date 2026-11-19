@@ -474,6 +474,7 @@ pub(crate) fn schedule_refresh(core: &Core) {
     every_tick(core, |core| async move { read_drives(&core).await });
     every_tick(core, |core| async move { crate::drives::refresh(&core).await });
     every_tick(core, |core| async move { crate::disks::refresh(&core).await });
+    every_tick(core, |core| async move { crate::snapshot::refresh_files(&core).await });
 }
 
 /// Runs `read` now, then again [`REFRESH_EVERY`] after each one ends, while the core lives.

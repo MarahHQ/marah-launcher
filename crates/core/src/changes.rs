@@ -41,6 +41,8 @@ pub enum Area {
     Backup,
     /// The folder browser.
     Browser,
+    /// What the view reads from the disk: the games' folders and logs, and the host folders.
+    Files,
 }
 
 /// The core's state in `area` changed.

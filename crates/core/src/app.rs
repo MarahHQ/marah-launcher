@@ -238,6 +238,7 @@ pub(crate) fn resolve_game_folder(
     game: &GameKey,
     folder: &launcher_api::HostPath,
 ) -> Option<std::path::PathBuf> {
+    crate::snapshot::disk_read();
     kernel.host_folders(&game.plugin)?.resolve(folder).ok().filter(|p| p.is_dir())
 }
 
@@ -273,6 +274,10 @@ pub(crate) struct Inner {
     pub scans: crate::library_reads::Scans,
     /// How long the reads for a render take, and the UI thread's waits for the state lock.
     pub timings: crate::timings::Timings,
+    /// How many reads of the files the view needs were started ([`crate::snapshot::refresh_files`]).
+    pub files_reads: std::sync::atomic::AtomicU64,
+    /// How many reads of every game's files were started: they alone read the host folders.
+    pub folder_reads: std::sync::atomic::AtomicU64,
 }
 
 /// The app. Cheap to clone; every clone is the same app.
@@ -421,6 +426,8 @@ impl Core {
                 reading_catalogs: tokio::sync::Mutex::new(()),
                 scans: Default::default(),
                 timings: Default::default(),
+                files_reads: Default::default(),
+                folder_reads: Default::default(),
             }
         });
         let core = Core { inner };
@@ -432,6 +439,7 @@ impl Core {
         crate::plugin_downloads::resume_downloads(&core);
         crate::emulator_builds::schedule_update_checks(&core);
         crate::system::schedule_refresh(&core);
+        crate::snapshot::watch_files(&core);
         crate::hardware::check_hardware(&core);
         crate::catalog_reads::watch_catalogs(&core);
         crate::catalog_reads::watch_store_installs(&core);
@@ -587,10 +595,7 @@ impl Core {
         let builds = self.builds().snapshot();
         let state = self.state().clone();
         let detail_game = crate::snapshot::detail_game(&state);
-        let files = self.inner.timings.files.time(|| {
-            let _span = tracing::debug_span!("snapshot_files").entered();
-            crate::snapshot::files(kernel, &library, &torrents, detail_game.as_ref())
-        });
+        let files = state.files.clone();
         Snapshot {
             plugins: crate::snapshot::Plugins::new(kernel),
             installs: self.installs().snapshot(),

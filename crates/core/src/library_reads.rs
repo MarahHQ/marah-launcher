@@ -325,7 +325,9 @@ pub(crate) async fn load_detail(core: &Core, game: &GameKey) -> CoreResult<()> {
     detail.settings = game_settings(core, &plugin, &provided, game).await;
     crate::emulator_builds::refresh_emulator(core, &plugin).await;
     let folder = detail.details.folder.clone();
+    crate::snapshot::read_game_files(core, game, folder.clone()).await;
     core.library().set_detail(game, detail, badges);
+    crate::snapshot::drop_older_reads(core);
     if let Some(folder) = folder {
         crate::game_files::found_folder(core, game, &folder).await;
     }

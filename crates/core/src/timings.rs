@@ -47,7 +47,7 @@ impl Stat {
 pub(crate) struct Timings {
     /// [`crate::Core::snapshot`], whole.
     pub snapshots: Stat,
-    /// The disk reads of a snapshot ([`crate::snapshot::files`]).
+    /// The reads ahead of what the view needs from the disk ([`crate::snapshot::refresh_files`]).
     pub files: Stat,
     /// [`crate::Core::view`]: the snapshot and the build.
     pub views: Stat,
@@ -97,7 +97,7 @@ impl Timed {
 pub struct CoreTimings {
     /// The reads of the whole app for a render.
     pub snapshots: Timed,
-    /// The part of those reads that goes to the disk.
+    /// The reads ahead, off the UI thread, of what the view needs from the disk.
     pub files: Timed,
     /// The views built: each a snapshot and a build.
     pub views: Timed,

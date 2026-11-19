@@ -723,7 +723,7 @@ fn detail_vm(s: &Snapshot, owned: &Ownership, key: &GameKey) -> Option<GameDetai
         pc_warning,
         your_result: your_result.map(CompatLevel::as_str).unwrap_or_default().to_owned(),
         has_folder: s.files.game_folders.contains(key),
-        has_log: s.files.has_log,
+        has_log: s.files.logs.contains(key),
         hidden: library.hidden(key),
         compat_page: community.and_then(|c| c.page.clone()).unwrap_or_default(),
         trailer_url: meta.map(|(_, m)| m.trailer.clone()).unwrap_or_default(),
