@@ -727,3 +727,36 @@ fn the_about_card_comes_last_on_settings_in_every_theme() {
         }
     }
 }
+
+/// A click outside a sheet closes it, as Back does; a click inside it, off its rows and buttons,
+/// does nothing. The folder browser (a pick picks nothing then), a folder's list, the Drives
+/// panel.
+#[test]
+fn a_click_outside_a_sheet_closes_it_and_one_inside_does_not_in_every_theme() {
+    for theme in THEMES {
+        let mut host = in_theme(theme, |h| h.built_in(launcher_api::PluginBox::code(emu_kyty::KytyPlugin)));
+        let before = host.core().kernel().config().get(&["app", "folders", "games"]);
+        host.dispatch(Command::Browse(launcher_core::BrowseCmd::Open {
+            at: None,
+            purpose: launcher_core::BrowsePurpose::Pick("games".into()),
+        }));
+        host.settle();
+        assert_eq!(host.count("folder-browser"), 1, "{theme}");
+        host.click("browser-title");
+        assert_eq!(host.count("folder-browser"), 1, "{theme}: a click inside keeps it");
+        host.click_at(4.0, 4.0);
+        assert_eq!(host.count("folder-browser"), 0, "{theme}: a click outside closes it");
+        assert_eq!(host.core().kernel().config().get(&["app", "folders", "games"]), before, "{theme}: nothing picked");
+
+        host.dispatch(Command::Navigate(Route::Settings));
+        host.settle();
+        host.settings_tab("Games");
+        host.navigate(Key::RightArrow);
+        host.navigate(Key::Return);
+        assert_eq!(host.count("folder-list"), 1, "{theme}");
+        host.click("folder-list-title");
+        assert_eq!(host.count("folder-list"), 1, "{theme}: a click inside keeps the list");
+        host.click_at(4.0, 4.0);
+        assert_eq!(host.count("folder-list"), 0, "{theme}: a click outside closes the list");
+    }
+}

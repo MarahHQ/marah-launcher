@@ -221,6 +221,7 @@ component BrowserRow inherits Rectangle {
     background: root.lit ? Tokens.color-focus : root.marked ? Look.fill-lit : touch.has-hover ? Look.fill : transparent;
     animate background { duration: Look.timed(120ms); }
     touch := TouchArea {
+        mouse-cursor: pointer;
         clicked => { root.picked(); }
     }
     HorizontalLayout {
@@ -315,7 +316,7 @@ component SheetButton inherits Rectangle {
     accessible-label: root.name;
     accessible-item-selected: root.lit;
     accessible-action-default => { root.clicked(); }
-    touch := TouchArea { clicked => { root.clicked(); } }
+    touch := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
     label := Text {
         text: root.text;
         font-size: 17 * Look.tpx;
@@ -353,7 +354,8 @@ export component FolderBrowser inherits Rectangle {
     accessible-value: Vm.browser.shown;
     background: reveal.in-view ? Tokens.color-overlay.with-alpha(0.8) : Tokens.color-overlay.with-alpha(0);
     animate background { duration: Tokens.motion-normal; }
-    TouchArea {}
+    // A click outside the sheet closes it, as Back does: a pick then picks nothing.
+    TouchArea { clicked => { Browser.close(); } }
 
     card := Rectangle {
         width: Math.min(root.width - 96 * Look.px, 1400 * Look.px);
@@ -368,6 +370,8 @@ export component FolderBrowser inherits Rectangle {
         drop-shadow-blur: 48 * Look.px;
         drop-shadow-color: Tokens.color-shade.with-alpha(0.6);
         clip: true;
+        // A click inside the sheet, off its rows and buttons, does nothing.
+        TouchArea {}
 
         VerticalLayout {
             // The title, the path and Close.
@@ -380,6 +384,9 @@ export component FolderBrowser inherits Rectangle {
                     spacing: 6 * Look.px;
                     horizontal-stretch: 1;
                     Text {
+                        accessible-role: text;
+                        accessible-label: "browser-title";
+                        accessible-value: self.text;
                         text: Vm.browser.title;
                         font-size: 26 * Look.tpx;
                         font-weight: 700;
@@ -401,7 +408,7 @@ export component FolderBrowser inherits Rectangle {
                                 accessible-label: "browser-crumb";
                                 accessible-value: crumb.name;
                                 accessible-action-default => { Commands.browse-to(crumb.path); }
-                                TouchArea { clicked => { Commands.browse-to(crumb.path); } }
+                                TouchArea { mouse-cursor: pointer; clicked => { Commands.browse-to(crumb.path); } }
                             }
                         }
                     }

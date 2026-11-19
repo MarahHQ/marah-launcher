@@ -172,6 +172,9 @@ export component FolderListSheet inherits Rectangle {
             padding: 24 * Look.px;
             spacing: 6 * Look.px;
             Text {
+                accessible-role: text;
+                accessible-label: "folder-list-title";
+                accessible-value: self.text;
                 text: FolderList.backup ? "Backup folder" : FolderList.folder.title != "" ? FolderList.folder.title : FolderList.folder.name;
                 font-size: 26 * Look.tpx;
                 font-weight: 700;
