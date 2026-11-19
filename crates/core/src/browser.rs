@@ -122,6 +122,8 @@ pub struct Browser {
     pub purpose: Purpose,
     pub at: PathBuf,
     pub places: Vec<BrowsePlace>,
+    /// The drives are being read for the places: the drives in `places` may change.
+    pub places_loading: bool,
     /// Its folders (for a restore, those with backups first), then for a restore its backups
     /// newest first. Hidden folders only with `hidden`.
     pub entries: Vec<BrowseEntry>,
@@ -176,12 +178,25 @@ impl Browsing {
 
     /// Opens the browser at `at` for `purpose`, with `places` to go to. Hidden folders stay listed
     /// or not as they were; the filter is cleared.
-    async fn open(&self, purpose: Purpose, at: PathBuf, places: Vec<BrowsePlace>) -> CoreResult<()> {
+    async fn open(&self, purpose: Purpose, at: PathBuf, places: Vec<BrowsePlace>, loading: bool) -> CoreResult<()> {
         let hidden = self.snapshot().is_some_and(|b| b.hidden);
         let (dir, restore) = (at.clone(), purpose == Purpose::Restore);
         let entries = blocking(move || list(&dir, hidden, restore)).await?;
-        self.set(Some(Browser { purpose, at, places, entries, hidden, filter: String::new() }));
+        let filter = String::new();
+        self.set(Some(Browser { purpose, at, places, places_loading: loading, entries, hidden, filter }));
         Ok(())
+    }
+
+    /// The places, read again, of the browser open for `purpose`. Closed or opened for another
+    /// purpose in the meantime: that newer state stays.
+    fn set_places(&self, purpose: &Purpose, places: Vec<BrowsePlace>) {
+        let mut state = self.state();
+        let Some(open) = state.as_ref().filter(|b| &b.purpose == purpose) else { return };
+        let mut browser = (**open).clone();
+        (browser.places, browser.places_loading) = (places, false);
+        *state = Some(Arc::new(browser));
+        drop(state);
+        self.notifier.changed(Area::Browser);
     }
 
     async fn show_hidden(&self, hidden: bool) -> CoreResult<()> {
@@ -214,7 +229,7 @@ pub(crate) async fn handle(core: &Core, command: BrowseCmd) -> CoreResult<()> {
         // The places the browser opened with: the drives aren't read again on each move.
         BrowseCmd::Go(at) => {
             let open = core.browsing().snapshot().ok_or_else(|| CoreError::Invalid(CLOSED.into()))?;
-            go(core, at, open.purpose.clone(), open.places.clone()).await
+            go(core, at, open.purpose.clone(), open.places.clone(), open.places_loading).await
         }
         BrowseCmd::Close => {
             core.browsing().close();
@@ -227,7 +242,7 @@ pub(crate) async fn handle(core: &Core, command: BrowseCmd) -> CoreResult<()> {
             let at = crate::drives::mount(core, &drive).await?;
             // The drive is mounted now: its place has a folder.
             let places = places(core, &open.purpose).await;
-            go(core, at, open.purpose.clone(), places).await
+            go(core, at, open.purpose.clone(), places, false).await
         }
         BrowseCmd::Use => {
             let open = core.browsing().snapshot().ok_or_else(|| CoreError::Invalid(CLOSED.into()))?;
@@ -252,10 +267,14 @@ pub(crate) async fn open(core: &Core, at: Option<PathBuf>, purpose: Purpose) -> 
     let (reader, wanted) = (core.clone(), purpose.clone());
     let start = tokio::task::spawn_blocking(move || start(&reader, at, &wanted)).await;
     let start = start.map_err(|e| CoreError::Invalid(format!("no folder to start from: {e}")))??;
-    // One read of the drives for the browser: its places, and the drives a Mount finds.
+    // It opens at once with the drives last read, then reads them once for its places and the
+    // drives a Mount finds: a slow drive read holds nothing.
+    let known = places(core, &purpose).await;
+    go(core, start, purpose.clone(), known, true).await?;
     crate::drives::refresh(core).await;
     let places = places(core, &purpose).await;
-    go(core, start, purpose, places).await
+    core.browsing().set_places(&purpose, places);
+    Ok(())
 }
 
 /// Where the browser opens for `purpose`: `at`, or where that purpose starts.
@@ -284,13 +303,13 @@ fn start(core: &Core, at: Option<PathBuf>, purpose: &Purpose) -> CoreResult<Path
     })
 }
 
-/// Opens the browser at `at` for `purpose`, with `places` to go to.
-async fn go(core: &Core, at: PathBuf, purpose: Purpose, places: Vec<BrowsePlace>) -> CoreResult<()> {
+/// Opens the browser at `at` for `purpose`, with `places` to go to, still `loading` or not.
+async fn go(core: &Core, at: PathBuf, purpose: Purpose, places: Vec<BrowsePlace>, loading: bool) -> CoreResult<()> {
     let folder = tokio::fs::metadata(&at).await.is_ok_and(|m| m.is_dir());
     if !at.is_absolute() || !folder {
         return Err(CoreError::Invalid(format!("{} isn't a folder", at.display())));
     }
-    core.browsing().open(purpose, at, places).await
+    core.browsing().open(purpose, at, places, loading).await
 }
 
 /// Where the browser can go: Home, the Downloads, Desktop and Documents folders that are there,

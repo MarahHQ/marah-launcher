@@ -57,7 +57,7 @@ export global Nav {
     // The screen buttons, the network, sound and Bluetooth icons when Marah Launcher is the whole screen
     // (`Sys`), the drives' icon wherever drives can be managed, and Settings last.
     out property <int> buttons: 5 + root.statuses;
-    out property <int> statuses: (Vm.system.whole-screen ? 3 : 0) + (Vm.system.drives-available ? 1 : 0);
+    out property <int> statuses: (Vm.system.whole-screen ? 3 : 0) + (Vm.system.drives-available || Vm.system.drives-loading ? 1 : 0);
 
     public pure function platform(entry: int) -> string {
         entry < 0 || entry >= Vm.home.groups.length ? "" : Vm.home.groups[entry].platform

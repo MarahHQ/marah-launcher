@@ -1,0 +1,121 @@
+import { Tokens } from "../tokens.slint";
+import { Look } from "look.slint";
+import { Motion, Tooltip } from "motion.slint";
+
+// What shows while a part of the machine is still read (`Vm.system.*-loading`): a status icon's
+// thin line, a panel's loading row, and the slot that keeps a status icon's place in the top bar.
+// Each moves only while it is on screen: put it in an `if` on the loading state, and it stops
+// with it. With Animations off each stands still.
+
+// A thin line (2 px) under a status icon while its part is read: a short bar sweeps along it.
+// With Animations off it is a dotted line that stands still.
+export component LoadingLine inherits Rectangle {
+    height: 2 * Look.px;
+    clip: true;
+    accessible-role: progress-indicator;
+    accessible-label: "loading-line";
+    accessible-value: Look.motion-on ? "moving" : "still";
+    if Look.motion-on : Rectangle {
+        border-radius: 1 * Look.px;
+        background: Tokens.color-tint.with-alpha(0.15);
+    }
+    if Look.motion-on : Rectangle {
+        // Across and back in at the start, every 1.2 seconds.
+        property <float> step: Math.mod(Look.clock, 1.2) / 1.2;
+        width: parent.width * 0.4;
+        x: self.step * (parent.width + self.width) - self.width;
+        border-radius: 1 * Look.px;
+        background: Tokens.color-accent;
+    }
+    if !Look.motion-on : HorizontalLayout {
+        alignment: space-between;
+        for i in 5 : Rectangle {
+            width: 2 * Look.px;
+            height: 2 * Look.px;
+            border-radius: 1 * Look.px;
+            background: Tokens.color-text-muted;
+        }
+    }
+}
+
+// A small ring that turns while something loads; with Animations off, a ring that stands still.
+export component LoadingSpinner inherits Path {
+    in property <color> tint: Tokens.color-text-muted;
+    width: 20 * Look.px;
+    height: 20 * Look.px;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    stroke: root.tint;
+    stroke-width: 2.5 * Look.px;
+    commands: "M 12 3 A 9 9 0 1 1 3 12";
+    transform-rotation: Look.clock * 400deg;
+}
+
+// A panel's row while its list is read for the first time: a spinner and what is read
+// ("Reading drives…"). It takes no focus: the keys and the pad act on the panel as they do on an
+// empty one.
+export component LoadingRow inherits Rectangle {
+    // What is read: "Reading drives…".
+    in property <string> what;
+    height: 56 * Look.px;
+    accessible-role: text;
+    accessible-label: "loading";
+    accessible-value: root.what;
+    HorizontalLayout {
+        padding-left: 16 * Look.px;
+        padding-right: 16 * Look.px;
+        spacing: 12 * Look.px;
+        alignment: start;
+        VerticalLayout { alignment: center; LoadingSpinner {} }
+        Text {
+            text: root.what;
+            font-size: 17 * Look.tpx;
+            color: Look.text3;
+            vertical-alignment: center;
+            horizontal-alignment: Look.rtl ? right : left;
+        }
+    }
+}
+
+// A status icon's place in the top bar: `item-width` and the `gap` after it. While `open` turns
+// false the icon fades out and the place closes, so the icons after it slide over; it opens
+// again the same way. Open from its first frame, it is in place at once: the bar never shifts at
+// the start. The place's width is the one size that moves, on purpose: it is the gap closing.
+export component StatusSlot inherits Rectangle {
+    in property <bool> open: true;
+    in property <length> item-width;
+    in property <length> gap;
+    property <float> k: root.open ? 1 : 0;
+    animate k { duration: root.open ? Motion.popover-in : Motion.sheet-out; easing: root.open ? Motion.enter : ease-in; }
+    width: (root.item-width + root.gap) * root.k;
+    opacity: root.k;
+    // Only while it moves: a tooltip under the icon shows past its place.
+    clip: root.k < 1;
+    // The bar keeps its order right to left: the gap stays after the icon.
+    Rectangle {
+        x: 0;
+        width: root.item-width;
+        @children
+    }
+}
+
+// The look a status icon takes while its part is read: its icon dims (the site sets that), the
+// line sweeps under it, and "Checking…" shows under it on hover or key focus.
+export component StatusLoading inherits Rectangle {
+    in property <bool> focused;
+    in property <bool> hovered;
+    LoadingLine {
+        x: 14 * Look.px;
+        y: parent.height - 7 * Look.px;
+        width: parent.width - 28 * Look.px;
+    }
+    Tooltip {
+        y: parent.height + 4 * Look.px;
+        x: (parent.width - self.width) / 2;
+        width: 120 * Look.px;
+        text: "Checking…";
+        shown: root.focused || root.hovered;
+        hovered: root.hovered && !root.focused;
+        name: "status-checking";
+    }
+}

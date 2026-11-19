@@ -615,3 +615,157 @@ fn a_panel_opened_from_a_settings_row_opens_next_to_the_row_in_every_theme() {
         assert_eq!(host.count("system-panel"), 0, "{theme}: the page scrolled under it: it closed");
     }
 }
+
+/// The machine `system` with every part's first read taking 30 seconds on the fake clock, at
+/// `place` in `theme`: no read ends until the test moves the clock.
+fn reading(system: &FakeSystem, place: Place, theme: &str) -> Composed {
+    let slow = ["network.unavailable", "bluetooth.unavailable", "audio.unavailable", "power.unavailable"];
+    let slow = slow.into_iter().chain(["drives.unavailable", "drives"]);
+    system.with(|m| m.slow = slow.map(|r| (r, std::time::Duration::from_secs(30))).collect());
+    let plugin = system.plugin();
+    let mut host = composed(|h| {
+        let h = h.place(place).call_timeout(std::time::Duration::from_secs(120)).plugin(plugin);
+        h.plugin(FakeCatalog::new("emu-a").system("PS4").games(["Alpha"]).build())
+    });
+    host.ui.start().unwrap();
+    host.ui.switch(&id(theme)).unwrap();
+    host.resize(1600.0, 900.0);
+    host.settle();
+    host
+}
+
+/// Before its first read each part is loading: no reason shows, every icon is in place with
+/// "loading" as its value, and it opens its panel on a loading row. When the reads end each
+/// shows its state, and the bar hasn't moved.
+#[test]
+fn each_status_icon_is_in_place_and_loading_until_its_part_is_read() {
+    for theme in ["classic", "default"] {
+        loading_until_read(theme);
+    }
+}
+
+fn loading_until_read(theme: &str) {
+    use slint::platform::Key;
+    let system = machine();
+    let mut host = reading(&system, WHOLE_SCREEN, theme);
+    let vm = host.core().view().system;
+    assert!(vm.network_loading && vm.audio_loading && vm.bluetooth_loading && vm.power_loading, "{vm:?}");
+    assert!(vm.drives_loading && vm.drives_listing, "{vm:?}");
+    assert!(vm.network_reason.is_empty() && vm.drives_reason.is_empty(), "no reason before the read");
+    for label in ["status:network", "status:sound", "status:bluetooth", "status:drives", "battery"] {
+        assert_eq!(host.value(label), "loading", "{label}");
+    }
+    let settings = host.first("Settings").absolute_position().x;
+
+    // The mouse: a click opens the panel at once, on its loading row, before its reads end.
+    host.first("status:drives").invoke_accessible_default_action();
+    host.settle();
+    assert_eq!(host.value("system-panel"), "drives");
+    assert_eq!(host.values("loading"), ["Reading drives…"]);
+    assert_eq!(host.count("drive"), 0);
+    // The keys: Escape closes it as an empty panel closes; from Settings, the drives' icon has
+    // the focus and says "Checking…" under it; Enter opens the panel again.
+    host.send_key(Key::Escape);
+    host.settle();
+    host.send_key(Key::Backtab);
+    host.send_key(Key::Backtab);
+    host.settle();
+    assert_eq!(host.count("status-checking"), 1, "the drives' icon has the keys' focus");
+    host.send_key(Key::Return);
+    host.settle();
+    assert_eq!(host.value("system-panel"), "drives", "Enter opens it");
+    assert_eq!(host.values("loading"), ["Reading drives…"]);
+
+    // The reads end: what the clicks and keys asked for runs, as the moving clock lets it.
+    host.pump();
+    host.advance(std::time::Duration::from_secs(31));
+    host.settle();
+    let vm = host.core().view().system;
+    assert!(!vm.network_loading && !vm.drives_loading && !vm.drives_listing && vm.drives_available, "{vm:?}");
+    assert_eq!(host.count("loading"), 0, "the panel fills in");
+    assert_eq!(host.values("drive").len(), 0, "no drive here");
+    assert_eq!(host.value("status:network"), "wired");
+    assert_eq!(host.value("battery"), "18");
+    assert_eq!(host.count("loading-line"), 0, "nothing loads");
+    assert_eq!(host.first("Settings").absolute_position().x, settings, "the bar didn't move");
+}
+
+/// A part read slowly holds none of the others: the network still loads while the drives' icon
+/// is ready.
+#[test]
+fn a_slow_network_read_leaves_the_drives_icon_ready() {
+    let system = machine();
+    system.with(|m| m.slow = vec![("network.unavailable", std::time::Duration::from_secs(30))]);
+    let plugin = system.plugin();
+    let mut host = composed(|h| h.place(WHOLE_SCREEN).call_timeout(std::time::Duration::from_secs(120)).plugin(plugin));
+    host.ui.start().unwrap();
+    host.run_until_idle();
+    host.shell.render().unwrap();
+    host.settle();
+    assert_eq!(host.value("status:network"), "loading");
+    assert_ne!(host.value("status:drives"), "loading");
+    assert_ne!(host.value("status:sound"), "loading");
+}
+
+/// Drives that turn out not to be managed here: the drives' icon loads, then fades out and its
+/// place closes.
+#[test]
+fn the_drives_icon_goes_when_drives_turn_out_unavailable() {
+    for theme in ["classic", "default"] {
+        let system = machine();
+        system.with(|m| m.unavailable.push(("drives", "No udisks here".into())));
+        let mut host = reading(&system, WHOLE_SCREEN, theme);
+        assert_eq!(host.value("status:drives"), "loading", "{theme}");
+        host.advance(std::time::Duration::from_secs(31));
+        host.settle();
+        assert_eq!(host.count("status:drives"), 0, "{theme}: it went");
+    }
+}
+
+/// With Animations off the loading line stands still, as a dotted line; with them on it moves.
+#[test]
+fn with_animations_off_the_loading_line_stands_still() {
+    for theme in ["classic", "default"] {
+        let system = machine();
+        let mut host = reading(&system, WHOLE_SCREEN, theme);
+        assert!(
+            host.values("loading-line").iter().all(|v| v == "moving"),
+            "{theme}: {:?}",
+            host.values("loading-line")
+        );
+        host.dispatch(Command::Pref(launcher_core::Pref::Animations, serde_json::json!(false)));
+        host.settle();
+        let lines = host.values("loading-line");
+        assert_eq!(lines.len(), 5, "{theme}: the four icons and the battery: {lines:?}");
+        assert!(lines.iter().all(|v| v == "still"), "{theme}: {lines:?}");
+    }
+}
+
+/// Settings → System while the parts are read: each row says "loading", not a state it doesn't
+/// know yet, and no reason shows.
+#[test]
+fn the_system_rows_say_they_are_loading() {
+    let system = machine();
+    let mut host = reading(&system, WHOLE_SCREEN, "classic");
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    host.settings_tab("System");
+    for label in ["system-internet", "system-sound", "system-bluetooth"] {
+        assert_eq!(host.value(label), "loading", "{label}");
+    }
+}
+
+/// A loading icon takes the pad's ✕, in both themes: it opens its panel.
+#[test]
+fn a_loading_icon_takes_the_pad() {
+    use slint::platform::Key;
+    for theme in ["classic", "default"] {
+        let mut host = reading(&machine(), WHOLE_SCREEN, theme);
+        assert_eq!(host.value("status:drives"), "loading", "{theme}");
+        host.send_key(Key::Backtab);
+        host.send_key(Key::Backtab);
+        host.settle();
+        host.pad(launcher_ui_host::PadButton::South);
+        assert_eq!(host.value("system-panel"), "drives", "{theme}: ✕ opens it");
+    }
+}

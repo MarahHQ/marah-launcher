@@ -111,6 +111,8 @@ pub(crate) struct Drives {
     /// One read at a time: two at once could end in the wrong order, and an older list would
     /// then stand over a newer one.
     reading: tokio::sync::Mutex<()>,
+    /// A read of the list ended, whether it worked or not.
+    listed: std::sync::atomic::AtomicBool,
     /// The plugin the adapter came from, and why it couldn't manage drives: `None` before the
     /// first choice.
     adopted: Mutex<Option<Adoption>>,
@@ -127,6 +129,7 @@ impl Drives {
             adapter: Mutex::new(adapter),
             last: Mutex::new(None),
             reading: tokio::sync::Mutex::new(()),
+            listed: Default::default(),
             adopted: Mutex::new(None),
         }
     }
@@ -180,6 +183,11 @@ impl Drives {
         filled.await.map_err(|e| CoreError::Invalid(format!("the drives' free space wasn't read: {e}")))
     }
 
+    /// A read of the list ended: before, the list is still loading.
+    pub(crate) fn listed(&self) -> bool {
+        self.listed.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     /// The list as it was last read; empty before the first read.
     pub(crate) fn known(&self) -> Vec<Drive> {
         lock(&self.last).clone().unwrap_or_default()
@@ -189,7 +197,9 @@ impl Drives {
     /// read finds what is there: nothing came. A read that fails changes nothing.
     pub(crate) async fn refresh(&self) -> Changes {
         let _reading = self.reading.lock().await;
-        let now = match self.list().await {
+        let read = self.list().await;
+        self.listed.store(true, std::sync::atomic::Ordering::SeqCst);
+        let now = match read {
             Ok(now) => now,
             Err(e) => {
                 tracing::debug!(error = %e, "the drives weren't read: they stay as they were");

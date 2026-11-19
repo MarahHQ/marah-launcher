@@ -473,7 +473,7 @@ export component SystemSection inherits VerticalLayout {
             first: true;
             accessible-role: button;
             accessible-label: "system-internet";
-            accessible-value: Vm.system.connection;
+            accessible-value: Vm.system.network-loading ? "loading" : Vm.system.connection;
             accessible-action-default => { self.open-panel(); }
             reveal(y, h) => { root.reveal(y, h); }
             clicked => { Prefs.section = 5; Prefs.row = 0; self.open-panel(); }
@@ -486,7 +486,9 @@ export component SystemSection inherits VerticalLayout {
             Value {
                 kind: "choice";
                 focused: parent.focused;
-                text: Vm.system.connection == "wifi" ? "Wi-Fi · " + Vm.system.network-name
+                // While the network is read for the first time: "Checking…", not a state.
+                text: Vm.system.network-loading ? "Checking…"
+                    : Vm.system.connection == "wifi" ? "Wi-Fi · " + Vm.system.network-name
                     : Vm.system.connection == "wired" ? "Cable" : "Not connected";
             }
         }
@@ -497,7 +499,7 @@ export component SystemSection inherits VerticalLayout {
             focused: Prefs.is(5, 1);
             accessible-role: button;
             accessible-label: "system-sound";
-            accessible-value: Vm.system.muted ? "muted" : Vm.system.volume;
+            accessible-value: Vm.system.audio-loading ? "loading" : Vm.system.muted ? "muted" : Vm.system.volume;
             accessible-action-default => { self.open-panel(); }
             reveal(y, h) => { root.reveal(y, h); }
             clicked => { Prefs.section = 5; Prefs.row = 1; self.open-panel(); }
@@ -507,7 +509,7 @@ export component SystemSection inherits VerticalLayout {
             changed place => { if (Sys.anchored && Sys.open == 1) { Sys.close(); } }
             property <int> seen: Prefs.serial;
             changed seen => { if (self.focused && Prefs.pending == 0) { self.open-panel(); } }
-            Value { kind: "choice"; focused: parent.focused; text: Vm.system.muted ? "Muted" : Vm.system.volume + "%"; }
+            Value { kind: "choice"; focused: parent.focused; text: Vm.system.audio-loading ? "Checking…" : Vm.system.muted ? "Muted" : Vm.system.volume + "%"; }
         }
         Row {
             label: "Bluetooth";
@@ -517,7 +519,7 @@ export component SystemSection inherits VerticalLayout {
             last: SystemRows.count == 3;
             accessible-role: button;
             accessible-label: "system-bluetooth";
-            accessible-value: Vm.system.bluetooth-on ? "on" : "off";
+            accessible-value: Vm.system.bluetooth-loading ? "loading" : Vm.system.bluetooth-on ? "on" : "off";
             accessible-action-default => { self.open-panel(); }
             reveal(y, h) => { root.reveal(y, h); }
             clicked => { Prefs.section = 5; Prefs.row = 2; self.open-panel(); }
@@ -530,7 +532,7 @@ export component SystemSection inherits VerticalLayout {
             Value {
                 kind: "choice";
                 focused: parent.focused;
-                text: !Vm.system.bluetooth-on ? "Off" : Vm.system.connected-devices + " connected";
+                text: Vm.system.bluetooth-loading ? "Checking…" : !Vm.system.bluetooth-on ? "Off" : Vm.system.connected-devices + " connected";
             }
         }
         if SystemRows.os >= 0 : Row {

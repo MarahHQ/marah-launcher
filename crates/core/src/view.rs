@@ -1231,7 +1231,9 @@ fn system_vm(s: &Snapshot) -> launcher_ui_api::SystemVm {
     use launcher_ui_api::{AudioOutputVm, BluetoothDeviceVm, InstallDiskVm, SystemJobVm, WifiVm};
     let system = &s.state.system;
     let place = s.plugins.host().place;
-    let reason = |c: Capability| system.unavailable(c);
+    // Not read yet: neither available nor unavailable, with no reason.
+    let loading = |c: Capability| !system.read.contains(&c);
+    let reason = |c: Capability| if loading(c) { Some(String::new()) } else { system.unavailable(c) };
     let network = system.network.clone().unwrap_or_default();
     let (os_update, os_update_text) = match &system.os_update {
         None => (String::new(), String::new()),
@@ -1248,6 +1250,7 @@ fn system_vm(s: &Snapshot) -> launcher_ui_api::SystemVm {
         own_os: place.own_os,
         stick: place.stick,
         network_available: reason(Capability::Network).is_none(),
+        network_loading: loading(Capability::Network),
         network_reason: reason(Capability::Network).unwrap_or_default(),
         connection: match network.connection {
             Connection::None => "none",
@@ -1269,6 +1272,7 @@ fn system_vm(s: &Snapshot) -> launcher_ui_api::SystemVm {
             })
             .collect(),
         audio_available: reason(Capability::Audio).is_none(),
+        audio_loading: loading(Capability::Audio),
         audio_reason: reason(Capability::Audio).unwrap_or_default(),
         volume: level.volume as i32,
         muted: level.muted,
@@ -1278,6 +1282,7 @@ fn system_vm(s: &Snapshot) -> launcher_ui_api::SystemVm {
             .map(|o| AudioOutputVm { name: o.name.clone(), description: o.description.clone(), current: o.current })
             .collect(),
         bluetooth_available: reason(Capability::Bluetooth).is_none(),
+        bluetooth_loading: loading(Capability::Bluetooth),
         bluetooth_reason: reason(Capability::Bluetooth).unwrap_or_default(),
         bluetooth_on: system.bluetooth_on,
         connected_devices: system.devices.iter().filter(|d| d.connected).count() as i32,
@@ -1292,6 +1297,7 @@ fn system_vm(s: &Snapshot) -> launcher_ui_api::SystemVm {
             })
             .collect(),
         power_available: reason(Capability::Power).is_none(),
+        power_loading: loading(Capability::Power),
         power_reason: reason(Capability::Power).unwrap_or_default(),
         battery_shown: system.battery.is_some(),
         battery_percent: system.battery.map_or(0, |b| b.percent as i32),
@@ -1310,7 +1316,10 @@ fn system_vm(s: &Snapshot) -> launcher_ui_api::SystemVm {
             })
             .collect(),
         drives_available: reason(Capability::Drives).is_none(),
+        drives_loading: loading(Capability::Drives),
+        drives_listing: !s.drives_listed,
         drives_reason: match system.capabilities.get(&Capability::Drives) {
+            _ if loading(Capability::Drives) => String::new(),
             Some(why) => why.clone().unwrap_or_default(),
             None => crate::drives::CANT_ACT.into(),
         },
@@ -1523,6 +1532,7 @@ fn browser_vm(s: &Snapshot) -> launcher_ui_api::FolderBrowserVm {
         parent: browser.at.parent().map(full).unwrap_or_default(),
         crumbs: crumbs(&browser.at, home),
         place: browser.places.iter().position(|p| p.path == browser.at).map_or(-1, |i| i as i32),
+        places_loading: browser.places_loading,
         places: browser
             .places
             .iter()

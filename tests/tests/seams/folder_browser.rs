@@ -233,3 +233,35 @@ async fn a_drive_inside_the_pc_is_a_place_that_isn_t_usb() {
     let place = t.core.view().browser.places.into_iter().find(|p| p.drive == "INSIDE").unwrap();
     assert!(!place.usb);
 }
+
+/// The browser opens at once with the drives last read, and says its places are still loading
+/// while it reads the drives; the drive it finds comes into the places when the read ends.
+#[tokio::test]
+async fn the_browser_opens_at_once_and_its_places_load_while_the_drives_are_read() {
+    let start = tempfile::tempdir().unwrap();
+    let system = FakeSystem::new();
+    let host = FakeHost::new().call_timeout(std::time::Duration::from_secs(120));
+    let t = host.plugin(system.plugin()).plugin(games_plugin()).boot_core().await;
+    t.core.dispatch(Command::Drive(launcher_core::DriveCmd::Refresh)).await.unwrap();
+    system.with(|m| {
+        m.drives = vec![SystemDrive {
+            device: "/dev/sda1".into(),
+            uuid: "NEW".into(),
+            label: "NEW".into(),
+            usb: true,
+            ..SystemDrive::default()
+        }];
+        m.slow = vec![("drives", std::time::Duration::from_secs(30))];
+    });
+    let core = t.core.clone();
+    let open = tokio::spawn(async move { core.dispatch(Command::Browse(pick(Some(start.path())))).await });
+    t.clock.run_until_idle().await;
+    let shown = t.core.view().browser;
+    assert!(shown.open && shown.places_loading, "open, with its places loading");
+    assert!(!shown.places.iter().any(|p| p.drive == "NEW"), "not read yet");
+    t.clock.advance(std::time::Duration::from_secs(31)).await;
+    open.await.unwrap().unwrap();
+    let shown = t.core.view().browser;
+    assert!(!shown.places_loading);
+    assert!(shown.places.iter().any(|p| p.drive == "NEW"), "the drive read comes in");
+}

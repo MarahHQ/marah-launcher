@@ -917,6 +917,8 @@ pub struct FolderBrowserVm {
     /// The folder's path, one part each from `~` or the top; the last is the folder.
     pub crumbs: Vec<BrowseCrumbVm>,
     pub places: Vec<BrowsePlaceVm>,
+    /// The drives are being read for the places: the drives in `places` may change.
+    pub places_loading: bool,
     /// The index in `places` of the place that is the folder shown; -1 when none is.
     pub place: i32,
     /// The folders with backups, the other folders, then the backups newest first: those whose
@@ -1342,7 +1344,8 @@ pub struct ReportPreviewVm {
 }
 
 /// The machine's settings, from the system plugins. A part whose `*_available` is false shows
-/// its `*_reason` instead of its controls.
+/// its `*_reason` instead of its controls. A part whose `*_loading` is true isn't read yet:
+/// it is neither available nor unavailable, and its reason is empty.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SystemVm {
     /// Marah Launcher is the whole screen (the Marah Launcher session, Marah OS): the theme shows the network,
@@ -1353,6 +1356,8 @@ pub struct SystemVm {
     pub stick: bool,
 
     pub network_available: bool,
+    /// The first read of the part isn't over.
+    pub network_loading: bool,
     pub network_reason: String,
     /// none | wired | wifi
     pub connection: String,
@@ -1363,6 +1368,8 @@ pub struct SystemVm {
     pub wifi: Vec<WifiVm>,
 
     pub audio_available: bool,
+    /// The first read of the part isn't over.
+    pub audio_loading: bool,
     pub audio_reason: String,
     /// 0 to 100.
     pub volume: i32,
@@ -1370,6 +1377,8 @@ pub struct SystemVm {
     pub outputs: Vec<AudioOutputVm>,
 
     pub bluetooth_available: bool,
+    /// The first read of the part isn't over.
+    pub bluetooth_loading: bool,
     pub bluetooth_reason: String,
     pub bluetooth_on: bool,
     /// How many devices are connected.
@@ -1378,6 +1387,8 @@ pub struct SystemVm {
 
     /// Restart and shut down.
     pub power_available: bool,
+    /// The first read of the power and the battery isn't over.
+    pub power_loading: bool,
     pub power_reason: String,
     pub battery_shown: bool,
     pub battery_percent: i32,
@@ -1395,6 +1406,10 @@ pub struct SystemVm {
 
     /// Drives can be mounted, unmounted and ejected here.
     pub drives_available: bool,
+    /// It isn't known yet whether drives can be managed here.
+    pub drives_loading: bool,
+    /// The first read of the drives isn't over: the list isn't known yet.
+    pub drives_listing: bool,
     pub drives_reason: String,
     /// The Drives panel's drives: every drive, inside the PC or plugged in, mounted or not.
     pub drives: Vec<DriveItemVm>,

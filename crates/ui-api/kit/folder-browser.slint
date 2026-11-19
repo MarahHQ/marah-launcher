@@ -7,6 +7,7 @@ import { Sheet, Motion } from "motion.slint";
 import { Icon } from "icon.slint";
 import { Osk } from "keyboard.slint";
 import { Brand } from "../brand.slint";
+import { LoadingRow } from "loading.slint";
 
 // The folder browser: a sheet over everything while `Vm.browser.open`. The places on one side,
 // the folder's folders (and for a restore its backups) in the middle, and what the focused one
@@ -499,6 +500,8 @@ export component FolderBrowser inherits Rectangle {
                                     picked => { Browser.clicked(i, -1); }
                                 }
                             }
+                            // The drives are read for the places: they come under this row.
+                            if Vm.browser.places-loading : LoadingRow { what: "Reading drives…"; }
                         }
                     }
                 }

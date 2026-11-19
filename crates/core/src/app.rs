@@ -566,6 +566,7 @@ impl Core {
             backup: self.backup().snapshot(),
             browser: self.browsing().snapshot(),
             drives: self.drives().known(),
+            drives_listed: self.drives().listed(),
             backup_folder: crate::backups::folder(self).ok(),
             vpn: self.vpn().snapshot(),
             downloads: self.inner.downloads.jobs(),
