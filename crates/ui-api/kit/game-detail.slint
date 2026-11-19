@@ -53,6 +53,9 @@ export global Hub {
     out property <string> shown-folder: root.folder != "" ? root.folder : Vm.detail.download-folder;
     // A card's Download opened the game's Hub: the keys go to its releases there.
     in-out property <bool> to-releases;
+    // The keys are on the button row: not on a version, a release, the screenshots or the
+    // reading below. A button in the row is lit only then.
+    out property <bool> on-buttons: root.version < 0 && root.release < 0 && !root.shots && root.reading < 0;
 
     // The screen changed: the Game Hub starts on its first button, or on its first release when
     // a card's Download opened it. `ShellKeys` calls it.
@@ -930,7 +933,7 @@ export component GameDetailPage inherits Rectangle {
                     text: Vm.detail.running ? "Resume" : "Play";
                     icon: "play";
                     primary: true;
-                    focused: Hub.focus == 0;
+                    focused: Hub.on-buttons && Hub.focus == 0;
                     dim: Hub.focus != 0;
                     clicked => {
                         Hub.focus = 0;
@@ -941,7 +944,7 @@ export component GameDetailPage inherits Rectangle {
                     text: "Stop";
                     icon: "stop";
                     danger: true;
-                    focused: Hub.focus == 1;
+                    focused: Hub.on-buttons && Hub.focus == 1;
                     accessible-role: button;
                     accessible-label: "hub-stop";
                     accessible-value: self.text;
@@ -950,13 +953,13 @@ export component GameDetailPage inherits Rectangle {
                 SlotActions {
                     items: Vm.detail.actions;
                     game: Vm.detail.key;
-                    focused: Hub.focus - Hub.play;
+                    focused: Hub.on-buttons ? Hub.focus - Hub.play : -1;
                 }
                 if Vm.detail.store-url != "" : Pill {
                     text: "Store";
                     icon: "web";
                     round: true;
-                    focused: Hub.focus == Hub.buttons;
+                    focused: Hub.on-buttons && Hub.focus == Hub.buttons;
                     accessible-role: button;
                     accessible-label: "hub-store";
                     accessible-value: self.text;
@@ -966,7 +969,7 @@ export component GameDetailPage inherits Rectangle {
                     text: "Trailer";
                     icon: "film";
                     round: true;
-                    focused: Hub.focus == Hub.trailer-button;
+                    focused: Hub.on-buttons && Hub.focus == Hub.trailer-button;
                     accessible-role: button;
                     accessible-label: "hub-trailer";
                     accessible-value: self.text;
@@ -990,7 +993,7 @@ export component GameDetailPage inherits Rectangle {
                     text: "Options";
                     icon: "more";
                     round: true;
-                    focused: Hub.focus == Hub.menu;
+                    focused: Hub.on-buttons && Hub.focus == Hub.menu;
                     accessible-role: button;
                     accessible-label: "game-options";
                 accessible-value: self.text;
