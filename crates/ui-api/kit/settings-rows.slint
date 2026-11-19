@@ -7,6 +7,7 @@ import { Switch } from "widgets.slint";
 import { Osk, TextField } from "keyboard.slint";
 import { LauncherRows, DownloadsRows, SystemRows, BackupRows, PowerRows } from "settings-layout.slint";
 import { FolderList } from "folder-list.slint";
+import { NetIcon, SoundIcon, BluetoothIcon } from "system-panel.slint";
 
 // The rows of a settings sheet (Settings, a plugin's page and a game's own settings), and where
 // the keys are in it. A sheet is a list of sections; each has rows. Every sheet is one page:
@@ -379,6 +380,15 @@ export component Header inherits Text {
 }
 
 // One row of a section card in Settings: rows between two headers share one card, and the
+// A System row's icon, the same component as the top bar's, in the row's text colour.
+component MachineIcon inherits VerticalLayout {
+    in property <string> kind;
+    alignment: center;
+    if root.kind == "network" : NetIcon { width: 22 * Look.px; height: 22 * Look.px; tint: Tokens.color-text; }
+    if root.kind == "sound" : SoundIcon { width: 22 * Look.px; height: 22 * Look.px; color: Tokens.color-text; }
+    if root.kind == "bluetooth" : BluetoothIcon { width: 22 * Look.px; height: 22 * Look.px; color: Tokens.color-text; }
+}
+
 // focused row gets a white edge.
 export component Row inherits Rectangle {
     in property <string> label;
@@ -395,6 +405,11 @@ export component Row inherits Rectangle {
     in property <bool> inert;
     // From 0 to 1: a bar under the label and hint, for work that runs. -1 for none.
     in property <float> progress: -1;
+    // A System row's icon before its label, the same as the top bar's: network | sound |
+    // bluetooth; "" for none.
+    in property <string> machine;
+    // How far the hint under the label moves in, to line up after the icon.
+    property <length> indent: root.machine != "" ? 22 * Look.px + 12 * Look.px : 0;
     // The row is in the sheet's viewport: the sheet scrolls to it when it gets the focus.
     callback reveal(length, length);
     callback clicked();
@@ -433,7 +448,9 @@ export component Row inherits Rectangle {
         HorizontalLayout {
             spacing: 16 * Look.px;
             min-height: 36 * Look.px;
-            // Layouts don't mirror: in right-to-left the label comes after the value.
+            // Layouts don't mirror: in right-to-left the label comes after the value, and the
+            // icon after the label.
+            if !Look.rtl && root.machine != "" : MachineIcon { kind: root.machine; }
             if !Look.rtl : Text {
                 text: root.label;
                 font-size: 19 * Look.tpx;
@@ -455,6 +472,7 @@ export component Row inherits Rectangle {
                 overflow: elide;
                 horizontal-alignment: Look.rtl ? right : left;
             }
+            if Look.rtl && root.machine != "" : MachineIcon { kind: root.machine; }
         }
         if root.detail != "" : Text {
             text: root.detail;
@@ -463,12 +481,16 @@ export component Row inherits Rectangle {
             overflow: elide;
             horizontal-alignment: Look.rtl ? right : left;
         }
-        if root.hint != "" : Text {
-            text: root.hint;
-            font-size: 15 * Look.tpx;
-            wrap: word-wrap;
-            color: root.hint-kind == 1 ? Tokens.color-success : root.hint-kind == 2 ? Tokens.color-danger : Look.text3;
-            horizontal-alignment: Look.rtl ? right : left;
+        if root.hint != "" : HorizontalLayout {
+            padding-left: Look.rtl ? 0 : root.indent;
+            padding-right: Look.rtl ? root.indent : 0;
+            Text {
+                text: root.hint;
+                font-size: 15 * Look.tpx;
+                wrap: word-wrap;
+                color: root.hint-kind == 1 ? Tokens.color-success : root.hint-kind == 2 ? Tokens.color-danger : Look.text3;
+                horizontal-alignment: Look.rtl ? right : left;
+            }
         }
         if root.progress >= 0 : Rectangle {
             accessible-role: progress-indicator;

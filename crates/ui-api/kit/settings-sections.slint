@@ -467,6 +467,7 @@ export component SystemSection inherits VerticalLayout {
         // Bluetooth open their panels, as their icons in the top bar do.
         Row {
             label: "Internet";
+            machine: "network";
             hint: Vm.system.network-available ? "" : Vm.system.network-reason;
             focused: Prefs.is(5, 0);
             first: true;
@@ -487,6 +488,7 @@ export component SystemSection inherits VerticalLayout {
         }
         Row {
             label: "Sound";
+            machine: "sound";
             hint: Vm.system.audio-available ? "" : Vm.system.audio-reason;
             focused: Prefs.is(5, 1);
             accessible-role: button;
@@ -501,6 +503,7 @@ export component SystemSection inherits VerticalLayout {
         }
         Row {
             label: "Bluetooth";
+            machine: "bluetooth";
             hint: Vm.system.bluetooth-available ? "Controllers and headsets" : Vm.system.bluetooth-reason;
             focused: Prefs.is(5, 2);
             last: SystemRows.count == 3;
