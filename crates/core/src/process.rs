@@ -335,14 +335,22 @@ mod tests {
         sh(&format!("echo $$ > {}; exec sleep 30", pidfile.display()))
     }
 
-    /// The id `pidfile` holds, once it is written.
+    /// The id `pidfile` holds, once it is written: `None` before then.
+    fn written(pidfile: &Path) -> Option<String> {
+        std::fs::read_to_string(pidfile).ok().filter(|pid| pid.ends_with('\n')).map(|pid| pid.trim().to_owned())
+    }
+
+    /// The id `pidfile` holds. Fails when it isn't written within 5 seconds.
     async fn pid_in(pidfile: &Path) -> String {
-        loop {
-            match std::fs::read_to_string(pidfile) {
-                Ok(pid) if pid.ends_with('\n') => break pid.trim().to_owned(),
-                _ => TokioClock.sleep(Duration::from_millis(20)).await,
+        let wait = async {
+            loop {
+                match written(pidfile) {
+                    Some(pid) => break pid,
+                    None => TokioClock.sleep(Duration::from_millis(20)).await,
+                }
             }
-        }
+        };
+        REAL.timeout(Duration::from_secs(5), wait).await.expect("the program wrote its id")
     }
 
     #[tokio::test]
@@ -350,7 +358,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let pidfile = dir.path().join("pid");
 
-        let out = TokioSpawner.output(sleeper(&pidfile), Duration::from_millis(300), 1024).await.unwrap();
+        // Long enough for the shell to start and write its id.
+        let out = TokioSpawner.output(sleeper(&pidfile), Duration::from_secs(1), 1024).await.unwrap();
 
         assert_eq!(out, None);
         let pid = pid_in(&pidfile).await;
@@ -361,8 +370,8 @@ mod tests {
     async fn stream_kills_the_program_when_it_is_cancelled() {
         let dir = tempfile::tempdir().unwrap();
         let pidfile = dir.path().join("pid");
-        let started = REAL.now();
-        let cancelled = || REAL.now() - started > Duration::from_millis(300);
+        // Once the program runs as itself.
+        let cancelled = || written(&pidfile).is_some();
 
         let code = TokioSpawner.stream(sleeper(&pidfile), &|_| {}, &cancelled).await.unwrap();
 
@@ -376,8 +385,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let pidfile = dir.path().join("pid");
         let quiet = sh(&format!("exec >/dev/null 2>&1; echo $$ > {}; exec sleep 30", pidfile.display()));
-        let started = REAL.now();
-        let cancelled = || REAL.now() - started > Duration::from_millis(300);
+        // Once the program runs as itself.
+        let cancelled = || written(&pidfile).is_some();
 
         let run = TokioSpawner.stream(quiet, &|_| {}, &cancelled);
         let code = REAL.timeout(Duration::from_secs(5), run).await.expect("the cancel stopped it").unwrap();
