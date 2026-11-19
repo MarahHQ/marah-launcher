@@ -1,6 +1,24 @@
-//! The disks: how much free space the disk that holds a folder has, and its size.
+//! The drives' system calls: how much free space the drive that holds a folder has, its size,
+//! and which drive it is. The core's drives module asks them through [`SystemDrives`].
 
 use std::path::Path;
+
+/// The [`launcher_core::DriveSpace`] port, over this system's calls.
+pub struct SystemDrives;
+
+impl launcher_core::DriveSpace for SystemDrives {
+    fn free_bytes(&self, path: &Path) -> Option<u64> {
+        free_bytes(path)
+    }
+
+    fn size_bytes(&self, path: &Path) -> Option<u64> {
+        disk_bytes(path)
+    }
+
+    fn drive_id(&self, path: &Path) -> Option<u64> {
+        disk_id(path)
+    }
+}
 
 /// The free bytes on the disk that holds `path`; `None` when the system doesn't say.
 #[allow(unsafe_code)] // One system call that fills a struct this function owns.

@@ -135,6 +135,7 @@ The core reaches the outside world through the traits in `crates/core/src/ports.
 | `LoginSession` | `NoLoginSession` | `desktop::SystemLoginSession` | `FakeLoginSession` |
 | `Opener` | `NoOpener` | `desktop::SystemOpener` | `FakeOpener` |
 | `Hardware` | `NoHardware` | `hardware::SystemHardware` | a fixed `Hardware` in `FakeHost` |
+| `DriveSpace` | `NoDriveSpace` | `disk::SystemDrives` | a fixed `DriveSpace` in `FakeHost` |
 | `Torrents` | `NoTorrents` | `torrents::RqbitTorrents` | `FakeTorrents` |
 | `Network` (VPNs) | `NoVpn` | none: a system plugin's `vpn` capability takes its place (`PluginVpn`) | `FakeNetwork` |
 | `Archives` | `NoArchives` | `archives::HostArchives` | `FakeArchives` |

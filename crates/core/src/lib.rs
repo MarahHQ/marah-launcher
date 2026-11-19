@@ -19,6 +19,7 @@ mod config;
 mod disks;
 mod display;
 mod downloads;
+mod drives;
 mod emulator_builds;
 mod error;
 mod facades;
@@ -80,6 +81,7 @@ pub use bus::EventBus;
 pub use changes::{Area, Change};
 pub use config::ConfigService;
 pub use downloads::{Job, JobPhase};
+pub use drives::DriveCmd;
 pub use error::{CoreError, CoreResult, LoadError};
 pub use game_installs::GameInstallCmd;
 pub use grid_query::{BEST_MATCHES, GRID_PAGE, GridFilter, RECENT_SEARCHES, Sort, SystemChoice};
@@ -89,11 +91,11 @@ pub use library::LibraryCmd;
 pub use notices::NoticeCmd;
 pub use ports::{ArchiveError, Escape};
 pub use ports::{
-    ArchiveKind, Archives, Body, Clock, Front, Gpu, GroupTree, Hardware, HttpTransport, LoginSession, Network,
-    NoArchives, NoHardware, NoLoginSession, NoNetwork, NoOpener, NoTorrents, NoVpn, NoWindows, Opened, Opener,
-    PackageError, PackageManager, ProcessExit, ProcessHandle, ProcessSpawner, ProcessTree, SEED_UPLOAD_LIMIT,
-    SpawnCommand, Specs, TokioClock, TokioSpawner, TorrentFile, TorrentInfo, TorrentStats, Torrents, TransferState,
-    UnpackProgress, Vpn, Windows,
+    ArchiveKind, Archives, Body, Clock, DriveSpace, Front, Gpu, GroupTree, Hardware, HttpTransport, LoginSession,
+    Network, NoArchives, NoDriveSpace, NoHardware, NoLoginSession, NoNetwork, NoOpener, NoTorrents, NoVpn, NoWindows,
+    Opened, Opener, PackageError, PackageManager, ProcessExit, ProcessHandle, ProcessSpawner, ProcessTree,
+    SEED_UPLOAD_LIMIT, SpawnCommand, Specs, TokioClock, TokioSpawner, TorrentFile, TorrentInfo, TorrentStats, Torrents,
+    TransferState, UnpackProgress, Vpn, Windows,
 };
 pub use preferences::{MAX_SCALE, MIN_SCALE, Pref, PrefKind, PrefSpec, PreferencesSnapshot};
 pub use ratings::RatingsCmd;

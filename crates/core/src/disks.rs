@@ -66,7 +66,7 @@ pub(crate) fn refresh(core: &Core) {
 }
 
 fn read(core: &Core) -> Disks {
-    let hardware = core.ports().hardware.as_ref();
+    let drives = core.ports().drives.as_ref();
     let library = core.library().snapshot();
     let mut folders = BTreeMap::new();
     for offer in library.offers.iter() {
@@ -79,7 +79,7 @@ fn read(core: &Core) -> Disks {
         let Some(host) = kernel.host_folders(&offer.emulator) else { continue };
         let console_name = crate::release_downloads::console(kernel, &offer.emulator, console);
         let Ok((_, path)) = host.place(Purpose::Download, &console_name, None) else { continue };
-        let room = Room::read(hardware, &path, None);
+        let room = Room::read(drives, &path, None);
         folders.insert(at, DownloadFolder { path, room });
     }
     let mut downloads = BTreeMap::new();
@@ -92,7 +92,7 @@ fn read(core: &Core) -> Disks {
             let place = kernel.host_folders(&job.emulator).and_then(|h| h.place(Purpose::Install, &console, None).ok());
             place.map(|(_, path)| path)
         });
-        downloads.insert(job.id.clone(), Room::read(hardware, &job.folder, game_folder.as_deref()));
+        downloads.insert(job.id.clone(), Room::read(drives, &job.folder, game_folder.as_deref()));
     }
     Disks { folders: Arc::new(folders), downloads: Arc::new(downloads) }
 }

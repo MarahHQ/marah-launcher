@@ -103,7 +103,7 @@ async fn begin(core: &Core, id: &str, install: bool, folder: Option<std::path::P
         let console = console_of(kernel, &job.emulator);
         let (_, path) = folders.place(Purpose::Install, &console, folder.as_deref())?;
         let checked = crate::torrents::picks::checked_bytes(&job.files, job.total, &job.skip);
-        let room = Room::read(core.ports().hardware.as_ref(), &job.folder, Some(&path));
+        let room = Room::read(core.ports().drives.as_ref(), &job.folder, Some(&path));
         if let Some(error) = room.short(Need::DownloadAndInstall, checked) {
             return Err(CoreError::Invalid(error));
         }
@@ -271,7 +271,7 @@ async fn download_release(core: &Core, offer: &GameKey, release: &str, folder: O
     // A picked folder may be on another disk than the one the Game Hub checked.
     if chosen
         && let Some(size) = release.size_bytes
-        && let Some(error) = Room::read(core.ports().hardware.as_ref(), &folder, None).short(Need::Download, size)
+        && let Some(error) = Room::read(core.ports().drives.as_ref(), &folder, None).short(Need::Download, size)
     {
         return Err(CoreError::Invalid(error));
     }
@@ -375,7 +375,7 @@ async fn start_install(core: &Core, id: &str, folder: Option<&Path>) -> CoreResu
     let console = console_of(kernel, &job.emulator);
     let (into, path) = folders.place(Purpose::Install, &console, folder)?;
     // The finished download already takes its room, so the install needs room of its own only.
-    let room = Room::read(core.ports().hardware.as_ref(), &job.folder, Some(&path));
+    let room = Room::read(core.ports().drives.as_ref(), &job.folder, Some(&path));
     if let Some(error) = room.short(Need::Install, job.total) {
         return Err(CoreError::Invalid(error));
     }

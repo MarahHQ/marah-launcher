@@ -165,6 +165,7 @@ pub struct KernelBuilder {
     login_session: Arc<dyn LoginSession>,
     opener: Arc<dyn Opener>,
     hardware: Arc<dyn Hardware>,
+    drives: Arc<dyn crate::DriveSpace>,
     torrents: Arc<dyn Torrents>,
     network: Arc<dyn Network>,
     archives: Arc<dyn Archives>,
@@ -185,6 +186,7 @@ impl KernelBuilder {
             login_session: Arc::new(NoLoginSession),
             opener: Arc::new(NoOpener),
             hardware: Arc::new(NoHardware),
+            drives: Arc::new(crate::NoDriveSpace),
             torrents: Arc::new(NoTorrents),
             network: Arc::new(NoVpn),
             archives: Arc::new(NoArchives),
@@ -285,6 +287,12 @@ impl KernelBuilder {
     /// This computer's processor, memory and graphics, for the "This PC" check.
     pub fn hardware(mut self, hardware: Arc<dyn Hardware>) -> Self {
         self.hardware = hardware;
+        self
+    }
+
+    /// The drives' free space, size and identity, for the room checks and the drives' list.
+    pub fn drives(mut self, drives: Arc<dyn crate::DriveSpace>) -> Self {
+        self.drives = drives;
         self
     }
 
@@ -417,6 +425,7 @@ impl Kernel {
             login_session,
             opener,
             hardware,
+            drives,
             torrents,
             network,
             archives,
@@ -523,6 +532,7 @@ impl Kernel {
             login_session,
             opener,
             hardware,
+            drives,
             torrents,
             archives,
             clock,

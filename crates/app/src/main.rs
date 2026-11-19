@@ -119,6 +119,7 @@ fn run(args: args::Args) -> Result<(), String> {
             .login_session(Arc::new(desktop::SystemLoginSession { login: update::login_program() }))
             .opener(Arc::new(desktop::SystemOpener))
             .hardware(Arc::new(hardware::SystemHardware { data_dir: args.data_dir.clone() }))
+            .drives(Arc::new(disk::SystemDrives))
             .torrents(Arc::new(torrents::RqbitTorrents::new(args.data_dir.join("torrents"))))
             .archives(Arc::new(archives::HostArchives))
             .clock(Arc::new(TokioClock))

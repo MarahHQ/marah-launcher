@@ -90,8 +90,8 @@ impl GameInstallsSubsystem {
                     }
                 })
             };
-            // The folder exists now, so the disk that holds it can say its free space.
-            let free = ports.hardware.free_bytes(&work);
+            // The folder exists now, so the drive that holds it can say its free space.
+            let free = ports.drives.free_bytes(&work);
             let unpacked = ports.archives.unpack(set.kind, &parts, &work, free, progress, cancel.clone()).await;
             let moved = match unpacked {
                 Ok(()) => tokio::fs::rename(&work, &dest).await.map_err(|e| format!("{}: {e}", set.name)),

@@ -339,6 +339,7 @@ pub(crate) fn schedule_refresh(core: &Core) {
             if !core.kernel().of_kind(PluginKind::System).is_empty() {
                 refresh(&core).await;
             }
+            crate::drives::refresh(&core).await;
             let wait = core.ports().clock.sleep(REFRESH_EVERY);
             drop(core);
             wait.await;

@@ -203,6 +203,8 @@ pub enum Command {
     Vpn(crate::VpnCmd),
     /// Something the player asked of the machine: Wi-Fi, Bluetooth, sound, power, Marah OS.
     System(crate::system::SystemCommand),
+    /// The drives: mount, unmount or eject one.
+    Drive(crate::DriveCmd),
     /// The player agreed to install the emulator a game needs: install it, then play.
     ConfirmInstall,
     /// The player said "not now" to that.
@@ -245,6 +247,8 @@ pub(crate) struct Inner {
     pub launcher_update: crate::launcher_update::LauncherUpdateSubsystem,
     pub vpn: crate::vpn::VpnSubsystem,
     pub backup: crate::backup::BackupSubsystem,
+    /// The drives: which there are, their room, and mounting them.
+    pub drives: crate::drives::Drives,
     /// Held while the catalogs are read: see [`crate::catalog_reads::refresh_releases`].
     pub reading_catalogs: tokio::sync::Mutex<()>,
 }
@@ -369,8 +373,13 @@ impl Core {
                 kernel.host().data_dir.clone(),
                 Notifier::new(changes.clone(), kernel.events().clone()),
             );
+            let drives = crate::drives::Drives::new(
+                ports.drives.clone(),
+                Arc::new(crate::drives::MountFolders::here(kernel.host().home.as_deref())),
+            );
             Inner {
                 backup,
+                drives,
                 preferences,
                 kernel,
                 ports,
@@ -470,6 +479,11 @@ impl Core {
     /// Settings → Backup.
     pub(crate) fn backup(&self) -> &crate::backup::BackupSubsystem {
         &self.inner.backup
+    }
+
+    /// The drives.
+    pub(crate) fn drives(&self) -> &crate::drives::Drives {
+        &self.inner.drives
     }
 
     /// The launcher's own update.
@@ -670,6 +684,7 @@ impl Core {
             Command::GameInstall(command) => release_downloads::game_install(self, command).await,
             Command::Vpn(command) => self.vpn().handle(command).await,
             Command::System(command) => crate::system::run(self, command).await,
+            Command::Drive(command) => crate::drives::handle(self, command).await,
             Command::Notice(crate::NoticeCmd::Open(id)) => navigation::open_notice(self, id).await,
             Command::Notice(command) => self.notices().handle(command),
             Command::LauncherUpdate(crate::LauncherUpdateCmd::Check) => {

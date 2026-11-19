@@ -11,7 +11,7 @@ use super::*;
 use crate::archives::{ArchiveSet, Unpack};
 use crate::changes::{Change, Changes};
 use crate::config::ConfigService;
-use crate::{ArchiveError, ArchiveKind, EventBus, NoHardware, TokioClock, UnpackProgress};
+use crate::{ArchiveError, ArchiveKind, EventBus, NoDriveSpace, TokioClock, UnpackProgress};
 
 fn plugin() -> PluginId {
     PluginId::new("emu-g").unwrap()
@@ -194,7 +194,7 @@ fn setup_with(call_timeout: Duration) -> Setup {
     let installs = GameInstallsSubsystem::new(
         InstallPorts {
             archives: Arc::new(FakeArchives),
-            hardware: Arc::new(NoHardware),
+            drives: Arc::new(NoDriveSpace),
             clock: Arc::new(TokioClock),
             downloads: downloads.clone(),
             call_timeout,

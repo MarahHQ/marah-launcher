@@ -281,20 +281,16 @@ impl FakeHost {
             .network(Arc::new(self.network.clone()))
             .archives(Arc::new(self.archives.clone()))
             .clock(Arc::new(self.clock.clone()));
-        if self.hardware.is_some()
-            || self.free_space.is_some()
-            || !self.disks.is_empty()
-            || !self.computer.is_empty()
-            || !self.controllers.is_empty()
-        {
+        if self.hardware.is_some() || !self.computer.is_empty() || !self.controllers.is_empty() {
             let hardware = FixedHardware {
                 specs: self.hardware.unwrap_or_default(),
-                free_space: self.free_space,
-                disks: self.disks,
                 controllers: self.controllers,
                 computer: self.computer,
             };
             builder = builder.hardware(Arc::new(hardware));
+        }
+        if self.free_space.is_some() || !self.disks.is_empty() {
+            builder = builder.drives(Arc::new(FixedDrives { free_space: self.free_space, disks: self.disks }));
         }
         for (plugin, third_party) in self.plugins {
             builder = if third_party { builder.third_party(plugin) } else { builder.plugin(plugin) };
@@ -431,28 +427,33 @@ impl TestHost {
     }
 }
 
-/// A computer with these specs, this much free space on each disk, the disks of their own, and
-/// this name.
+/// A computer with these specs, these controllers, and this name.
 struct FixedHardware {
     specs: launcher_core::Specs,
-    free_space: Option<u64>,
-    disks: Vec<(PathBuf, u64)>,
     controllers: Vec<launcher_api::Controller>,
     computer: String,
+}
+
+/// Drives with this much free space each, and the drives of their own.
+struct FixedDrives {
+    free_space: Option<u64>,
+    disks: Vec<(PathBuf, u64)>,
+}
+
+impl launcher_core::DriveSpace for FixedDrives {
+    fn free_bytes(&self, path: &std::path::Path) -> Option<u64> {
+        self.disks.iter().find(|(disk, _)| path.starts_with(disk)).map(|(_, free)| *free).or(self.free_space)
+    }
+
+    /// A drive of its own is its place in the list; every other drive doesn't say.
+    fn drive_id(&self, path: &std::path::Path) -> Option<u64> {
+        self.disks.iter().position(|(disk, _)| path.starts_with(disk)).map(|at| at as u64)
+    }
 }
 
 impl launcher_core::Hardware for FixedHardware {
     fn specs(&self) -> launcher_core::Specs {
         self.specs.clone()
-    }
-
-    fn free_bytes(&self, path: &std::path::Path) -> Option<u64> {
-        self.disks.iter().find(|(disk, _)| path.starts_with(disk)).map(|(_, free)| *free).or(self.free_space)
-    }
-
-    /// A disk of its own is its place in the list; every other disk doesn't say.
-    fn disk_id(&self, path: &std::path::Path) -> Option<u64> {
-        self.disks.iter().position(|(disk, _)| path.starts_with(disk)).map(|at| at as u64)
     }
 
     fn controllers(&self) -> Vec<launcher_api::Controller> {

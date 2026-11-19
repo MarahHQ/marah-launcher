@@ -98,7 +98,7 @@ pub(crate) async fn handle(core: &Core, command: BackupCmd) -> CoreResult<()> {
             core.backup().delete(&folder(core)?, &file).await
         }
         BackupCmd::Browse(at) => {
-            let places = places(core);
+            let places = places(core).await;
             let at = match at {
                 Some(at) => at,
                 None => recent(core)
@@ -164,21 +164,21 @@ async fn restore(core: &Core, path: PathBuf) -> CoreResult<()> {
     ready(core)?;
     let found = items(core, true).await;
     let targets = found.iter().map(|i| (i.source.key.clone(), i.source.path.clone())).collect();
-    let hardware = core.ports().hardware.clone();
+    let drives = core.ports().drives.clone();
     let plan = RestorePlan {
         targets,
         current: found.into_iter().map(|i| i.source).collect(),
         now: crate::sessions::now_secs(),
-        computer: hardware.computer_name(),
-        free: std::sync::Arc::new(move |at: &std::path::Path| crate::room::free_at(hardware.as_ref(), at)),
+        computer: core.ports().hardware.computer_name(),
+        free: std::sync::Arc::new(move |at: &std::path::Path| crate::drives::free(drives.as_ref(), at)),
     };
     core.backup().restore(&path, &folder(core)?, plan).await
 }
 
 /// Where the browser can go: Home, the Downloads, Desktop and Documents folders that are there,
-/// the backup folder, each drive that is there, then the folders restores came from that no
+/// the backup folder, each drive that is mounted, then the folders restores came from that no
 /// other place is.
-fn places(core: &Core) -> Vec<BrowsePlace> {
+async fn places(core: &Core) -> Vec<BrowsePlace> {
     let mut out = Vec::new();
     let mut add = |name: String, path: PathBuf, kind: PlaceKind, detail: String| {
         out.push(BrowsePlace { name, path, kind, detail });
@@ -200,12 +200,13 @@ fn places(core: &Core) -> Vec<BrowsePlace> {
     {
         add("Backup folder".into(), folder, PlaceKind::Backups, String::new());
     }
-    let hardware = core.ports().hardware.clone();
-    for drive in drives(home.as_deref()) {
-        let name =
-            drive.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| drive.display().to_string());
-        let size = hardware.disk_bytes(&drive).map(disk_text).unwrap_or_default();
-        add(name, drive, PlaceKind::Drive, size);
+    let drives = core.drives().list().await.unwrap_or_else(|e| {
+        tracing::warn!(error = %e, "the drives weren't read: the browser lists none");
+        Vec::new()
+    });
+    for drive in drives {
+        let Some(mount) = drive.mount else { continue };
+        add(drive.label, mount, PlaceKind::Drive, drive.size.map(disk_text).unwrap_or_default());
     }
     for path in recent(core) {
         if out.iter().any(|p| p.path == path) {
@@ -222,30 +223,6 @@ fn places(core: &Core) -> Vec<BrowsePlace> {
 /// A drive's size: `1.6 TB` from 1000 GB up, else as other sizes (`32.0 GB`).
 fn disk_text(bytes: u64) -> String {
     if bytes >= 1_000_000_000_000 { format!("{:.1} TB", bytes as f64 / 1e12) } else { crate::display::size_text(bytes) }
-}
-
-/// The drives that are there: USB sticks and other disks the system mounted.
-fn drives(home: Option<&std::path::Path>) -> Vec<PathBuf> {
-    let children = |dir: PathBuf| -> Vec<PathBuf> {
-        let Ok(read) = std::fs::read_dir(&dir) else { return Vec::new() };
-        let mut found: Vec<PathBuf> = read.filter_map(Result::ok).map(|e| e.path()).filter(|p| p.is_dir()).collect();
-        found.sort();
-        found
-    };
-    if cfg!(target_os = "windows") {
-        return ('C'..='Z').map(|d| PathBuf::from(format!("{d}:\\"))).filter(|p| p.is_dir()).collect();
-    }
-    if cfg!(target_os = "macos") {
-        return children(PathBuf::from("/Volumes"));
-    }
-    let user = home.and_then(|h| h.file_name()).map(|n| n.to_owned());
-    let mut out = Vec::new();
-    if let Some(user) = user {
-        out.extend(children(PathBuf::from("/run/media").join(&user)));
-        out.extend(children(PathBuf::from("/media").join(&user)));
-    }
-    out.extend(children(PathBuf::from("/mnt")));
-    out
 }
 
 /// Sets the backup folder, then reads the list there.
