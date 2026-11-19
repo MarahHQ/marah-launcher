@@ -377,7 +377,8 @@ impl OsInstall for Linux {
 }
 
 /// The columns `lsblk` lists, as [`parse::drives`] reads them.
-const LSBLK_COLUMNS: &str = "NAME,PKNAME,PATH,TYPE,SIZE,FSTYPE,LABEL,UUID,MOUNTPOINTS,FSAVAIL,TRAN,HOTPLUG,RM,MODEL";
+const LSBLK_COLUMNS: &str =
+    "NAME,PKNAME,PATH,TYPE,SIZE,FSTYPE,PARTTYPE,LABEL,UUID,MOUNTPOINTS,FSAVAIL,TRAN,HOTPLUG,RM,MODEL";
 
 impl Linux {
     /// Runs `udisksctl <action> -b <device>` for a job, without asking for a password: UDisks asks

@@ -7,6 +7,7 @@
          "type": "disk",
          "size": 17179869184,
          "fstype": "swap",
+         "parttype": null,
          "label": "zram0",
          "uuid": "669f3431-1671-4883-bfa2-507259639c00",
          "mountpoints": [
@@ -25,6 +26,7 @@
          "type": "disk",
          "size": 2000398934016,
          "fstype": null,
+         "parttype": null,
          "label": null,
          "uuid": null,
          "mountpoints": [],
@@ -41,6 +43,7 @@
          "type": "part",
          "size": 5368709120,
          "fstype": "vfat",
+         "parttype": "c12a7328-f81f-11d2-ba4b-00a0c93ec93b",
          "label": null,
          "uuid": "F699-676E",
          "mountpoints": [
@@ -59,12 +62,13 @@
          "type": "part",
          "size": 322122547200,
          "fstype": "ext4",
+         "parttype": "0fc63daf-8483-4772-8e79-3d69d8477de4",
          "label": null,
          "uuid": "952ac412-f4da-4c35-8290-9743cc0958e2",
          "mountpoints": [
             "/"
          ],
-         "fsavail": 148108922880,
+         "fsavail": 149488783360,
          "tran": "nvme",
          "hotplug": false,
          "rm": false,
@@ -77,12 +81,13 @@
          "type": "part",
          "size": 1672906539008,
          "fstype": "ext4",
+         "parttype": "0fc63daf-8483-4772-8e79-3d69d8477de4",
          "label": null,
          "uuid": "5c5610e8-88ce-47e1-a610-ece27a9df67d",
          "mountpoints": [
             "/mnt/Media"
          ],
-         "fsavail": 766702088192,
+         "fsavail": 766699134976,
          "tran": "nvme",
          "hotplug": false,
          "rm": false,
@@ -95,6 +100,7 @@
          "type": "part",
          "size": "200000000000",
          "fstype": "ntfs",
+         "parttype": "ebd0a0a2-b9e5-4433-87c0-68b6b72699c7",
          "label": "Windows",
          "uuid": "5A1C2B3D4E5F6071",
          "mountpoints": [
@@ -107,12 +113,89 @@
          "model": null
       },
       {
+         "name": "nvme0n1p5",
+         "pkname": "nvme0n1",
+         "path": "/dev/nvme0n1p5",
+         "type": "part",
+         "size": "1000000000",
+         "fstype": "ntfs",
+         "parttype": "de94bba4-06d1-4d40-a16a-bfd50179d6ac",
+         "label": "Recovery",
+         "uuid": "AA11",
+         "mountpoints": [
+            null
+         ],
+         "fsavail": null,
+         "tran": "nvme",
+         "hotplug": "0",
+         "rm": "0",
+         "model": null
+      },
+      {
+         "name": "sdb",
+         "pkname": null,
+         "path": "/dev/sdb",
+         "type": "disk",
+         "size": "500107862016",
+         "fstype": null,
+         "parttype": null,
+         "label": null,
+         "uuid": null,
+         "mountpoints": [
+            null
+         ],
+         "fsavail": null,
+         "tran": "sata",
+         "hotplug": "1",
+         "rm": "0",
+         "model": "Samsung SSD 870"
+      },
+      {
+         "name": "sdb1",
+         "pkname": "sdb",
+         "path": "/dev/sdb1",
+         "type": "part",
+         "size": "500000000000",
+         "fstype": "ntfs",
+         "parttype": "ebd0a0a2-b9e5-4433-87c0-68b6b72699c7",
+         "label": "Games disk",
+         "uuid": "5A1C",
+         "mountpoints": [
+            null
+         ],
+         "fsavail": null,
+         "tran": "sata",
+         "hotplug": "1",
+         "rm": "0",
+         "model": null
+      },
+      {
+         "name": "sdb2",
+         "pkname": "sdb",
+         "path": "/dev/sdb2",
+         "type": "part",
+         "size": "16777216",
+         "fstype": null,
+         "parttype": "e3c9e316-0b5c-4db8-817d-f92df00215ae",
+         "label": null,
+         "uuid": null,
+         "mountpoints": [
+            null
+         ],
+         "fsavail": null,
+         "tran": "sata",
+         "hotplug": "1",
+         "rm": "0",
+         "model": null
+      },
+      {
          "name": "sda",
          "pkname": null,
          "path": "/dev/sda",
          "type": "disk",
          "size": "62008590336",
          "fstype": null,
+         "parttype": null,
          "label": null,
          "uuid": null,
          "mountpoints": [
@@ -131,6 +214,7 @@
          "type": "part",
          "size": "62008590336",
          "fstype": "exfat",
+         "parttype": "ebd0a0a2-b9e5-4433-87c0-68b6b72699c7",
          "label": "STICK",
          "uuid": "1A2B-3C4D",
          "mountpoints": [
@@ -140,6 +224,44 @@
          "tran": null,
          "hotplug": "0",
          "rm": "0",
+         "model": null
+      },
+      {
+         "name": "mmcblk0",
+         "pkname": null,
+         "path": "/dev/mmcblk0",
+         "type": "disk",
+         "size": "31914983424",
+         "fstype": null,
+         "parttype": null,
+         "label": null,
+         "uuid": null,
+         "mountpoints": [
+            null
+         ],
+         "fsavail": null,
+         "tran": null,
+         "hotplug": "1",
+         "rm": "1",
+         "model": null
+      },
+      {
+         "name": "mmcblk0p1",
+         "pkname": "mmcblk0",
+         "path": "/dev/mmcblk0p1",
+         "type": "part",
+         "size": "31914983424",
+         "fstype": "vfat",
+         "parttype": "ebd0a0a2-b9e5-4433-87c0-68b6b72699c7",
+         "label": "CARD",
+         "uuid": "C0DE-0001",
+         "mountpoints": [
+            null
+         ],
+         "fsavail": null,
+         "tran": null,
+         "hotplug": "1",
+         "rm": "1",
          "model": null
       }
    ]

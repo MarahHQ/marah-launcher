@@ -301,10 +301,28 @@ const DRIVE_FOLDERS: [&str; 3] = ["/run/media/", "/media/", "/mnt/"];
 /// encrypted drives.
 const NOT_FILES: [&str; 6] = ["swap", "LVM2_member", "crypto_LUKS", "linux_raid_member", "zfs_member", "BitLocker"];
 
-/// `lsblk --json --list -b -o NAME,PKNAME,PATH,TYPE,SIZE,FSTYPE,LABEL,UUID,MOUNTPOINTS,FSAVAIL,TRAN,HOTPLUG,RM,MODEL`:
+/// The partition types of the system's own parts, never a player's drive: the EFI system part,
+/// Microsoft's reserved part, Windows' recovery part, and BIOS boot (GPT type GUIDs).
+const SYSTEM_PARTS: [&str; 4] = [
+    "c12a7328-f81f-11d2-ba4b-00a0c93ec93b",
+    "e3c9e316-0b5c-4db8-817d-f92df00215ae",
+    "de94bba4-06d1-4d40-a16a-bfd50179d6ac",
+    "21686148-6449-6e6f-744e-656564454649",
+];
+
+/// Transports of disks inside the PC: a removable flag on them doesn't make them a drive the
+/// player takes out.
+const INSIDE: [&str; 3] = ["sata", "nvme", "ata"];
+
+/// `lsblk --json --list -b -o NAME,PKNAME,PATH,TYPE,SIZE,FSTYPE,PARTTYPE,LABEL,UUID,MOUNTPOINTS,FSAVAIL,TRAN,HOTPLUG,RM,MODEL`:
 /// every drive with a file system to mount. A part of a disk takes its disk's model, and whether
-/// the player can take it out, from the disk (`pkname` names it). Loop devices and RAM disks
-/// (zram) are left out.
+/// the player can take it out, from the disk (`pkname` names it): its transport is USB, or it
+/// is removable (RM) and not on a SATA, NVMe or ATA transport. A hot-plug SATA port alone doesn't
+/// make a disk one to take out. Loop devices and RAM disks (zram) are left out.
+///
+/// `system` marks the system's own parts: a system part type (EFI, reserved, recovery, BIOS
+/// boot), one mounted outside the drives' folders, and any part of the disk `/` or `/boot` is on
+/// that the player didn't mount in a drives' folder.
 pub fn drives(json: &str) -> Vec<SystemDrive> {
     use launcher_api::serde_json::Value;
     let Ok(v) = launcher_api::serde_json::from_str::<Value>(json) else { return Vec::new() };
@@ -313,6 +331,15 @@ pub fn drives(json: &str) -> Vec<SystemDrive> {
     let number = |v: &Value| v.as_u64().or_else(|| v.as_str()?.parse().ok());
     let flag = |v: &Value| v.as_bool().unwrap_or_else(|| matches!(v.as_str(), Some("1" | "true")));
     let text = |v: &Value| v.as_str().unwrap_or_default().trim().to_owned();
+    let mounts_of = |row: &Value| -> Vec<String> {
+        row["mountpoints"].as_array().into_iter().flatten().filter_map(|m| m.as_str()).map(str::to_owned).collect()
+    };
+    // The disks `/` and `/boot` are on.
+    let system_disks: Vec<String> = rows
+        .iter()
+        .filter(|r| mounts_of(r).iter().any(|m| m == "/" || m.starts_with("/boot")))
+        .map(|r| text(&disk_of(&rows, r)["path"]))
+        .collect();
     let mut out = Vec::new();
     for row in &rows {
         let path = text(&row["path"]);
@@ -329,18 +356,26 @@ pub fn drives(json: &str) -> Vec<SystemDrive> {
             row["mountpoints"].as_array().into_iter().flatten().filter_map(|m| m.as_str()).collect();
         let ours = |m: &str| DRIVE_FOLDERS.iter().any(|f| m.starts_with(f));
         let shown = mounts.iter().find(|m| ours(m)).or(mounts.first());
+        let transport = text(&disk["tran"]);
+        let removable = flag(&disk["rm"]) && !INSIDE.contains(&transport.as_str());
+        let disk_path = text(&disk["path"]);
+        let on_system_disk = system_disks.contains(&disk_path);
+        let mounted_by_player = !mounts.is_empty() && mounts.iter().all(|m| ours(m));
+        let system = SYSTEM_PARTS.contains(&text(&row["parttype"]).to_lowercase().as_str())
+            || !mounts.iter().all(|m| ours(m))
+            || (on_system_disk && !mounted_by_player);
         out.push(SystemDrive {
             device: path,
-            disk: text(&disk["path"]),
+            disk: disk_path,
             uuid: text(&row["uuid"]),
             label: text(&row["label"]),
             model: text(&disk["model"]),
             size: number(&row["size"]).unwrap_or(0),
             filesystem,
-            usb: text(&disk["tran"]) == "usb" || flag(&disk["hotplug"]),
+            usb: transport == "usb" || removable,
             mount: shown.map(PathBuf::from),
             free: number(&row["fsavail"]),
-            system: !mounts.iter().all(|m| ours(m)),
+            system,
         });
     }
     out.sort_by(|a, b| a.device.cmp(&b.device));
@@ -561,7 +596,7 @@ mod tests {
         assert_eq!(media.disk, "/dev/nvme0n1");
         assert_eq!(media.model, "CT2000P310SSD8", "the disk's model");
         assert_eq!(media.uuid, "5c5610e8-88ce-47e1-a610-ece27a9df67d");
-        assert_eq!((media.size, media.free), (1_672_906_539_008, Some(766_702_088_192)));
+        assert_eq!((media.size, media.free), (1_672_906_539_008, Some(766_699_134_976)), "as recorded");
         assert!(!media.usb);
     }
 
@@ -576,9 +611,38 @@ mod tests {
         );
         assert_eq!(stick.mount.as_deref(), Some(Path::new("/run/media/player/STICK")));
         assert_eq!((stick.size, stick.free), (62_008_590_336, Some(40_000_000_000)));
-        let windows = list.iter().find(|d| d.device == "/dev/nvme0n1p4").unwrap();
-        assert_eq!((windows.mount.as_ref(), windows.system, windows.usb), (None, false, false));
+        let card = list.iter().find(|d| d.device == "/dev/mmcblk0p1").unwrap();
+        assert!(card.usb && !card.system, "a card in a reader with no transport can be taken out");
         assert!(drives("not json").is_empty());
+    }
+
+    /// The part of an internal disk on a hot-plug SATA port is not one the player takes out:
+    /// Eject would power the disk off.
+    #[test]
+    fn a_sata_disk_on_a_hot_plug_port_is_internal() {
+        let list = drives(LSBLK_USB);
+        let games = list.iter().find(|d| d.device == "/dev/sdb1").unwrap();
+        assert_eq!((games.usb, games.system, games.mount.as_ref()), (false, false, None), "a drive to mount");
+        let media = list.iter().find(|d| d.device == "/dev/nvme0n1p3").unwrap();
+        assert!(!media.usb && !media.system, "the data part the player mounted under /mnt stays");
+    }
+
+    /// The system's own parts are never a player's drive: the EFI part (its real type GUID), a
+    /// Windows recovery part, the reserved part (no file system), and any part of the system's
+    /// disk the player didn't mount in a drives' folder.
+    #[test]
+    fn the_system_s_parts_are_system_drives() {
+        let list = drives(LSBLK_USB);
+        let system = |device: &str| list.iter().find(|d| d.device == device).map(|d| d.system);
+        assert_eq!(system("/dev/nvme0n1p1"), Some(true), "EFI");
+        assert_eq!(system("/dev/nvme0n1p2"), Some(true), "/");
+        assert_eq!(system("/dev/nvme0n1p4"), Some(true), "unmounted, on the system's disk");
+        assert_eq!(system("/dev/nvme0n1p5"), Some(true), "Windows recovery");
+        assert_eq!(system("/dev/sdb2"), None, "the reserved part has no file system: not listed");
+        let efi = r#"{"blockdevices":[{"name":"sdc","path":"/dev/sdc","type":"disk","tran":"sata"},
+            {"name":"sdc1","pkname":"sdc","path":"/dev/sdc1","type":"part","fstype":"vfat",
+             "parttype":"c12a7328-f81f-11d2-ba4b-00a0c93ec93b","mountpoints":[null]}]}"#;
+        assert!(drives(efi)[0].system, "an EFI part on another disk, not mounted");
     }
 
     #[test]
