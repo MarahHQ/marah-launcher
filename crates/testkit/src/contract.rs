@@ -7,6 +7,8 @@
 //! - Run [`process_tree`] on a [`ProcessTree`] adapter, with a fixture that starts its processes.
 //! - Run [`windows`] on a [`Windows`] adapter, with a fixture that starts a process with a window
 //!   and one without.
+//! - Run [`torrents`] on a [`Torrents`] adapter, with a fixture that serves a torrent and makes
+//!   the adapter, again after a restart.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -14,10 +16,12 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use async_trait::async_trait;
 use futures::StreamExt;
 use launcher_api::*;
 use launcher_core::{
-    ArchiveError, ArchiveKind, Archives, Command, Escape, ProcessTree, SessionCmd, UNPACK_SPARE, Windows,
+    ArchiveError, ArchiveKind, Archives, Command, Escape, ProcessTree, SessionCmd, TorrentStats, Torrents,
+    TransferState, UNPACK_SPARE, Windows,
 };
 
 use crate::TestCore;
@@ -221,9 +225,9 @@ pub trait ArchiveFixture {
 }
 
 /// The refusals every [`Archives`] adapter makes before it writes anything: a path that climbs
-/// out with `..`, an absolute path, a link that points out, an entry that needs a password, and
-/// an archive bigger than the free space. A plain archive unpacks, so an adapter that refuses
-/// everything fails too.
+/// out with `..`, an absolute path, a link that points out on its own or through other links,
+/// an entry under a link, an entry that needs a password, and an archive bigger than the free
+/// space. A plain archive unpacks, so an adapter that refuses everything fails too.
 pub async fn archives(adapter: &dyn Archives, fixture: &dyn ArchiveFixture) {
     let file = |path: &str, bytes: &[u8]| Sample::File(path.into(), bytes.to_vec());
     let plain = || vec![file("Game/eboot.bin", b"elf"), file("readme.txt", b"hi")];
@@ -260,6 +264,25 @@ pub async fn archives(adapter: &dyn Archives, fixture: &dyn ArchiveFixture) {
         assert_eq!(refused, Err(out), "contract archives: a link to {target} points out");
         refused_before_writing(&into, "a link out");
     }
+
+    // `d/l` ends at the top, so `x` ends one folder above it.
+    let (dir, into) = folders();
+    let link = |path: &str, target: &str| Sample::Link(path.into(), target.into());
+    let chained = [file("good.txt", b"ok"), link("d/l", ".."), link("x", "d/l/.."), file("x/evil.txt", b"no")];
+    let (kind, parts) = fixture.archive(dir.path(), &chained);
+    let refused = unpack(adapter, kind, &parts, &into, None).await;
+    let out = ArchiveError::Escapes { entry: "x".into(), how: Escape::LinksOut };
+    assert_eq!(refused, Err(out), "contract archives: links that chain out point out");
+    refused_before_writing(&into, "links that chain out");
+    assert!(!dir.path().join("evil.txt").exists(), "contract archives: nothing written beside the folder");
+
+    let (dir, into) = folders();
+    let under = [link("a", "b"), file("b/keep", b"ok"), file("a/f", b"no")];
+    let (kind, parts) = fixture.archive(dir.path(), &under);
+    let refused = unpack(adapter, kind, &parts, &into, None).await;
+    let through = ArchiveError::Escapes { entry: "a/f".into(), how: Escape::ThroughLink };
+    assert_eq!(refused, Err(through), "contract archives: a file under a link would write through it");
+    refused_before_writing(&into, "a file under a link");
 
     let (dir, into) = folders();
     match fixture.locked(dir.path()) {
@@ -371,6 +394,197 @@ pub fn windows(adapter: &dyn Windows, fixture: &mut dyn WindowFixture) {
     assert_ne!(adapter.has_window(&[]), Some(true), "contract windows: has_window for no process");
     assert!(!adapter.show_game(&[windowless]), "contract windows: show_game for {windowless}, which has no window");
     assert!(!adapter.show_game(&[]), "contract windows: show_game for no process");
+}
+
+/// Serves the torrent the [`torrents`] contract downloads, and makes the adapter it checks.
+#[async_trait]
+pub trait TorrentFixture: Send {
+    /// Puts a torrent named `name` into the swarm, with these files in this order, `/` between
+    /// the parts of a path: its info hash in lowercase hex, and its magnet link.
+    async fn torrent(&mut self, name: &str, files: &[(&str, Vec<u8>)]) -> (String, String);
+    /// A new adapter over the same data folder and swarm, as after the launcher restarts. The
+    /// contract stops every torrent of the adapter before it asks for the next one.
+    fn adapter(&mut self) -> Arc<dyn Torrents>;
+    /// The swarm sends the running torrent `id` the pieces it lacks. A real swarm does so by
+    /// itself, so its fixture does nothing.
+    fn send(&mut self, id: &str);
+}
+
+/// A torrent file of `len` bytes, whose pieces of 16 KiB differ from each other.
+fn torrent_bytes(len: u32, step: u32) -> Vec<u8> {
+    (0..len).map(|i| (i.wrapping_mul(step) % 251) as u8).collect()
+}
+
+/// What the torrents subsystem relies on from a [`Torrents`] adapter, as the port's docs say:
+///
+/// - Reading the files of a torrent starts nothing. A torrent that isn't running has no stats,
+///   and stopping, unpausing or forgetting it is no error.
+/// - A start checks the pieces in the folder first. A live start downloads what is missing and
+///   ends finished and live, with its files whole.
+/// - A paused start stays paused after its check: finished when the files are whole, not
+///   finished when a piece is missing, and it downloads nothing. Started again live, a torrent
+///   the adapter has paused goes on. Unpausing a live torrent is no error.
+/// - A changed file costs at most its own bytes: the check counts every other piece.
+/// - After a restart, the check counts the pieces the folder has, and an unpause downloads the
+///   rest.
+/// - With files left out, it downloads only the chosen files, and makes no file for the rest,
+///   after a check too. `total` counts the chosen files, and not the rest.
+/// - Stopping a torrent, or every torrent, leaves its files.
+///
+/// Rules of one engine stay in its own tests: which pieces it trusts after a restart without
+/// reading them, how many bytes it fetches, and where it keeps the bytes of a file left out.
+pub async fn torrents(fixture: &mut dyn TorrentFixture) {
+    // No file starts or ends on the edge of a piece of 16 KiB, so pieces span two files.
+    let files = [
+        ("game.bin", torrent_bytes(100_001, 7)),
+        ("update.bin", torrent_bytes(60_003, 13)),
+        ("dlc.bin", torrent_bytes(50_007, 17)),
+    ];
+    let sum =
+        |names: &[&str]| -> u64 { files.iter().filter(|(n, _)| names.contains(n)).map(|(_, b)| b.len() as u64).sum() };
+    let every = ["game.bin", "update.bin", "dlc.bin"];
+    let (id, magnet) = fixture.torrent("Game", &files.iter().map(|(n, b)| (*n, b.clone())).collect::<Vec<_>>()).await;
+    let id = id.as_str();
+    let adapter = fixture.adapter();
+    let scratch = tempfile::tempdir().expect("a temporary folder");
+    let whole = scratch.path().join("whole");
+    let some = scratch.path().join("some");
+
+    assert!(adapter.stats(id).is_none(), "contract torrents: no stats for a torrent that never started");
+    adapter.unpause(id).await.unwrap_or_else(|e| panic!("contract torrents: unpause one not running: {e}"));
+    adapter.stop(id).await.unwrap_or_else(|e| panic!("contract torrents: stop one not running: {e}"));
+    adapter.forget(id).await.unwrap_or_else(|e| panic!("contract torrents: forget one that kept nothing: {e}"));
+    adapter.route(None).await.unwrap_or_else(|e| panic!("contract torrents: route(None): {e}"));
+
+    assert!(adapter.resolve("not a magnet link").await.is_err(), "contract torrents: a bad magnet link fails");
+    let info = adapter.resolve(&magnet).await.unwrap_or_else(|e| panic!("contract torrents: resolve: {e}"));
+    let mut listed: Vec<(&str, u64)> =
+        info.files.iter().map(|f| (f.path.rsplit('/').next().unwrap_or_default(), f.size)).collect();
+    listed.sort();
+    let mut served: Vec<(&str, u64)> = files.iter().map(|(n, b)| (*n, b.len() as u64)).collect();
+    served.sort();
+    assert_eq!(listed, served, "contract torrents: resolve lists every file with its size: {info:?}");
+    assert!(adapter.stats(id).is_none(), "contract torrents: resolve starts nothing");
+    let at = |name: &str| info.files.iter().position(|f| f.path.rsplit('/').next() == Some(name)).expect("listed");
+    let path = |folder: &Path, name: &str| folder.join(&info.files[at(name)].path);
+    let bytes = |name: &str| &files.iter().find(|(n, _)| *n == name).expect("a file").1;
+    let read = |folder: &Path, name: &str| std::fs::read(path(folder, name)).ok();
+    let all_whole = |folder: &Path, names: &[&str], when: &str| {
+        for name in names {
+            assert!(read(folder, name).as_ref() == Some(bytes(name)), "contract torrents: {when}: {name} is whole");
+        }
+    };
+
+    // A live start into an empty folder downloads every file.
+    adapter.start(id, &magnet, &whole, false, None).await.unwrap_or_else(|e| panic!("contract torrents: start: {e}"));
+    fixture.send(id);
+    let done = until(adapter.as_ref(), id, "finished and live", |s| s.finished && s.state == TransferState::Live).await;
+    assert_eq!((done.done, done.total), (sum(&every), sum(&every)), "contract torrents: done and total, finished");
+    all_whole(&whole, &every, "downloaded");
+    adapter.stop(id).await.unwrap_or_else(|e| panic!("contract torrents: stop: {e}"));
+    assert!(adapter.stats(id).is_none(), "contract torrents: no stats once stopped");
+    all_whole(&whole, &every, "stopped, its files stay");
+
+    // Paused, with its files whole: its check finishes it, and it stays paused.
+    adapter.start(id, &magnet, &whole, true, None).await.unwrap_or_else(|e| panic!("contract torrents: start: {e}"));
+    let checked = until(adapter.as_ref(), id, "checked", |s| s.state != TransferState::Checking).await;
+    assert_eq!((checked.state, checked.finished), (TransferState::Paused, true), "contract torrents: whole, paused");
+    assert_eq!(checked.done, checked.total, "contract torrents: whole, done is the total");
+    adapter.start(id, &magnet, &whole, false, None).await.unwrap_or_else(|e| panic!("contract torrents: start: {e}"));
+    until(adapter.as_ref(), id, "live again", |s| s.state == TransferState::Live && s.finished).await;
+    adapter.unpause(id).await.unwrap_or_else(|e| panic!("contract torrents: unpause one already live: {e}"));
+    adapter.stop(id).await.unwrap_or_else(|e| panic!("contract torrents: stop: {e}"));
+
+    // A byte changed in one file: the check finds a piece missing, and nothing downloads.
+    let mut broken = bytes("game.bin").clone();
+    broken[50_000] ^= 0xff;
+    std::fs::write(path(&whole, "game.bin"), &broken).expect("change a file");
+    let at_least = sum(&every) - sum(&["game.bin"]);
+    adapter.start(id, &magnet, &whole, true, None).await.unwrap_or_else(|e| panic!("contract torrents: start: {e}"));
+    let missing = until(adapter.as_ref(), id, "checked", |s| s.state != TransferState::Checking).await;
+    assert_eq!((missing.state, missing.finished), (TransferState::Paused, false), "contract torrents: a piece missing");
+    assert!(
+        (at_least..missing.total).contains(&missing.done),
+        "contract torrents: the check counts the pieces of the other files: {missing:?}"
+    );
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let still = adapter.stats(id).expect("running");
+    assert_eq!((still.state, still.finished), (TransferState::Paused, false), "contract torrents: paused stays paused");
+    assert_eq!(read(&whole, "game.bin"), Some(broken), "contract torrents: paused, nothing downloads");
+
+    // The launcher closes with the download still running, and starts again: the check counts
+    // the pieces the folder has, and the rest downloads.
+    adapter.stop_all().await.unwrap_or_else(|e| panic!("contract torrents: stop_all: {e}"));
+    drop(adapter);
+    let adapter = fixture.adapter();
+    assert!(adapter.stats(id).is_none(), "contract torrents: after a restart, nothing runs");
+    adapter.start(id, &magnet, &whole, true, None).await.unwrap_or_else(|e| panic!("contract torrents: start: {e}"));
+    let resumed = until(adapter.as_ref(), id, "checked", |s| s.state != TransferState::Checking).await;
+    assert_eq!((resumed.state, resumed.finished), (TransferState::Paused, false), "contract torrents: after a restart");
+    assert!(
+        (at_least..resumed.total).contains(&resumed.done),
+        "contract torrents: after a restart, the check counts the pieces it has: {resumed:?}"
+    );
+    adapter.unpause(id).await.unwrap_or_else(|e| panic!("contract torrents: unpause: {e}"));
+    fixture.send(id);
+    until(adapter.as_ref(), id, "finished after a restart", |s| s.finished && s.state == TransferState::Live).await;
+    all_whole(&whole, &every, "finished after a restart");
+    adapter.stop(id).await.unwrap_or_else(|e| panic!("contract torrents: stop: {e}"));
+
+    // A file left out: only the chosen files download, and the other gets no file.
+    let mut only = vec![at("game.bin"), at("dlc.bin")];
+    only.sort();
+    let chosen = ["game.bin", "dlc.bin"];
+    adapter
+        .start(id, &magnet, &some, false, Some(&only))
+        .await
+        .unwrap_or_else(|e| panic!("contract torrents: start with a file left out: {e}"));
+    fixture.send(id);
+    let left_out =
+        until(adapter.as_ref(), id, "finished with a file left out", |s| s.finished && s.state == TransferState::Live)
+            .await;
+    // An engine counts whole pieces, so the total may have the bytes the chosen files share a
+    // piece with: never the whole file left out.
+    assert_eq!(left_out.done, left_out.total, "contract torrents: finished, done is the total");
+    assert!(
+        (sum(&chosen)..sum(&every)).contains(&left_out.total),
+        "contract torrents: the total counts the chosen files, not the one left out: {left_out:?}"
+    );
+    all_whole(&some, &chosen, "a file left out");
+    assert!(!path(&some, "update.bin").exists(), "contract torrents: no file for one left out");
+    adapter.stop(id).await.unwrap_or_else(|e| panic!("contract torrents: stop: {e}"));
+    adapter
+        .start(id, &magnet, &some, true, Some(&only))
+        .await
+        .unwrap_or_else(|e| panic!("contract torrents: start with a file left out: {e}"));
+    let checked = until(adapter.as_ref(), id, "checked", |s| s.state != TransferState::Checking).await;
+    assert_eq!(
+        (checked.state, checked.finished),
+        (TransferState::Paused, true),
+        "contract torrents: chosen ones whole"
+    );
+    assert!(!path(&some, "update.bin").exists(), "contract torrents: no file for one left out, after a check");
+    adapter.stop(id).await.unwrap_or_else(|e| panic!("contract torrents: stop: {e}"));
+    adapter.forget(id).await.unwrap_or_else(|e| panic!("contract torrents: forget: {e}"));
+    adapter.forget(id).await.unwrap_or_else(|e| panic!("contract torrents: forget again: {e}"));
+
+    // Stopping every torrent stops this one, and its files stay.
+    adapter.start(id, &magnet, &whole, true, None).await.unwrap_or_else(|e| panic!("contract torrents: start: {e}"));
+    until(adapter.as_ref(), id, "checked", |s| s.state != TransferState::Checking).await;
+    adapter.stop_all().await.unwrap_or_else(|e| panic!("contract torrents: stop_all: {e}"));
+    assert!(adapter.stats(id).is_none(), "contract torrents: stop_all stops it");
+    all_whole(&whole, &every, "stop_all, its files stay");
+}
+
+/// The torrent's stats once `done` holds for them. Panics after a minute.
+async fn until(adapter: &dyn Torrents, id: &str, what: &str, done: impl Fn(&TorrentStats) -> bool) -> TorrentStats {
+    for _ in 0..1200 {
+        if let Some(stats) = adapter.stats(id).filter(|s| done(s)) {
+            return stats;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("contract torrents: never {what}: {:?}", adapter.stats(id))
 }
 
 /// Whether `done` holds within 5 seconds.

@@ -1,0 +1,139 @@
+import { Vm, Host, GameCard, Library } from "../types.slint";
+import { Commands } from "commands.slint";
+import { Hub } from "game-detail.slint";
+
+// The games on screen and the theme's own selection of one of them. On the Library and the
+// Catalog they are the view's games, searched, filtered and sorted by the core; elsewhere
+// they are Home's games. The search, filters, sort and next page go to the view on screen.
+//
+// A key move shows at once: a theme draws its focus from `selected`, and the core hears of
+// the move `Look.select-after` after the last one (`ShellKeys`' timer calls `send`). `moving`
+// is true from the move until the core has the same game; when the core's selection changes
+// for another reason, the cursor follows the core again (`core-moved`).
+export global Games {
+    // The Library screen is open.
+    out property <bool> library: Vm.screen == "library";
+    // The Catalog screen is open.
+    out property <bool> catalog: Vm.screen == "catalog";
+    // The Library's view, or the Catalog's.
+    out property <Library> lib: root.catalog ? Vm.catalog : Vm.home.library;
+    // The sorts of the view on screen. The Catalog starts with Recently added.
+    out property <[string]> sorts: root.catalog ? ["added", "title", "size", "smallest", "rating", "release", "compat"]
+        : ["title", "played", "size", "rating", "release", "compat"];
+    out property <[GameCard]> games: root.catalog || root.library ? root.lib.games : Vm.home.games;
+    // The core's selection: an index into `games`, or -1 when the selected game isn't in them.
+    out property <int> core-selected: root.catalog || root.library ? root.lib.selected : Vm.home.selected;
+    out property <string> core-key: root.core-selected >= 0 && root.core-selected < root.games.length
+        ? root.games[root.core-selected].key : "";
+    // The theme's own selection: the game a key move went to, and its key.
+    in-out property <int> cursor: -1;
+    in-out property <string> cursor-key;
+    in-out property <bool> moving;
+    // The cursor went to the core, and the core hasn't answered yet; `sent-from` is the
+    // core's game at that time.
+    in-out property <bool> sent;
+    in-out property <string> sent-from;
+    // Counts the moves: the shell's timer starts again on each.
+    in-out property <int> moves;
+    // The cursor still points at its game: a new list of games makes it stale.
+    out property <bool> cursor-valid: root.moving && root.cursor >= 0 && root.cursor < root.games.length
+        && root.games[root.cursor].key == root.cursor-key;
+    // Index into `games`, or -1 when the selected game isn't in them.
+    out property <int> selected: root.cursor-valid ? root.cursor : root.core-selected;
+    // The selected game's key, or "" when none is.
+    out property <string> selected-key: root.selected >= 0 && root.selected < root.games.length
+        ? root.games[root.selected].key : "";
+    // The game the screen shows: the selected one, or the first.
+    out property <int> shown: Math.max(root.selected, 0);
+    out property <bool> has-game: root.games.length > 0;
+    // The shown game's details are loaded.
+    out property <bool> has-detail: root.has-game && Vm.has-detail && Vm.detail.key == root.games[root.shown].key;
+
+    // A key move to the game at `index`: the cursor moves now, the core hears of it later.
+    public function select(index: int) {
+        if (root.games.length == 0) { return; }
+        let at = Math.clamp(index, 0, root.games.length - 1);
+        root.cursor = at;
+        root.cursor-key = root.games[at].key;
+        root.moving = true;
+        root.sent = false;
+        root.moves += 1;
+        Host.play-sound("move");
+    }
+    // The cursor goes to the core now. The shell's timer calls it once the moves stop, and the
+    // keys that act on the game call it first, so the core acts on the game on screen.
+    public function send() {
+        if (!root.moving || root.sent) { return; }
+        if (!root.cursor-valid || root.cursor-key == root.core-key) {
+            root.moving = false;
+            return;
+        }
+        root.sent = true;
+        root.sent-from = root.core-key;
+        Commands.select(root.cursor-key);
+    }
+    // A click or the app selects `key`: at once, and a waiting key move is dropped.
+    public function select-now(key: string) {
+        root.moving = false;
+        root.sent = false;
+        Commands.select(key);
+    }
+    // The core's selection changed. It has the cursor's game, or it chose another after it
+    // heard of the cursor (a refresh, a new list): either way the cursor follows the core. A
+    // change from before the cursor went to the core doesn't count, and a move the core hasn't
+    // heard of yet still goes to it.
+    public function core-moved() {
+        if (root.core-key == root.cursor-key || (root.sent && root.core-key != root.sent-from)) {
+            root.moving = false;
+            root.sent = false;
+        }
+    }
+
+    // The search, filters, sort and next page of the view on screen: the Catalog's or the
+    // Library's.
+    public function search(text: string) {
+        if (root.catalog) { Commands.catalog-search(text); } else { Commands.library-search(text); }
+    }
+    public function system(id: string) {
+        if (root.catalog) { Commands.catalog-system(id); } else { Commands.library-system(id); }
+    }
+    public function genre(id: string) {
+        if (root.catalog) { Commands.catalog-genre(id); } else { Commands.library-genre(id); }
+    }
+    public function more() {
+        if (root.catalog) { Commands.catalog-more(); } else { Commands.library-more(); }
+    }
+    // The sort at `index` of `sorts`.
+    public function sort(index: int) {
+        if (root.catalog) { Commands.catalog-sort(root.sorts[index]); } else { Commands.library-sort(root.sorts[index]); }
+    }
+    // A card's eye: a hidden game shows again; a game on several consoles hides every version;
+    // any other game hides this version.
+    public function hide(game: GameCard) {
+        if (game.hidden || game.consoles.length > 0) {
+            Commands.hide-game(game.key, !game.hidden);
+        } else {
+            Commands.hide-version(game.key, true);
+        }
+    }
+    // A card's main action (`GameCard.can.primary`): Play starts the game, and a store's Get
+    // starts its install. A download picks its release on the Game Hub: true means the card
+    // opens the Game Hub, which then starts on its releases.
+    public function act(game: GameCard) -> bool {
+        if (game.can.primary == "play") {
+            Commands.launch(game.key);
+        } else if (game.can.get-store != "") {
+            Commands.download-release(game.key, game.can.get-release, "");
+        } else {
+            Hub.to-releases = true;
+            return true;
+        }
+        false
+    }
+    // Where `sort` is in `sorts`.
+    public pure function sort-index(sort: string) -> int {
+        root.catalog
+            ? (sort == "title" ? 1 : sort == "size" ? 2 : sort == "smallest" ? 3 : sort == "rating" ? 4 : sort == "release" ? 5 : sort == "compat" ? 6 : 0)
+            : (sort == "played" ? 1 : sort == "size" ? 2 : sort == "rating" ? 3 : sort == "release" ? 4 : sort == "compat" ? 5 : 0)
+    }
+}

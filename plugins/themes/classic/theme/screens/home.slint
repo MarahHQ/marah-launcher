@@ -6,6 +6,7 @@ import { Nav, Origin } from "../components/nav.slint";
 import { Icon } from "../kit/icon.slint";
 import { Card } from "../components/card.slint";
 import { FocusRing, Chip, Pill, Kicker, Cover } from "../kit/widgets.slint";
+import { Games } from "../kit/games.slint";
 
 // What the hero and the name beside the selected tile show.
 struct Hero {
@@ -171,7 +172,7 @@ component HeroView inherits Rectangle {
                 accessible-label: "default-stop";
                 clicked => { Nav.action = 1; Nav.activate(); }
             }
-            if root.data.game && !root.data.playing && Nav.has-detail && Vm.detail.can.play : Pill {
+            if root.data.game && !root.data.playing && Games.has-detail && Vm.detail.can.play : Pill {
                 text: "Play";
                 icon: "play";
                 primary: true;
@@ -197,7 +198,7 @@ component HeroView inherits Rectangle {
                 clicked => { Nav.action = Nav.store-action; Nav.activate(); }
             }
             // The game's menu: its folder, its log, rating it, and more.
-            if root.data.game && Nav.has-detail : Pill {
+            if root.data.game && Games.has-detail : Pill {
                 text: "Options";
                 icon: "more";
                 round: true;
@@ -208,13 +209,13 @@ component HeroView inherits Rectangle {
                 accessible-value: self.text;
                 clicked => { Nav.action = Nav.actions - 1; Nav.activate(); }
             }
-            if !root.data.game && Nav.has-game : Pill {
+            if !root.data.game && Games.has-game : Pill {
                 text: "Open Library";
                 icon: "grid";
                 primary: true;
                 clicked => { Nav.open-library(); }
             }
-            if root.data.game && !root.data.playing && Nav.has-detail && Vm.detail.launch-hint != "" : Text {
+            if root.data.game && !root.data.playing && Games.has-detail && Vm.detail.launch-hint != "" : Text {
                 text: Vm.detail.launch-hint;
                 font-size: 18 * Look.px;
                 color: Tokens.color-text-muted;
@@ -232,38 +233,38 @@ component HomeView inherits Rectangle {
     property <length> gap: 22 * Look.px;
     property <length> x0: 96 * Look.px;
     // The focused tile: a game, or the Library tile after the last one.
-    property <int> sel: Nav.extra ? Nav.games.length : Nav.shown;
+    property <int> sel: Nav.extra ? Games.games.length : Games.shown;
     property <bool> keys: Nav.zone == "row";
 
-    property <Hero> live: Nav.extra || !Nav.has-game ? {
+    property <Hero> live: Nav.extra || !Games.has-game ? {
         key: "library",
-        title: Nav.has-game ? "Library" : "No games yet",
+        title: Games.has-game ? "Library" : "No games yet",
         sub: Look.games(Vm.home.games.length),
-        description: Nav.has-game
+        description: Games.has-game
             ? "Every game, in a grid, by system."
             : "Add a games folder in Settings, or install an emulator.",
         game: false,
     } : {
-        key: Nav.games[Nav.shown].key,
-        title: Nav.games[Nav.shown].title,
+        key: Games.games[Games.shown].key,
+        title: Games.games[Games.shown].title,
         // When it last ran, from the first frame.
         sub: Nav.playing ? "Playing now"
-            : Nav.games[Nav.shown].last-played != "" ? "Last played " + Nav.games[Nav.shown].last-played.to-lowercase()
+            : Games.games[Games.shown].last-played != "" ? "Last played " + Games.games[Games.shown].last-played.to-lowercase()
             : "Not played yet",
         tag: "",
-        kicker: !Nav.playing && Nav.has-detail && Vm.detail.played != "" ? "PLAYED " + Vm.detail.played.to-uppercase() : "",
+        kicker: !Nav.playing && Games.has-detail && Vm.detail.played != "" ? "PLAYED " + Vm.detail.played.to-uppercase() : "",
         accent: Nav.playing ? "● PLAYING · " + Vm.running.elapsed.to-uppercase() : "",
-        description: Nav.has-detail ? Vm.detail.summary : "",
-        badges: Nav.games[Nav.shown].badges,
-        genres: Nav.has-detail ? Look.join(Vm.detail.genres) : "",
-        size: Nav.has-detail ? Vm.detail.size : "",
-        release: Nav.has-detail ? Vm.detail.release : "",
-        stars: Nav.has-detail ? Vm.detail.rating : 0,
-        rating: Nav.has-detail ? Vm.detail.rating-text : "",
-        has-logo: Nav.has-detail && Vm.detail.has-logo,
+        description: Games.has-detail ? Vm.detail.summary : "",
+        badges: Games.games[Games.shown].badges,
+        genres: Games.has-detail ? Look.join(Vm.detail.genres) : "",
+        size: Games.has-detail ? Vm.detail.size : "",
+        release: Games.has-detail ? Vm.detail.release : "",
+        stars: Games.has-detail ? Vm.detail.rating : 0,
+        rating: Games.has-detail ? Vm.detail.rating-text : "",
+        has-logo: Games.has-detail && Vm.detail.has-logo,
         logo: Vm.detail.logo,
-        store: Nav.has-detail ? Vm.detail.store-url : "",
-        result: Nav.has-detail ? Vm.detail.your-result : "",
+        store: Games.has-detail ? Vm.detail.store-url : "",
+        result: Games.has-detail ? Vm.detail.your-result : "",
         game: true,
         playing: Nav.playing,
     };
@@ -297,7 +298,7 @@ component HomeView inherits Rectangle {
     }
     Timer {
         interval: 1ms;
-        running: root.hero-pending && (!root.live.game || Nav.has-detail);
+        running: root.hero-pending && (!root.live.game || Games.has-detail);
         triggered => { root.commit-hero(); }
     }
     Timer {
@@ -331,7 +332,7 @@ component HomeView inherits Rectangle {
                 accept
             }
         }
-        for game[i] in Nav.games : tile := Rectangle {
+        for game[i] in Games.games : tile := Rectangle {
             property <length> lx: i < root.sel ? root.x0 - (root.sel - i) * (root.small + root.gap) - root.gap
                 : i == root.sel ? root.x0
                 : root.x0 + root.big + label.width + root.gap * 2.6 + (i - root.sel - 1) * (root.small + root.gap);
@@ -345,7 +346,7 @@ component HomeView inherits Rectangle {
             accessible-role: button;
             accessible-label: "default-tile";
             accessible-value: game.title;
-            accessible-action-default => { Nav.extra = false; Nav.select-now(game.key); }
+            accessible-action-default => { Nav.extra = false; Games.select-now(game.key); }
             accessible-item-selected: i == root.sel;
             animate x, width { duration: Look.timed(Tokens.motion-slow - 60ms); easing: ease-out-expo; }
             animate opacity { duration: Look.timed(Tokens.motion-normal - 40ms); easing: ease-out-quad; }
@@ -378,7 +379,7 @@ component HomeView inherits Rectangle {
                 // One click opens the game, selected or not: the keys select first, then Enter
                 // opens, but a pointer points at the game it means.
                 clicked => {
-                    if (i != Nav.selected || Nav.extra) { Nav.extra = false; Nav.select-now(game.key); }
+                    if (i != Games.selected || Nav.extra) { Nav.extra = false; Games.select-now(game.key); }
                     Nav.zone = "row";
                     Origin.from = "row";
                     Commands.open-game(game.key);
@@ -386,8 +387,8 @@ component HomeView inherits Rectangle {
             }
         }
         // The Library tile, after the games.
-        if Nav.has-game : Rectangle {
-            property <int> i: Nav.games.length;
+        if Games.has-game : Rectangle {
+            property <int> i: Games.games.length;
             property <length> lx: i == root.sel ? root.x0 : root.x0 + root.big + label.width + root.gap * 2.6 + (i - root.sel - 1) * (root.small + root.gap);
             x: root.at(self.lx, self.width);
             y: 0;

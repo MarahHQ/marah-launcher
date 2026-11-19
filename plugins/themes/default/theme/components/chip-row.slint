@@ -1,6 +1,7 @@
 import { Tokens } from "../tokens.slint";
 import { Look } from "../kit/look.slint";
 import { Nav } from "nav.slint";
+import { Games } from "../kit/games.slint";
 
 // A Library filter: a system with its count. It is lit, a soft see-through white, when it is
 // on, and ringed under the keys. Right to left, the count is on the left of the name.
@@ -93,16 +94,16 @@ export component SystemChips inherits Rectangle {
         spacing: 10 * Look.px;
         alignment: start;
         animate x { duration: Look.timed(Tokens.motion-normal); easing: ease-out-expo; }
-        for j in Nav.lib.systems.length : chip := FilterChip {
-            property <int> i: Look.rtl ? Nav.lib.systems.length - 1 - j : j;
-            text: Nav.lib.systems[self.i].label;
-            count: Nav.lib.systems[self.i].count;
-            active: Nav.lib.systems[self.i].on;
+        for j in Games.lib.systems.length : chip := FilterChip {
+            property <int> i: Look.rtl ? Games.lib.systems.length - 1 - j : j;
+            text: Games.lib.systems[self.i].label;
+            count: Games.lib.systems[self.i].count;
+            active: Games.lib.systems[self.i].on;
             focused: root.keys && Nav.zone == "filters" && Nav.filter == self.i;
             changed focused => {
                 if (self.focused) { root.reveal(root.within(self.x + root.pad, self.width, root.length), self.width); }
             }
-            clicked => { Nav.zone = "filters"; Nav.filter = chip.i; Nav.system(Nav.lib.systems[chip.i].id); }
+            clicked => { Nav.zone = "filters"; Nav.filter = chip.i; Games.system(Games.lib.systems[chip.i].id); }
         }
     }
     if root.scroll > 0 : Rectangle {

@@ -3,11 +3,14 @@
 //!
 //! Every [`crate::Archives`] adapter lists an archive with its format readers, then hands the
 //! listing to [`plan_unpack`]. The plan refuses an entry that needs a password, a path that
-//! leaves the folder (absolute, or `..`), a link that points out, and an archive bigger than
-//! the free space. The adapter then writes only the plan's entries, so the rules exist once and
+//! leaves the folder (absolute, or `..`), a link that points out on its own or through the
+//! archive's other links, a hard link to a link or through one, an entry at or under a link's
+//! path, and an archive bigger than the free space. The adapter then writes only the plan's entries, so the rules exist once and
 //! hold for the app's readers and the test kit's fake alike.
 
-use std::path::{Path, PathBuf};
+use std::collections::{HashMap, VecDeque};
+use std::ffi::{OsStr, OsString};
+use std::path::{Component, Path, PathBuf};
 
 use crate::ArchiveError;
 use crate::ports::Escape;
@@ -94,6 +97,7 @@ pub fn plan_unpack(entries: Vec<ArchiveEntry>, dest: &Path, free: Option<u64>) -
     for entry in entries {
         planned.push(check(entry)?);
     }
+    check_links(&planned)?;
     let total = planned.iter().filter(|e| e.kind == EntryKind::File).map(|e| e.size).sum();
     room(total, free)?;
     Ok(Plan { dest: dest.to_path_buf(), entries: planned, total })
@@ -120,6 +124,119 @@ fn check(entry: ArchiveEntry) -> Result<Planned, ArchiveError> {
         _ => {}
     }
     Ok(Planned { name, path, size, kind })
+}
+
+/// The most links the plan follows on one link's way. Linux follows 40, macOS 32.
+const MOST_LINKS: usize = 40;
+
+/// The listing's links by their path in lower case ([`fold`]): the first link at each path,
+/// by its place in the listing, its path as listed, and its target.
+type Links<'a> = HashMap<PathBuf, (usize, &'a Path, &'a Path)>;
+
+/// Checks the entries against the listing's links, whatever their order: each link must end
+/// inside the folder once the links on its way are followed, no hard link may name a link or
+/// a path through one, and nothing else may sit at a link's path or under it. A format reader
+/// or `unar` may write in another order, and an entry under a link would be written wherever
+/// the link points. Names that differ only in case match.
+fn check_links(planned: &[Planned]) -> Result<(), ArchiveError> {
+    let mut links = Links::new();
+    for (at, entry) in planned.iter().enumerate() {
+        if let EntryKind::Link(target) = &entry.kind {
+            links.entry(fold(&entry.path)).or_insert((at, &entry.path, target));
+        }
+    }
+    let escapes = |entry: &Planned, how| ArchiveError::Escapes { entry: entry.name.clone(), how };
+    for entry in planned {
+        let out = match &entry.kind {
+            // Out by either match of names, so out on every system.
+            EntryKind::Link(target) => {
+                !ends_inside(&entry.path, target, &links, Names::Folded)
+                    || !ends_inside(&entry.path, target, &links, Names::Exact)
+            }
+            // A hard link to a link is a second link at a new place, where its relative target
+            // ends somewhere else. Through a link, the plan can't tell what it names.
+            EntryKind::HardLink(target) => fold(target).ancestors().any(|at| links.contains_key(at)),
+            _ => false,
+        };
+        if out {
+            return Err(escapes(entry, Escape::LinksOut));
+        }
+    }
+    for (at, entry) in planned.iter().enumerate() {
+        let path = fold(&entry.path);
+        let on_a_link = links.get(&path).is_some_and(|(link, _, _)| *link != at);
+        let under_a_link = path.ancestors().skip(1).any(|folder| links.contains_key(folder));
+        if on_a_link || under_a_link {
+            return Err(escapes(entry, Escape::ThroughLink));
+        }
+    }
+    Ok(())
+}
+
+/// `path` with each name in lower case, so that names that differ only in case match, as they
+/// do on macOS and Windows. Linux tells them apart, so there the plan refuses a little more
+/// than it must. A name that is not UTF-8 stays as it is.
+///
+/// The walk in [`ends_inside`] can't just fold: a name that is no link on Linux may be a link
+/// on macOS, and the two ways end in different places.
+fn fold(path: &Path) -> PathBuf {
+    path.iter().map(fold_name).collect()
+}
+
+/// One name in lower case and in one Unicode form (NFC), so `é` as one character and `e` plus a
+/// combining accent are one name, as on macOS. Each character folds on its own, so that a final
+/// `Σ` folds to `σ` as it does inside a name, not to `ς`. Lower case is close to the file
+/// systems' own fold, not the same.
+fn fold_name(name: &OsStr) -> OsString {
+    const NFC: icu_normalizer::ComposingNormalizerBorrowed<'static> =
+        icu_normalizer::ComposingNormalizerBorrowed::new_nfc();
+    match name.to_str() {
+        Some(name) => NFC.normalize(&name.chars().flat_map(char::to_lowercase).collect::<String>()).into_owned().into(),
+        None => name.to_os_string(),
+    }
+}
+
+/// How [`ends_inside`] matches a name on the way to a link's path.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Names {
+    /// Byte for byte, as Linux does.
+    Exact,
+    /// As [`fold`] makes them, as macOS and Windows do.
+    Folded,
+}
+
+/// Whether a link at `link` to `target` ends inside the folder, following `links` on the way
+/// as the system would, with names matched as `names` says. A `..` after a link climbs from
+/// where the link ends, not from where it sits. A way through more than [`MOST_LINKS`] links
+/// counts as outside. With [`Names::Exact`], a link that `links` holds under another link's
+/// folded path is missed; [`check_links`] refuses two such links anyway.
+fn ends_inside(link: &Path, target: &Path, links: &Links, names: Names) -> bool {
+    let mut at = PathBuf::new();
+    let mut left: VecDeque<Component> = link.parent().into_iter().flat_map(Path::components).collect();
+    left.extend(target.components());
+    let mut followed = 0;
+    while let Some(part) = left.pop_front() {
+        match part {
+            Component::Normal(name) => {
+                at.push(name);
+                let found = links.get(&fold(&at)).filter(|(_, path, _)| names == Names::Folded || *path == at);
+                if let Some((_, _, to)) = found {
+                    followed += 1;
+                    if followed > MOST_LINKS {
+                        return false;
+                    }
+                    at.pop();
+                    for part in to.components().rev() {
+                        left.push_front(part);
+                    }
+                }
+            }
+            Component::CurDir => {}
+            Component::ParentDir if at.pop() => {}
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => return false,
+        }
+    }
+    true
 }
 
 #[cfg(test)]
@@ -229,6 +346,107 @@ mod tests {
     }
 
     #[test]
+    fn links_that_chain_out_of_the_folder_are_refused() {
+        // `d/l` ends at the top, so `x` ends one folder above it.
+        let chained = vec![link("d/l", ".."), link("x", "d/l/.."), file("x/evil.txt", 4)];
+        assert_eq!(plan_unpack(chained, &dest(), None).unwrap_err(), escapes("x", Escape::LinksOut));
+        // The order of the listing doesn't matter.
+        let reversed = vec![file("x/evil.txt", 4), link("x", "d/l/.."), link("d/l", "..")];
+        assert_eq!(plan_unpack(reversed, &dest(), None).unwrap_err(), escapes("x", Escape::LinksOut));
+        for (name, target) in [("x", "d/l/.."), ("a/x", "../d/l/../.."), ("x", "d/l/../d/l/..")] {
+            let refused = plan_unpack(vec![link("d/l", ".."), link(name, target)], &dest(), None).unwrap_err();
+            assert_eq!(refused, escapes(name, Escape::LinksOut), "{name} -> {target}");
+        }
+        // A `..` after a link climbs from where the link ends: `y` ends at the top.
+        let shallower = vec![link("x", "y/.."), link("y", ".")];
+        assert_eq!(plan_unpack(shallower, &dest(), None).unwrap_err(), escapes("x", Escape::LinksOut));
+    }
+
+    #[test]
+    fn a_link_through_links_that_stay_inside_is_planned() {
+        // A macOS framework, as a bundle lists it.
+        let framework = vec![
+            file("Qt.framework/Versions/A/Qt", 3),
+            link("Qt.framework/Versions/Current", "A"),
+            link("Qt.framework/Qt", "Versions/Current/Qt"),
+            link("Qt.framework/Resources", "Versions/Current/Resources"),
+        ];
+        assert!(plan_unpack(framework, &dest(), None).is_ok());
+    }
+
+    #[test]
+    fn an_entry_under_a_link_is_refused() {
+        let through = |listing: Vec<ArchiveEntry>, entry: &str| {
+            assert_eq!(plan_unpack(listing, &dest(), None).unwrap_err(), escapes(entry, Escape::ThroughLink));
+        };
+        through(vec![link("a", "b"), file("b/keep", 1), file("a/f", 1)], "a/f");
+        through(vec![file("a/f", 1), link("a", "b")], "a/f");
+        through(vec![link("a", "b"), ArchiveEntry::new("a/c/", 0, EntryKind::Folder)], "a/c/");
+        through(vec![link("a", "b"), link("a/l", "x")], "a/l");
+        through(vec![link("a", "b"), hard_link("a/h", "b")], "a/h");
+        // Something else at a link's own place: the link or the entry wins by the order of
+        // the writes, so neither may.
+        through(vec![link("a", "b"), file("a", 1)], "a");
+        through(vec![file("a", 1), link("a", "b")], "a");
+        through(vec![link("a", "b"), link("a", "c")], "a");
+    }
+
+    #[test]
+    fn a_hard_link_to_a_link_or_through_one_is_refused() {
+        // `h` would be a second link to `../..`, but at the top, where it points out.
+        let refused = plan_unpack(vec![link("d/e/s", "../.."), hard_link("h", "d/e/s")], &dest(), None).unwrap_err();
+        assert_eq!(refused, escapes("h", Escape::LinksOut));
+        let refused = plan_unpack(vec![hard_link("h", "d/e/s"), link("d/e/s", "../..")], &dest(), None).unwrap_err();
+        assert_eq!(refused, escapes("h", Escape::LinksOut), "in either order");
+        // `a/s` is no listed link, but on the disk it reaches the link `b/c/s`.
+        let through = vec![link("a", "b/c"), link("b/c/s", "../.."), hard_link("h", "a/s")];
+        assert_eq!(plan_unpack(through, &dest(), None).unwrap_err(), escapes("h", Escape::LinksOut));
+        // Even a link that stays inside: the plan can't say where a copy of it would end.
+        let inside = vec![file("b/f", 1), link("a", "b"), hard_link("h", "a/f")];
+        assert_eq!(plan_unpack(inside, &dest(), None).unwrap_err(), escapes("h", Escape::LinksOut));
+    }
+
+    #[test]
+    fn link_names_that_differ_only_in_case_are_the_same_link() {
+        // macOS and Windows find `D/l` by the name `d/l`, so `x` ends one folder above the top.
+        let chained = vec![link("D/l", ".."), link("x", "d/l/..")];
+        assert_eq!(plan_unpack(chained, &dest(), None).unwrap_err(), escapes("x", Escape::LinksOut));
+        let chained = vec![link("d/l", ".."), link("x", "D/L/..")];
+        assert_eq!(plan_unpack(chained, &dest(), None).unwrap_err(), escapes("x", Escape::LinksOut));
+        // On Linux `A` is no link, so `A/..` is the top and `x` ends one folder above it. On
+        // macOS `A` is the link `a`, and `x` ends in `b/d`. Either way out counts as out.
+        let chained = vec![link("a", "b/c"), link("d/l", ".."), link("x", "A/../d/l/..")];
+        assert_eq!(plan_unpack(chained, &dest(), None).unwrap_err(), escapes("x", Escape::LinksOut));
+        let refused = plan_unpack(vec![link("a", "b"), file("A/f", 1)], &dest(), None).unwrap_err();
+        assert_eq!(refused, escapes("A/f", Escape::ThroughLink));
+        let refused = plan_unpack(vec![link("a", "b"), file("A", 1)], &dest(), None).unwrap_err();
+        assert_eq!(refused, escapes("A", Escape::ThroughLink));
+        let refused = plan_unpack(vec![link("d/e/s", "../.."), hard_link("h", "D/E/S")], &dest(), None).unwrap_err();
+        assert_eq!(refused, escapes("h", Escape::LinksOut));
+        // A Greek capital sigma folds the same at the end of a name as inside it.
+        let refused = plan_unpack(vec![link("οσ", "b"), file("ΟΣ/f", 1)], &dest(), None).unwrap_err();
+        assert_eq!(refused, escapes("ΟΣ/f", Escape::ThroughLink));
+    }
+
+    #[test]
+    fn link_names_in_another_unicode_form_are_the_same_link() {
+        // macOS finds `é` as one character by the name `e` plus a combining accent.
+        let (one, two) = ("caf\u{e9}", "cafe\u{301}");
+        let refused = plan_unpack(vec![link(one, "b"), file(&format!("{two}/f"), 1)], &dest(), None).unwrap_err();
+        assert_eq!(refused, escapes(&format!("{two}/f"), Escape::ThroughLink));
+        let chained = vec![link(&format!("d/{two}"), ".."), link("x", &format!("D/{one}/.."))];
+        assert_eq!(plan_unpack(chained, &dest(), None).unwrap_err(), escapes("x", Escape::LinksOut));
+    }
+
+    #[test]
+    fn a_link_loop_is_refused() {
+        let refused = plan_unpack(vec![link("a", "b"), link("b", "a")], &dest(), None).unwrap_err();
+        assert_eq!(refused, escapes("a", Escape::LinksOut));
+        let refused = plan_unpack(vec![link("a/self", "../a/self")], &dest(), None).unwrap_err();
+        assert_eq!(refused, escapes("a/self", Escape::LinksOut));
+    }
+
+    #[test]
     fn an_entry_that_needs_a_password_refuses_the_archive() {
         let mut locked = file("Game/data.bin", 4);
         locked.encrypted = true;
@@ -251,13 +469,21 @@ mod tests {
         assert_eq!(refused, ArchiveError::NoRoom { needed: 1000 + UNPACK_SPARE, free: 999 + UNPACK_SPARE });
     }
 
-    /// Where a link at `link` (inside the folder) pointing at `target` ends, by walking its
-    /// parts, as the system would with no links on the way; `None` when it climbs out.
-    fn resolve(link: &Path, target: &Path) -> Option<Vec<String>> {
-        let mut at: Vec<String> = link.parent()?.components().map(|c| c.as_os_str().to_string_lossy().into()).collect();
-        for part in target.components() {
+    /// Where `path` (from the folder's top) ends, by walking its parts and the targets of the
+    /// plan's `links` on the way, as the system would; `None` when it climbs out or goes
+    /// through more links than `budget` allows.
+    fn resolve(path: &Path, links: &HashMap<PathBuf, PathBuf>, budget: &mut usize) -> Option<Vec<String>> {
+        let mut at: Vec<String> = Vec::new();
+        for part in path.components() {
             match part {
-                Component::Normal(p) => at.push(p.to_string_lossy().into()),
+                Component::Normal(p) => {
+                    at.push(p.to_string_lossy().into());
+                    if let Some(target) = links.get(&at.iter().collect::<PathBuf>()) {
+                        *budget = budget.checked_sub(1)?;
+                        at.pop();
+                        at = resolve(&at.iter().collect::<PathBuf>().join(target), links, budget)?;
+                    }
+                }
                 Component::CurDir => {}
                 Component::ParentDir => {
                     at.pop()?;
@@ -269,22 +495,43 @@ mod tests {
     }
 
     /// The properties every plan has: each path has only normal parts and stays under `dest`,
-    /// each link resolves inside, each hard link names a path inside, and the total is the
-    /// files' bytes.
+    /// no entry sits at or under another entry's link, each link resolves inside through the
+    /// plan's links, each hard link names a path inside and no link at it or on its way, and the
+    /// total is the files' bytes.
     fn check(listing: &[ArchiveEntry], plan: &Plan) {
         assert_eq!(plan.entries.len(), listing.len(), "one planned entry per listed entry");
+        let links: HashMap<PathBuf, PathBuf> = plan
+            .entries
+            .iter()
+            .filter_map(|e| match &e.kind {
+                EntryKind::Link(target) => Some((e.path.clone(), target.clone())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            links.len(),
+            plan.entries.iter().filter(|e| matches!(e.kind, EntryKind::Link(_))).count(),
+            "one link per path"
+        );
         for (entry, listed) in plan.entries.iter().zip(listing) {
             assert_eq!(entry.name, listed.name);
             assert!(entry.path.components().all(|c| matches!(c, Component::Normal(_))), "{entry:?}");
             let out = plan.out(entry);
             assert!(out.starts_with(&plan.dest), "{entry:?} leaves {}", plan.dest.display());
+            assert!(!entry.path.ancestors().skip(1).any(|folder| links.contains_key(folder)), "{entry:?} under a link");
+            if !matches!(entry.kind, EntryKind::Link(_)) {
+                assert!(!links.contains_key(&entry.path), "{entry:?} at a link");
+            }
             match &entry.kind {
                 EntryKind::Link(target) => {
-                    assert!(resolve(&entry.path, target).is_some(), "{entry:?} resolves out of the folder")
+                    let way = entry.path.parent().unwrap_or(Path::new("")).join(target);
+                    let resolved = resolve(&way, &links, &mut { MOST_LINKS });
+                    assert!(resolved.is_some(), "{entry:?} resolves out of the folder")
                 }
                 EntryKind::HardLink(target) => {
                     assert!(target.components().all(|c| matches!(c, Component::Normal(_))), "{entry:?}");
                     assert!(target.components().next().is_some(), "{entry:?}");
+                    assert!(!target.ancestors().any(|at| links.contains_key(at)), "{entry:?} names a link");
                 }
                 EntryKind::Other if entry.path.as_os_str().is_empty() => {}
                 _ => assert!(!entry.path.as_os_str().is_empty(), "{entry:?}"),

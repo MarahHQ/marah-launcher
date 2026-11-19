@@ -1,6 +1,7 @@
 import { Vm, Host } from "../types.slint";
 import { Commands } from "commands.slint";
 import { Look } from "look.slint";
+import { Games } from "games.slint";
 import { Hub } from "game-detail.slint";
 import { Dl } from "downloads.slint";
 import { Prefs } from "settings-rows.slint";
@@ -152,6 +153,35 @@ export component ShellKeys inherits FocusScope {
     // A key for the theme's own screens, such as its Home row and its grids, after the app's
     // tab keys. True when it took the key.
     callback screen-key(string) -> bool;
+    // The screen changed, and the kit's pages are back at their start: the theme sets its own
+    // focus for the new screen here. The keys then come back to the shell.
+    callback screen-changed();
+
+    // A new screen starts afresh: the Game Hub on its first button, Downloads on its first
+    // row, a sheet on its first row, the game menu and the screenshot viewer closed.
+    property <string> screen: Vm.screen;
+    changed screen => {
+        Hub.reset();
+        Dl.reset();
+        Viewer.open = false;
+        GameMenu.close();
+        Prefs.reset();
+        root.screen-changed();
+        root.focus();
+    }
+
+    // A key move among the games (`Games.select`) goes to the core once the moves stop: each
+    // move starts the wait again.
+    send := Timer {
+        interval: Look.select-after;
+        running: Games.moving && !Games.sent;
+        triggered => { Games.send(); }
+    }
+    property <int> moves: Games.moves;
+    changed moves => { send.restart(); }
+    // The core's selection changed: the cursor follows it, unless a move waits.
+    property <string> core-key: Games.core-key;
+    changed core-key => { Games.core-moved(); }
 
     // Every key comes here first, whichever element has the focus: the on-screen keyboard
     // takes the controller's while it is open, and ✕ on a text field opens it again.

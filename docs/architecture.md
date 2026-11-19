@@ -574,7 +574,8 @@ per area. `spans.rs` is its own binary. The seams, from the highest:
    `crates/app/src/archives.rs`. `contract::process_tree` checks `FakeProcessTree`, and the
    app's `SystemProcesses` on Linux in `crates/app/src/processes.rs`. `contract::windows`
    checks `FakeWindows`, and the app's `SystemWindows` in the opt-in desktop test
-   (`crates/app/tests/desktop.rs`).
+   (`crates/app/tests/desktop.rs`). `contract::torrents` checks `FakeTorrents`, and the app's
+   `RqbitTorrents` in `crates/app/src/torrents.rs` with `MARAH_TORRENT_TESTS=1`.
 3. **The composed host**: the core and the `AppShell` the app ships, on Slint's testing backend
    with `FakePlatform`. A test drives the theme through `ThemeDriver` (accessible labels, keys,
    clicks) and checks the view through `core.view()`. `every_theme.rs` runs one suite against

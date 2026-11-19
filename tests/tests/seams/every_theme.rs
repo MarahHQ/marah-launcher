@@ -55,6 +55,34 @@ fn every_screen_renders_in_every_theme() {
     }
 }
 
+/// A Catalog card's Download (`Games.act`) opens the game's Game Hub with the keys on its
+/// first release, where the player picks what to download.
+#[test]
+fn a_card_s_download_opens_the_game_hub_on_its_first_release() {
+    for theme in THEMES {
+        let home = tempfile::tempdir().unwrap();
+        let mut host = in_theme(theme, |h| {
+            h.home(home.path())
+                .plugin(FakeCatalog::kyty().playable().build())
+                .built_in(launcher_api::PluginBox::code(release_catalog::ReleaseCatalog::default()))
+        });
+        let topics = serde_json::json!([{ "id": "1", "title": "[PS5] Astro [EUR / v01.05]", "size": "1 GB",
+            "magnet": "magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a",
+            "game_info": { "name": "Astro", "title_id": "PPSA01234", "version": "v01.05", "region": "EUR" } }]);
+        host.serve_catalog(&[("ps5", topics)]);
+        host.dispatch(Command::Navigate(Route::Catalog));
+        host.settle();
+        let download = host.values("card-get");
+        assert_eq!(download.len(), 1, "{theme}: {download:?}");
+
+        host.press("card-get", &download[0]);
+        assert_eq!(host.core().view().screen, ScreenId::GameDetail, "{theme}: its Game Hub");
+        let release = format!("release-{}", host.core().view().detail.expect("its details").releases[0].id);
+        assert_eq!(host.count(&release), 1, "{theme}: its first release shows");
+        assert!(host.lit(&release), "{theme}: the keys are on its first release");
+    }
+}
+
 #[test]
 fn the_keys_move_through_the_settings_page_and_act_on_a_row_in_every_theme() {
     for theme in THEMES {

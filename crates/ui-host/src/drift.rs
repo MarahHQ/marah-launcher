@@ -322,6 +322,7 @@ fn detail() -> GameDetailVm {
             no_room: s(),
             download: s(),
             download_progress: 0.5,
+            download_text: s(),
             version_label: s(),
             best: true,
             seeders: Some(1),

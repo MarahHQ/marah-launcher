@@ -51,6 +51,21 @@ export global Hub {
     // The player pressed Download on this sheet: the core's reason shows only then.
     in-out property <bool> asked;
     out property <string> shown-folder: root.folder != "" ? root.folder : Vm.detail.download-folder;
+    // A card's Download opened the game's Hub: the keys go to its releases there.
+    in-out property <bool> to-releases;
+
+    // The screen changed: the Game Hub starts on its first button, or on its first release when
+    // a card's Download opened it. `ShellKeys` calls it.
+    public function reset() {
+        root.focus = 0;
+        root.details = false;
+        root.shots = false;
+        root.reading = -1;
+        root.version = -1;
+        root.release = root.to-releases && Vm.screen == "game-detail" ? 0 : -1;
+        root.consent = -1;
+        root.to-releases = false;
+    }
 
     // A version's tile was picked: the Game Hub shows that version.
     public function pick-version(index: int) {
@@ -511,13 +526,7 @@ component ReleaseRow inherits Rectangle {
         h: 54 * Look.px;
         icon: root.d == "" ? "download" : "";
         primary: root.d == "";
-        text: root.release.store != "" ? "Install in " + root.release.store
-            : root.d == "" ? "Download"
-            : root.d == "downloading" ? "Downloading " + Math.round(root.release.download-progress * 100) + "%"
-            : root.d == "complete" ? "Downloaded"
-            : root.d == "paused" ? "Paused"
-            : root.d == "failed" ? "Failed"
-            : "In Downloads";
+        text: root.release.download-text;
         accessible-role: button;
         accessible-label: "release-download";
         accessible-value: root.release.id;
