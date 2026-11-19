@@ -419,9 +419,9 @@ runner (`tools.rs`) on the `Programs` port. Each call has a time limit, and at t
 kills the tool before the call returns. The runner words the errors the same for every tool: a
 missing tool ("NetworkManager (nmcli) isn't installed"), a tool past its limit ("lsblk took too
 long"), and a change the tool refused (the tool's own message). Each OS has one module
-(`linux.rs`, `macos.rs`, `windows.rs`) with no `#[cfg]` inside it; `lib.rs` picks one. The
-module's `AREAS` table lists the areas it manages and the tools each runs. `init` and the
-manifest's capabilities read the table, and a test checks that `permissions.process` lists
+(`linux.rs`, `macos.rs`, `windows.rs`) with no `#[cfg]` for an OS inside it; `lib.rs` picks
+one. The module's `AREAS` table lists the areas it manages and the tools each runs. `init` and
+the manifest's capabilities read the table, and a test checks that `permissions.process` lists
 every tool in it. A new OS is one module with its table.
 
 ## Plugin loading

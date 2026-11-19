@@ -71,8 +71,9 @@ const CONNECT_TIME: Duration = Duration::from_secs(30);
 /// slow stick can take minutes.
 const MOUNT_TIME: Duration = Duration::from_secs(120);
 const UNMOUNT_TIME: Duration = Duration::from_secs(600);
-/// `nmcli connection up` waits 90 seconds for a VPN by default.
-const VPN_TIME: Duration = Duration::from_secs(100);
+/// A VPN's switch runs inside the core's 30-second limit on a plugin call: this one ends first,
+/// so the player reads which tool took too long.
+const VPN_TIME: Duration = Duration::from_secs(25);
 
 #[derive(Clone)]
 struct Linux {

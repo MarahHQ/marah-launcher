@@ -2,8 +2,8 @@
 //! area it manages ([`SystemArea`]) is one adapter over the same interface ([`AreaSettings`]).
 //!
 //! Every tool runs through one runner ([`tools`]), with a time limit on each call. Each OS has
-//! one module, chosen here and nowhere else, with no `#[cfg]` inside it. Its `AREAS` table lists
-//! the areas it manages and the tools each runs: `init` and the manifest read it.
+//! one module, chosen here and nowhere else, with no `#[cfg]` for an OS inside it. Its `AREAS`
+//! table lists the areas it manages and the tools each runs: `init` and the manifest read it.
 //!
 //! - Linux (`linux.rs`): network and Wi-Fi, VPNs, Bluetooth, sound, restart and shut down, the
 //!   battery, drives (UDisks), and on Marah OS its updates and its USB stick's installer.
