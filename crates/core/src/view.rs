@@ -231,7 +231,7 @@ fn game_actions(
 
 /// A grid's cards. `selected`: the game selected on the grid's screen.
 fn grid_vm(s: &Snapshot, data: &GridData, query: &GridQuery, selected: Option<&GameKey>) -> LibraryVm {
-    let GridGames { shown, all, systems, genres } = query.games(data);
+    let GridGames { shown, versions, all, systems, genres } = query.games(data);
     let library = data.library;
     let offers: std::collections::HashMap<&GameKey, &crate::releases::Offer> =
         library.offers.iter().map(|o| (&o.entry.key, o)).collect();
@@ -244,7 +244,10 @@ fn grid_vm(s: &Snapshot, data: &GridData, query: &GridQuery, selected: Option<&G
                 let card =
                     GameCardVm { hidden: library.hidden(&e.key), ..offer_card(s, data.ownership, offer, selected) };
                 // "All" shows one card per game: the card stands for each of its versions.
-                if query.system.is_none() { game_card(s, data, &offers, card, offer, selected) } else { card }
+                match versions.get(&e.key) {
+                    Some(versions) => game_card(s, library, card, offer, versions, selected),
+                    None => card,
+                }
             }
             _ => card(s, e, selected),
         })
@@ -268,34 +271,19 @@ fn grid_vm(s: &Snapshot, data: &GridData, query: &GridQuery, selected: Option<&G
     }
 }
 
-/// An offer's card in the Catalog's "All", for the game of each of its versions that the view
-/// shows (a version the player hid alone is out, but under "Hidden"): the consoles it has, the
-/// card's own first; selected when a version is; new when a version is.
+/// An offer's card in the Catalog's "All", for the `versions` of its game that the grid gave it
+/// (see [`crate::grid_query::GridGames::versions`]): the consoles they are on, the card's own
+/// first; selected when a version of the game is; new when a version is.
 fn game_card(
     s: &Snapshot,
-    data: &GridData,
-    offers: &std::collections::HashMap<&GameKey, &crate::releases::Offer>,
+    library: &LibrarySnapshot,
     mut card: GameCardVm,
     offer: &crate::releases::Offer,
+    versions: &[&crate::releases::Offer],
     selected: Option<&GameKey>,
 ) -> GameCardVm {
-    let library = data.library;
-    let keys = library.groups.versions(&offer.entry.key);
-    if keys.len() < 2 {
-        return card;
-    }
-    let hidden = crate::grid_query::hidden_offer(library, offer);
-    let versions: Vec<&crate::releases::Offer> = keys
-        .iter()
-        .filter_map(|k| offers.get(k).copied())
-        .filter(|o| crate::grid_query::hidden_offer(library, o) == hidden)
-        .collect();
-    if versions.len() < 2 {
-        return card;
-    }
-    let best = crate::game_groups::best_first(library, data.ownership, &data.pc, &versions);
     let own = std::iter::once(offer);
-    let others = best.iter().map(|v| v.offer).filter(|o| o.entry.key != offer.entry.key);
+    let others = versions.iter().copied().filter(|o| o.entry.key != offer.entry.key);
     card.consoles = own
         .chain(others)
         .map(|o| ConsoleVm {
@@ -303,7 +291,7 @@ fn game_card(
             system: s.plugins.system(&o.entry.summary.platform),
         })
         .collect();
-    card.selected = selected.is_some_and(|k| keys.contains(k));
+    card.selected = selected.is_some_and(|k| library.groups.versions(&offer.entry.key).contains(k));
     let new = |o: &&crate::releases::Offer| o.releases.iter().any(|r| crate::releases::is_new(&r.added, s.today()));
     let has = |id: &str| card.badges.iter().any(|b| b.id == id);
     if !has("installed") && !has("new") && versions.iter().any(new) {

@@ -180,6 +180,9 @@ pub(crate) struct GridData<'a> {
 /// A grid's games, searched, filtered and sorted, before paging, with the filters' chips.
 pub(crate) struct GridGames<'a> {
     pub shown: Vec<&'a Entry>,
+    /// In the Catalog's "All", the versions each card stands for, by the card's key, the best for
+    /// this PC first. Only a card of two or more versions has them (see [`one_per_game`]).
+    pub versions: HashMap<&'a GameKey, Vec<&'a Offer>>,
     /// How many games there are before the search and the filters.
     pub all: usize,
     pub systems: Vec<FilterVm>,
@@ -421,7 +424,11 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
         .filter(|e| !catalog || !query.installed || installed(e))
         .collect();
     // The Catalog's "All": one card per game, of the versions the filters leave.
-    let in_system = if catalog && query.system.is_none() { one_per_game(data, &offers, in_system) } else { in_system };
+    let (in_system, versions) = if catalog && query.system.is_none() {
+        one_per_game(data, &offers, only_hidden, in_system)
+    } else {
+        (in_system, HashMap::new())
+    };
     let chips: HashMap<&GameKey, Vec<String>> = in_system.iter().map(|e| (&e.key, genres_of_entry(e))).collect();
     let chips_of = |e: &Entry| chips.get(&e.key).map(Vec::as_slice).unwrap_or_default();
     let mut genre_counts: BTreeMap<String, usize> = BTreeMap::new();
@@ -480,7 +487,7 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
     if !search.is_empty() {
         shown.sort_by_key(|e| std::cmp::Reverse(scores.get(&e.key).copied().unwrap_or_default()));
     }
-    GridGames { shown, all, systems, genres }
+    GridGames { shown, versions, all, systems, genres }
 }
 
 /// The player hid `offer` from the Catalog, in Marah Launcher or in its store (Steam's Hidden
@@ -495,29 +502,40 @@ fn card_count(groups: &GameGroups, entries: &[&Entry]) -> usize {
     entries.iter().filter(|e| groups.game(&e.key).is_none_or(|g| games.insert(g))).count()
 }
 
-/// `entries` with one card per game: of a game's versions among them, the one the player has
-/// installed, else the best for this PC (see [`crate::game_groups::best_first`]).
+/// `entries` with one card per game, and the versions each card stands for. A game's versions
+/// are the ones this view shows, whatever the search and the filters leave: the hidden ones only
+/// under "Hidden" (`only_hidden`); the best for this PC first (see
+/// [`crate::game_groups::best_first`]). Its card is, of its versions among `entries`, the one the
+/// player has installed, else the best.
 fn one_per_game<'a>(
     data: &GridData<'a>,
     offers: &HashMap<&GameKey, &'a Offer>,
+    only_hidden: bool,
     entries: Vec<&'a Entry>,
-) -> Vec<&'a Entry> {
+) -> (Vec<&'a Entry>, HashMap<&'a GameKey, Vec<&'a Offer>>) {
     let groups = &data.library.groups;
-    let mut games: HashMap<usize, Vec<&'a Offer>> = HashMap::new();
+    let listed: HashSet<&GameKey> = entries.iter().map(|e| &e.key).collect();
+    let mut games = HashSet::new();
+    let mut cards: HashMap<&'a GameKey, Vec<&'a Offer>> = HashMap::new();
     for e in &entries {
-        if let (Some(g), Some(o)) = (groups.game(&e.key), offers.get(&e.key)) {
-            games.entry(g).or_default().push(o);
+        if !groups.game(&e.key).is_some_and(|g| games.insert(g)) {
+            continue;
         }
+        let versions: Vec<&'a Offer> = groups
+            .versions(&e.key)
+            .iter()
+            .filter_map(|k| offers.get(k).copied())
+            .filter(|o| hidden_offer(data.library, o) == only_hidden)
+            .collect();
+        let best = crate::game_groups::best_first(data.library, data.ownership, &data.pc, &versions);
+        let picks: Vec<&'a Offer> = best.iter().map(|v| v.offer).filter(|o| listed.contains(&o.entry.key)).collect();
+        let installed = picks.iter().find(|o| data.ownership.installed_game(o).is_some());
+        let card = installed.unwrap_or(&picks[0]);
+        cards.insert(&card.entry.key, best.into_iter().map(|v| v.offer).collect());
     }
-    let cards: HashSet<&GameKey> = games
-        .values()
-        .map(|versions| {
-            let best = crate::game_groups::best_first(data.library, data.ownership, &data.pc, versions);
-            let installed = best.iter().find(|v| data.ownership.installed_game(v.offer).is_some());
-            &installed.unwrap_or(&best[0]).offer.entry.key
-        })
-        .collect();
-    entries.into_iter().filter(|e| groups.game(&e.key).is_none() || cards.contains(&e.key)).collect()
+    let shown = entries.into_iter().filter(|e| groups.game(&e.key).is_none() || cards.contains_key(&e.key)).collect();
+    cards.retain(|_, versions| versions.len() > 1);
+    (shown, cards)
 }
 
 #[cfg(test)]
