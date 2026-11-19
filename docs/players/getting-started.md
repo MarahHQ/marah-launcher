@@ -21,7 +21,8 @@ hundred MB. To install each emulator on its first play instead, turn off Setting
 ## Where your games come from
 
 The launcher looks for games in `~/Games` and for packages to install in `~/Downloads`. To
-change the folders, go to Settings → Games. Separate several folders with `;`.
+change the folders, go to Settings → Games: ✕ on a folder setting opens its list, where you add
+a folder from this PC or a drive, type a path, or remove one.
 
 A game reaches your Library in one of these ways:
 

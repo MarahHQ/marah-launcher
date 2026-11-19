@@ -59,7 +59,7 @@ starts during one. When one can't start, the message says why:
 
 ## The folder browser
 
-![The folder browser](../screenshots/backup-browser.jpg)
+![The folder browser](../screenshots/folder-browser.jpg)
 
 **Restore from another folder** opens the folder browser over the whole screen. It opens at the
 last folder you restored from, or else at the backup folder. It is the same folder browser that
