@@ -4,6 +4,7 @@ import { Tokens } from "../tokens.slint";
 import { Look } from "look.slint";
 import { Icon } from "icon.slint";
 import { Sheet, Motion } from "motion.slint";
+import { LoadingLine } from "loading.slint";
 
 // A named folder's list, such as Settings → Game folders: a sheet over everything while
 // `FolderList.open`. Each folder it means, with the free space on its drive and Remove (the folder
@@ -95,6 +96,8 @@ component ListRow inherits Rectangle {
     in property <string> action;
     in property <bool> focused;
     in property <bool> dim;
+    // Its games are being looked for: "Scanning…" and a thin line under the row, until they are.
+    in property <bool> scanning;
     in property <string> name;
     in property <string> value;
     callback clicked();
@@ -111,6 +114,11 @@ component ListRow inherits Rectangle {
     accessible-item-selected: root.focused;
     accessible-action-default => { root.clicked(); }
     ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+    if root.scanning : LoadingLine {
+        x: 16 * Look.px;
+        y: parent.height - 6 * Look.px;
+        width: parent.width - 32 * Look.px;
+    }
     HorizontalLayout {
         padding-left: 16 * Look.px;
         padding-right: 16 * Look.px;
@@ -226,7 +234,8 @@ export component FolderListSheet inherits Rectangle {
             for path[i] in FolderList.folder.list : ListRow {
                 icon: path.there ? "folder" : "usb";
                 label: path.shown;
-                detail: path.free;
+                detail: path.scanning ? "Scanning…" : path.free;
+                scanning: path.scanning;
                 dim: !path.there;
                 action: "Remove";
                 focused: FolderList.row == i;

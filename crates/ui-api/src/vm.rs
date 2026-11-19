@@ -1065,6 +1065,8 @@ pub struct FolderPathVm {
     pub free: String,
     /// The folder is there.
     pub there: bool,
+    /// It was just added, or its drive came back: its games are being looked for.
+    pub scanning: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

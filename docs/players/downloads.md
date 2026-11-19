@@ -108,7 +108,8 @@ A PC game that is already unpacked needs no install:
 1. Copy the game's folder into `PC/` in a game folder (`~/Games/PC/` by default). One folder is
    one game.
 2. Optional: put a cover in the game's folder, named `cover.jpg`, `cover.png` or `cover.webp`.
-3. In Settings → Games, choose **Rescan game folders**.
+3. In Settings → Games, choose **Rescan game folders**, or restart the launcher: it looks for
+   new games at the start.
 
 The launcher looks through the folder once and writes `launcher_game.json` in it. That file
 holds the game's name, the files that can start it, and later what the stores say about the

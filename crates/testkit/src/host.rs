@@ -356,6 +356,16 @@ impl TestCore {
         until(&self.core, area, done).await;
     }
 
+    /// Returns once no game folder is being scanned: a folder added starts a scan of its own,
+    /// which a test that writes games into the folder next waits for.
+    pub async fn scans_done(&self) {
+        let done = |core: &Core| {
+            let view = core.view();
+            !view.home.loading && view.settings.folders.iter().all(|f| f.list.iter().all(|p| !p.scanning))
+        };
+        until(&self.core, Area::Settings, done).await;
+    }
+
     /// Moves the fake clock `step` at a time until `done`, at most `steps` times: for what no
     /// core change announces, such as a watcher's rounds or a plugin's files. Whether it is done.
     pub async fn until_clock(&self, step: std::time::Duration, steps: usize, mut done: impl FnMut() -> bool) -> bool {

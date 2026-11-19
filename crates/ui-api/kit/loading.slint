@@ -10,10 +10,12 @@ import { Motion, Tooltip } from "motion.slint";
 // A thin line (2 px) under a status icon while its part is read: a short bar sweeps along it.
 // With Animations off it is a dotted line that stands still.
 export component LoadingLine inherits Rectangle {
+    // Its name for screen readers and tests.
+    in property <string> name: "loading-line";
     height: 2 * Look.px;
     clip: true;
     accessible-role: progress-indicator;
-    accessible-label: "loading-line";
+    accessible-label: root.name;
     accessible-value: Look.motion-on ? "moving" : "still";
     if Look.motion-on : Rectangle {
         border-radius: 1 * Look.px;

@@ -54,7 +54,11 @@ When the launcher is the whole screen, nothing else mounts a drive for you. The 
 - The launcher doesn't unmount or eject a drive while a game runs from it, or while a download
   or an install writes to it. The message says which one to close or wait for.
 - A game folder on a USB drive remembers the drive. At the next start, the launcher mounts the
-  drive before it looks for games. While the drive is out, its games stay in the Library.
+  drive before it looks for games. While the drive is out, its games stay in the Library. When
+  the drive comes back, the launcher looks through its game folders again on its own.
+- The launcher looks for new games at the start, when you add a game folder (typed, picked in
+  the folder browser, or **Use for games**), and when a drive with a game folder comes back.
+  A thin line along the foot of the top bar shows while it looks; the Library stays usable.
 
 Mounting needs UDisks (the `udisks2` package). On a desktop, the desktop mounts drives itself,
 and the launcher only lists the drives it mounted.

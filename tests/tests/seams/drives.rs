@@ -359,3 +359,93 @@ async fn a_tick_asks_once_why_drives_can_t_be_managed() {
     drive(&t, DriveCmd::Refresh).await.unwrap();
     assert_eq!(system.read(|m| m.drive_reason_reads) - before, 1, "the system's read only");
 }
+
+/// The titles in the library now.
+fn titles(t: &TestCore) -> Vec<String> {
+    t.core.view().home.games.into_iter().map(|g| g.title).collect()
+}
+
+/// Waits until the library has, or hasn't, the game `title`.
+async fn library_has(t: &TestCore, title: &str, has: bool) {
+    t.until(Area::Library, |core| core.view().home.games.iter().any(|g| g.title == title) == has).await;
+}
+
+/// A games folder typed in, picked in the folder browser, or a drive's "Use for games": its
+/// games show with no Rescan, a notice says how many came, and taking the folder out drops them.
+#[tokio::test]
+async fn a_folder_added_any_way_is_scanned_at_once_and_one_taken_out_drops_its_games() {
+    use launcher_core::{BrowseCmd, BrowsePurpose};
+    let (typed, picked, drive) =
+        (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    pc_game(typed.path(), "Celeste");
+    pc_game(picked.path(), "Hades");
+    pc_game(drive.path(), "Tunic");
+    let t = FakeHost::new().built_in(PluginBox::code(PcPlugin)).boot_core().await;
+    t.core.dispatch(Command::Library(LibraryCmd::Refresh)).await.unwrap();
+    assert!(titles(&t).is_empty());
+
+    // Typed in Settings: the folder's text.
+    t.core.dispatch(Command::SetFolders { name: "games".into(), paths: vec![typed.path().into()] }).await.unwrap();
+    library_has(&t, "Celeste", true).await;
+    t.until(Area::Notices, |core| core.view().notices.iter().any(|n| n == "1 game found")).await;
+    // Picked in the folder browser.
+    let pick = BrowseCmd::Open { at: Some(picked.path().into()), purpose: BrowsePurpose::Pick("games".into()) };
+    t.core.dispatch(Command::Browse(pick)).await.unwrap();
+    t.core.dispatch(Command::Browse(BrowseCmd::Use)).await.unwrap();
+    library_has(&t, "Hades", true).await;
+    // The Drives panel's Use for games.
+    t.core.dispatch(Command::AddFolder { name: "games".into(), path: drive.path().into() }).await.unwrap();
+    library_has(&t, "Tunic", true).await;
+    let folders = &t.core.view().settings.folders;
+    let games = folders.iter().find(|f| f.name == "games").unwrap();
+    t.until(Area::Settings, |core| {
+        core.view().settings.folders.iter().filter(|f| f.name == "games").all(|f| f.list.iter().all(|p| !p.scanning))
+    })
+    .await;
+    assert_eq!(games.list.len(), 3);
+
+    t.core.dispatch(Command::RemoveFolder { name: "games".into(), path: picked.path().into() }).await.unwrap();
+    library_has(&t, "Hades", false).await;
+    assert!(titles(&t).contains(&"Celeste".to_owned()));
+}
+
+/// A drive with a remembered games folder comes back: the games put on it meanwhile show, with
+/// no Rescan.
+#[tokio::test]
+async fn a_drive_coming_back_with_a_games_folder_is_scanned() {
+    let (system, media) = (FakeSystem::new(), tempfile::tempdir().unwrap());
+    let at = media.path().join("STICK");
+    let game = pc_game(&at.join("Games"), "Celeste");
+    let t = boot(&system, vec![stick(Some(&at))], media.path()).await;
+    play_from(&t, at.join("Games"), &game).await;
+    // Out, and a game put on it on another PC.
+    system.with(|m| m.drives = vec![stick(None)]);
+    drive(&t, DriveCmd::Refresh).await.unwrap();
+    pc_game(&at.join("Games"), "Hades");
+    assert!(!titles(&t).contains(&"Hades".to_owned()));
+
+    drive(&t, DriveCmd::Mount("1A2B-3C4D".into())).await.unwrap();
+    library_has(&t, "Hades", true).await;
+}
+
+/// At the start, the games put in a folder while the launcher was closed show: the app asks for
+/// a scan as it starts (`Core::scan_soon`), with no Rescan.
+#[tokio::test]
+async fn games_added_while_closed_show_at_the_next_start() {
+    let games = tempfile::tempdir().unwrap();
+    pc_game(games.path(), "Celeste");
+    let t = FakeHost::new().built_in(PluginBox::code(PcPlugin)).boot_core().await;
+    t.core.scan_soon();
+    t.scans_done().await;
+    t.core.dispatch(Command::SetFolders { name: "games".into(), paths: vec![games.path().into()] }).await.unwrap();
+    library_has(&t, "Celeste", true).await;
+    let config = t.host.data_dir().join("config.json");
+    pc_game(games.path(), "Hades");
+
+    let host = FakeHost::new().built_in(PluginBox::code(PcPlugin));
+    std::fs::copy(&config, host.data_dir().join("config.json")).unwrap();
+    let next = host.boot_core().await;
+    next.core.scan_soon();
+    library_has(&next, "Hades", true).await;
+    assert!(titles(&next).contains(&"Celeste".to_owned()));
+}

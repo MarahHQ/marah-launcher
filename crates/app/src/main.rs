@@ -194,12 +194,11 @@ fn run(args: args::Args) -> Result<(), String> {
     let timer = slint::Timer::default();
     timer.start(slint::TimerMode::Repeated, launcher_ui_host::TICK, || with_app(|app| app.shell.on_tick()));
 
-    let starting = core.clone();
-    handle.spawn(async move {
-        if let Err(error) = starting.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await {
-            tracing::warn!(%error, "the first Library refresh failed");
-        }
-    });
+    // The first scan of the game folders, in the background: the first frame doesn't wait.
+    {
+        let _inside = handle.enter();
+        core.scan_soon();
+    }
     with_app(|app| {
         if let Err(error) = app.shell.render() {
             tracing::error!(%error, "render failed");

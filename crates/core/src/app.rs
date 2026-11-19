@@ -269,6 +269,8 @@ pub(crate) struct Inner {
     pub browsing: crate::browser::Browsing,
     /// Held while the catalogs are read: see [`crate::catalog_reads::refresh_releases`].
     pub reading_catalogs: tokio::sync::Mutex<()>,
+    /// The library's scans: one at a time (`library_reads::refresh_library`).
+    pub scans: crate::library_reads::Scans,
 }
 
 /// The app. Cheap to clone; every clone is the same app.
@@ -415,6 +417,7 @@ impl Core {
                 launcher_update,
                 vpn,
                 reading_catalogs: tokio::sync::Mutex::new(()),
+                scans: Default::default(),
             }
         });
         let core = Core { inner };
@@ -773,6 +776,12 @@ impl Core {
     /// The emulator's log of the game's last run. `None` before it ran.
     pub fn game_log(&self, game: &GameKey) -> Option<std::path::PathBuf> {
         Some(crate::sessions::log_path(&self.inner.kernel.host().data_dir, game)).filter(|p| p.is_file())
+    }
+
+    /// Looks for games in every game folder in the background, as at the start: the library
+    /// stands as it is meanwhile, and a scan already due takes this one with it.
+    pub fn scan_soon(&self) {
+        crate::library_reads::scan_soon(self, Vec::new());
     }
 
     /// The first library load of the run, with the store's art and details, is done.

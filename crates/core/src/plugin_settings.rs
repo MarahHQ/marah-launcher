@@ -172,6 +172,9 @@ pub(crate) async fn set_plugin_enabled(core: &Core, plugin: &PluginId, enabled: 
     Ok(())
 }
 
+/// The shared folder of the games: Settings → Games → Game folders.
+pub(crate) const GAMES: &str = "games";
+
 pub(crate) async fn set_folders(core: &Core, name: &str, paths: &[std::path::PathBuf]) -> CoreResult<()> {
     if !launcher_api::PathGrant::valid_name(name) {
         return Err(CoreError::Invalid(format!("{name:?} is not a folder name")));
@@ -201,6 +204,13 @@ pub(crate) async fn set_folders(core: &Core, name: &str, paths: &[std::path::Pat
     core.library().move_folders(name, &before, &folder_roots(core, name));
     crate::drives::remember_folders(core, &paths);
     crate::disks::refresh(core).await;
+    // The games come from a game folder that came, and go with one that went, with no Rescan.
+    // Before the first read of the library, that read takes them.
+    let came: Vec<std::path::PathBuf> = paths.iter().filter(|p| !before.contains(p)).cloned().collect();
+    let changed = !came.is_empty() || before.iter().any(|p| !paths.contains(p));
+    if name == GAMES && changed && core.library().booted() {
+        crate::library_reads::scan(core, came).await;
+    }
     core.changed(Area::Settings);
     Ok(())
 }

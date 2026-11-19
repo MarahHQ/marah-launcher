@@ -1687,6 +1687,7 @@ fn folder_path_vm(s: &Snapshot, path: &std::path::Path) -> launcher_ui_api::Fold
         shown: crate::display::short_home(&path.display().to_string(), home.as_deref()),
         free,
         there,
+        scanning: s.state.scanning.contains(path),
     }
 }
 

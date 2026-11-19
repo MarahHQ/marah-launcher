@@ -359,8 +359,9 @@ export struct ThemeChoice { id: string, name: string, current: bool }
 // shown: `text` (or the default) as Settings shows it, with the home folder as ~.
 // list: each folder it means, with a full path for the commands AddFolder and RemoveFolder, as
 // Settings shows it (`shown`), the free space on its drive ("120.5 GB free"; "Not there" while
-// its drive is out; "" when the system doesn't say), and whether it is there.
-export struct FolderPath { path: string, shown: string, free: string, there: bool }
+// its drive is out; "" when the system doesn't say), and whether it is there. scanning: it was
+// just added, or its drive came back, and its games are being looked for: say "Scanning…".
+export struct FolderPath { path: string, shown: string, free: string, there: bool, scanning: bool }
 export struct Folder { name: string, title: string, help: string, text: string, list: [FolderPath], shown: string, default: string, requested-by: string, write: bool }
 
 // system: the id of the system it plays ("PS5"), what LibrarySystem takes; "" for none.

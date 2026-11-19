@@ -7,7 +7,7 @@ import { Icon } from "../kit/icon.slint";
 import { NetIcon, SoundIcon, BluetoothIcon, StorageIcon, BatteryIcon, Sys } from "../kit/system-panel.slint";
 import { Hint } from "../kit/shell.slint";
 import { Reveal } from "../kit/reveal.slint";
-import { StatusSlot, StatusLoading } from "../kit/loading.slint";
+import { StatusSlot, StatusLoading, LoadingLine } from "../kit/loading.slint";
 import { Leaving, Motion } from "../kit/motion.slint";
 
 // One system in the top bar, as a tab ("Home", "Library"): white when
@@ -151,6 +151,14 @@ export component TopBar inherits Rectangle {
     // The drives' icon went: the keys stay on the bar.
     property <int> items: Nav.tabs + Nav.buttons;
     changed items => { if (Nav.tab >= root.items) { Nav.tab = root.items - 1; } }
+    // The game folders are being scanned (at the start, or for a folder or a drive that came):
+    // a quiet line along the bar's foot. It only shows; the games stand as they are meanwhile.
+    if Vm.home.loading : LoadingLine {
+        name: "library-scanning";
+        x: 96 * Look.px;
+        y: root.height - 3 * Look.px;
+        width: root.width - 2 * 96 * Look.px;
+    }
     // The drives' icon and the battery stay while they fade out and their places close.
     drives-place := Leaving { open: Vm.system.drives-available || Vm.system.drives-loading; time: Motion.sheet-out; }
     battery-place := Leaving { open: Vm.system.battery-shown || Vm.system.power-loading; time: Motion.sheet-out; }

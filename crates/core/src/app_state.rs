@@ -66,6 +66,8 @@ pub(crate) struct AppState {
     pub grid_columns: HashMap<Grid, usize>,
     /// Where the catalogs' downloads go, and the free space there.
     pub disks: crate::disks::Disks,
+    /// The game folders a scan runs for now: added or back, their games not read yet.
+    pub scanning: std::collections::BTreeSet<std::path::PathBuf>,
 }
 
 impl AppState {
@@ -90,6 +92,7 @@ impl AppState {
             catalog_reads: 0,
             grid_columns: HashMap::new(),
             disks: Default::default(),
+            scanning: Default::default(),
         }
     }
 

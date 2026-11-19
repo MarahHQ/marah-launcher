@@ -85,7 +85,24 @@ pub(crate) async fn mount(core: &Core, id: &str) -> CoreResult<PathBuf> {
     let job = drive_job(core, JobKind::Mount, &drive);
     let at = ended(&job, core.drives().mount(id, job.clone())).await;
     changed(core);
+    if let Ok(at) = &at {
+        scan_folders_on(core, at);
+    }
     at
+}
+
+/// A drive is mounted at `mount` now: the game folders on it are scanned, so their games show
+/// with no Rescan. Not before the first read of the library, which reads them anyway.
+fn scan_folders_on(core: &Core, mount: &Path) {
+    if !core.library().booted() {
+        return;
+    }
+    let games = crate::plugin_settings::folder_roots(core, crate::plugin_settings::GAMES);
+    let on: Vec<PathBuf> = games.into_iter().filter(|f| f.starts_with(mount)).collect();
+
+    if !on.is_empty() {
+        crate::library_reads::scan_soon(core, on);
+    }
 }
 
 /// A job on `drive`, named by its label for the player and kept by its id.
@@ -187,10 +204,19 @@ async fn adopt(core: &Core) {
 /// change.
 pub(crate) async fn refresh(core: &Core) {
     adopt(core).await;
-    let before = core.drives().known();
+    let (before, read_before) = (core.drives().known(), core.drives().listed());
     let changes = core.drives().refresh().await;
-    if core.drives().known() != before {
+    let now = core.drives().known();
+    if now != before {
         changed(core);
+    }
+    // A drive mounted since the last read, by the system or the desktop: its game folders are
+    // scanned.
+    for drive in now.iter().filter(|_| read_before) {
+        let was = before.iter().find(|d| d.id == drive.id).and_then(|d| d.mount.as_ref());
+        if let (Some(mount), None) = (&drive.mount, was) {
+            scan_folders_on(core, mount);
+        }
     }
     // A desktop mounts a drive and says so itself: only the whole screen does it here.
     if !core.kernel().host().place.whole_screen {

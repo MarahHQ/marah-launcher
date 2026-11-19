@@ -57,11 +57,13 @@ See [Backup and restore](backup.md).
 | --- | --- |
 | Game folders | Where your games are, `~/Games` by default. Installs go into the console's folder inside the first one. ✕ opens the list of folders. |
 | Packages to install | Where the emulators look for packages and disc images to install, `~/Downloads` by default. |
-| Rescan game folders | Looks for games again. |
+| Rescan game folders | Looks for games again. The launcher also looks on its own: at the start, when you add a folder, and when a drive with a game folder comes back. |
 | Send ratings | Sends your results ("how far did it get") to the community compatibility lists. See [Playing](playing.md#send-your-ratings). |
 
 ✕ on a folder setting opens its list. Each folder shows the free space on its drive, or "Not
-there" while its drive is out.
+there" while its drive is out. A folder you just added says "Scanning…" until the launcher has
+looked through it; a notice then says how many games it found. Its games show with no Rescan,
+and the games of a folder you take out leave the Library.
 
 - **Remove** takes a folder out of the list. The folder and its files stay.
 - **Add folder** opens the folder browser. Go to a folder, on this PC or on a drive, then choose
