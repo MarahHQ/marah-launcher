@@ -6,12 +6,13 @@ version = "0.1.0"
 host_api = "^0.4"
 platforms = ["linux", "macos", "windows"]
 # Linux's. Each OS keeps the areas in its own module's AREAS table (src/linux.rs, macos.rs,
-# windows.rs): on macOS and Windows only vpn and power.
+# windows.rs): on macOS only vpn and power.
 capabilities = ["network", "vpn", "bluetooth", "audio", "power", "os_updates", "os_install", "drives"]
 
 [permissions]
 # NetworkManager, BlueZ, PipeWire's sound tools, systemd, rpm-ostree (Marah OS's updates),
-# the Marah OS USB stick's installer, macOS's battery, and UDisks with lsblk for the drives.
+# the Marah OS USB stick's installer, macOS's battery, UDisks with lsblk for the drives, and
+# Windows' restart and shut down.
 # udisksctl isn't in `polkit`: it runs as the player, and the UDisks service asks polkit itself.
 process = [
     "system:nmcli",
@@ -23,6 +24,7 @@ process = [
     "system:pmset",
     "system:lsblk",
     "system:udisksctl",
+    "system:shutdown",
 ]
 # Joining a network, scanning, pairing, installing and unmounting take longer than a quick
 # read, and an action's exit code and errors come with a streamed run.
@@ -33,6 +35,7 @@ long_running = [
     "system:systemctl",
     "system:marah-os-install",
     "system:udisksctl",
+    "system:shutdown",
 ]
 # Installing Marah OS erases a disk: the installer runs as the administrator, which the USB
 # stick's polkit rule allows for its player.

@@ -14,6 +14,13 @@ tokio.workspace = true
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+# Windows' own calls for the areas there (src/windows.rs): only the parts it calls.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_System_Com",
+    "Win32_System_Power",
+] }
+
 [dev-dependencies]
 tempfile.workspace = true
 

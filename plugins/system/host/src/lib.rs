@@ -26,6 +26,9 @@ mod tools;
 // Linux reads the VPN interfaces. The tests run everywhere.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod vpn;
+// Windows' values as the areas' data. The tests run everywhere.
+#[cfg_attr(not(windows), allow(dead_code))]
+mod winmap;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
