@@ -12,3 +12,5 @@ Changes made here:
   Kraken table. The upstream crate refuses it with "excess bytes not supported". PS5 packages use it.
 - `decode_bytes_type12` returned the wrong byte count for a table with one symbol (a block that repeats
   one byte). It now returns the bytes it read, as `ooz` does.
+- `Cargo.toml` has an empty `[workspace]` table, so the crate is its own workspace root. The
+  launcher's workspace excludes it.
