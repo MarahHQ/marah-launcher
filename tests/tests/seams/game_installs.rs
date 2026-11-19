@@ -319,19 +319,27 @@ async fn an_install_s_progress_never_waits_for_the_screen_and_redraws_a_few_time
     package(&b, "burst.pkg", 64 * 1024);
     let mut events = b.test.core.events();
     // The boot's own changes (the hardware read, the catalogs, the emulators' builds) land
-    // first: only the install's are counted.
+    // first.
     while let Ok(Some(_)) = tokio::time::timeout(Duration::from_millis(50), events.next()).await {}
+    // Only the install's own changes are counted: a catalog read that lands meanwhile redraws
+    // for itself.
+    let mut heard = b.test.core.changes();
     let started = b.test.clock.now();
     b.test.core.dispatch(install("burst.pkg")).await.unwrap();
     assert_eq!(wait_for_end(&b.test).await, "done");
     let took = b.test.clock.now() - started;
+    while let Ok(Some(_)) = tokio::time::timeout(Duration::from_millis(50), events.next()).await {}
     let mut changes = 0;
-    while let Ok(Some(event)) = tokio::time::timeout(Duration::from_millis(50), events.next()).await {
-        if matches!(event, Event::StateChanged) {
-            changes += 1;
+    loop {
+        match heard.try_recv() {
+            Ok(change) if change.area == Area::Installs => changes += 1,
+            Ok(_) => {}
+            // More changes than the buffer holds: far more than a handful.
+            Err(tokio::sync::broadcast::error::TryRecvError::Lagged(missed)) => changes += missed as usize,
+            Err(_) => break,
         }
     }
     // 10,000 reports in a burst: a handful of redraws, at most five a second, not one each.
     let most = 20 + 5 * took.as_secs() as usize;
-    assert!(changes <= most, "{changes} state changes in {took:?}");
+    assert!(changes <= most, "{changes} install changes in {took:?}");
 }
