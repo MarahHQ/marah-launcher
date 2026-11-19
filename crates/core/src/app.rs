@@ -541,14 +541,40 @@ impl Core {
         }
     }
 
-    /// The view models for the current state. The Catalog's grid, once built on the Catalog,
-    /// stands on the other screens.
+    /// The view models for the current state. A read: it changes nothing. Off the Catalog, its
+    /// grid stands as [`Core::keep_catalog_grid`] kept it.
     pub fn view(&self) -> AppView {
-        let snapshot = self.snapshot();
-        let view = view::build(&snapshot);
-        let on_catalog = snapshot.state.stack.route() == &Route::Catalog;
-        self.state().catalog_grid.keep(on_catalog, &view.catalog.games);
-        view
+        view::build(&self.snapshot())
+    }
+
+    /// Keeps the Catalog's grid as it is built now, to stand on the other screens: the Catalog
+    /// left the top of the stack, or the catalogs were read while it was off screen.
+    ///
+    /// The catalog read's count is taken before the snapshot, and the catalog read counts after
+    /// it stores, so the snapshot is at least as new as the count. A grid built from an older
+    /// read than the one kept is dropped: the last grid kept always has the newest catalogs.
+    pub(crate) fn keep_catalog_grid(&self) {
+        let read = self.state().catalog_reads;
+        let mut snapshot = self.snapshot();
+        // Built as on the Catalog, not from the grid kept before.
+        snapshot.state.catalog_grid.clear();
+        let grid = view::build(&snapshot).catalog.games;
+        self.state().catalog_grid.keep(read, grid);
+    }
+
+    /// Changes the stack with `change`, and keeps the Catalog's grid when that takes the
+    /// Catalog off the top. The stack moves first, so a catalog read that ends meanwhile sees the
+    /// Catalog off the top and keeps its grid too.
+    pub(crate) fn move_stack(&self, change: impl FnOnce(&mut crate::stack::Stack)) {
+        let left = {
+            let mut state = self.state();
+            let was_on_top = state.stack.route() == &Route::Catalog;
+            change(&mut state.stack);
+            was_on_top && state.stack.route() != &Route::Catalog
+        };
+        if left {
+            self.keep_catalog_grid();
+        }
     }
 
     /// The theme the player picked last, if any.
