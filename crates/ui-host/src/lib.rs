@@ -19,6 +19,8 @@ mod loader;
 mod shell;
 mod themes;
 mod values;
+#[cfg(test)]
+mod words;
 
 pub use bind::Viewport;
 pub use compile::{VFS_ROOT, sources};

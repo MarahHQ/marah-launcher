@@ -1052,8 +1052,8 @@ pub struct EmulatorVm {
 pub struct PluginRowVm {
     pub id: PluginId,
     pub name: String,
-    /// `emulator`, `service` (code that launches no games, such as a store's details) or
-    /// `theme`.
+    /// `emulator`, `service` (code that launches no games, such as a store's details), `system`
+    /// (the machine's settings and devices) or `theme`.
     pub kind: String,
     pub version: String,
     pub status: String,
@@ -1138,7 +1138,7 @@ pub struct RunningVm {
     pub emulator: String,
     /// The name of the page with the emulator's keys: its plugin's name, `PS5`.
     pub page: String,
-    /// `starting` until the game's window shows, then `running`, then `stopping`.
+    /// `starting` (until the game's window shows), `running` or `stopping`.
     pub state: String,
     /// Seconds since the game started, when the view was made.
     #[serde(skip)]
