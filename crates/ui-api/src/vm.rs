@@ -1393,14 +1393,13 @@ pub struct SystemVm {
     /// Drives can be mounted, unmounted and ejected here.
     pub drives_available: bool,
     pub drives_reason: String,
-    /// The Drives panel's rows: each drive's actions, the drive's rows together. Every drive:
-    /// inside the PC or plugged in, mounted or not.
-    pub drives: Vec<DriveRowVm>,
+    /// The Drives panel's drives: every drive, inside the PC or plugged in, mounted or not.
+    pub drives: Vec<DriveItemVm>,
 }
 
-/// One row of the Drives panel: one action on one drive.
+/// One drive of the Drives panel, with its actions as buttons.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct DriveRowVm {
+pub struct DriveItemVm {
     /// The drive's id, for the commands Drive Mount, Unmount and Eject.
     pub drive: String,
     /// The drive's name, and what it is: "64.0 GB · 40.0 GB free · exfat", or "Not mounted".
@@ -1408,14 +1407,15 @@ pub struct DriveRowVm {
     pub detail: String,
     /// Where it is mounted, for Open and Use for games. Empty while it isn't.
     pub path: String,
-    /// mount | open | use | eject | unmount
-    pub action: String,
-    /// What the row says to the player, such as "Use for games".
-    pub label: String,
-    /// The drive's first row: the theme shows the drive's name over it.
-    pub first: bool,
-    /// The player can take the drive out.
-    pub usb: bool,
+    /// internal | usb | card
+    pub kind: String,
+    /// How full it is, from 0 to 1; -1 when the system doesn't say, such as while it isn't
+    /// mounted.
+    pub used: f32,
+    /// Its buttons, in order: open | use | mount | unmount | eject
+    pub actions: Vec<String>,
+    /// The action running on it now, one of `actions`; empty while none runs.
+    pub busy: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

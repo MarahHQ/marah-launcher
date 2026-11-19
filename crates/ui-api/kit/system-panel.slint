@@ -1,4 +1,4 @@
-import { Vm, Host, SystemJobItem } from "../types.slint";
+import { Vm, Host, SystemJobItem, DriveItem } from "../types.slint";
 import { Commands } from "commands.slint";
 import { Tokens } from "../tokens.slint";
 import { Look } from "look.slint";
@@ -16,13 +16,16 @@ import { TextField } from "keyboard.slint";
 //   0 Network     "Look for networks", then one row per Wi-Fi network
 //   1 Sound       the volume (left and right change it), mute, then one row per output
 //   2 Bluetooth   on or off, "Pair a device", then one row per device
-//   3 Drives      each drive's actions: Mount, or Open, Use for games and Eject (Unmount for a
-//                 drive inside the PC)
+//   3 Drives      one row per drive, with its actions as round buttons: Open, Use for games,
+//                 then Eject (Unmount for a drive inside the PC) while it is mounted; Mount while
+//                 it isn't. Left and right move between the buttons, then to the panel beside
 // A secured network that isn't saved asks for its password first, with the on-screen keyboard.
 export global Sys {
     // The open panel, or -1.
     in-out property <int> open: -1;
     in-out property <int> row;
+    // In the Drives panel: the focused button of the focused drive, by its place in `actions`.
+    in-out property <int> button;
     // The network whose password is being typed; "" for none.
     in-out property <string> asking;
 
@@ -42,6 +45,7 @@ export global Sys {
     public function show(panel: int) {
         root.open = panel;
         root.row = 0;
+        root.button = 0;
         root.asking = "";
         Host.play-sound("select");
         Commands.refresh-system();
@@ -78,11 +82,14 @@ export global Sys {
         } else if (root.open == 3) {
             if (r >= Vm.system.drives.length) { return; }
             let drive = Vm.system.drives[r];
-            if (drive.action == "mount") { Commands.mount-drive(drive.drive); }
-            else if (drive.action == "open") { root.close(); Commands.open-drive(drive.path); }
-            else if (drive.action == "use") { Commands.add-folder("games", drive.path); }
-            else if (drive.action == "eject") { Commands.eject-drive(drive.drive); }
-            else if (drive.action == "unmount") { Commands.unmount-drive(drive.drive); }
+            // While an action runs on the drive, its buttons wait.
+            if (drive.busy != "" || root.button >= drive.actions.length) { Host.play-sound("error"); return; }
+            let action = drive.actions[root.button];
+            if (action == "mount") { Commands.mount-drive(drive.drive); }
+            else if (action == "open") { root.close(); Commands.open-drive(drive.path); }
+            else if (action == "use") { Commands.add-folder("games", drive.path); }
+            else if (action == "eject") { Commands.eject-drive(drive.drive); }
+            else if (action == "unmount") { Commands.unmount-drive(drive.drive); }
         }
         Host.play-sound("select");
     }
@@ -90,12 +97,21 @@ export global Sys {
     public function key(text: string) -> bool {
         if (text == Key.Escape || text == Key.Backspace) { root.close(); Host.play-sound("back"); return true; }
         if (text == Key.DownArrow) {
-            if (root.row + 1 < root.rows(root.open)) { root.row += 1; Host.play-sound("move"); }
+            if (root.row + 1 < root.rows(root.open)) { root.row += 1; root.button = 0; Host.play-sound("move"); }
             return true;
         }
         if (text == Key.UpArrow) {
-            if (root.row > 0) { root.row -= 1; Host.play-sound("move"); }
+            if (root.row > 0) { root.row -= 1; root.button = 0; Host.play-sound("move"); }
             return true;
+        }
+        // The Drives panel: left and right go between the focused drive's buttons first.
+        if (root.open == 3 && root.row < Vm.system.drives.length && (text == Key.LeftArrow || text == Key.RightArrow)) {
+            let next = root.button + ((text == Key.RightArrow) != Look.rtl ? 1 : -1);
+            if (next >= 0 && next < Vm.system.drives[root.row].actions.length) {
+                root.button = next;
+                Host.play-sound("move");
+                return true;
+            }
         }
         if (root.open == 1 && root.row == 0 && (text == Key.LeftArrow || text == Key.RightArrow)) {
             root.volume((text == Key.RightArrow) != Look.rtl ? 10 : -10);
@@ -242,6 +258,151 @@ component PanelRow inherits Rectangle {
         if root.current : Icon { name: "check"; color: Tokens.color-success; width: 22 * Look.px; height: 22 * Look.px; y: (parent.height - self.height) / 2; }
     }
     ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+// What a Drives panel button does: its name for the player, and its icon.
+global DriveActions {
+    public pure function label(action: string) -> string {
+        action == "open" ? "Open" : action == "use" ? "Use for games" : action == "mount" ? "Mount"
+            : action == "unmount" ? "Unmount" : action == "eject" ? "Eject" : action
+    }
+    public pure function icon(action: string) -> string {
+        action == "open" ? "folder" : action == "use" ? "gamepad" : action == "mount" ? "mount"
+            : action == "unmount" ? "unmount" : "eject"
+    }
+}
+
+// One round button of a drive's row: its icon, or a turning ring while its action runs. The
+// focused or hovered one says its name under it.
+component DriveButton inherits Rectangle {
+    in property <string> action;
+    in property <string> drive;
+    in property <bool> focused;
+    in property <bool> running;
+    // Another action runs on the drive: this one waits.
+    in property <bool> waiting;
+    callback clicked();
+    width: 44 * Look.px;
+    height: 66 * Look.px;
+    property <bool> named: root.focused || ta.has-hover;
+    circle := Rectangle {
+        y: 4 * Look.px;
+        width: 44 * Look.px;
+        height: 44 * Look.px;
+        border-radius: self.height / 2;
+        background: root.focused ? Tokens.color-focus : ta.has-hover && !root.waiting ? Tokens.color-tint.with-alpha(0.149) : Tokens.color-tint.with-alpha(0.071);
+        opacity: root.waiting && !root.running ? 0.4 : 1;
+        animate background { duration: Tokens.motion-fast; }
+        accessible-role: button;
+        accessible-label: root.action == "use" ? "use-for-games" : root.action;
+        accessible-value: root.drive;
+        accessible-description: DriveActions.label(root.action);
+        accessible-item-selected: root.focused;
+        accessible-action-default => { root.clicked(); }
+        if !root.running : Icon {
+            name: DriveActions.icon(root.action);
+            color: root.focused ? Look.ink : Tokens.color-text;
+            width: 24 * Look.px;
+            height: 24 * Look.px;
+        }
+        if !root.running && root.action == "use" : Icon {
+            name: "plus";
+            color: root.focused ? Look.ink : Tokens.color-text;
+            x: parent.width - 18 * Look.px;
+            y: 4 * Look.px;
+            width: 13 * Look.px;
+            height: 13 * Look.px;
+        }
+        if root.running : Path {
+            width: 26 * Look.px;
+            height: 26 * Look.px;
+            viewbox-width: 24;
+            viewbox-height: 24;
+            stroke: root.focused ? Look.ink : Tokens.color-text;
+            stroke-width: 2.5 * Look.px;
+            commands: "M 12 3 A 9 9 0 1 1 3 12";
+            transform-rotation: Look.clock * 400deg;
+        }
+        ta := TouchArea { mouse-cursor: root.waiting ? default : pointer; clicked => { if (!root.waiting) { root.clicked(); } } }
+    }
+    // Wider than the button: "Use for games" is one line under it.
+    Text {
+        y: circle.y + circle.height + 3 * Look.px;
+        x: (parent.width - self.width) / 2;
+        width: 120 * Look.px;
+        text: DriveActions.label(root.action);
+        font-size: 12 * Look.tpx;
+        color: root.named ? Tokens.color-text : transparent;
+        horizontal-alignment: center;
+    }
+}
+
+// One drive in the Drives panel: its kind's icon, its name and what it is, a thin bar of how
+// full it is, and its actions as round buttons on the far side, in reading order.
+component DriveRow inherits Rectangle {
+    in property <DriveItem> drive;
+    in property <bool> focused;
+    // The focused button, by its place in the drive's actions; -1 for none.
+    in property <int> button;
+    callback pressed(int);
+    height: 76 * Look.px;
+    border-radius: 12 * Look.px;
+    background: root.focused ? Tokens.color-tint.with-alpha(0.149) : ta.has-hover ? Tokens.color-tint.with-alpha(0.071) : transparent;
+    border-width: root.focused ? 2 * Look.px : 0;
+    border-color: Tokens.color-tint;
+    accessible-role: list-item;
+    accessible-label: "drive";
+    accessible-value: root.drive.name;
+    accessible-description: root.drive.detail;
+    accessible-item-selected: root.focused;
+    ta := TouchArea {}
+    property <int> count: root.drive.actions.length;
+    HorizontalLayout {
+        padding-left: 16 * Look.px;
+        padding-right: 12 * Look.px;
+        spacing: 12 * Look.px;
+        VerticalLayout {
+            alignment: center;
+            Icon {
+                name: root.drive.kind == "usb" ? "usb" : root.drive.kind == "card" ? "card" : "disk";
+                color: Tokens.color-text-muted;
+                width: 26 * Look.px;
+                height: 26 * Look.px;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+            spacing: 3 * Look.px;
+            Text { text: root.drive.name; font-size: 19 * Look.tpx; font-weight: 600; color: Tokens.color-text; overflow: elide; horizontal-alignment: Look.rtl ? right : left; }
+            Text { text: root.drive.detail; font-size: 14 * Look.tpx; color: Look.text3; overflow: elide; horizontal-alignment: Look.rtl ? right : left; }
+            if root.drive.used >= 0 : Rectangle {
+                height: 4 * Look.px;
+                border-radius: 2 * Look.px;
+                background: Tokens.color-tint.with-alpha(0.122);
+                Rectangle {
+                    x: Look.rtl ? parent.width - self.width : 0;
+                    width: parent.width * root.drive.used;
+                    border-radius: 2 * Look.px;
+                    background: root.drive.used > 0.9 ? Tokens.color-warning : Tokens.color-accent;
+                }
+            }
+        }
+        // Mirrored right to left: the first action stays nearest the text.
+        HorizontalLayout {
+            spacing: 6 * Look.px;
+            alignment: end;
+            for n[k] in root.count : DriveButton {
+                property <int> at: Look.rtl ? root.count - 1 - k : k;
+                action: root.drive.actions[self.at];
+                drive: root.drive.name;
+                focused: root.button == self.at;
+                running: root.drive.busy == self.action;
+                waiting: root.drive.busy != "";
+                clicked => { root.pressed(self.at); }
+            }
+        }
+    }
 }
 
 // The open panel, under the top bar on the side of its icons.
@@ -423,7 +584,7 @@ export component SystemSheet inherits Rectangle {
                 }
             }
 
-            // Drives: each drive's name and size over its actions.
+            // Drives: one row per drive, its actions as round buttons.
             if Sys.open == 3 && Vm.system.drives.length == 0 : Text {
                 text: "No drives";
                 font-size: 17 * Look.tpx;
@@ -432,33 +593,11 @@ export component SystemSheet inherits Rectangle {
             }
             if Sys.open == 3 : VerticalLayout {
                 spacing: 6 * Look.px;
-                for row[i] in Vm.system.drives : VerticalLayout {
-                    spacing: 4 * Look.px;
-                    if row.first : HorizontalLayout {
-                        padding-top: i == 0 ? 0 : 10 * Look.px;
-                        padding-left: 6 * Look.px;
-                        spacing: 10 * Look.px;
-                        Icon { name: row.usb ? "usb" : "disk"; color: Tokens.color-text-muted; width: 22 * Look.px; height: 22 * Look.px; y: (parent.height - self.height) / 2; }
-                        VerticalLayout {
-                            Text { text: row.name; font-size: 19 * Look.tpx; font-weight: 600; color: Tokens.color-text; overflow: elide; }
-                            Text {
-                                text: row.detail;
-                                font-size: 15 * Look.tpx;
-                                color: Look.text3;
-                                accessible-role: text;
-                                accessible-label: "drive";
-                                accessible-value: row.name;
-                                accessible-description: row.detail;
-                            }
-                        }
-                    }
-                    PanelRow {
-                        label: row.label;
-                        name: "drive-action";
-                        value: row.name + ": " + row.label;
-                        focused: Sys.row == i;
-                        clicked => { Sys.row = i; Sys.activate(); }
-                    }
+                for drive[i] in Vm.system.drives : DriveRow {
+                    drive: drive;
+                    focused: Sys.row == i;
+                    button: Sys.row == i ? Sys.button : -1;
+                    pressed(k) => { Sys.row = i; Sys.button = k; Sys.activate(); }
                 }
             }
 

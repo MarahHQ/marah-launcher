@@ -41,7 +41,11 @@ When the launcher is the whole screen, nothing else mounts a drive for you. The 
 
 - Plug in a USB drive. The launcher mounts it, and a notice says "Drive STICK found". Click the
   notice to open the Drives panel.
-- The Drives panel lists each drive with its size and free space. For each drive it offers:
+- The Drives panel has one row for each drive: its name, its size and free space, and a bar of
+  how full it is. Its actions are round buttons on the row. Up and Down choose a drive, Left and
+  Right choose a button, and ✕ presses it. The focused button says its name under it, and so
+  does a button under the mouse. While an action runs, its button turns, and the drive's other
+  buttons wait. The buttons are:
   - **Mount**, for a drive that isn't mounted, such as a second disk inside the PC.
   - **Open**: the folder browser on the drive, to pick a folder with games.
   - **Use for games**: adds the drive to Settings → Games → Game folders.

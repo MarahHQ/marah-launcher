@@ -513,7 +513,7 @@ fn full_view() -> AppView {
                 mok: true,
                 nvidia_later: true,
             }],
-            drives: vec![DriveRowVm::default()],
+            drives: vec![DriveItemVm { actions: vec![s()], ..DriveItemVm::default() }],
             ..SystemVm::default()
         },
     }

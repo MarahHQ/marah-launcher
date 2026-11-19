@@ -443,7 +443,8 @@ Version 0.6.0 moved the backup browser out of Settings → Backup: it is the fol
 - `FolderBrowser` has `title`. `Backup` has `free`, the free space on the backup folder's drive.
 - `Folder` has `list`, each a `FolderPath`. `FolderRow` takes `at` and `on-page`, and opens the
   folder's list (`kit/folder-list.slint`) instead of a text box.
-- `System` has `drives-available`, `drives-reason` and `drives` (each a `DriveRow`). `Notice`
+- `System` has `drives-available`, `drives-reason` and `drives` (each a `DriveItem`, one per
+  drive, with its `actions` as buttons and the `busy` one). `Notice`
   has `drive`. A job's kind can be `mount`, `unmount` or `eject`.
 - A theme with its own top bar shows the drives' icon while `Vm.system.drives-available`, on the
   whole screen and on a desktop, and counts it among its machine icons so the keys reach it.

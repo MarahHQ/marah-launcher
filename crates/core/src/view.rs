@@ -1165,12 +1165,14 @@ fn job_text(job: &crate::system::JobState) -> launcher_ui_api::SystemJobVm {
     vm
 }
 
-/// The Drives panel's rows: for each drive, Mount while it isn't mounted, else Open, Use for
-/// games (unless it holds a game folder already), and Eject (a drive the player can take out)
-/// or Unmount. Mount, Eject and Unmount only where drives can be mounted (`can_act`).
-fn drive_rows(s: &Snapshot, can_act: bool) -> Vec<launcher_ui_api::DriveRowVm> {
+/// The Drives panel's drives, each with its buttons: Open, Use for games (unless it holds a game
+/// folder already), then Eject (a drive the player can take out) or Unmount, while it is
+/// mounted; Mount while it isn't. Mount, Eject and Unmount only where drives can be mounted
+/// (`can_act`).
+fn drive_items(s: &Snapshot, can_act: bool) -> Vec<launcher_ui_api::DriveItemVm> {
+    use crate::system::{JobKind, JobPhase};
     let games = s.files.roots.get(launcher_api::GAMES_FOLDER).map(Vec::as_slice).unwrap_or_default();
-    let mut rows = Vec::new();
+    let mut items = Vec::new();
     for drive in &s.drives {
         let mut detail: Vec<String> = Vec::new();
         detail.extend(drive.size.map(crate::browser::drive_size_text));
@@ -1181,34 +1183,51 @@ fn drive_rows(s: &Snapshot, can_act: bool) -> Vec<launcher_ui_api::DriveRowVm> {
         if !drive.filesystem.is_empty() {
             detail.push(drive.filesystem.clone());
         }
-        let mut actions: Vec<(&str, &str)> = Vec::new();
+        let mut actions: Vec<&str> = Vec::new();
         match &drive.mount {
-            None if can_act => actions.push(("mount", "Mount")),
+            None if can_act => actions.push("mount"),
             None => {}
             Some(at) => {
-                actions.push(("open", "Open"));
+                actions.push("open");
                 if !games.iter().any(|g| g.starts_with(at)) {
-                    actions.push(("use", "Use for games"));
+                    actions.push("use");
                 }
                 if can_act {
-                    actions.push(if drive.usb { ("eject", "Eject") } else { ("unmount", "Unmount") });
+                    actions.push(if drive.usb { "eject" } else { "unmount" });
                 }
             }
         }
-        for (i, (action, label)) in actions.into_iter().enumerate() {
-            rows.push(launcher_ui_api::DriveRowVm {
-                drive: drive.id.clone(),
-                name: drive.label.clone(),
-                detail: detail.join(" · "),
-                path: drive.mount.as_ref().map(|m| m.display().to_string()).unwrap_or_default(),
-                action: action.into(),
-                label: label.into(),
-                first: i == 0,
-                usb: drive.usb,
-            });
-        }
+        // A mount, unmount or eject job runs on the drive: its job names the drive.
+        let busy = s.state.system.jobs.iter().find(|j| j.phase == JobPhase::Running && j.target == drive.label);
+        let busy = match busy.map(|j| j.kind) {
+            Some(JobKind::Mount) => "mount",
+            Some(JobKind::Unmount) => "unmount",
+            Some(JobKind::Eject) => "eject",
+            _ => "",
+        };
+        let used = match (drive.mount.as_ref(), drive.size, drive.free) {
+            (Some(_), Some(size), Some(free)) if size > 0 => (size.saturating_sub(free) as f64 / size as f64) as f32,
+            _ => -1.0,
+        };
+        let kind = if drive.device.starts_with("/dev/mmcblk") {
+            "card"
+        } else if drive.usb {
+            "usb"
+        } else {
+            "internal"
+        };
+        items.push(launcher_ui_api::DriveItemVm {
+            drive: drive.id.clone(),
+            name: drive.label.clone(),
+            detail: detail.join(" · "),
+            path: drive.mount.as_ref().map(|m| m.display().to_string()).unwrap_or_default(),
+            kind: kind.into(),
+            used,
+            actions: actions.into_iter().map(str::to_owned).collect(),
+            busy: busy.into(),
+        });
     }
-    rows
+    items
 }
 
 fn system_vm(s: &Snapshot) -> launcher_ui_api::SystemVm {
@@ -1299,7 +1318,7 @@ fn system_vm(s: &Snapshot) -> launcher_ui_api::SystemVm {
             Some(why) => why.clone().unwrap_or_default(),
             None => crate::drives::CANT_ACT.into(),
         },
-        drives: drive_rows(s, reason(Capability::Drives).is_none()),
+        drives: drive_items(s, reason(Capability::Drives).is_none()),
         jobs: system
             .jobs
             .iter()

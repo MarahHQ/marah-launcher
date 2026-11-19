@@ -509,28 +509,42 @@ fn the_drives_icon_and_its_panel_list_every_drive_in_every_theme() {
         host.navigate(Key::Return);
         host.settle();
         assert_eq!(host.value("system-panel"), "drives", "{theme}: the keys reach the drives' icon");
-        let rows = host.values("drive-action");
-        assert_eq!(rows, ["STICK: Open", "STICK: Use for games", "STICK: Eject", "Games disk: Mount"], "{theme}");
-        assert_eq!(host.values("drive"), ["STICK", "Games disk"], "{theme}: each drive's name over its rows");
+        // One row per drive, each with its buttons; the first button of the first drive has the
+        // focus, and Right moves to the next button.
+        assert_eq!(host.values("drive"), ["STICK", "Games disk"], "{theme}: one row per drive");
+        assert_eq!(host.values("open"), ["STICK"], "{theme}");
+        assert_eq!(host.values("use-for-games"), ["STICK"], "{theme}");
+        assert_eq!(host.values("eject"), ["STICK"], "{theme}");
+        assert_eq!(host.values("mount"), ["Games disk"], "{theme}");
+        assert_eq!(host.count("unmount"), 0, "{theme}");
+        assert_eq!(host.focused("open"), ["STICK"], "{theme}: the first button has the focus");
+        host.navigate(Key::RightArrow);
+        assert_eq!(host.focused("use-for-games"), ["STICK"], "{theme}: Right moves to the next button");
         host.navigate(Key::Escape);
     }
 
-    // Down to Mount, then Enter: the drive inside the PC mounts.
+    // The keys: Down to the drive inside the PC, Enter on its Mount.
     host.dispatch(Command::Navigate(launcher_core::Route::Home));
     host.settle();
     host.press_first("status:drives");
-    for _ in 0..3 {
-        host.navigate(Key::DownArrow);
-    }
+    host.navigate(Key::DownArrow);
+    assert_eq!(host.focused("mount"), ["Games disk"], "Down moves to the next drive, on its first button");
     host.navigate(Key::Return);
     host.settle();
     assert_eq!(system.read(|m| m.drive_actions.clone()), ["mount /dev/nvme0n1p4"]);
-    // Up to Eject: the stick goes; the icon stays, for the drive inside the PC.
+    // The mouse: a click on the stick's Use for games adds it to the game folders.
+    host.press_first("use-for-games");
+    host.settle();
+    let games = host.core().kernel().config().get(&["app", "folders", "games"]);
+    assert!(games.to_string().contains("STICK"), "{games}");
+    // The pad: right twice to Eject on the stick, and ✕. The stick goes; the icon stays.
     host.navigate(Key::Escape);
     host.press_first("status:drives");
-    host.navigate(Key::DownArrow);
-    host.navigate(Key::DownArrow);
-    host.navigate(Key::Return);
+    host.pad(launcher_ui_host::PadButton::Right);
+    assert_eq!(host.focused("use-for-games"), ["STICK"]);
+    host.pad(launcher_ui_host::PadButton::Right);
+    assert_eq!(host.focused("eject"), ["STICK"], "Eject is the last button");
+    host.pad(launcher_ui_host::PadButton::South);
     host.settle();
     refreshed(&mut host);
     assert_eq!(system.read(|m| m.drive_actions.clone()), ["mount /dev/nvme0n1p4", "eject /dev/sda"]);

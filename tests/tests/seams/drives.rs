@@ -88,7 +88,7 @@ async fn on_a_desktop_a_plugged_drive_is_listed_and_the_desktop_mounts_it() {
     assert!(system.read(|m| m.drive_actions.is_empty()), "no mount of its own");
     assert!(t.core.view().notices.is_empty(), "no notice of its own");
     t.core.dispatch(Command::System(SystemCommand::Refresh)).await.unwrap();
-    assert_eq!(t.core.view().system.drives.iter().filter(|r| r.first).count(), 1, "listed, to mount");
+    assert_eq!(t.core.view().system.drives.len(), 1, "listed, to mount");
 }
 
 #[tokio::test]
@@ -104,14 +104,20 @@ async fn the_drives_panel_has_each_drive_s_actions_and_the_notice_opens_it() {
     let card = vm.notice_cards.iter().find(|n| n.text == "Drive STICK found").unwrap();
     assert_eq!((card.drive.as_str(), card.opens.as_str()), ("1A2B-3C4D", "Open or use for games"));
     assert!(vm.system.drives_available);
-    let rows: Vec<(&str, &str, bool)> =
-        vm.system.drives.iter().map(|r| (r.name.as_str(), r.action.as_str(), r.first)).collect();
+    let rows: Vec<(&str, &str, Vec<String>)> =
+        vm.system.drives.iter().map(|r| (r.name.as_str(), r.kind.as_str(), r.actions.clone())).collect();
     assert_eq!(
         rows,
-        [("Games disk", "mount", true), ("STICK", "open", true), ("STICK", "use", false), ("STICK", "eject", false)]
+        [
+            ("Games disk", "internal", vec!["mount".to_owned()]),
+            ("STICK", "usb", vec!["open".to_owned(), "use".to_owned(), "eject".to_owned()]),
+        ]
     );
     assert_eq!(vm.system.drives[0].detail, "500.0 GB · Not mounted · ntfs");
+    assert_eq!(vm.system.drives[0].used, -1.0, "not mounted: the system doesn't say");
+    assert_eq!(vm.system.drives[1].used, 0.375, "24 GB of 64 GB used");
     assert_eq!(vm.system.drives[1].path, media.path().join("STICK").display().to_string());
+    assert!(vm.system.drives.iter().all(|d| d.busy.is_empty()), "no action runs");
 }
 
 #[tokio::test]
@@ -159,7 +165,11 @@ async fn without_udisks_the_drives_are_the_mounted_folders_and_mounting_says_wha
     let vm = t.core.view().system;
     assert!(!vm.drives_available);
     assert_eq!(vm.drives_reason, "UDisks (udisksctl) isn't installed");
-    assert!(vm.drives.iter().all(|r| r.action == "open" || r.action == "use"), "no Mount or Eject: {:?}", vm.drives);
+    assert!(
+        vm.drives.iter().flat_map(|r| &r.actions).all(|a| a == "open" || a == "use"),
+        "no Mount or Eject: {:?}",
+        vm.drives
+    );
 }
 
 /// A PC game in `games`, which the PC plugin lists.
@@ -228,4 +238,19 @@ async fn a_game_folder_s_drive_mounts_before_the_games_are_read_and_a_drive_take
     next.core.dispatch(Command::Library(LibraryCmd::Refresh)).await.unwrap();
     assert_eq!(system.read(|m| m.drive_actions.clone()), ["mount /dev/sda1"]);
     assert!(at.is_dir(), "mounted where the folder was");
+}
+
+#[tokio::test]
+async fn while_an_action_runs_the_drive_says_which() {
+    let (system, media) = (FakeSystem::new(), tempfile::tempdir().unwrap());
+    let t = boot(&system, vec![internal()], media.path()).await;
+    system.with(|m| m.hold_jobs = true);
+    let core = t.core.clone();
+    let mounting = tokio::spawn(async move { core.dispatch(Command::Drive(DriveCmd::Mount("5A1C".into()))).await });
+    t.until(Area::System, |core| core.view().system.drives.first().is_some_and(|d| d.busy == "mount")).await;
+    system.finish_jobs();
+    mounting.await.unwrap().unwrap();
+    let drive = t.core.view().system.drives[0].clone();
+    assert_eq!(drive.busy, "", "it ended");
+    assert_eq!(drive.actions, ["open", "use", "unmount"], "mounted: Open, Use for games, Unmount");
 }
