@@ -337,6 +337,8 @@ fn on_a_desktop_restart_asks_in_a_dialog_with_the_focus_on_cancel() {
         host.press_first("system-restart");
         assert_eq!(asking(&host).as_deref(), Some("restart"), "{theme}: the first press asks in a dialog");
         assert_eq!(host.focused("power-confirm-choice"), ["Cancel"], "{theme}: the focus starts on Cancel");
+        let hints = ["Choose", "Select", "Cancel"];
+        assert_eq!(host.values("hint"), hints, "{theme}: ✕ selects the focused choice, whichever it is");
         host.navigate(Key::Return);
         assert_eq!(asking(&host), None, "{theme}: Enter on Cancel closes it");
         assert_eq!(system.read(|m| m.restarts), 0, "{theme}");
@@ -358,6 +360,7 @@ fn on_a_desktop_restart_asks_in_a_dialog_with_the_focus_on_cancel() {
         host.press_first("system-restart");
         host.navigate(Key::DownArrow);
         assert_eq!(host.focused("power-confirm-choice"), ["Restart"], "{theme}");
+        assert_eq!(host.values("hint"), hints, "{theme}: the same hints on Restart");
         host.navigate(Key::UpArrow);
         assert_eq!(host.focused("power-confirm-choice"), ["Cancel"], "{theme}: Up goes back");
         host.navigate(Key::DownArrow);

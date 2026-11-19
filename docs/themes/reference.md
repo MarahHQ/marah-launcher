@@ -330,7 +330,7 @@ Tests in `contract.rs` hold every kit file to three rules:
 | `plugin-list.slint` | `PluginList`, `PluginListSheet` | The Emulators or Themes list as a side sheet, and its keys. |
 | `plugin.slint` | `PluginPage` | One plugin's page, on `SettingsFrame`. For a theme, "Use this theme" and its options. |
 | `pop.slint` | `Pop` | A pop-up: a wash over the screen and a card in its middle. |
-| `power-ask.slint` | `PowerAsk`, `PowerAskSheet` | On a desktop, the dialog before Restart or Shut down: the focus starts on Cancel. Esc, the pad's ○ and a click outside cancel. `Overlays` shows it and `ShellKeys` sends it its keys. Accessible labels: `power-confirm` (value `restart` or `shut-down`) and `power-confirm-choice` (value `Cancel`, `Restart` or `Shut down`). |
+| `power-ask.slint` | `PowerAsk`, `PowerAskSheet` | On a desktop, the dialog before Restart or Shut down: the focus starts on Cancel. Esc, the pad's ○ and a click outside cancel. `Overlays` shows it and `ShellKeys` sends it its keys. Its key hints read Choose, Select and Cancel, whichever choice has the focus. Accessible labels: `power-confirm` (value `restart` or `shut-down`) and `power-confirm-choice` (value `Cancel`, `Restart` or `Shut down`). |
 | `power-menu.slint` | `PowerMenu`, `PowerMenuSheet` | The power menu: Log out, restart the launcher, Restart, Shut down, or quit. |
 | `progress-bar.slint` | `ProgressBar` | A thin progress bar. |
 | `question-prompt.slint` | `Question`, `QuestionPrompt` | A plugin's question at the start, with its two buttons. |
