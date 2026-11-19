@@ -137,7 +137,7 @@ export component TopBar inherits Rectangle {
     height: 104 * Look.px;
 
     property <int> download: Vm.downloads.length > 0 ? 0 : -1;
-    // The drives' icon went with the last USB drive: the keys stay on the bar.
+    // The drives' icon went: the keys stay on the bar.
     property <int> items: Nav.tabs + Nav.buttons;
     changed items => { if (Nav.tab >= root.items) { Nav.tab = root.items - 1; } }
 
@@ -272,12 +272,11 @@ export component TopBar inherits Rectangle {
             clicked => { if (Sys.open == 2) { Sys.close(); } else { Sys.show(2); } }
             BluetoothIcon { color: parent.focused ? Look.ink : Tokens.color-text; }
         }
-        // While a USB drive is plugged in: its panel mounts, opens, uses and ejects it.
-        if Vm.system.whole-screen && Vm.system.usb-drives > 0 : StatusButton {
+        // Wherever drives can be managed: its panel mounts, opens, uses and ejects every drive.
+        if Vm.system.drives-available : StatusButton {
             label: "status:drives";
-            value: Vm.system.usb-drives;
             current: Sys.open == 3;
-            focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 7;
+            focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 4 + Nav.statuses - 1;
             clicked => { if (Sys.open == 3) { Sys.close(); } else { Sys.show(3); } }
             StorageIcon { color: parent.focused ? Look.ink : Tokens.color-text; }
         }

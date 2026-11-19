@@ -87,7 +87,8 @@ async fn on_a_desktop_a_plugged_drive_is_listed_and_the_desktop_mounts_it() {
     drive(&t, DriveCmd::Refresh).await.unwrap();
     assert!(system.read(|m| m.drive_actions.is_empty()), "no mount of its own");
     assert!(t.core.view().notices.is_empty(), "no notice of its own");
-    assert_eq!(t.core.view().system.usb_drives, 1);
+    t.core.dispatch(Command::System(SystemCommand::Refresh)).await.unwrap();
+    assert_eq!(t.core.view().system.drives.iter().filter(|r| r.first).count(), 1, "listed, to mount");
 }
 
 #[tokio::test]
@@ -103,7 +104,6 @@ async fn the_drives_panel_has_each_drive_s_actions_and_the_notice_opens_it() {
     let card = vm.notice_cards.iter().find(|n| n.text == "Drive STICK found").unwrap();
     assert_eq!((card.drive.as_str(), card.opens.as_str()), ("1A2B-3C4D", "Open or use for games"));
     assert!(vm.system.drives_available);
-    assert_eq!(vm.system.usb_drives, 1);
     let rows: Vec<(&str, &str, bool)> =
         vm.system.drives.iter().map(|r| (r.name.as_str(), r.action.as_str(), r.first)).collect();
     assert_eq!(

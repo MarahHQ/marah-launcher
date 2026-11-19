@@ -1300,7 +1300,6 @@ fn system_vm(s: &Snapshot) -> launcher_ui_api::SystemVm {
             None => crate::drives::CANT_ACT.into(),
         },
         drives: drive_rows(s, reason(Capability::Drives).is_none()),
-        usb_drives: s.drives.iter().filter(|d| d.usb).count() as i32,
         jobs: system
             .jobs
             .iter()

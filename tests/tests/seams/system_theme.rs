@@ -360,9 +360,11 @@ fn the_keys_reach_the_icons_at_the_end_of_the_top_bar_and_move_between_panels() 
     let mut host = shown(&system, WHOLE_SCREEN);
     use slint::platform::Key;
     host.navigate(Key::UpArrow);
-    // Left of the first item is the last, Settings: the bar goes round. Left again is Bluetooth.
-    host.navigate(Key::LeftArrow);
-    host.navigate(Key::LeftArrow);
+    // Left of the first item is the last, Settings: the bar goes round. Left again is the drives'
+    // icon, and once more Bluetooth.
+    for _ in 0..3 {
+        host.navigate(Key::LeftArrow);
+    }
     host.navigate(Key::Return);
     assert_eq!(host.value("system-panel"), "bluetooth");
     host.navigate(Key::LeftArrow);
@@ -376,18 +378,21 @@ fn l1_and_r1_reach_every_item_of_the_top_bar_again_and_again_round_the_ends() {
     let system = machine();
     let mut host = shown(&system, WHOLE_SCREEN);
     use slint::platform::Key;
-    // Without a catalog the bar has nine stops: Home, Library, three screen buttons, the three
-    // icons and Settings. R1 seven times from Home is Bluetooth, the one before Settings.
+    // Without a catalog the bar has ten stops: Home, Library, three screen buttons, the four
+    // icons (the drives' last) and Settings. R1 seven times from Home is Bluetooth.
     for _ in 0..7 {
         host.navigate(Key::Tab);
     }
     host.navigate(Key::Return);
     assert_eq!(host.value("system-panel"), "bluetooth");
     host.navigate(Key::Escape);
-    // One more is Settings, the last, and L1 goes back to Bluetooth. Once round, still there.
+    // Two more are the drives' icon and Settings, the last; L1 twice goes back to Bluetooth.
+    // Once round, still there.
+    host.navigate(Key::Tab);
     host.navigate(Key::Tab);
     host.navigate(Key::Backtab);
-    for _ in 0..9 {
+    host.navigate(Key::Backtab);
+    for _ in 0..10 {
         host.navigate(Key::Backtab);
     }
     host.navigate(Key::Return);
@@ -404,21 +409,21 @@ fn as_the_whole_screen_settings_is_the_last_icon_in_the_top_bar_and_the_keys_rea
         host.ui.switch(&id(theme)).unwrap();
         host.dispatch(Command::Navigate(launcher_core::Route::Home));
         host.settle();
-        for icon in ["Themes", "status:network", "status:sound", "status:bluetooth", "battery"] {
+        for icon in ["Themes", "status:network", "status:sound", "status:bluetooth", "status:drives", "battery"] {
             assert!(x(&host, "Settings") > x(&host, icon), "{theme}: Settings is after {icon}");
         }
         // L1 from Home goes round to the top bar's last item: Settings.
         host.navigate(Key::Backtab);
         host.navigate(Key::Return);
         assert_eq!(host.core().view().screen, ScreenId::Settings, "{theme}: the last item opens Settings");
-        // From Home again, two steps back: the Bluetooth icon, the one before it.
+        // From Home again, two steps back: the drives' icon, the one before it.
         host.dispatch(Command::Navigate(launcher_core::Route::Home));
         host.settle();
         host.navigate(Key::Backtab);
         host.navigate(Key::Backtab);
         host.navigate(Key::Return);
         host.settle();
-        assert_eq!(host.value("system-panel"), "bluetooth", "{theme}: the one before is Bluetooth");
+        assert_eq!(host.value("system-panel"), "drives", "{theme}: the one before is the drives' icon");
         host.navigate(Key::Escape);
     }
 }
@@ -471,19 +476,22 @@ fn with_drives(system: &FakeSystem, media: &std::path::Path) {
     });
 }
 
-/// The drives' icon shows only while a USB drive is plugged in, as the whole screen, after
-/// Bluetooth; the keys reach it before Settings, and its panel mounts, ejects and opens.
+/// The drives' icon shows wherever drives can be managed, after Bluetooth, with or without a
+/// USB drive; the keys reach it before Settings, and its panel lists every drive and mounts,
+/// ejects and opens them.
 #[test]
-fn a_usb_drive_shows_the_drives_icon_and_its_panel_in_every_theme() {
+fn the_drives_icon_and_its_panel_list_every_drive_in_every_theme() {
     use slint::platform::Key;
     let media = tempfile::tempdir().unwrap();
     let system = machine();
     let mut host = shown(&system, WHOLE_SCREEN);
+    host.dispatch(Command::Drive(launcher_core::DriveCmd::Refresh));
+    host.settle();
     for theme in ["classic", "default"] {
         host.ui.switch(&id(theme)).unwrap();
         host.dispatch(Command::Navigate(launcher_core::Route::Home));
         host.settle();
-        assert_eq!(host.count("status:drives"), 0, "{theme}: no USB drive, no icon");
+        assert_eq!(host.count("status:drives"), 1, "{theme}: no drive yet, and the icon is there");
     }
     with_drives(&system, media.path());
     host.dispatch(Command::Drive(launcher_core::DriveCmd::Refresh));
@@ -492,7 +500,6 @@ fn a_usb_drive_shows_the_drives_icon_and_its_panel_in_every_theme() {
         host.ui.switch(&id(theme)).unwrap();
         host.dispatch(Command::Navigate(launcher_core::Route::Home));
         host.settle();
-        assert_eq!(host.value("status:drives"), "1", "{theme}: one USB drive");
         let x = |label: &str| host.first(label).absolute_position().x;
         assert!(x("status:drives") > x("status:bluetooth") && x("Settings") > x("status:drives"), "{theme}");
 
@@ -518,7 +525,7 @@ fn a_usb_drive_shows_the_drives_icon_and_its_panel_in_every_theme() {
     host.navigate(Key::Return);
     host.settle();
     assert_eq!(system.read(|m| m.drive_actions.clone()), ["mount /dev/nvme0n1p4"]);
-    // Up to Eject: the stick goes, and with it the icon and its panel.
+    // Up to Eject: the stick goes; the icon stays, for the drive inside the PC.
     host.navigate(Key::Escape);
     host.press_first("status:drives");
     host.navigate(Key::DownArrow);
@@ -527,6 +534,33 @@ fn a_usb_drive_shows_the_drives_icon_and_its_panel_in_every_theme() {
     host.settle();
     refreshed(&mut host);
     assert_eq!(system.read(|m| m.drive_actions.clone()), ["mount /dev/nvme0n1p4", "eject /dev/sda"]);
-    assert_eq!(host.count("status:drives"), 0, "the last USB drive went");
-    assert_eq!(host.count("system-panel"), 0, "its panel closed");
+    assert_eq!(host.count("status:drives"), 1, "the drive inside the PC is still there");
+    assert_eq!(host.values("drive"), ["Games disk"]);
+}
+
+/// On a desktop the drives' icon is the only machine icon: the keys reach it, and its panel opens.
+#[test]
+fn on_a_desktop_the_drives_icon_is_there_and_opens_its_panel() {
+    use slint::platform::Key;
+    let media = tempfile::tempdir().unwrap();
+    let system = machine();
+    with_drives(&system, media.path());
+    let mut host = shown(&system, Place::default());
+    host.dispatch(Command::Drive(launcher_core::DriveCmd::Refresh));
+    refreshed(&mut host);
+    for theme in ["classic", "default"] {
+        host.ui.switch(&id(theme)).unwrap();
+        host.dispatch(Command::Navigate(launcher_core::Route::Home));
+        host.settle();
+        assert_eq!(host.count("status:drives"), 1, "{theme}");
+        assert_eq!(host.count("status:network") + host.count("status:bluetooth"), 0, "{theme}");
+        host.navigate(Key::Backtab);
+        host.navigate(Key::Backtab);
+        host.navigate(Key::Return);
+        host.settle();
+        assert_eq!(host.value("system-panel"), "drives", "{theme}: the keys reach it");
+        host.navigate(Key::LeftArrow);
+        assert_eq!(host.value("system-panel"), "drives", "{theme}: no other panel beside it");
+        host.navigate(Key::Escape);
+    }
 }

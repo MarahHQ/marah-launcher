@@ -7,9 +7,10 @@ import { Switch } from "widgets.slint";
 import { TextField } from "keyboard.slint";
 
 // The machine's settings in the top bar (`Vm.system`): the network, sound and Bluetooth icons,
-// and the drives' icon while a USB drive is plugged in, open a panel under them. The icons and
+// and the drives' icon, open a panel under them. The network, sound and Bluetooth icons and
 // panels show when Marah Launcher is the whole screen (the Marah Launcher session, Marah OS); a
-// desktop has its own. The battery shows wherever the PC has one.
+// desktop has its own. The drives' icon and panel show wherever drives can be managed, on a
+// desktop too. The battery shows wherever the PC has one.
 //
 // Each panel is a list of rows the keys move through:
 //   0 Network     "Look for networks", then one row per Wi-Fi network
@@ -28,8 +29,8 @@ export global Sys {
     out property <bool> network-on: Vm.system.network-available;
     out property <bool> audio-on: Vm.system.audio-available;
     out property <bool> bluetooth-on: Vm.system.bluetooth-available;
-    // The last panel the keys reach: the drives' while a USB drive is plugged in.
-    out property <int> last: Vm.system.usb-drives > 0 ? 3 : 2;
+    // The last panel the keys reach: the drives', while drives can be managed.
+    out property <int> last: Vm.system.drives-available ? 3 : 2;
 
     public pure function rows(panel: int) -> int {
         panel == 0 ? (root.network-on ? 1 + Vm.system.wifi.length : 0)
@@ -100,8 +101,10 @@ export global Sys {
             root.volume((text == Key.RightArrow) != Look.rtl ? 10 : -10);
             return true;
         }
-        // Left and right go to the panel beside, as on the top bar.
+        // Left and right go to the panel beside, as on the top bar. On a desktop the drives'
+        // panel is the only one.
         if (text == Key.LeftArrow || text == Key.RightArrow) {
+            if (!Vm.system.whole-screen) { return true; }
             let next = root.open + ((text == Key.RightArrow) != Look.rtl ? 1 : -1);
             if (next >= 0 && next <= root.last) { root.show(next); }
             return true;
@@ -252,9 +255,9 @@ export component SystemSheet inherits Rectangle {
         : Sys.open == 3 ? (root.job-of("eject") != "" ? root.job-of("eject")
             : root.job-of("unmount") != "" ? root.job-of("unmount") : root.job-of("mount"))
         : "";
-    // The last USB drive went out: its panel closes, as its icon goes.
-    property <int> usb: Vm.system.usb-drives;
-    changed usb => { if (root.usb == 0 && Sys.open == 3) { Sys.close(); } }
+    // Drives can't be managed any more: their panel closes, as their icon goes.
+    property <bool> drives: Vm.system.drives-available;
+    changed drives => { if (!root.drives && Sys.open == 3) { Sys.close(); } }
     // The newest of the last two jobs that is of `kind`: the panel's own work.
     pure function job-of(kind: string) -> string {
         root.jobs.length > 0 && root.jobs[root.jobs.length - 1].kind == kind ? root.jobs[root.jobs.length - 1].text

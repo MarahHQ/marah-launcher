@@ -345,7 +345,7 @@ Tests in `contract.rs` hold every kit file to three rules:
 | `slot-actions.slint` | `SlotActions` | Plugin actions as round buttons. |
 | `slot-badges.slint` | `SlotBadges` | Plugin badges as small tags with a dot in their tone. |
 | `slot-sections.slint` | `SlotSections` | Plugin sections as fact cards. |
-| `system-panel.slint` | `Sys`, `NetIcon`, `SoundIcon`, `BluetoothIcon`, `StorageIcon`, `BatteryIcon`, `SystemSheet` | The network, sound and Bluetooth icons and panels for when the launcher is the whole screen, the drives' icon and the Drives panel (`Sys.show(3)`) while a USB drive is plugged in (`Vm.system.usb-drives`), and the battery. A notice with a `drive` opens the Drives panel. |
+| `system-panel.slint` | `Sys`, `NetIcon`, `SoundIcon`, `BluetoothIcon`, `StorageIcon`, `BatteryIcon`, `SystemSheet` | The network, sound and Bluetooth icons and panels for when the launcher is the whole screen, the drives' icon and the Drives panel (`Sys.show(3)`) wherever drives can be managed (`Vm.system.drives-available`), on a desktop too, and the battery. A notice with a `drive` opens the Drives panel. |
 | `trailer-player.slint` | `Trailers`, `TrailerPlayer` | A trailer in the window, with its keys. |
 | `widgets.slint` | `FocusRing`, `KeyCap`, `BackButton`, `Stars`, `Chip`, `Pill`, `Kicker`, `Switch`, `Shimmer`, `Cover` | Small widgets. |
 
@@ -442,11 +442,12 @@ Version 0.6.0 moved the backup browser out of Settings → Backup: it is the fol
   is `FolderBrowser`. Its accessible label is `folder-browser`.
 - `Folder` has `list`, each a `FolderPath`. `FolderRow` takes `at` and `on-page`, and opens the
   folder's list (`kit/folder-list.slint`) instead of a text box.
-- `System` has `drives-available`, `drives-reason`, `drives` (each a `DriveRow`) and
-  `usb-drives`. `Notice` has `drive`. A job's kind can be `mount`, `unmount` or `eject`.
-- A theme with its own top bar counts the drives' icon among its machine icons while
-  `Vm.system.usb-drives > 0`, so the keys reach it: both built-in themes' `Nav.statuses` is 4
-  then, 3 otherwise.
+- `System` has `drives-available`, `drives-reason` and `drives` (each a `DriveRow`). `Notice`
+  has `drive`. A job's kind can be `mount`, `unmount` or `eject`.
+- A theme with its own top bar shows the drives' icon while `Vm.system.drives-available`, on the
+  whole screen and on a desktop, and counts it among its machine icons so the keys reach it.
+  Both built-in themes' `Nav.statuses` is 3 for the network, sound and Bluetooth icons on the
+  whole screen, plus 1 for the drives' icon. On a desktop the drives' icon is the only one.
 
 A theme built for 0.5 that reads `Vm.backup.browser` or imports `kit/backup-browser.slint`
 changes those names, then sets `ui_api = "^0.6"`.

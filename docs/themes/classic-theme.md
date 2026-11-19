@@ -298,8 +298,8 @@ game yet" or "No games here".
 
 On the reading side: the "Home" and "Library" tabs. On the far side: the running game, the
 active download, the screen buttons (Search, Downloads, Emulators, Themes), the network, sound
-and Bluetooth icons when the launcher is the whole screen, the drives' icon there while a USB
-drive is plugged in, the battery when the PC has one,
+and Bluetooth icons when the launcher is the whole screen, the drives' icon wherever drives can
+be managed, the battery when the PC has one,
 Settings, and the clock. Search shows only when there is a Catalog.
 
 ## Accessible labels

@@ -1387,11 +1387,9 @@ pub struct SystemVm {
     /// Drives can be mounted, unmounted and ejected here.
     pub drives_available: bool,
     pub drives_reason: String,
-    /// The Drives panel's rows: each drive's actions, the drive's rows together.
+    /// The Drives panel's rows: each drive's actions, the drive's rows together. Every drive:
+    /// inside the PC or plugged in, mounted or not.
     pub drives: Vec<DriveRowVm>,
-    /// How many drives the player can take out (USB sticks, cards) are plugged in: the top bar
-    /// shows the drives' icon while there is one.
-    pub usb_drives: i32,
 }
 
 /// One row of the Drives panel: one action on one drive.

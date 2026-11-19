@@ -190,7 +190,7 @@ export component Shell inherits Window {
             width: parent.width;
             keys: root.home;
         }
-        if Sys.open >= 0 && Vm.system.whole-screen : SystemSheet { width: parent.width; height: parent.height; }
+        if Sys.open >= 0 && (Vm.system.whole-screen || Sys.open == 3) : SystemSheet { width: parent.width; height: parent.height; }
 
         RunningScreen { width: parent.width; height: parent.height; }
         Overlays { width: parent.width; height: parent.height; logo: Assets.logo; }

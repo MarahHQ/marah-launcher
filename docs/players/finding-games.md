@@ -25,9 +25,9 @@ clock.
 - While a game runs, the top bar shows the game with **Resume** and **Stop**.
 - While a download runs, it shows the download's progress.
 - When the launcher is the whole screen, with no desktop behind it, the top bar also has
-  network, sound and Bluetooth icons. Each one opens a panel for its settings. While a USB drive
-  is plugged in, a drive icon shows too: it opens the Drives panel (see
-  [Drives](#drives)).
+  network, sound and Bluetooth icons. Each one opens a panel for its settings.
+- Wherever the launcher can manage drives (UDisks is installed), the top bar has a drive icon,
+  on a desktop too. It opens the Drives panel (see [Drives](#drives)).
 - On a PC with a battery, it shows the battery level.
 
 When the PC runs on battery and the level falls to 20%, a notice says "Battery at 20%. Plug in
