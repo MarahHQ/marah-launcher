@@ -326,3 +326,27 @@ fn a_view_built_after_a_change_that_keeps_the_game_lists_is_the_whole_view() {
         assert_eq!(core.view_after(before, &[area]), core.view(), "{area:?}");
     }
 }
+
+/// The images wait for the first frame when the app says so: the frame comes first, then they
+/// load.
+#[test]
+fn the_images_load_once_the_first_frame_shows() {
+    let icon = {
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::RgbImage::from_pixel(8, 8, image::Rgb([40, 90, 160]))
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        png.into_inner()
+    };
+    let mut host = composed(|h| h.plugin(FakeCatalog::new("emu-a").playable().system("PS4").icon(icon).build()));
+    host.wait_for_first_frame();
+    host.ui.start().unwrap();
+    host.rt.block_on(host.core().dispatch(Command::Library(LibraryCmd::Refresh))).unwrap();
+    host.render().unwrap();
+    assert_eq!(host.platform.waiting_work(), 0, "no image loads before the first frame");
+    host.first_frame_shown();
+    assert!(host.platform.waiting_work() > 0, "the images the first frame asked for load");
+    host.run_work();
+    host.flush().unwrap();
+    assert!(host.ui.images_loaded() > 0, "and show");
+}

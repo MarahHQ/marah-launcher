@@ -205,7 +205,10 @@ async fn adopt(core: &Core) {
 pub(crate) async fn refresh(core: &Core) {
     adopt(core).await;
     let (before, read_before) = (core.drives().known(), core.drives().listed());
-    let changes = core.drives().refresh().await;
+    let changes = {
+        let _turn = core.disk_turn().await;
+        core.drives().refresh().await
+    };
     let now = core.drives().known();
     if now != before {
         changed(core);

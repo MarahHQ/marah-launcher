@@ -60,6 +60,7 @@ impl Disks {
 /// space there, and keeps them. Says so when they changed. The reads (folders, free space) run
 /// on a blocking thread, not on the async workers.
 pub(crate) async fn refresh(core: &Core) {
+    let _turn = core.disk_turn().await;
     let reader = core.clone();
     // A drive that stopped answering holds that thread, not the command that waits here.
     let read =

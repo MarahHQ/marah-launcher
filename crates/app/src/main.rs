@@ -88,6 +88,8 @@ const SHUTDOWN_LIMIT: Duration = Duration::from_secs(10);
 const EXIT_MARGIN: Duration = Duration::from_secs(5);
 /// How long after the start the app logs how its renders went.
 const STARTUP_WINDOW: Duration = Duration::from_secs(10);
+/// The longest the work held for the first frame waits when the window doesn't say it drew one.
+const FIRST_FRAME_LIMIT: Duration = Duration::from_secs(2);
 
 /// What the UI thread owns.
 struct App {
@@ -136,7 +138,8 @@ fn run(args: args::Args, launched: Instant) -> Result<(), String> {
         }
         tracing::info!(plugins = ?report.order, "booted");
         let booted = launched.elapsed();
-        let core = Core::start(kernel).await;
+        // The machine's reads wait for the first frame: see `after_first_frame`.
+        let core = Core::start_after_first_frame(kernel).await;
         tracing::info!(
             boot_ms = booted.as_millis(),
             core_ms = (launched.elapsed() - booted).as_millis(),
@@ -170,13 +173,15 @@ fn run(args: args::Args, launched: Instant) -> Result<(), String> {
     }
     #[cfg(target_os = "macos")]
     shell.ui.set_fullscreen_with(Box::new(platform::simple_fullscreen));
+    shell.wait_for_first_frame();
     let theme_started = Instant::now();
     shell
         .ui
         .start_with(args.theme.clone())
         .map_err(|e| format!("no theme started, not even the fallback theme: {e}"))?;
     tracing::info!(theme_ms = theme_started.elapsed().as_millis(), "theme shown");
-    on_first_frame(&shell, launched);
+    let start_held = after_first_frame(core.clone(), handle.clone(), launched);
+    on_first_frame(&shell, launched, start_held.clone());
     handle.spawn_blocking(move || launcher_ui_host::sweep_thumbs(&thumbs));
     APP.with(|app| *app.borrow_mut() = Some(App { shell }));
 
@@ -226,11 +231,6 @@ fn run(args: args::Args, launched: Instant) -> Result<(), String> {
         }
     });
 
-    // The first scan of the game folders, in the background: the first frame doesn't wait.
-    {
-        let _inside = handle.enter();
-        core.scan_soon();
-    }
     with_app(|app| {
         let rendered = Instant::now();
         if let Err(error) = app.shell.render() {
@@ -238,6 +238,8 @@ fn run(args: args::Args, launched: Instant) -> Result<(), String> {
         }
         tracing::info!(render_ms = rendered.elapsed().as_millis(), "the first render bound the view");
     });
+    // A window that draws no frame (hidden, or a renderer that doesn't say) holds nothing for long.
+    slint::Timer::single_shot(FIRST_FRAME_LIMIT, move || start_held());
     let window = slint::Timer::default();
     let timed = core.clone();
     window.start(slint::TimerMode::SingleShot, STARTUP_WINDOW, move || {
@@ -271,8 +273,25 @@ fn run(args: args::Args, launched: Instant) -> Result<(), String> {
     Ok(())
 }
 
-/// Logs, once, how long after the start the window drew its first frame.
-fn on_first_frame(shell: &AppShell, launched: Instant) {
+/// The work held for the first frame, to start once it shows: the machine's reads, the first
+/// scan of the game folders, and the images. It starts once, however many times it is called.
+fn after_first_frame(core: Core, handle: tokio::runtime::Handle, launched: Instant) -> Rc<dyn Fn()> {
+    let started = std::cell::Cell::new(false);
+    Rc::new(move || {
+        if started.replace(true) {
+            return;
+        }
+        tracing::info!(after_ms = launched.elapsed().as_millis(), "the work held for the first frame starts");
+        let _inside = handle.enter();
+        core.first_frame_shown();
+        core.scan_soon();
+        with_app(|app| app.shell.first_frame_shown());
+    })
+}
+
+/// Logs, once, how long after the start the window drew its first frame, and starts the work
+/// held for it (`start_held`) once the frame is out.
+fn on_first_frame(shell: &AppShell, launched: Instant, start_held: Rc<dyn Fn()>) {
     use slint_interpreter::ComponentHandle;
     let Some(instance) = shell.ui.instance() else { return };
     let mut drawn = false;
@@ -280,6 +299,9 @@ fn on_first_frame(shell: &AppShell, launched: Instant) {
         if !drawn && matches!(state, slint::RenderingState::AfterRendering) {
             drawn = true;
             tracing::info!(after_ms = launched.elapsed().as_millis(), "the first frame is drawn");
+            // Out of the renderer's callback: the work renders, and the frame is still drawing.
+            let start_held = start_held.clone();
+            slint::Timer::single_shot(Duration::ZERO, move || start_held());
         }
     });
     if let Err(error) = notifier {

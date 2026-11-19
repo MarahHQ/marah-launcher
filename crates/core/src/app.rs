@@ -278,7 +278,16 @@ pub(crate) struct Inner {
     pub files_reads: std::sync::atomic::AtomicU64,
     /// How many reads of every game's files were started: they alone read the host folders.
     pub folder_reads: std::sync::atomic::AtomicU64,
+    /// The machine's reads started: see [`Core::first_frame_shown`].
+    pub machine_read: std::sync::atomic::AtomicBool,
+    /// The turns of the reads that go through many files or ask the drives (a scan's listing,
+    /// the free space, the drives' list, the files the view needs): [`DISK_TURNS`] at a time,
+    /// so they don't all take the disk and the blocking threads at the start.
+    pub disk_turns: tokio::sync::Semaphore,
 }
+
+/// How many reads that go through many files or ask the drives run at once.
+pub(crate) const DISK_TURNS: usize = 2;
 
 /// The app. Cheap to clone; every clone is the same app.
 #[derive(Clone)]
@@ -289,6 +298,16 @@ pub struct Core {
 impl Core {
     /// Starts the app on a booted kernel and resumes installs a crash interrupted.
     pub async fn start(kernel: Kernel) -> Core {
+        let core = Self::start_after_first_frame(kernel).await;
+        core.first_frame_shown();
+        core
+    }
+
+    /// As [`Core::start`], with the machine's reads held (the network, the sound, Bluetooth, the
+    /// power, the system updates, the drives, the disks' room and the files the view needs)
+    /// until the app says its first frame shows ([`Core::first_frame_shown`]): the first frame
+    /// doesn't wait for them.
+    pub async fn start_after_first_frame(kernel: Kernel) -> Core {
         // The settings of a restore go back before anything reads them.
         crate::backup::apply_pending(kernel.config(), &kernel.host().data_dir);
         let theme = Pref::Theme.load(kernel.config()).as_str().and_then(|s| PluginId::new(s).ok());
@@ -428,6 +447,8 @@ impl Core {
                 timings: Default::default(),
                 files_reads: Default::default(),
                 folder_reads: Default::default(),
+                machine_read: Default::default(),
+                disk_turns: tokio::sync::Semaphore::new(DISK_TURNS),
             }
         });
         let core = Core { inner };
@@ -438,7 +459,6 @@ impl Core {
         crate::emulator_builds::resume_installs(&core).await;
         crate::plugin_downloads::resume_downloads(&core);
         crate::emulator_builds::schedule_update_checks(&core);
-        crate::system::schedule_refresh(&core);
         crate::snapshot::watch_files(&core);
         crate::hardware::check_hardware(&core);
         crate::catalog_reads::watch_catalogs(&core);
@@ -827,6 +847,21 @@ impl Core {
     /// The emulator's log of the game's last run. `None` before it ran.
     pub fn game_log(&self, game: &GameKey) -> Option<std::path::PathBuf> {
         Some(crate::sessions::log_path(&self.inner.kernel.host().data_dir, game)).filter(|p| p.is_file())
+    }
+
+    /// The app's first frame shows: the machine's reads start, then run on the system's tick.
+    /// Once; [`Core::start`] does it at once. Call it inside the async runtime.
+    pub fn first_frame_shown(&self) {
+        if !self.inner.machine_read.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            crate::system::schedule_refresh(self);
+        }
+    }
+
+    /// A turn of the reads that go through many files or ask the drives: see
+    /// [`Inner::disk_turns`]. The read holds it while it runs, and leaves it when it ends or
+    /// its caller stops waiting.
+    pub(crate) async fn disk_turn(&self) -> Option<tokio::sync::SemaphorePermit<'_>> {
+        self.inner.disk_turns.acquire().await.ok()
     }
 
     /// Looks for games in every game folder in the background, as at the start: the library

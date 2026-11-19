@@ -125,6 +125,8 @@ pub struct AppShell {
     /// A change came that names no area (an event of the core's other than a change, or a
     /// test's): the next render builds the whole view.
     unnamed: bool,
+    /// The images wait for the first frame: see [`AppShell::wait_for_first_frame`].
+    images_wait: bool,
     tick: TickPolicy,
     dev: bool,
     monitors: Monitors,
@@ -176,6 +178,7 @@ impl AppShell {
             renders: Coalescer::default(),
             changes,
             unnamed: false,
+            images_wait: false,
             tick: TickPolicy::default(),
             dev: options.dev,
             monitors: Monitors { flag, ..Monitors::default() },
@@ -429,8 +432,23 @@ impl AppShell {
         }
     }
 
+    /// The images the renders ask for don't load until [`AppShell::first_frame_shown`]: the
+    /// first frame doesn't share the machine with them.
+    pub fn wait_for_first_frame(&mut self) {
+        self.images_wait = true;
+    }
+
+    /// The first frame shows: the images the last render asked for start loading.
+    pub fn first_frame_shown(&mut self) {
+        self.images_wait = false;
+        self.load_wanted();
+    }
+
     /// Starts loading the images the last render asked for and doesn't have. A render does it.
     pub fn load_wanted(&mut self) {
+        if self.images_wait {
+            return;
+        }
         let still = self.ui.still_wanted();
         for key in self.ui.wanted_images() {
             let (core, loader, still, loaded) =

@@ -274,6 +274,7 @@ pub(crate) fn read_files(kernel: &Kernel, library: &LibrarySnapshot) -> Files {
 /// change, a drive comes or goes, a game ends, and on the system's 5 s tick
 /// ([`watch_files`]); a command that changes a game's folder awaits it before its own notice.
 pub(crate) async fn refresh_files(core: &Core) {
+    let _turn = core.disk_turn().await;
     let reader = core.clone();
     // A drive that stopped answering holds that thread, not the caller; the read stores what it
     // read whenever it ends, unless a later read stored first.

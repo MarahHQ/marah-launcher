@@ -110,7 +110,12 @@ async fn read_library(core: &Core) -> CoreResult<()> {
     let mut badges = HashMap::new();
     for (plugin, provided) in core.providers(Capability::Catalog).await {
         let catalog = provided.catalog.expect("declared and checked at init");
-        let page = match kernel.guard(&plugin, "catalog.list", catalog.list(PageRequest::ALL)).await {
+        let listed = {
+            // The plugin goes through its game folders.
+            let _turn = core.disk_turn().await;
+            kernel.guard(&plugin, "catalog.list", catalog.list(PageRequest::ALL)).await
+        };
+        let page = match listed {
             Ok(page) => page,
             Err(e) => {
                 core.notices().problem(e.to_string());

@@ -497,14 +497,23 @@ installed into the `games` folders. Backups go to the backup folder.
    `update::apply_launcher_update` puts in a kept launcher update, if there is one.
 2. A tokio runtime starts. `Kernel::builder` gets the adapters, `built_in_plugins()` and the
    two `discover` folders, and boots.
-3. `Core::start` puts back a restore's settings, starts the subsystems, and starts the
-   background work.
+3. `Core::start_after_first_frame` puts back a restore's settings, starts the subsystems, and
+   starts the background work, but for the machine's reads (the network, sound, Bluetooth,
+   power, the system updates, the drives, the disks' room and the files the view needs).
 4. `--folder` mappings apply as `Command::SetFolders`.
 5. `AppShell::new` makes the `ThemeHost`, and `start_with` shows the chosen theme or the
    fallback theme.
-6. The controller thread, the core event task and the tick start.
-   `Command::Library(LibraryCmd::Refresh)` is sent, the first render runs, and Slint's event
-   loop runs.
+6. The controller thread, the core event task and the tick start. The first render runs, and
+   Slint's event loop runs.
+7. Once the window draws its first frame (Slint's rendering notifier), or after
+   `FIRST_FRAME_LIMIT` (2 s) when it doesn't say, the work held for it starts:
+   `Core::first_frame_shown` starts the machine's reads, `Core::scan_soon` the first scan of the
+   game folders, and `AppShell::first_frame_shown` the image loads. Tests start the core with
+   `Core::start`, which starts the machine's reads at once.
+
+The reads that go through many files or ask the drives (a scan's listing of each plugin, the free
+space, the drives' list, the files the view needs) take a turn first: at most `DISK_TURNS` (2) run
+at once.
 
 When the event loop ends, `Core::shutdown` runs for at most `SHUTDOWN_LIMIT` (10 seconds). It
 stops the torrents first, so each writes down the pieces it has, then shuts down every plugin.
