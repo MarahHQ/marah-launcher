@@ -491,7 +491,7 @@ impl AreaSettings for FakeArea {
             },
             SystemArea::Power => {
                 let (refused, battery) = futures::join!(system.power_unavailable(), system.battery());
-                AreaState::Ready(AreaData::Power { battery: battery?, refused })
+                AreaState::Ready(AreaData::Power { battery: battery.ok().flatten(), refused })
             }
             SystemArea::OsUpdates => AreaState::Ready(AreaData::OsUpdates { update: system.os_update().await.ok() }),
             SystemArea::OsInstall => AreaState::Ready(AreaData::OsInstall { disks: system.disks().await? }),

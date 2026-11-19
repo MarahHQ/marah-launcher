@@ -73,10 +73,11 @@ impl Adapter for PluginDrives {
     }
 
     async fn list(&self) -> CoreResult<Vec<Drive>> {
+        // A list it doesn't give is a read that failed, not a list with no drive.
         match self.kernel.guard(&self.plugin, "drives.state", self.settings.state()).await? {
             AreaState::Ready(AreaData::Drives { drives: found }) => Ok(drives(found)),
             AreaState::Unsupported(why) => Err(CoreError::Invalid(why)),
-            _ => Ok(Vec::new()),
+            other => Err(CoreError::Invalid(format!("the system plugin gave no drives: {other:?}"))),
         }
     }
 

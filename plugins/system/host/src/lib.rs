@@ -83,7 +83,8 @@ mod other {
     impl AreaSettings for Power {
         async fn state(&self) -> PluginResult<AreaState> {
             let refused = Some("Restart or shut down from the system's own menu".into());
-            Ok(AreaState::Ready(AreaData::Power { battery: self.battery().await?, refused }))
+            // A battery that isn't read leaves the refusal standing.
+            Ok(AreaState::Ready(AreaData::Power { battery: self.battery().await.ok().flatten(), refused }))
         }
 
         async fn act(&self, _action: AreaAction, _job: Arc<dyn SystemJob>) -> PluginResult<()> {

@@ -141,22 +141,13 @@ impl SystemState {
             _ => None,
         }
     }
-
-    /// Why the area can't be used: no plugin provides it, or its plugin says why. `None` while
-    /// it is ready or loading.
-    pub fn unavailable(&self, area: SystemArea) -> Option<String> {
-        match self.areas.get(&area)? {
-            AreaState::Absent => Some(absent(area)),
-            AreaState::Unsupported(why) => Some(why.clone()),
-            AreaState::Ready(_) => None,
-        }
-    }
 }
 
-/// What an absent area says: nobody provides it here.
+/// What an absent area says: nobody provides it here. On Linux the drives need UDisks, which
+/// the system plugin uses.
 pub(crate) fn absent(area: SystemArea) -> String {
     match area {
-        SystemArea::Drives => crate::drives::CANT_ACT.into(),
+        SystemArea::Drives if cfg!(target_os = "linux") => crate::drives::CANT_ACT.into(),
         _ => format!("{} can't change this on this system", launcher_api::brand::PRODUCT_NAME),
     }
 }
@@ -327,10 +318,13 @@ pub(crate) async fn adopt_vpn(core: &Core) {
     }
 }
 
-/// Reads every area again, all at once. Each area tells the view as soon as it is read, so a
-/// slow one (a network tool that hangs) holds none of the others.
+/// Reads every area again, all at once, but the drives: their read waits for a turn of the disk,
+/// and a drive command or the drives' own tick reads them ([`crate::drives::refresh`]). Each
+/// area tells the view as soon as it is read, so a slow one (a network tool that hangs) holds
+/// none of the others.
 pub(crate) async fn refresh(core: &Core) {
-    futures::future::join_all(SystemArea::ALL.map(|area| read(core, area))).await;
+    let areas = SystemArea::ALL.into_iter().filter(|a| *a != SystemArea::Drives);
+    futures::future::join_all(areas.map(|area| read(core, area))).await;
 }
 
 /// Asks the area's plugin what the area is now. An area nobody provides is absent, and so is
@@ -349,6 +343,7 @@ async fn ask(core: &Core, area: SystemArea) -> CoreResult<(AreaState, Option<Arc
 /// it doesn't stay loading. Then each area's own rule runs: the low battery notice, the VPNs for
 /// the downloads, and the drives' list.
 pub(crate) async fn read(core: &Core, area: SystemArea) {
+    let rereads = core.drives().rereads();
     let asked = ask(core, area).await;
     let mut notice = None;
     let (changed, now) = {
@@ -389,7 +384,7 @@ pub(crate) async fn read(core: &Core, area: SystemArea) {
                 core.changed(Area::Vpn);
             }
         }
-        SystemArea::Drives => crate::drives::listed(core).await,
+        SystemArea::Drives => crate::drives::listed(core, rereads).await,
         _ => {}
     }
 }
@@ -439,7 +434,7 @@ where
 /// What the player asks of the machine.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum SystemCommand {
-    /// Reads everything again now.
+    /// Reads every area again now but the drives, which `DriveCmd::Refresh` reads.
     Refresh,
     /// Looks for Wi-Fi networks again (a few seconds).
     ScanWifi,

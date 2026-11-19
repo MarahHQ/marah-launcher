@@ -106,7 +106,13 @@ impl VpnRule {
 
     /// Reads the VPNs off the UI thread, with the interface downloads may use among them.
     pub async fn read(&self) -> (Vec<Vpn>, Option<String>) {
-        let network = self.network();
+        self.read_on(self.network()).await
+    }
+
+    /// [`VpnRule::read`] through `network`, which the caller keeps for its own questions: the
+    /// system plugin's port answers them from its last read, and the core swaps the port on its
+    /// tick.
+    async fn read_on(&self, network: Arc<dyn Network>) -> (Vec<Vpn>, Option<String>) {
         let reader = network.clone();
         let vpns = tokio::task::spawn_blocking(move || reader.vpns()).await.unwrap_or_default();
         // After the read: a system plugin's VPN area says what the system is with each read.
@@ -137,7 +143,7 @@ impl VpnCheck for VpnRule {
         if let Some(reason) = network.problem() {
             return Ok(VpnPass::Unbound { reason });
         }
-        let (vpns, route) = self.read().await;
+        let (vpns, route) = self.read_on(network.clone()).await;
         // A system plugin's VPN area says what the system is with its first read.
         if let Some(reason) = network.problem() {
             return Ok(VpnPass::Unbound { reason });

@@ -586,9 +586,7 @@ export component SystemSheet inherits Rectangle {
             }
             // Why this part can't be used here.
             property <string> reason: Sys.reason(Sys.panel);
-            // The drives list what is there even where they can't be mounted: the reason shows
-            // over them.
-            if (Sys.rows(Sys.panel) == 0 || (Sys.panel == 3 && !Vm.system.drives-available)) && self.reason != "" : Text {
+            if Sys.rows(Sys.panel) == 0 && self.reason != "" : Text {
                 text: parent.reason;
                 font-size: 17 * Look.tpx;
                 color: Look.text3;

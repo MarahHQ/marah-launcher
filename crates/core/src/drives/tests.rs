@@ -205,3 +205,21 @@ async fn the_mount_folders_list_each_drive_mounted_in_them_and_can_t_mount() {
     let refused = folders.mount(&list[0], job()).await.unwrap_err().to_string();
     assert!(refused.contains("Mounting needs UDisks"), "{refused}");
 }
+
+/// A list read before an action read the drives again is older than the one kept: the next
+/// refresh asks the adapter again rather than put the old list back.
+#[tokio::test]
+async fn a_list_read_before_a_mount_doesn_t_undo_the_mount() {
+    let (drives, fake) = with(Vec::new());
+    fake.set(Some(vec![drive("A", None)]));
+    drives.refresh(None).await;
+    let (old, rereads) = (vec![drive("A", None)], drives.rereads());
+    drives.mount("A", job()).await.unwrap();
+    drives.refresh(Some((old.clone(), rereads))).await;
+    assert_eq!(drives.known()[0].mount.as_deref(), Some(Path::new("/media/A")), "the mount stands");
+
+    // A list read after it is used as it is.
+    let rereads = drives.rereads();
+    drives.refresh(Some((old, rereads))).await;
+    assert_eq!(drives.known()[0].mount, None);
+}

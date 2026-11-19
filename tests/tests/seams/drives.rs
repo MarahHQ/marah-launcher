@@ -347,10 +347,8 @@ async fn a_mount_that_never_ends_fails_after_a_while() {
     assert!(jobs.iter().any(|j| j.kind == "mount" && j.state == "failed"), "{jobs:?}");
 }
 
-/// Each read of the drives asks the system plugin once why drives can't be managed: the
-/// drives' list comes with the system's one read of the drives area, and the drives keep their
-/// adapter while its answer stays the same. A read of the machine and a read of the drives are
-/// each one read of the area.
+/// One tick of the machine's settings asks the system plugin once why drives can't be managed:
+/// the drives reuse the system's answer, and keep their adapter while it stays the same.
 #[tokio::test]
 async fn a_tick_asks_once_why_drives_can_t_be_managed() {
     let (system, media) = (FakeSystem::new(), tempfile::tempdir().unwrap());
@@ -358,9 +356,8 @@ async fn a_tick_asks_once_why_drives_can_t_be_managed() {
     t.core.dispatch(Command::System(SystemCommand::Refresh)).await.unwrap();
     let before = system.read(|m| m.drive_reason_reads);
     t.core.dispatch(Command::System(SystemCommand::Refresh)).await.unwrap();
-    assert_eq!(system.read(|m| m.drive_reason_reads) - before, 1, "the system's read only");
     drive(&t, DriveCmd::Refresh).await.unwrap();
-    assert_eq!(system.read(|m| m.drive_reason_reads) - before, 2, "the drives' read is the same one read");
+    assert_eq!(system.read(|m| m.drive_reason_reads) - before, 1, "the system's read only");
 }
 
 /// The titles in the library now.

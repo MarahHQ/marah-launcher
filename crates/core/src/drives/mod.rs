@@ -116,6 +116,9 @@ pub(crate) struct Drives {
     reading: tokio::sync::Mutex<()>,
     /// A read of the list ended, whether it worked or not.
     listed: std::sync::atomic::AtomicBool,
+    /// How many times an action read the list again ([`Drives::reread`]): a list read before
+    /// one of them is older than the one kept.
+    rereads: std::sync::atomic::AtomicU64,
     /// The plugin the adapter came from, and why it couldn't manage drives: `None` before the
     /// first choice.
     adopted: Mutex<Option<Adoption>>,
@@ -133,6 +136,7 @@ impl Drives {
             last: Mutex::new(None),
             reading: tokio::sync::Mutex::new(()),
             listed: Default::default(),
+            rereads: Default::default(),
             adopted: Mutex::new(None),
         }
     }
@@ -205,14 +209,21 @@ impl Drives {
         lock(&self.last).clone().unwrap_or_default()
     }
 
+    /// How many times an action read the list again: see [`Drives::refresh`].
+    pub(crate) fn rereads(&self) -> u64 {
+        self.rereads.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     /// Reads the list again, and says which drives came and went since the last read. `listed`
-    /// is the adapter's list when the caller read it already; the adapter is asked otherwise.
-    /// The first read finds what is there: nothing came. A read that fails changes nothing.
-    pub(crate) async fn refresh(&self, listed: Option<Vec<Drive>>) -> Changes {
+    /// is the adapter's list when the caller read it already, with [`Drives::rereads`] from
+    /// before that read. The adapter is asked again when there is none, or when an action read
+    /// the list since: the caller's list is older than the one kept. The first read finds what
+    /// is there: nothing came. A read that fails changes nothing.
+    pub(crate) async fn refresh(&self, listed: Option<(Vec<Drive>, u64)>) -> Changes {
         let _reading = self.reading.lock().await;
         let read = match listed {
-            Some(drives) => self.fill(drives).await,
-            None => self.list().await,
+            Some((drives, rereads)) if rereads == self.rereads() => self.fill(drives).await,
+            _ => self.list().await,
         };
         self.listed.store(true, std::sync::atomic::Ordering::SeqCst);
         let now = match read {
@@ -236,6 +247,7 @@ impl Drives {
     /// listed, and one plugged in isn't listed yet.
     async fn reread(&self) {
         let _reading = self.reading.lock().await;
+        self.rereads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let Ok(now) = self.list().await else { return };
         let mut last = lock(&self.last);
         let Some(last) = last.as_mut() else { return };

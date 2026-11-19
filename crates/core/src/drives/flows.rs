@@ -202,10 +202,11 @@ pub(crate) async fn refresh(core: &Core) {
     crate::system::read(core, SystemArea::Drives).await;
 }
 
-/// The system's reader just read the drives area: the list is kept. A drive that came is
-/// mounted, with a notice; the view hears of any change.
-pub(crate) async fn listed(core: &Core) {
-    let listed = adopt(core).await;
+/// The system's reader just read the drives area: the list is kept. `rereads` is
+/// [`super::Drives::rereads`] from before that read. A drive that came is mounted, with a notice;
+/// the view hears of any change.
+pub(crate) async fn listed(core: &Core, rereads: u64) {
+    let listed = adopt(core).await.map(|drives| (drives, rereads));
     let (before, read_before) = (core.drives().known(), core.drives().listed());
     let changes = {
         let _turn = core.disk_turn().await;
