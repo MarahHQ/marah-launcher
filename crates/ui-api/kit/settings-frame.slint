@@ -26,7 +26,7 @@ export global Sections {
             : Prefs.page ? (i <= 1 ? "power" : i <= Prefs.panels + 1 ? "gear"
                 : Prefs.about && i == Prefs.about-section ? "info" : "folder")
             : i == 0 ? "gear" : i == 1 ? "gamepad" : i == 2 ? "refresh"
-            : i == 3 ? "download" : i == 4 ? "desktop" : i == 5 && Vm.system.whole-screen ? "wifi-4"
+            : i == 3 ? "download" : i == 4 ? "desktop" : i == 5 && Vm.system.whole-screen ? "sliders"
             : i == Prefs.backup-section ? "archive" : "power"
     }
 }
