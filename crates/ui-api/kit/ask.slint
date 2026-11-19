@@ -1,0 +1,98 @@
+import { Tokens } from "../tokens.slint";
+import { Look } from "look.slint";
+import { Motion } from "motion.slint";
+
+// The keys of a question with two choices (`Ask`): 0 is Cancel, 1 the action.
+export global AskKeys {
+    // The choice a key moves the focus to from `focus`, or `focus` for a key that doesn't move
+    // it. Left and Right go to the pill on that side; Up and Shift+Tab go to Cancel, Down and
+    // Tab to the action.
+    public pure function moved(text: string, focus: int) -> int {
+        text == Key.UpArrow || text == Key.Backtab ? 0
+            : text == Key.DownArrow || text == Key.Tab ? 1
+            : text == Key.LeftArrow || text == Key.RightArrow ? ((text == Key.LeftArrow) != Look.rtl ? 0 : 1)
+            : focus
+    }
+}
+
+// A pill of a question: white while the keys are on it; red, and red when lit, for the action
+// that can't be taken back.
+component AskPill inherits Rectangle {
+    in property <string> text;
+    in property <bool> lit;
+    in property <bool> danger;
+    in property <string> name;
+    callback clicked();
+    height: 44 * Look.px;
+    width: Math.max(120 * Look.px, label.preferred-width + 36 * Look.px);
+    border-radius: self.height / 2;
+    background: root.lit ? (root.danger ? Tokens.color-danger : Tokens.color-focus) : touch.has-hover ? Look.fill-lit : Look.fill;
+    animate background { duration: Motion.focus; easing: Motion.enter; }
+    transform-scale: touch.pressed ? 0.97 : 1;
+    animate transform-scale { duration: Motion.press; }
+    accessible-role: button;
+    accessible-label: root.name;
+    accessible-value: root.text;
+    accessible-item-selected: root.lit;
+    accessible-action-default => { root.clicked(); }
+    touch := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+    label := Text {
+        text: root.text;
+        font-size: 17 * Look.tpx;
+        font-weight: 600;
+        color: root.lit ? (root.danger ? Tokens.color-tint : Look.ink) : root.danger ? Tokens.color-danger : Tokens.color-text;
+    }
+}
+
+// A question before something that can't be taken back, as a `Sheet`'s card holds it: the
+// question, what happens, and two pills side by side at the end. Cancel, the safe choice, comes
+// first in reading order, and the focus starts there; the action is in the danger colour.
+// `at` is the pill the keys are on (0 Cancel, 1 the action), and `AskKeys.moved` moves it. A
+// click on a pill says `picked` with its choice.
+export component Ask inherits VerticalLayout {
+    in property <string> title;
+    // What happens, under the question.
+    in property <string> details;
+    // The action's label.
+    in property <string> action;
+    in property <int> at;
+    // The labels tests and screen readers find the question (`<name>-title`) and the pills by.
+    in property <string> name;
+    in property <string> cancel-name;
+    in property <string> action-name;
+    callback picked(int);
+    padding: 24 * Look.px;
+    spacing: 8 * Look.px;
+    Text {
+        text: root.title;
+        font-size: 24 * Look.tpx;
+        font-weight: 700;
+        color: Tokens.color-text;
+        wrap: word-wrap;
+        horizontal-alignment: Look.rtl ? right : left;
+        accessible-role: text;
+        accessible-label: root.name + "-title";
+        accessible-value: self.text;
+    }
+    Text {
+        text: root.details;
+        font-size: 17 * Look.tpx;
+        color: Tokens.color-text-muted;
+        wrap: word-wrap;
+        horizontal-alignment: Look.rtl ? right : left;
+    }
+    Rectangle { height: 12 * Look.px; }
+    HorizontalLayout {
+        spacing: 12 * Look.px;
+        alignment: Look.rtl ? start : end;
+        // Cancel on the reading side: on the left, or on the right from right to left.
+        for slot in [0, 1] : AskPill {
+            property <int> choice: Look.rtl ? 1 - slot : slot;
+            text: self.choice == 0 ? "Cancel" : root.action;
+            name: self.choice == 0 ? root.cancel-name : root.action-name;
+            danger: self.choice == 1;
+            lit: root.at == self.choice;
+            clicked => { root.picked(self.choice); }
+        }
+    }
+}

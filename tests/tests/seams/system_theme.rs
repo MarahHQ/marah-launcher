@@ -357,6 +357,27 @@ fn on_a_desktop_restart_asks_in_a_dialog_with_the_focus_on_cancel() {
         assert_eq!(asking(&host), None, "{theme}: a click outside cancels");
         assert_eq!(system.read(|m| m.restarts), 0, "{theme}: nothing restarted");
 
+        // The choices sit side by side, Cancel on the left: Right and Tab go to Restart, Left
+        // and Shift+Tab back.
+        host.press_first("system-restart");
+        host.navigate(Key::RightArrow);
+        assert_eq!(host.focused("power-confirm-choice"), ["Restart"], "{theme}: Right goes to Restart");
+        host.navigate(Key::LeftArrow);
+        assert_eq!(host.focused("power-confirm-choice"), ["Cancel"], "{theme}: Left goes back");
+        host.navigate(Key::Tab);
+        assert_eq!(host.focused("power-confirm-choice"), ["Restart"], "{theme}: Tab goes to Restart");
+        host.navigate(Key::Backtab);
+        assert_eq!(host.focused("power-confirm-choice"), ["Cancel"], "{theme}: Shift+Tab goes back");
+        let choice = |label: &str| {
+            i_slint_backend_testing::ElementHandle::find_by_accessible_label(host.instance(), "power-confirm-choice")
+                .find(|e| e.accessible_value().is_some_and(|v| v == label))
+                .unwrap_or_else(|| panic!("{label} in the dialog"))
+                .absolute_position()
+        };
+        let (left, right) = (choice("Cancel"), choice("Restart"));
+        assert!(left.x < right.x && left.y == right.y, "{theme}: Cancel is left of Restart, on one line");
+        host.navigate(Key::Escape);
+
         host.press_first("system-restart");
         host.navigate(Key::DownArrow);
         assert_eq!(host.focused("power-confirm-choice"), ["Restart"], "{theme}");

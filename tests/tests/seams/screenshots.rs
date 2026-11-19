@@ -1351,6 +1351,7 @@ fn shoot_backup(window: &MinimalSoftwareWindow, out: &Path) {
         host.instance().window().dispatch_event(slint::platform::WindowEvent::KeyReleased { text: triangle });
         follow(&mut host);
         shoot(window, &out.join(format!("{theme}-backup-browser-confirm.png")));
+        round_corners(&host, out, &format!("{theme}-backup-browser-confirm"), "browser-confirm-title");
         key(&mut host, Key::Escape);
         host.dispatch(Command::Backup(launcher_core::BackupCmd::CloseBrowser));
     }

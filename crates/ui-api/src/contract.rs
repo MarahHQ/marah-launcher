@@ -45,6 +45,7 @@ pub const KIT_DIR: &str = "kit";
 /// `kit/<name>.slint`. A theme that ships a file at the same path replaces the kit's. Kit files
 /// import the host's files as `../types.slint` and each other by bare name.
 pub const KIT: &[(&str, &str)] = &[
+    ("ask.slint", include_str!("../kit/ask.slint")),
     ("button.slint", include_str!("../kit/button.slint")),
     ("closing.slint", include_str!("../kit/closing.slint")),
     ("commands.slint", include_str!("../kit/commands.slint")),

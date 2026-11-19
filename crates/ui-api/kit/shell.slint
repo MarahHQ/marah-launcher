@@ -34,7 +34,7 @@ export global ShellHints {
     // `trailer-key`: the shown game has a trailer, and its key opens it.
     public pure function pick(sort-open: bool, grid-header: bool, home: [Hint], trailer-key: bool) -> [Hint] {
         PowerAsk.asking != "" ? [
-            { pad: "⮝  ⮟", key: "↑ ↓", label: "Choose" },
+            { pad: "⮜  ⮞", key: "← →", label: "Choose" },
             { pad: "✕", key: "Enter", label: "Select" },
             { pad: "○", key: "Esc", label: "Cancel" },
         ]

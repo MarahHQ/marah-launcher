@@ -405,17 +405,32 @@ fn a_restore_from_the_backup_browser_asks_once_then_restores_in_every_theme() {
         assert_eq!(host.count("browser-confirm"), 0, "{theme}");
         assert_eq!(host.count("folder-browser"), 1, "{theme}: the browser stays");
 
-        // Enter asks too; Right goes to Cancel, Enter on it says no.
+        // Enter asks too, with the focus on Cancel, the safe choice. Right goes to Restore, Left
+        // and Shift+Tab back to Cancel, Tab to Restore again; Enter on Cancel says no.
         host.navigate(Key::Return);
-        assert_eq!(host.focused("browser-confirm-restore").len(), 1, "{theme}: Restore is first");
+        assert_eq!(host.focused("browser-confirm-cancel").len(), 1, "{theme}: Cancel is first");
+        assert!(host.focused("browser-confirm-restore").is_empty(), "{theme}");
         host.navigate(Key::RightArrow);
-        assert_eq!(host.focused("browser-confirm-cancel").len(), 1, "{theme}");
+        assert_eq!(host.focused("browser-confirm-restore").len(), 1, "{theme}: Right goes to Restore");
+        host.navigate(Key::LeftArrow);
+        assert_eq!(host.focused("browser-confirm-cancel").len(), 1, "{theme}: Left goes back");
+        host.navigate(Key::Tab);
+        assert_eq!(host.focused("browser-confirm-restore").len(), 1, "{theme}: Tab goes to Restore");
+        host.navigate(Key::Backtab);
+        assert_eq!(host.focused("browser-confirm-cancel").len(), 1, "{theme}: Shift+Tab goes back");
         host.navigate(Key::Return);
         assert_eq!(host.count("browser-confirm"), 0, "{theme}");
         assert!(!host.core().view().settings.backup.restart, "{theme}: nothing restored");
 
+        // A click outside the dialog says no too.
+        host.navigate(Key::Return);
+        host.click_at(4.0, 4.0);
+        assert_eq!(host.count("browser-confirm"), 0, "{theme}: a click outside says no");
+        assert_eq!(host.count("folder-browser"), 1, "{theme}: the browser stays");
+
         // Restore: the backup goes back, and the browser closes.
         host.navigate(Key::Return);
+        host.navigate(Key::RightArrow);
         host.navigate(Key::Return);
         host.until(launcher_core::Area::Backup, |core| core.view().settings.backup.restart);
         host.settle();

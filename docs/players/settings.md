@@ -103,7 +103,8 @@ row reads **Restart Marah Launcher**, and the session starts the launcher again.
 - In the Marah Launcher session on a desktop, **Log out** goes back to the login screen.
 - When the system allows it, **Restart** and **Shut down** restart or turn off the PC.
 - On a desktop, Restart and Shut down close every app on the PC, so they ask first in a dialog.
-  The dialog starts on **Cancel**. Esc, B (○) or a click outside the dialog cancels.
+  The dialog starts on **Cancel**. Left and Right move between Cancel and the action. Esc,
+  B (○) or a click outside the dialog cancels.
 - Log out asks you to press twice. When the launcher is the whole screen, Restart and Shut down
   ask the same way.
 - Before Log out, Restart and Shut down act, they close what runs: a running game first, then Steam, when the launcher started it. The screen says what it is
