@@ -61,7 +61,13 @@ impl Disks {
 /// on a blocking thread, not on the async workers.
 pub(crate) async fn refresh(core: &Core) {
     let reader = core.clone();
-    let Ok(disks) = tokio::task::spawn_blocking(move || read(&reader)).await else { return };
+    // A drive that stopped answering holds that thread, not the command that waits here.
+    let read =
+        tokio::time::timeout(crate::drives::SPACE_READ_LIMIT, tokio::task::spawn_blocking(move || read(&reader)));
+    let Ok(Ok(disks)) = read.await else {
+        tracing::warn!("the folders' free space wasn't read in time: it stays as it was");
+        return;
+    };
     let changed = {
         let mut state = core.state();
         let changed = state.disks != disks;

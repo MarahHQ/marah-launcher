@@ -102,6 +102,9 @@ fn nearest(folder: &Path) -> Option<&Path> {
     folder.ancestors().find(|p| p.is_dir())
 }
 
+/// How long a read of the drives' free space may take before the read gives up on it.
+pub(crate) const SPACE_READ_LIMIT: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// The drives, through the adapter in use, and the list as it was last read.
 pub(crate) struct Drives {
     space: Arc<dyn DriveSpace>,
@@ -180,7 +183,11 @@ impl Drives {
             }
             drives
         });
-        filled.await.map_err(|e| CoreError::Invalid(format!("the drives' free space wasn't read: {e}")))
+        // A drive that stopped answering holds that thread, not the reads after it.
+        match tokio::time::timeout(SPACE_READ_LIMIT, filled).await {
+            Ok(filled) => filled.map_err(|e| CoreError::Invalid(format!("the drives' free space wasn't read: {e}"))),
+            Err(_) => Err(CoreError::Invalid("a drive's free space took too long to read".into())),
+        }
     }
 
     /// A read of the list ended: before, the list is still loading.
