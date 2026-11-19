@@ -239,16 +239,14 @@ pub(crate) struct Inner {
     pub library: crate::library::LibrarySubsystem,
     /// The running games.
     pub sessions: crate::sessions::SessionsSubsystem,
+    /// The emulators' builds and their installs.
+    pub builds: crate::builds::BuildsSubsystem,
     pub notices: crate::notices::NoticesSubsystem,
     pub launcher_update: crate::launcher_update::LauncherUpdateSubsystem,
     pub vpn: crate::vpn::VpnSubsystem,
     pub backup: crate::backup::BackupSubsystem,
     /// Held while the catalogs are read: see [`crate::catalog_reads::refresh_releases`].
     pub reading_catalogs: tokio::sync::Mutex<()>,
-    /// One read of an emulator's builds and panel at a time. Two at once could end in the
-    /// wrong order: a read that began before the plugin changed would put the old panel over
-    /// the new one.
-    pub reading_emulators: tokio::sync::Mutex<()>,
 }
 
 /// The app. Cheap to clone; every clone is the same app.
@@ -338,6 +336,11 @@ impl Core {
                 Notifier::new(changes.clone(), kernel.events().clone()),
                 events,
             );
+            let builds = crate::builds::BuildsSubsystem::new(
+                kernel.config().clone(),
+                kernel.events().clone(),
+                Notifier::new(changes.clone(), kernel.events().clone()),
+            );
             let notices =
                 crate::notices::NoticesSubsystem::new(Notifier::new(changes.clone(), kernel.events().clone()));
             let launcher_update = crate::launcher_update::LauncherUpdateSubsystem::new(
@@ -378,11 +381,11 @@ impl Core {
                 installs,
                 library,
                 sessions,
+                builds,
                 notices,
                 launcher_update,
                 vpn,
                 reading_catalogs: tokio::sync::Mutex::new(()),
-                reading_emulators: tokio::sync::Mutex::new(()),
             }
         });
         let core = Core { inner };
@@ -447,6 +450,11 @@ impl Core {
         &self.inner.sessions
     }
 
+    /// The emulators' builds and their installs.
+    pub(crate) fn builds(&self) -> &crate::builds::BuildsSubsystem {
+        &self.inner.builds
+    }
+
     /// What the sessions subsystem says the core must do.
     fn session_event(&self, event: crate::sessions::SessionEvent) {
         match event {
@@ -504,6 +512,7 @@ impl Core {
         let kernel = self.kernel();
         let library = self.library().snapshot();
         let torrents = self.torrents().snapshot();
+        let builds = self.builds().snapshot();
         let state = self.state().clone();
         let detail_game = crate::snapshot::detail_game(&state);
         let files = crate::snapshot::files(kernel, &library, &torrents, detail_game.as_ref());
@@ -511,6 +520,7 @@ impl Core {
             plugins: crate::snapshot::Plugins::new(kernel),
             installs: self.installs().snapshot(),
             sessions: self.sessions().snapshot(),
+            builds,
             prefs: self.prefs(),
             notices: self.notices().snapshot(),
             launcher_update: self.launcher_update().snapshot(),

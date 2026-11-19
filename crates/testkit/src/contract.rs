@@ -221,9 +221,9 @@ pub trait ArchiveFixture {
 }
 
 /// The refusals every [`Archives`] adapter makes before it writes anything: a path that climbs
-/// out with `..`, an absolute path, a link that points out, an entry that needs a password, and
-/// an archive bigger than the free space. A plain archive unpacks, so an adapter that refuses
-/// everything fails too.
+/// out with `..`, an absolute path, a link that points out on its own or through other links,
+/// an entry under a link, an entry that needs a password, and an archive bigger than the free
+/// space. A plain archive unpacks, so an adapter that refuses everything fails too.
 pub async fn archives(adapter: &dyn Archives, fixture: &dyn ArchiveFixture) {
     let file = |path: &str, bytes: &[u8]| Sample::File(path.into(), bytes.to_vec());
     let plain = || vec![file("Game/eboot.bin", b"elf"), file("readme.txt", b"hi")];
@@ -260,6 +260,25 @@ pub async fn archives(adapter: &dyn Archives, fixture: &dyn ArchiveFixture) {
         assert_eq!(refused, Err(out), "contract archives: a link to {target} points out");
         refused_before_writing(&into, "a link out");
     }
+
+    // `d/l` ends at the top, so `x` ends one folder above it.
+    let (dir, into) = folders();
+    let link = |path: &str, target: &str| Sample::Link(path.into(), target.into());
+    let chained = [file("good.txt", b"ok"), link("d/l", ".."), link("x", "d/l/.."), file("x/evil.txt", b"no")];
+    let (kind, parts) = fixture.archive(dir.path(), &chained);
+    let refused = unpack(adapter, kind, &parts, &into, None).await;
+    let out = ArchiveError::Escapes { entry: "x".into(), how: Escape::LinksOut };
+    assert_eq!(refused, Err(out), "contract archives: links that chain out point out");
+    refused_before_writing(&into, "links that chain out");
+    assert!(!dir.path().join("evil.txt").exists(), "contract archives: nothing written beside the folder");
+
+    let (dir, into) = folders();
+    let under = [link("a", "b"), file("b/keep", b"ok"), file("a/f", b"no")];
+    let (kind, parts) = fixture.archive(dir.path(), &under);
+    let refused = unpack(adapter, kind, &parts, &into, None).await;
+    let through = ArchiveError::Escapes { entry: "a/f".into(), how: Escape::ThroughLink };
+    assert_eq!(refused, Err(through), "contract archives: a file under a link would write through it");
+    refused_before_writing(&into, "a file under a link");
 
     let (dir, into) = folders();
     match fixture.locked(dir.path()) {

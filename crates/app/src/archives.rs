@@ -1065,6 +1065,25 @@ mod tests {
     }
 
     #[test]
+    fn a_tar_with_a_hard_link_to_a_link_is_refused_before_anything_is_written() {
+        let dir = folder("tar-hard-link");
+        let mut tar = tar::Builder::new(Vec::new());
+        let mut link = tar::Header::new_gnu();
+        link.set_entry_type(tar::EntryType::Symlink);
+        link.set_size(0);
+        tar.append_link(&mut link, "d/e/s", "../..").unwrap();
+        let mut hard = tar::Header::new_gnu();
+        hard.set_entry_type(tar::EntryType::Link);
+        hard.set_size(0);
+        tar.append_link(&mut hard, "h", "d/e/s").unwrap();
+        std::fs::write(dir.join("game.tar"), tar.into_inner().unwrap()).unwrap();
+        let refused = run(ArchiveKind::Tar, &[dir.join("game.tar")], &dir).unwrap_err();
+        assert_eq!(refused, ArchiveError::Escapes { entry: "h".into(), how: Escape::LinksOut });
+        assert!(nothing_in(&dir.join("out")), "nothing written");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn a_7z_unpacks_whole_and_cut_into_parts() {
         let dir = folder("7z");
         let seven = seven_of(&[("Game/eboot.bin", b"elf"), ("Game/data.bin", &[7; 5000])]);

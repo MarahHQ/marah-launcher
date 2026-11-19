@@ -444,7 +444,7 @@ pub(crate) fn build(s: &Snapshot) -> AppView {
             yes: q.yes.clone(),
             no: q.no.clone(),
         }),
-        install_prompt: state.install_prompt.as_ref().map(|p| InstallPromptVm {
+        install_prompt: s.builds.install_prompt.as_ref().map(|p| InstallPromptVm {
             plugin: p.game.plugin.clone(),
             emulator: p.emulator.clone(),
             version: p.version.clone(),
@@ -645,7 +645,7 @@ fn detail_vm(s: &Snapshot, owned: &Ownership, key: &GameKey) -> Option<GameDetai
     let manifest = s.plugins.manifest(&key.plugin);
     let offer = library.offer(key);
     let has_installer = manifest.is_some_and(|m| m.capabilities.contains(&Capability::Installer));
-    let installed = s.state.emulators.get(&key.plugin).is_some_and(|e| !e.installed.is_empty());
+    let installed = s.builds.emulators.get(&key.plugin).is_some_and(|e| !e.installed.is_empty());
     // A Catalog offer plays as the installed game it is, and not at all before it is installed.
     let installed_as = offer.and_then(|o| owned.installed_game(o));
     let played = installed_as.map(|g| &g.key).unwrap_or(key);
@@ -1537,7 +1537,7 @@ fn folders_vm(s: &Snapshot) -> Vec<FolderVm> {
 }
 
 fn emulators_vm(s: &Snapshot) -> EmulatorsVm {
-    let (plugins, state) = (&s.plugins, &s.state);
+    let (plugins, builds) = (&s.plugins, &s.builds);
     let manages_an_emulator = |id: &PluginId| {
         plugins.manifest(id).is_some_and(|m| {
             m.capabilities.contains(&Capability::Installer) || m.capabilities.contains(&Capability::Launcher)
@@ -1548,7 +1548,7 @@ fn emulators_vm(s: &Snapshot) -> EmulatorsVm {
         .into_iter()
         .filter(manages_an_emulator)
         .map(|id| {
-            let emu = state.emulators.get(&id).cloned().unwrap_or_default();
+            let emu = builds.emulators.get(&id).cloned().unwrap_or_default();
             let manifest = plugins.manifest(&id);
             let look = manifest.and_then(|m| m.system.as_ref());
             let art = |path: Option<&launcher_api::RelPath>| {
@@ -1565,7 +1565,7 @@ fn emulators_vm(s: &Snapshot) -> EmulatorsVm {
                 update: emu.update(),
                 installed: emu.installed,
                 available: emu.available,
-                busy: emu.busy,
+                busy: builds.busy(&id),
                 panels: slot_vms(&id, SlotId::EmulatorPanel, emu.panels),
                 controllers: controllers(manifest),
                 controllers_text: String::new(),
@@ -1592,10 +1592,10 @@ fn emulators_vm(s: &Snapshot) -> EmulatorsVm {
             version: m.version.to_string(),
             status: status_text(plugins.status(id)),
             enabled: plugins.enabled(id),
-            build: state.emulators.get(id).and_then(|e| e.installed.last().cloned()).unwrap_or_default(),
+            build: builds.emulators.get(id).and_then(|e| e.installed.last().cloned()).unwrap_or_default(),
             build_label: build_label(
                 m.emulator_name(),
-                state.emulators.get(id).and_then(|e| e.installed.last()).map_or("", String::as_str),
+                builds.emulators.get(id).and_then(|e| e.installed.last()).map_or("", String::as_str),
             ),
             has_builds: m.capabilities.contains(&Capability::Installer),
             note: if plugins.elsewhere(id) {
@@ -1708,7 +1708,8 @@ fn plugin_page_vm(s: &Snapshot, plugin: &PluginId) -> Option<PluginPageVm> {
     Some(PluginPageVm {
         emulator: all.emulators.into_iter().find(|e| &e.plugin == plugin),
         panels,
-        sections: state
+        sections: s
+            .builds
             .emulators
             .get(plugin)
             .map(|e| slot_vms(plugin, SlotId::EmulatorPanel, e.panels.clone()))
@@ -1741,13 +1742,13 @@ fn boot_vm(s: &Snapshot) -> BootVm {
         vec![step("Game folders".into(), if booted { Look::games(games) } else { "Looking…".into() }, loaded)];
     // The start's installs: each one's share of the way, from 0 to 1.
     let mut shares: Vec<f32> = Vec::new();
-    for (plugin, emu) in &s.state.emulators {
+    for (plugin, emu) in &s.builds.emulators {
         let Some(manifest) = s.plugins.manifest(plugin) else { continue };
         if !manifest.capabilities.contains(&Capability::Installer) {
             continue;
         }
         let download = s.downloads.iter().rev().find(|j| &j.plugin == plugin && !j.phase.is_over());
-        let (detail, state) = if emu.busy {
+        let (detail, state) = if s.builds.busy(plugin) {
             let share =
                 download.and_then(|j| j.total.filter(|t| *t > 0).map(|t| (j.received as f32 / t as f32).min(1.0)));
             shares.push(share.unwrap_or(0.0));

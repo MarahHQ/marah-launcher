@@ -1,13 +1,12 @@
 //! The state no subsystem owns: where the player is and what they look at (the navigation
 //! stack with each screen's selection, the Library's and the Catalog's grids), the questions the player
-//! answers (the install prompt, "How far did it get?"), each emulator's builds and the Settings
-//! screen's panels as the plugins last gave them, the machine's state, the stores' installs,
-//! and the theme on screen.
+//! answers ("How far did it get?"), the Settings screen's panels as the plugins last gave them,
+//! the machine's state, the stores' installs, and the theme on screen.
 //!
 //! The core's flows write it under one lock, and the view reads it. The core takes it only
 //! while it holds no subsystem's lock.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::HashMap;
 
 use launcher_api::{GameKey, PluginId};
 use serde_json::Value;
@@ -15,43 +14,6 @@ use serde_json::Value;
 use crate::app::Grid;
 use crate::grid_query::{GridQuery, ShownGrid};
 use crate::stack::Stack;
-
-/// A first play waiting for the player to agree to install its emulator.
-#[derive(Clone, Debug)]
-pub(crate) struct InstallPrompt {
-    pub game: GameKey,
-    pub emulator: String,
-    pub version: String,
-    pub title: String,
-    pub size_bytes: Option<u64>,
-}
-
-/// An emulator's builds and blocks, as its plugin last gave them.
-#[derive(Clone, Debug, Default)]
-pub(crate) struct EmulatorState {
-    pub installed: Vec<String>,
-    /// "Use your own build" is on: the installed build, if the player picked one, is theirs,
-    /// and it never updates by itself.
-    pub own: bool,
-    pub available: Vec<String>,
-    pub busy: bool,
-    /// Its `emulator.panel` slot items.
-    pub panels: Vec<launcher_api::SlotItem>,
-}
-
-impl EmulatorState {
-    /// The newest available version, if it is newer than every installed one. Versions
-    /// compare as semver when they parse, as text otherwise.
-    pub fn update(&self) -> Option<String> {
-        let newest = self.available.first()?;
-        let installed = self.installed.last()?;
-        let newer = match (semver::Version::parse(newest), semver::Version::parse(installed)) {
-            (Ok(a), Ok(b)) => a > b,
-            _ => newest != installed && !self.installed.contains(newest),
-        };
-        newer.then(|| newest.clone())
-    }
-}
 
 /// A plugin's settings panel on the Settings screen: its slot item, and the schema and the
 /// values of the settings scope it names.
@@ -69,8 +31,6 @@ pub(crate) struct SettingsPanel {
 pub(crate) struct AppState {
     /// The screens the player came through, each with the game selected on it.
     pub stack: Stack,
-    /// Each emulator's builds and blocks, and a service plugin's blocks once its page opens.
-    pub emulators: BTreeMap<PluginId, EmulatorState>,
     pub settings: std::sync::Arc<Vec<SettingsPanel>>,
     pub theme: Option<PluginId>,
     /// The Library's search, filters and sort.
@@ -90,9 +50,6 @@ pub(crate) struct AppState {
     pub hardware: Option<crate::Specs>,
     /// The machine's settings, from the system plugins.
     pub system: crate::system::SystemState,
-    pub install_prompt: Option<InstallPrompt>,
-    /// Emulators with an update that waits for their game to close.
-    pub pending_updates: BTreeSet<PluginId>,
     /// The start's installs, which the boot screen waits for.
     pub startup: crate::startup::Startup,
     /// The installs stores are doing (Steam's), by the catalog plugin, as last read.
@@ -113,7 +70,6 @@ impl AppState {
     pub fn new(theme: Option<PluginId>) -> Self {
         Self {
             stack: Stack::default(),
-            emulators: BTreeMap::new(),
             settings: Default::default(),
             theme,
             library_view: GridQuery::library(),
@@ -124,8 +80,6 @@ impl AppState {
             log_out_ready: false,
             hardware: None,
             system: Default::default(),
-            install_prompt: None,
-            pending_updates: BTreeSet::new(),
             startup: Default::default(),
             store_installs: Vec::new(),
             store_watch_until: None,
