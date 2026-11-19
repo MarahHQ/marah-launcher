@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use emulator_kit::game_install::{self, Part};
 use emulator_kit::games;
 use emulator_kit::installs::{self, ExfatImage, Format, Ps5Package, Tree, Writer};
 use emulator_kit::read_at::HostFile;
@@ -126,28 +127,18 @@ impl GameInstaller for Kyty {
                 None => game_package(&folders, &download).await?,
             },
         };
-        let stem = match &from {
-            Source::File(file, _) => {
-                let name = file.path.path.file_name().unwrap_or("game");
-                name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name).to_owned()
-            }
-            Source::Folder(_, prefix) => {
-                let prefix = prefix.trim_end_matches('/');
-                prefix.rsplit('/').next().filter(|p| !p.is_empty()).unwrap_or("game").to_owned()
-            }
-        };
         // An unpacked folder may move rather than be copied, when the host made it.
         let folder = match &from {
             Source::Folder(_, prefix) => Some(source.join(prefix.trim_end_matches('/'))?),
             Source::File(..) => None,
         };
-        let work = base.join(&format!("{stem}.part"))?;
-        folders.remove(&work).await?;
-        let into = work.clone();
-        installs::spawn(folders, work.clone(), job, move |writer, job| {
+        // The game's title id names its folder, so the tree opens here: an installed game is
+        // refused before anything is written.
+        let cancel_job = job.clone();
+        let (tree, entries, prefix, title_id, title) = installs::blocking(move || {
             use emulator_kit::fail::Context;
-            let cancel = installs::cancel_check(job);
-            let mut tree: Box<dyn Tree> = match from {
+            let cancel = installs::cancel_check(cancel_job.as_ref());
+            let mut tree: Box<dyn Tree + Send> = match from {
                 Source::File(file, Format::Ps5Package) => Box::new(Ps5Package::open(file, &cancel)?),
                 Source::File(file, _) => Box::new(ExfatImage::open(file)?),
                 Source::Folder(tree, _) => Box::new(tree),
@@ -159,17 +150,12 @@ impl GameInstaller for Kyty {
                 entries.iter().position(|e| e.path == format!("{prefix}sce_sys/param.json")).context("param.json")?;
             let param = Writer::read_entry(tree.as_mut(), at, 1 << 20)?;
             let (title_id, title) = games::ps5_param(&param).context("Its param.json has no usable title id")?;
-            let dest = base.join(&format!("{title_id}-app0")).map_err(emulator_kit::fail::Error::msg)?;
-            emulator_kit::ensure!(!writer.exists(&dest)?, "{title} is already installed");
-            let total = installs::tree_size(&entries, &prefix);
-            if prefix.is_empty() && folder.is_some_and(|f| job.take(&f, &into)) {
-                job.progress(total, total);
-            } else {
-                installs::write_tree(writer, tree.as_mut(), &entries, &prefix, &into, job)?;
-            }
-            writer.rename(&into, &dest)?;
-            Ok((dest, title))
-        });
-        Ok(work)
+            Ok((tree, entries, prefix, title_id, title))
+        })
+        .await?;
+        let dest = base.join(&format!("{title_id}-app0"))?;
+        let whole = folder.filter(|_| prefix.is_empty());
+        let part = Part::new(dest, title, tree).under(prefix).listed(entries).whole(whole);
+        game_install::install(folders, job, vec![part]).await
     }
 }

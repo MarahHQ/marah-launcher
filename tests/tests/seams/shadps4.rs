@@ -532,6 +532,21 @@ async fn an_update_alone_needs_its_game_and_an_add_on_already_there_stays() {
 }
 
 #[tokio::test]
+async fn a_ps4_package_and_an_unpacked_ps4_game_keep_the_game_install_contract() {
+    use emu_shadps4::pkg4::Kind;
+    let (test, _games) = boot().await;
+    let (p, _data) = packages(&test, &[("game.pkg", ps4_package(Kind::Game, &[("eboot.bin", b"v1")]))]).await;
+    let download_dir = p.path().join("PS4/torrent-abc/Release");
+    ps4_game(&download_dir, "CUSA55555", "gd", "CUSA55555", "Hollow");
+    std::fs::write(download_dir.join("CUSA55555/eboot.bin"), b"\x4f\x15\x3d\x1dgame").unwrap();
+
+    for path in ["PS4/game.pkg", "PS4/torrent-abc"] {
+        let source = HostPath::new("packages", 0, RelPath::new(path).unwrap());
+        contract::game_install(&test, &shad(), &source).await;
+    }
+}
+
+#[tokio::test]
 async fn an_unpacked_ps4_game_folder_installs_as_it_is_and_an_update_folder_does_not() {
     let (test, games) = boot().await;
     let (p, _data) = packages(&test, &[]).await;

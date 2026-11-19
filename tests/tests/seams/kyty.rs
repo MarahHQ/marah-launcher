@@ -552,7 +552,10 @@ async fn install_game(k: &Kyty, file: &str) -> String {
         .unwrap_or_else(|| panic!("an offer to install {file}: {:?}", emu.panels));
     let start =
         Command::RunAction { plugin: kyty(), action: HOST_INSTALL_GAME.into(), game: None, args: offer.args.clone() };
-    k.test.core.dispatch(start).await.unwrap();
+    // Some things fail before any copying starts, such as a game that is already installed.
+    if let Err(e) = k.test.core.dispatch(start).await {
+        return format!("failed {e}");
+    }
     k.test
         .until(Area::Installs, |core| core.view().downloads.jobs.first().is_some_and(|j| j.state != "installing"))
         .await;
@@ -648,6 +651,24 @@ async fn a_game_that_is_already_installed_is_not_installed_twice() {
     let end = install_game(&k, "game.pkg").await;
     assert!(end.starts_with("failed") && end.contains("already"), "{end}");
     assert!(!k.games.path().join("PS5/game.part").exists());
+}
+
+#[tokio::test]
+async fn a_ps5_package_and_an_unpacked_ps5_game_keep_the_game_install_contract() {
+    use emulator_kit::pkg5::build;
+    let k = boot(&[V1]).await;
+    let pkg = build::package(&build::Spec { files: &[("eboot.bin", b"x")], ..Default::default() });
+    let dir = packages(&k, &[("game.pkg", pkg)]).await;
+    let game = dir.path().join("PS5/torrent-abc/PPSA33333-app0");
+    std::fs::create_dir_all(game.join("sce_sys")).unwrap();
+    let param = br#"{"titleId":"PPSA33333","localizedParameters":{"en-US":{"titleName":"Unpacked"}}}"#;
+    std::fs::write(game.join("sce_sys/param.json"), param).unwrap();
+    std::fs::write(game.join("eboot.bin"), b"elf").unwrap();
+
+    for path in ["PS5/game.pkg", "PS5/torrent-abc"] {
+        let source = HostPath::new("packages", 0, RelPath::new(path).unwrap());
+        contract::game_install(&k.test, &kyty(), &source).await;
+    }
 }
 
 #[tokio::test]
