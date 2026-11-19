@@ -635,7 +635,7 @@ export component BackupSection inherits VerticalLayout {
                 Prefs.editing = true;
             }
         }
-        if !folder.typing : Value { kind: "action"; text: "Change"; tone: 3; }
+        // "Type a path" in the list types here.
         if folder.typing : Editor { horizontal-stretch: 2; done(text) => { Commands.set-backup-folder(text); } }
     }
     Row {
