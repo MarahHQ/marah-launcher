@@ -692,7 +692,7 @@ fn loading_until_read(theme: &str) {
     host.settle();
     let vm = host.core().view().system;
     let read = |area: &str| vm.area(area).state != "loading";
-    assert!(read("network") && read("drives") && !vm.drives_listing && vm.drives_available, "{vm:?}");
+    assert!(read("network") && read("drives") && !vm.drives_listing && vm.area("drives").ready(), "{vm:?}");
     assert_eq!(host.count("loading"), 0, "the panel fills in");
     assert_eq!(host.values("drive").len(), 0, "no drive here");
     assert_eq!(host.value("status:network"), "wired");

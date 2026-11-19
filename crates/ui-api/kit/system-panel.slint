@@ -47,9 +47,13 @@ export global Sys {
     // The network whose password is being typed; "" for none.
     in-out property <string> asking;
 
-    out property <bool> network-on: Vm.system.network-available;
-    out property <bool> audio-on: Vm.system.audio-available;
-    out property <bool> bluetooth-on: Vm.system.bluetooth-available;
+    // The area is ready: it works here.
+    out property <bool> network-on: Vm.system.areas[Areas.network].state == "ready";
+    out property <bool> audio-on: Vm.system.areas[Areas.audio].state == "ready";
+    out property <bool> bluetooth-on: Vm.system.areas[Areas.bluetooth].state == "ready";
+    // Restart and shut down work here: the power area is ready, and its reason (why it refuses
+    // them) is empty.
+    out property <bool> power-on: Vm.system.areas[Areas.power].state == "ready" && Vm.system.areas[Areas.power].reason == "";
 
     // The area each panel shows, by its place in `Vm.system.areas`.
     public pure function area(panel: int) -> int {

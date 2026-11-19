@@ -466,14 +466,15 @@ Version 0.7.0 put every system area in one list
   area, in the order of the `Areas` global in `types.slint`: read one as
   `Vm.system.areas[Areas.bluetooth]`.
 - `network-loading`, `audio-loading`, `bluetooth-loading`, `power-loading`, `drives-loading`
-  and their `*-reason` are gone: read the area's `state` and `reason`. `*-available` stays for
-  network, audio, Bluetooth and drives, and means the area is ready. `power-available` means
-  restart and shut down work here.
+  and their `*-reason` are gone: read the area's `state` and `reason`. `network-available`,
+  `audio-available`, `bluetooth-available`, `drives-available` and `power-available` are gone
+  too: an area works here when its `state` is `ready`. Restart and shut down work when the
+  power area is ready and its `reason` is empty.
 - An area that can't be used here (absent or unsupported) no longer hides its icon: the icon
   shows disabled (see [Status icons](#status-icons)).
 
-A theme built for 0.6 that reads `Vm.system.*-loading` or `*-reason` reads `Vm.system.areas`
-instead, then sets `ui_api = "^0.7"`.
+A theme built for 0.6 that reads `Vm.system.*-loading`, `*-reason` or `*-available` reads
+`Vm.system.areas` instead, then sets `ui_api = "^0.7"`.
 
 #### Status icons
 

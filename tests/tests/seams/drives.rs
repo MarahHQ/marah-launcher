@@ -103,7 +103,7 @@ async fn the_drives_panel_has_each_drive_s_actions_and_the_notice_opens_it() {
     let vm = t.core.view();
     let card = vm.notice_cards.iter().find(|n| n.text == "Drive STICK found").unwrap();
     assert_eq!((card.drive.as_str(), card.opens.as_str()), ("1A2B-3C4D", "Open or use for games"));
-    assert!(vm.system.drives_available);
+    assert!(vm.system.area("drives").ready());
     let rows: Vec<(&str, &str, Vec<String>)> =
         vm.system.drives.iter().map(|r| (r.name.as_str(), r.kind.as_str(), r.actions.clone())).collect();
     assert_eq!(
@@ -163,7 +163,7 @@ async fn without_udisks_the_drives_are_the_mounted_folders_and_mounting_says_wha
     assert!(system.read(|m| m.drive_actions.is_empty()));
     t.core.dispatch(Command::System(SystemCommand::Refresh)).await.unwrap();
     let vm = t.core.view().system;
-    assert!(!vm.drives_available);
+    assert!(!vm.area("drives").ready());
     assert_eq!(vm.area("drives").reason, "UDisks (udisksctl) isn't installed");
     assert!(
         vm.drives.iter().flat_map(|r| &r.actions).all(|a| a == "open" || a == "use"),

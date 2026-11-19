@@ -516,10 +516,10 @@ export struct AreaItem { name: string, state: string, reason: string, busy: bool
 // and Bluetooth controls and Settings → System then. connection: none | wired | wifi. bars: 0-4.
 // os-update: "" (not Marah OS) | current | checking | staged | failed. A job's kind: join |
 // scan | pair | install | mount | unmount | eject; state: running | done | failed; percent:
-// 0-100, or -1 when unknown. drives: the Drives panel's drives (see `DriveItem`). network-,
-// audio-, bluetooth- and drives-available: the area is ready, as in `areas`. power-available:
-// restart and shut down work here. drives-listing: the drives' first read isn't over: the Drives
-// panel shows a loading row, not "No drives".
+// 0-100, or -1 when unknown. drives: the Drives panel's drives (see `DriveItem`). Whether an
+// area works here is its `state` in `areas` (ready); restart and shut down work when the power
+// area is ready and its `reason` is empty. drives-listing: the drives' first read isn't over: the
+// Drives panel shows a loading row, not "No drives".
 export struct WifiItem { ssid: string, bars: int, secured: bool, saved: bool, active: bool }
 export struct AudioOutputItem { name: string, description: string, current: bool }
 export struct BluetoothItem { address: string, name: string, paired: bool, connected: bool }
@@ -527,15 +527,15 @@ export struct DiskItem { path: string, size: string, windows: bool, usb: bool, m
 export struct SystemJobItem { id: int, kind: string, target: string, state: string, percent: int, text: string, mok: bool, nvidia-later: bool }
 export struct System {
     whole-screen: bool, own-os: bool, stick: bool, areas: [AreaItem],
-    network-available: bool, connection: string, network-name: string, signal-bars: int,
+    connection: string, network-name: string, signal-bars: int,
     wifi: [WifiItem],
-    audio-available: bool, volume: int, muted: bool, outputs: [AudioOutputItem],
-    bluetooth-available: bool, bluetooth-on: bool, connected-devices: int,
+    volume: int, muted: bool, outputs: [AudioOutputItem],
+    bluetooth-on: bool, connected-devices: int,
     devices: [BluetoothItem],
-    power-available: bool, battery-shown: bool, battery-percent: int, battery-charging: bool,
+    battery-shown: bool, battery-percent: int, battery-charging: bool,
     os-update: string, os-update-text: string,
     disks: [DiskItem], jobs: [SystemJobItem],
-    drives-available: bool, drives-listing: bool, drives: [DriveItem],
+    drives-listing: bool, drives: [DriveItem],
 }
 
 // The place of each system area in `Vm.system.areas`, which lists every area in this order.

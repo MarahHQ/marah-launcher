@@ -5,6 +5,7 @@ import { Look } from "look.slint";
 import { Pop } from "pop.slint";
 import { MenuRow } from "game-menu.slint";
 import { Brand } from "../brand.slint";
+import { Sys } from "system-panel.slint";
 
 // Leaving Marah Launcher, from any screen: hold the PS, Xbox or Logitech button with no game running
 // (`Vm.power-menu` goes up; over a game the hold closes it), or press Ctrl+P. When Marah Launcher is the whole screen: Log out (the Marah Launcher session on a desktop; on
@@ -20,8 +21,8 @@ export global PowerMenu {
     out property <[{ id: string, label: string, icon: string, on: bool }]> items: [
         { id: "log-out", label: "Log out", icon: "user", on: root.whole && !Vm.system.own-os },
         { id: "quit", label: root.whole ? "Restart " + Brand.name : "Quit " + Brand.name, icon: root.whole ? "bolt" : "close", on: true },
-        { id: "restart", label: "Restart", icon: "power", on: root.whole && Vm.system.power-available },
-        { id: "shut-down", label: "Shut down", icon: "power", on: root.whole && Vm.system.power-available },
+        { id: "restart", label: "Restart", icon: "power", on: root.whole && Sys.power-on },
+        { id: "shut-down", label: "Shut down", icon: "power", on: root.whole && Sys.power-on },
     ];
 
     public function show() {

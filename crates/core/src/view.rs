@@ -1271,6 +1271,10 @@ fn area_vm(system: &crate::system::SystemState, area: launcher_api::SystemArea) 
         None => ("loading", String::new()),
         Some(AreaState::Absent) => ("absent", crate::system::absent(area)),
         Some(AreaState::Unsupported(why)) => ("unsupported", why.clone()),
+        // A refusal always says why: an empty reason means restart and shut down work.
+        Some(AreaState::Ready(AreaData::Power { refused: Some(why), .. })) if why.is_empty() => {
+            ("ready", crate::system::absent(area))
+        }
         Some(AreaState::Ready(AreaData::Power { refused, .. })) => ("ready", refused.clone().unwrap_or_default()),
         Some(AreaState::Ready(_)) => ("ready", String::new()),
     };
@@ -1296,9 +1300,9 @@ fn system_vm(s: &Snapshot) -> launcher_ui_api::SystemVm {
         Some(AreaData::Audio { outputs, level }) => (outputs.as_slice(), level.unwrap_or_default()),
         _ => (&[][..], Default::default()),
     };
-    let (battery, power_refused) = match system.data(SystemArea::Power) {
-        Some(AreaData::Power { battery, refused }) => (*battery, refused.is_some()),
-        _ => (None, false),
+    let battery = match system.data(SystemArea::Power) {
+        Some(AreaData::Power { battery, .. }) => *battery,
+        _ => None,
     };
     let update = match system.data(SystemArea::OsUpdates) {
         Some(AreaData::OsUpdates { update }) => update.as_ref(),
@@ -1322,7 +1326,6 @@ fn system_vm(s: &Snapshot) -> launcher_ui_api::SystemVm {
         own_os: place.own_os,
         stick: place.stick,
         areas: SystemArea::ALL.iter().map(|&area| area_vm(system, area)).collect(),
-        network_available: available(SystemArea::Network),
         connection: match network.connection {
             Connection::None => "none",
             Connection::Wired => "wired",
@@ -1341,14 +1344,12 @@ fn system_vm(s: &Snapshot) -> launcher_ui_api::SystemVm {
                 active: w.active,
             })
             .collect(),
-        audio_available: available(SystemArea::Audio),
         volume: level.volume as i32,
         muted: level.muted,
         outputs: outputs
             .iter()
             .map(|o| AudioOutputVm { name: o.name.clone(), description: o.description.clone(), current: o.current })
             .collect(),
-        bluetooth_available: available(SystemArea::Bluetooth),
         bluetooth_on,
         connected_devices: devices.iter().filter(|d| d.connected).count() as i32,
         devices: devices
@@ -1360,7 +1361,6 @@ fn system_vm(s: &Snapshot) -> launcher_ui_api::SystemVm {
                 connected: d.connected,
             })
             .collect(),
-        power_available: available(SystemArea::Power) && !power_refused,
         battery_shown: battery.is_some(),
         battery_percent: battery.map_or(0, |b| b.percent as i32),
         battery_charging: battery.is_some_and(|b| b.charging),
@@ -1376,7 +1376,6 @@ fn system_vm(s: &Snapshot) -> launcher_ui_api::SystemVm {
                 model: d.model.clone(),
             })
             .collect(),
-        drives_available: available(SystemArea::Drives),
         drives_listing: !s.drives_listed,
         drives: drive_items(s, available(SystemArea::Drives)),
         jobs: system

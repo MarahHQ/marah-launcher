@@ -468,7 +468,7 @@ export component SystemSection inherits VerticalLayout {
         Row {
             label: "Internet";
             machine: "network";
-            hint: Vm.system.network-available ? "" : Sys.reason(0);
+            hint: Sys.network-on ? "" : Sys.reason(0);
             focused: Prefs.is(5, 0);
             first: true;
             accessible-role: button;
@@ -495,7 +495,7 @@ export component SystemSection inherits VerticalLayout {
         Row {
             label: "Sound";
             machine: "sound";
-            hint: Vm.system.audio-available ? "" : Sys.reason(1);
+            hint: Sys.audio-on ? "" : Sys.reason(1);
             focused: Prefs.is(5, 1);
             accessible-role: button;
             accessible-label: "system-sound";
@@ -514,7 +514,7 @@ export component SystemSection inherits VerticalLayout {
         Row {
             label: "Bluetooth";
             machine: "bluetooth";
-            hint: Vm.system.bluetooth-available ? "Controllers and headsets" : Sys.reason(2);
+            hint: Sys.bluetooth-on ? "Controllers and headsets" : Sys.reason(2);
             focused: Prefs.is(5, 2);
             last: SystemRows.count == 3;
             accessible-role: button;
@@ -814,7 +814,7 @@ export component PowerSection inherits VerticalLayout {
             }
             Value { text: parent.armed ? "Press again to log out" : ""; tone: 2; }
         }
-        for power[i] in Vm.system.whole-screen && Vm.system.power-available ? ["Restart", "Shut down"] : [] : Row {
+        for power[i] in Vm.system.whole-screen && Sys.power-on ? ["Restart", "Shut down"] : [] : Row {
             property <bool> armed;
             label: power;
             hint: "Press twice";

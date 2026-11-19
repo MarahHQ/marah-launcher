@@ -363,7 +363,7 @@ async fn the_first_frame_shows_before_any_read_of_the_machine() {
     assert_eq!(system.read(|m| m.calls.len()), 0, "no read of the machine before the first frame");
 
     core.first_frame_shown();
-    launcher_testkit::until(&core, launcher_core::Area::System, |core| core.view().system.audio_available).await;
+    launcher_testkit::until(&core, launcher_core::Area::System, |core| core.view().system.area("audio").ready()).await;
     let read: Vec<&str> = system.read(|m| m.calls.iter().map(|(method, ..)| *method).collect());
     assert!(read.contains(&"level") && read.contains(&"drives"), "the machine is read once it shows: {read:?}");
 }

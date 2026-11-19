@@ -1358,8 +1358,6 @@ pub struct SystemVm {
     /// Every system area, always all of them, in the order of [`AREAS`].
     pub areas: Vec<AreaVm>,
 
-    /// The network area is ready: the same as its entry in `areas`.
-    pub network_available: bool,
     /// none | wired | wifi
     pub connection: String,
     /// The Wi-Fi network's or the wired connection's name.
@@ -1368,22 +1366,16 @@ pub struct SystemVm {
     pub signal_bars: i32,
     pub wifi: Vec<WifiVm>,
 
-    /// The sound area is ready: the same as its entry in `areas`.
-    pub audio_available: bool,
     /// 0 to 100.
     pub volume: i32,
     pub muted: bool,
     pub outputs: Vec<AudioOutputVm>,
 
-    /// The Bluetooth area is ready: the same as its entry in `areas`.
-    pub bluetooth_available: bool,
     pub bluetooth_on: bool,
     /// How many devices are connected.
     pub connected_devices: i32,
     pub devices: Vec<BluetoothDeviceVm>,
 
-    /// Restart and shut down work here: the power area is ready and refuses neither.
-    pub power_available: bool,
     pub battery_shown: bool,
     pub battery_percent: i32,
     pub battery_charging: bool,
@@ -1398,8 +1390,6 @@ pub struct SystemVm {
     /// Long work going on, and work that just ended.
     pub jobs: Vec<SystemJobVm>,
 
-    /// The drives area is ready: drives can be mounted, unmounted and ejected here.
-    pub drives_available: bool,
     /// The first read of the drives isn't over: the list isn't known yet.
     pub drives_listing: bool,
     /// The Drives panel's drives: every drive, inside the PC or plugged in, mounted or not.
@@ -1431,6 +1421,13 @@ pub struct AreaVm {
     pub reason: String,
     /// Long work runs in it now: a join, a scan, a pairing, an install, a mount.
     pub busy: bool,
+}
+
+impl AreaVm {
+    /// The area works here (state ready), for tests and tools.
+    pub fn ready(&self) -> bool {
+        self.state == "ready"
+    }
 }
 
 /// One drive of the Drives panel, with its actions as buttons.

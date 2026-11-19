@@ -62,11 +62,13 @@ work there, and a new part meant editing the `Capability` list, `Provided`, its
   (`a_tick_asks_once_why_drives_can_t_be_managed` in `tests/tests/seams/drives.rs`). A list read
   before an action read the drives again isn't kept over the newer one
   (`a_list_read_before_a_mount_doesn_t_undo_the_mount` in `crates/core/src/drives/tests.rs`).
-- The view model keeps `network_available`, `audio_available`, `bluetooth_available` and
-  `drives_available` as "the area is ready", and `power_available` as "restart and shut down
-  work here". The shell's tests read `audio_available`.
+- The view model has no shortcut per area, such as "the sound is ready": every reader reads
+  `areas` (`SystemVm::area` in Rust, `Vm.system.areas[Areas.audio]` in a theme). Restart and
+  shut down work when the power area is ready and its reason is empty, so a refusal always has
+  a reason.
 - Tests guard it: `a_failed_read_keeps_the_last_state_and_a_failed_first_read_says_why`,
   `a_power_area_that_refuses_restart_still_shows_the_battery`,
+  `a_power_refusal_with_no_reason_still_says_why`,
   `the_vpn_area_s_reason_shows_after_its_first_read` and
   `the_view_lists_every_area_in_the_contract_s_order` in `tests/tests/seams/system.rs`;
   `the_drives_icon_shows_disabled_when_drives_turn_out_unavailable` and
