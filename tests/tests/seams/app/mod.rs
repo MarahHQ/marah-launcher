@@ -18,7 +18,7 @@ use launcher_api::*;
 use launcher_core::Front;
 use launcher_core::{Area, Clock, Command, Core, CoreError, Pref, Route, SessionCmd};
 use launcher_testkit::{
-    FAKE_EMULATOR_PERMISSIONS, FakeEmulator, FakeHost, Shown, Signal, SpawnedProcess, StubPlugin, TestCore,
+    CloseAnswer, FAKE_EMULATOR_PERMISSIONS, FakeEmulator, FakeHost, Shown, Signal, SpawnedProcess, StubPlugin, TestCore,
 };
 use launcher_ui_api::ScreenId;
 

@@ -140,6 +140,31 @@ fn a_click_on_a_download_s_button_moves_the_highlight_to_it() {
     assert!(!host.lit("torrent-action:pause"));
 }
 
+/// Downloads starts afresh each time it opens: the keys are on the first download's first
+/// button again, wherever they were when the player left.
+#[test]
+fn downloads_opens_on_the_first_button_of_the_first_download() {
+    let home = tempfile::tempdir().unwrap();
+    let mut host = astro_on_its_game_hub(home.path());
+    host.press("release-download", ASTRO_HASH);
+    host.first("download-agree").invoke_accessible_default_action();
+    host.pump();
+    until_torrent(&mut host, "ready");
+    host.press("torrent-action:start", ASTRO_HASH);
+    host.press_first("start-download");
+    host.test.torrents.progress(ASTRO_HASH, 4);
+    until_torrent(&mut host, "downloading");
+    host.press("torrent-open-folder", ASTRO_HASH);
+    assert!(host.lit("torrent-open-folder") && !host.lit("torrent-action:pause"), "the keys left the first button");
+
+    host.dispatch(Command::Navigate(launcher_core::Route::Home));
+    host.settle();
+    host.dispatch(Command::Navigate(launcher_core::Route::Downloads));
+    host.settle();
+    assert!(host.lit("torrent-action:pause"), "the keys are on the first button again");
+    assert!(!host.lit("torrent-open-folder"));
+}
+
 #[test]
 fn one_mouse_click_presses_a_button() {
     let home = tempfile::tempdir().unwrap();

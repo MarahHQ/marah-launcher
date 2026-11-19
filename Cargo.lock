@@ -3470,6 +3470,7 @@ dependencies = [
  "flate2",
  "futures",
  "hex",
+ "icu_normalizer",
  "launcher-api",
  "launcher-ui-api",
  "petgraph",

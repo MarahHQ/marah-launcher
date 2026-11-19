@@ -172,10 +172,11 @@ impl Torrents for FakeTorrents {
         })
     }
 
-    /// A start checks the files it downloads in the folder at once. Whole, the torrent is
-    /// finished: live, or paused when it started paused. Else a live one checks until the test
-    /// sends pieces ([`FakeTorrents::progress`]), and a paused one stays paused with pieces
-    /// missing. It makes no file for the files it skips.
+    /// A start checks the files it downloads in the folder at once, and counts the bytes of the
+    /// whole ones as done. Whole, the torrent is finished: live, or paused when it started
+    /// paused. Else a live one checks until the test sends pieces ([`FakeTorrents::progress`]),
+    /// and a paused one stays paused with pieces missing. It makes no file for the files it
+    /// skips.
     async fn start(
         &self,
         id: &str,
@@ -192,7 +193,9 @@ impl Torrents for FakeTorrents {
         let wanted: Vec<&(String, Vec<u8>)> =
             files.iter().enumerate().filter(|(i, _)| chosen(&only, *i)).map(|(_, f)| f).collect();
         let total = wanted.iter().map(|(_, b)| b.len() as u64).sum();
-        let whole = wanted.iter().all(|(p, b)| std::fs::read(folder.join(p)).is_ok_and(|on_disk| &on_disk == b));
+        let on_disk = |(p, b): &(String, Vec<u8>)| std::fs::read(folder.join(p)).is_ok_and(|bytes| &bytes == b);
+        let whole = wanted.iter().all(|f| on_disk(f));
+        let done = wanted.iter().filter(|f| on_disk(f)).map(|(_, b)| b.len() as u64).sum();
         let state_now = match (whole, paused) {
             (_, true) => TransferState::Paused,
             (true, false) => TransferState::Live,
@@ -209,7 +212,7 @@ impl Torrents for FakeTorrents {
                 stats: TorrentStats {
                     state: state_now,
                     finished: whole,
-                    done: if whole { total } else { 0 },
+                    done,
                     total,
                     download_rate: 0,
                     upload_rate: 0,
@@ -257,5 +260,48 @@ impl Torrents for FakeTorrents {
         state.running.clear();
         state.stopped_all += 1;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use async_trait::async_trait;
+
+    use super::*;
+    use crate::contract::{self, TorrentFixture};
+
+    /// Declares the contract's torrent on the fake. A restart is a new fake with the same swarm.
+    #[derive(Default)]
+    struct Swarm {
+        torrents: Vec<(String, String, Files)>,
+        current: FakeTorrents,
+    }
+
+    #[async_trait]
+    impl TorrentFixture for Swarm {
+        async fn torrent(&mut self, name: &str, files: &[(&str, Vec<u8>)]) -> (String, String) {
+            let hash = format!("{:040x}", self.torrents.len() + 1);
+            let files = files.iter().map(|(p, b)| (format!("{name}/{p}"), b.clone())).collect();
+            self.torrents.push((hash.clone(), name.to_owned(), files));
+            (hash.clone(), format!("magnet:?xt=urn:btih:{hash}&dn={name}"))
+        }
+
+        fn adapter(&mut self) -> Arc<dyn Torrents> {
+            self.current = FakeTorrents::default();
+            for (hash, name, files) in &self.torrents {
+                let files: Vec<(&str, &[u8])> = files.iter().map(|(p, b)| (p.as_str(), b.as_slice())).collect();
+                self.current.has(hash, name, &files);
+            }
+            Arc::new(self.current.clone())
+        }
+
+        fn send(&mut self, id: &str) {
+            self.current.complete(id);
+        }
+    }
+
+    #[tokio::test]
+    async fn the_fake_keeps_the_torrents_contract() {
+        contract::torrents(&mut Swarm::default()).await;
     }
 }

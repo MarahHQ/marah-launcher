@@ -561,6 +561,78 @@ mod tests {
         resumes_after_a_restart("partial", Some(&[0, 2]));
     }
 
+    /// A librqbit session on this computer that serves the contract's torrent, and the
+    /// adapter's data folder, which outlives each adapter.
+    struct Seeder {
+        root: PathBuf,
+        session: Arc<Session>,
+    }
+
+    #[async_trait]
+    impl launcher_testkit::contract::TorrentFixture for Seeder {
+        async fn torrent(&mut self, name: &str, files: &[(&str, Vec<u8>)]) -> (String, String) {
+            let source = self.root.join("seed").join(name);
+            for (path, bytes) in files {
+                let to = source.join(path);
+                std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+                std::fs::write(to, bytes).unwrap();
+            }
+            let (made, _served) = self
+                .session
+                .create_and_serve_torrent(
+                    &source,
+                    librqbit::CreateTorrentOptions { name: None, trackers: vec![], piece_length: Some(16 * 1024) },
+                )
+                .await
+                .unwrap();
+            (made.info_hash().as_string(), made.as_magnet().to_string())
+        }
+
+        fn adapter(&mut self) -> Arc<dyn Torrents> {
+            let peers = vec![self.session.listen_addr().unwrap()];
+            Arc::new(RqbitTorrents::local(self.root.join("leech/torrents"), peers))
+        }
+
+        fn send(&mut self, _id: &str) {}
+    }
+
+    /// Opt-in, `MARAH_TORRENT_TESTS=1`: the torrents contract, with a librqbit session on this
+    /// computer as the swarm. No DHT, trackers or other network.
+    #[test]
+    fn the_engine_keeps_the_torrents_contract() {
+        if std::env::var_os("MARAH_TORRENT_TESTS").is_none() {
+            return;
+        }
+        let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+        runtime.block_on(async {
+            let root = std::env::temp_dir().join(format!("marah-launcher-torrent-contract-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            let session = Session::new_with_opts(
+                root.join("seed"),
+                SessionOptions {
+                    dht: None,
+                    disable_trackers: true,
+                    disable_local_service_discovery: true,
+                    persistence: None,
+                    fastresume: false,
+                    listen: Some(librqbit::ListenerOptions {
+                        mode: librqbit::ListenerMode::TcpOnly,
+                        listen_addr: "127.0.0.1:0".parse().unwrap(),
+                        enable_upnp_port_forwarding: false,
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+            let mut seeder = Seeder { root: root.clone(), session: session.clone() };
+            launcher_testkit::contract::torrents(&mut seeder).await;
+            session.stop().await;
+            let _ = std::fs::remove_dir_all(&root);
+        });
+    }
+
     async fn wait_for(
         torrents: &RqbitTorrents,
         id: &str,
