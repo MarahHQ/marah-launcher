@@ -1341,6 +1341,7 @@ fn shoot_backup(window: &MinimalSoftwareWindow, out: &Path) {
         follow(&mut host);
         shoot_strip(window, out, &format!("{theme}-backup-browser-open"));
         shoot(window, &out.join(format!("{theme}-backup-browser.png")));
+        round_corners(&host, out, &format!("{theme}-backup-browser"), "browser-title");
         key(&mut host, Key::Return);
         follow(&mut host);
         shoot(window, &out.join(format!("{theme}-backup-browser-backup.png")));
@@ -1427,6 +1428,7 @@ fn shoot_desktop_system(window: &MinimalSoftwareWindow, out: &Path) {
         press(&mut host, "settings-tab:Power");
         press(&mut host, "system-restart");
         shoot(window, &out.join(format!("{theme}-desktop-restart-confirm.png")));
+        round_corners(&host, out, &format!("{theme}-desktop-restart-confirm"), "power-confirm-title");
     }
 }
 
@@ -1618,6 +1620,29 @@ fn library(home: &Path) -> Composed {
     host.dispatch(Command::Navigate(Route::Catalog));
     host.dispatch(Command::CatalogSearch("a".into()));
     host
+}
+
+/// Fails unless the card that holds the element labelled `inside` has round corners in the
+/// picture `name`: its top-left corner shows what is outside the card, not the card's fill. The
+/// card's edges are found from the element: left and up from it, the first dark pixel is outside.
+fn round_corners(host: &Composed, out: &Path, name: &str, inside: &str) {
+    let png = image::open(out.join(format!("{name}.png"))).unwrap().to_rgba8();
+    let found = i_slint_backend_testing::ElementHandle::find_by_accessible_label(host.instance(), inside).next();
+    let at = found.unwrap_or_else(|| panic!("{name}: no {inside}")).absolute_position();
+    let (x, y) = ((at.x as u32).saturating_sub(4), at.y as u32 + 4);
+    let dark = |p: &image::Rgba<u8>| u32::from(p[0]) + u32::from(p[1]) + u32::from(p[2]) < 45;
+    let left = (0..x).rev().find(|&i| dark(png.get_pixel(i, y))).expect("the card's left edge") + 1;
+    let top = (0..y).rev().find(|&j| dark(png.get_pixel(x, j))).expect("the card's top edge") + 1;
+    let fill = png.get_pixel(left + 8, y);
+    let corner = png.get_pixel(left + 2, top + 2);
+    let outside = png.get_pixel(left.saturating_sub(3), top.saturating_sub(3));
+    let near = |a: &image::Rgba<u8>, b: &image::Rgba<u8>| (0..3).all(|c| a[c].abs_diff(b[c]) <= 12);
+    assert!(
+        near(corner, outside) && !near(corner, fill),
+        "{name}: the corner at ({}, {}) is {corner:?}, the card's fill {fill:?}, outside {outside:?}",
+        left + 2,
+        top + 2
+    );
 }
 
 /// Fails unless each named picture in `out` has more than one colour.
