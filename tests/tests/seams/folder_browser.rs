@@ -91,6 +91,7 @@ async fn a_drive_that_isn_t_mounted_is_a_place_that_mounts_then_opens() {
     browse(&t, pick(Some(start.path()))).await.unwrap();
     let stick = t.core.view().browser.places.into_iter().find(|p| p.kind == "drive" && p.name == "STICK").unwrap();
     assert!(!stick.mounted && stick.path.is_empty());
+    assert!(stick.usb, "a stick's place says so, for its icon");
     assert_eq!((stick.drive.as_str(), stick.detail.as_str()), ("1A2B-3C4D", "64.0 GB"));
 
     browse(&t, BrowseCmd::Mount(stick.drive)).await.unwrap();
@@ -210,4 +211,25 @@ async fn the_view_reads_the_drives_free_space_ahead_not_on_each_build() {
         assert_eq!(view.settings.backup.free, "", "no backup folder there");
     }
     assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), before, "no drive was asked");
+}
+
+/// A drive inside the PC is a place without the USB mark: its icon is a disk.
+#[tokio::test]
+async fn a_drive_inside_the_pc_is_a_place_that_isn_t_usb() {
+    let start = tempfile::tempdir().unwrap();
+    let system = FakeSystem::new();
+    system.with(|m| {
+        m.drives = vec![SystemDrive {
+            device: "/dev/sdb1".into(),
+            disk: "/dev/sdb".into(),
+            uuid: "INSIDE".into(),
+            label: "Games disk".into(),
+            filesystem: "ntfs".into(),
+            ..SystemDrive::default()
+        }]
+    });
+    let t = FakeHost::new().plugin(system.plugin()).plugin(games_plugin()).boot_core().await;
+    browse(&t, pick(Some(start.path()))).await.unwrap();
+    let place = t.core.view().browser.places.into_iter().find(|p| p.drive == "INSIDE").unwrap();
+    assert!(!place.usb);
 }

@@ -1533,6 +1533,7 @@ fn browser_vm(s: &Snapshot) -> launcher_ui_api::FolderBrowserVm {
                 detail: p.detail.clone(),
                 drive: p.drive.clone().unwrap_or_default(),
                 mounted: !p.path.as_os_str().is_empty(),
+                usb: p.usb,
             })
             .collect(),
         entries: browser

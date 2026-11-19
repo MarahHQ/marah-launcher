@@ -325,19 +325,22 @@ component DriveButton inherits Rectangle {
         accessible-description: DriveActions.label(root.action);
         accessible-item-selected: root.focused;
         accessible-action-default => { root.clicked(); }
+        // Use for games: a small gamepad, with a plus beside it, not over it.
         if !root.running : Icon {
             name: DriveActions.icon(root.action);
             color: root.lit ? Look.ink : Tokens.color-text;
-            width: 18 * Look.px;
-            height: 18 * Look.px;
+            x: root.action == "use" ? 5 * Look.px : (parent.width - self.width) / 2;
+            y: root.action == "use" ? 10 * Look.px : (parent.height - self.height) / 2;
+            width: root.action == "use" ? 15 * Look.px : 18 * Look.px;
+            height: self.width;
         }
         if !root.running && root.action == "use" : Icon {
             name: "plus";
             color: root.lit ? Look.ink : Tokens.color-text;
-            x: parent.width - 13 * Look.px;
-            y: 3 * Look.px;
-            width: 10 * Look.px;
-            height: 10 * Look.px;
+            x: 19 * Look.px;
+            y: 6 * Look.px;
+            width: 9 * Look.px;
+            height: 9 * Look.px;
         }
         if root.running : Path {
             width: 20 * Look.px;

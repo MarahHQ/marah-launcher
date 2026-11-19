@@ -101,6 +101,8 @@ pub struct BrowsePlace {
     pub detail: String,
     /// A drive's id, which mounts it ([`BrowseCmd::Mount`]); `None` for the other places.
     pub drive: Option<String>,
+    /// A drive the player can take out.
+    pub usb: bool,
 }
 
 /// A folder or a backup in the browser's folder.
@@ -288,7 +290,7 @@ async fn go(core: &Core, at: PathBuf, purpose: Purpose, places: Vec<BrowsePlace>
 fn places(core: &Core, purpose: &Purpose) -> Vec<BrowsePlace> {
     let mut out = Vec::new();
     let mut add = |name: String, path: PathBuf, kind: PlaceKind| {
-        out.push(BrowsePlace { name, path, kind, detail: String::new(), drive: None });
+        out.push(BrowsePlace { name, path, kind, detail: String::new(), drive: None, usb: false });
     };
     let home = core.kernel().host().home.clone();
     if let Some(home) = &home {
@@ -316,6 +318,7 @@ fn places(core: &Core, purpose: &Purpose) -> Vec<BrowsePlace> {
             kind: PlaceKind::Drive,
             detail: drive.size.map(drive_size_text).unwrap_or_default(),
             drive: Some(drive.id),
+            usb: drive.usb,
         });
     }
     if restore {
@@ -329,7 +332,7 @@ fn places(core: &Core, purpose: &Purpose) -> Vec<BrowsePlace> {
                 .unwrap_or_else(|| path.display().to_string());
             let shown =
                 crate::display::short_home(&path.display().to_string(), home.as_deref().and_then(|h| h.to_str()));
-            out.push(BrowsePlace { name, path, kind: PlaceKind::Recent, detail: shown, drive: None });
+            out.push(BrowsePlace { name, path, kind: PlaceKind::Recent, detail: shown, drive: None, usb: false });
         }
     }
     out

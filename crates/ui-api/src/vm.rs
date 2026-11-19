@@ -950,6 +950,9 @@ pub struct BrowsePlaceVm {
     pub drive: String,
     /// A drive is mounted; true for the other places.
     pub mounted: bool,
+    /// A drive the player can take out, such as a USB stick: its icon. False for a drive inside
+    /// the PC and for the other places.
+    pub usb: bool,
 }
 
 /// A folder, or a backup, in the browser's folder.

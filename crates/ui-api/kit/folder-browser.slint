@@ -109,9 +109,10 @@ export global Browser {
         }
     }
     // The icon of a place, by its kind.
-    public pure function place-icon(kind: string) -> string {
+    public pure function place-icon(kind: string, usb: bool) -> string {
         kind == "home" ? "home" : kind == "downloads" ? "download" : kind == "desktop" ? "desktop"
-            : kind == "documents" ? "document" : kind == "backups" ? "star" : kind == "drive" ? "usb" : "clock"
+            : kind == "documents" ? "document" : kind == "backups" ? "star"
+            : kind == "drive" ? (usb ? "usb" : "disk") : "clock"
     }
     function find(text: string) {
         root.typed = text;
@@ -487,7 +488,7 @@ export component FolderBrowser inherits Rectangle {
                                     horizontal-alignment: Look.rtl ? right : left;
                                 }
                                 BrowserRow {
-                                    icon: Browser.place-icon(place.kind);
+                                    icon: Browser.place-icon(place.kind, place.usb);
                                     name: place.name;
                                     detail: place.kind != "drive" ? "" : place.mounted ? place.detail : "Mount";
                                     lit: Browser.pane == 0 && Browser.at-place == i;

@@ -462,20 +462,20 @@ export struct BackupFile { file: string, date: string, size: string, items: stri
 // The folder browser (`Vm.browser`), a sheet over everything while open. purpose: restore
 // ("Restore from another folder") | pick (a folder for the named folder `folder`, whose title is
 // `folder-title`, such as "Game folders"; `folder` is "backup" for the backup folder). title:
-// the sheet's title, such as "Choose the backup folder". shown: the folder, with the home folder as `~`.
-// parent: its parent's full path, empty at the top. crumbs: the folder's path, one part each,
-// from `~` or the top (the last is the folder). places: where it goes, each with a full path for
-// the command Browse Go; kind: home | downloads | desktop | documents | backups | drive |
-// recent; detail: a drive's size, a recent folder's path. A drive's `drive` is its id, for
-// Browse Mount; one that isn't `mounted` has no path. entries: for a restore the folders with
-// backups, the other folders, then the backups newest first, each with a full path for Browse
+// the sheet's title, such as "Choose the backup folder". shown: the folder, with the home
+// folder as `~`. parent: its parent's full path, empty at the top. crumbs: the folder's path,
+// one part each, from `~` or the top (the last is the folder). places: where it goes, each with
+// a full path for the command Browse Go; kind: home | downloads | desktop | documents | backups
+// | drive | recent; detail: a drive's size, a recent folder's path. A drive's `drive` is its id,
+// for Browse Mount; one that isn't `mounted` has no path; `usb`: one the player can take out.
+// entries: for a restore the folders with backups, the other folders, then the backups newest first, each with a full path for Browse
 // Go or Backup RestoreFile; for a pick the folders only; only those whose name holds `filter`.
 // A folder's detail: "2 backups" (a restore), "empty", "can't be read", or empty. A backup's
 // computer: the computer that made it, empty when it doesn't say; newer: a newer Marah Launcher
 // made it and this one doesn't restore it. hidden: hidden folders are listed. place: the index
 // in places of the folder shown, -1 when it is no place.
 export struct BrowseCrumb { name: string, path: string }
-export struct BrowsePlace { name: string, path: string, kind: string, detail: string, drive: string, mounted: bool }
+export struct BrowsePlace { name: string, path: string, kind: string, detail: string, drive: string, mounted: bool, usb: bool }
 export struct BrowseEntry { name: string, path: string, folder: bool, detail: string, date: string, size: string, items: string, computer: string, newer: bool }
 export struct FolderBrowser { open: bool, purpose: string, folder: string, folder-title: string, title: string, shown: string, parent: string, crumbs: [BrowseCrumb], places: [BrowsePlace], place: int, entries: [BrowseEntry], hidden: bool, filter: string }
 
