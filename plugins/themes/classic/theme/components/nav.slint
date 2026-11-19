@@ -49,9 +49,9 @@ export global Nav {
 
     out property <int> tabs: 2;
     // The screen buttons, the network, sound and Bluetooth icons when Marah Launcher is the whole screen
-    // (`Sys`), and Settings last.
+    // (`Sys`), the drives' icon while a USB drive is plugged in, and Settings last.
     out property <int> buttons: 5 + root.statuses;
-    out property <int> statuses: Vm.system.whole-screen ? 3 : 0;
+    out property <int> statuses: !Vm.system.whole-screen ? 0 : Vm.system.usb-drives > 0 ? 4 : 3;
     // The shown game is the one running.
     out property <bool> playing: Games.has-game && Vm.has-running && Vm.running.key == Games.games[Games.shown].key;
     // The buttons under the game: Resume, Stop and Game Hub while it runs; Play (when it can

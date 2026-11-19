@@ -1383,6 +1383,35 @@ pub struct SystemVm {
     pub disks: Vec<InstallDiskVm>,
     /// Long work going on, and work that just ended.
     pub jobs: Vec<SystemJobVm>,
+
+    /// Drives can be mounted, unmounted and ejected here.
+    pub drives_available: bool,
+    pub drives_reason: String,
+    /// The Drives panel's rows: each drive's actions, the drive's rows together.
+    pub drives: Vec<DriveRowVm>,
+    /// How many drives the player can take out (USB sticks, cards) are plugged in: the top bar
+    /// shows the drives' icon while there is one.
+    pub usb_drives: i32,
+}
+
+/// One row of the Drives panel: one action on one drive.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct DriveRowVm {
+    /// The drive's id, for the commands Drive Mount, Unmount and Eject.
+    pub drive: String,
+    /// The drive's name, and what it is: "64.0 GB · 40.0 GB free · exfat", or "Not mounted".
+    pub name: String,
+    pub detail: String,
+    /// Where it is mounted, for Open and Use for games. Empty while it isn't.
+    pub path: String,
+    /// mount | open | use | eject | unmount
+    pub action: String,
+    /// What the row says to the player, such as "Use for games".
+    pub label: String,
+    /// The drive's first row: the theme shows the drive's name over it.
+    pub first: bool,
+    /// The player can take the drive out.
+    pub usb: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1424,7 +1453,7 @@ pub struct InstallDiskVm {
 pub struct SystemJobVm {
     /// Names it for cancelling.
     pub id: i32,
-    /// join | scan | pair | install
+    /// join | scan | pair | install | mount | unmount | eject
     pub kind: String,
     /// The network's name, the device's address, the disk.
     pub target: String,
@@ -1476,6 +1505,9 @@ pub struct NoticeVm {
     pub art: Option<ImageRef>,
     /// What clicking the notice opens, for example "Open Downloads". Empty for nothing.
     pub opens: String,
+    /// The drive the notice is about, by its id: clicking it opens the Drives panel, not
+    /// Notice Open. Empty for the other notices.
+    pub drive: String,
 }
 
 /// A plugin's question at the start, with its two buttons: `Commands.answer-question`.

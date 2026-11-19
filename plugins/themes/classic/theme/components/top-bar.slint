@@ -4,7 +4,7 @@ import { Tokens } from "../tokens.slint";
 import { Look } from "../kit/look.slint";
 import { Nav } from "nav.slint";
 import { Icon } from "../kit/icon.slint";
-import { NetIcon, SoundIcon, BluetoothIcon, BatteryIcon, Sys } from "../kit/system-panel.slint";
+import { NetIcon, SoundIcon, BluetoothIcon, StorageIcon, BatteryIcon, Sys } from "../kit/system-panel.slint";
 import { Hint } from "../kit/shell.slint";
 import { Reveal } from "../kit/reveal.slint";
 
@@ -137,6 +137,9 @@ export component TopBar inherits Rectangle {
     height: 104 * Look.px;
 
     property <int> download: Vm.downloads.length > 0 ? 0 : -1;
+    // The drives' icon went with the last USB drive: the keys stay on the bar.
+    property <int> items: Nav.tabs + Nav.buttons;
+    changed items => { if (Nav.tab >= root.items) { Nav.tab = root.items - 1; } }
 
     tabs := HorizontalLayout {
         x: Look.rtl ? parent.width - self.width - 96 * Look.px : 96 * Look.px;
@@ -268,6 +271,15 @@ export component TopBar inherits Rectangle {
             focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 6;
             clicked => { if (Sys.open == 2) { Sys.close(); } else { Sys.show(2); } }
             BluetoothIcon { color: parent.focused ? Look.ink : Tokens.color-text; }
+        }
+        // While a USB drive is plugged in: its panel mounts, opens, uses and ejects it.
+        if Vm.system.whole-screen && Vm.system.usb-drives > 0 : StatusButton {
+            label: "status:drives";
+            value: Vm.system.usb-drives;
+            current: Sys.open == 3;
+            focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 7;
+            clicked => { if (Sys.open == 3) { Sys.close(); } else { Sys.show(3); } }
+            StorageIcon { color: parent.focused ? Look.ink : Tokens.color-text; }
         }
         if Vm.system.battery-shown : BatteryIcon {}
         // Settings is always the last icon, after the machine's.

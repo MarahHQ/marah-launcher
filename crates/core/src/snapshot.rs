@@ -40,6 +40,8 @@ pub(crate) struct Snapshot<'a> {
     pub backup: crate::backup::BackupSnapshot,
     /// The folder browser, while it is open.
     pub browser: Option<std::sync::Arc<crate::browser::Browser>>,
+    /// The drives, as last read.
+    pub drives: Vec<crate::drives::Drive>,
     /// Settings → Backup's folder; `None` with no home folder and none chosen.
     pub backup_folder: Option<std::path::PathBuf>,
     pub vpn: VpnSnapshot,

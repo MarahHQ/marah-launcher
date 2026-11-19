@@ -363,6 +363,7 @@ fn notice_opens(plugins: &Plugins, notice: &crate::notices::Notice) -> String {
             format!("Open {}", plugins.manifest(plugin).map(|m| m.name.clone()).unwrap_or_default())
         }
         Some(Route::Settings) => "Open Settings".into(),
+        _ if notice.drive.is_some() => "Open or use for games".into(),
         _ => String::new(),
     }
 }
@@ -380,6 +381,7 @@ fn notice_vm(s: &Snapshot, notice: &crate::notices::Notice) -> NoticeVm {
         kind: notice.kind,
         art: notice_art(&s.library, notice),
         opens: notice_opens(&s.plugins, notice),
+        drive: notice.drive.clone().unwrap_or_default(),
     }
 }
 
@@ -1163,6 +1165,52 @@ fn job_text(job: &crate::system::JobState) -> launcher_ui_api::SystemJobVm {
     vm
 }
 
+/// The Drives panel's rows: for each drive, Mount while it isn't mounted, else Open, Use for
+/// games (unless it holds a game folder already), and Eject (a drive the player can take out)
+/// or Unmount. Mount, Eject and Unmount only where drives can be mounted (`can_act`).
+fn drive_rows(s: &Snapshot, can_act: bool) -> Vec<launcher_ui_api::DriveRowVm> {
+    let games = s.files.roots.get(launcher_api::GAMES_FOLDER).map(Vec::as_slice).unwrap_or_default();
+    let mut rows = Vec::new();
+    for drive in &s.drives {
+        let mut detail: Vec<String> = Vec::new();
+        detail.extend(drive.size.map(crate::browser::drive_size_text));
+        match &drive.mount {
+            Some(_) => detail.extend(drive.free.map(|f| format!("{} free", crate::browser::drive_size_text(f)))),
+            None => detail.push("Not mounted".into()),
+        }
+        if !drive.filesystem.is_empty() {
+            detail.push(drive.filesystem.clone());
+        }
+        let mut actions: Vec<(&str, &str)> = Vec::new();
+        match &drive.mount {
+            None if can_act => actions.push(("mount", "Mount")),
+            None => {}
+            Some(at) => {
+                actions.push(("open", "Open"));
+                if !games.iter().any(|g| g.starts_with(at)) {
+                    actions.push(("use", "Use for games"));
+                }
+                if can_act {
+                    actions.push(if drive.usb { ("eject", "Eject") } else { ("unmount", "Unmount") });
+                }
+            }
+        }
+        for (i, (action, label)) in actions.into_iter().enumerate() {
+            rows.push(launcher_ui_api::DriveRowVm {
+                drive: drive.id.clone(),
+                name: drive.label.clone(),
+                detail: detail.join(" · "),
+                path: drive.mount.as_ref().map(|m| m.display().to_string()).unwrap_or_default(),
+                action: action.into(),
+                label: label.into(),
+                first: i == 0,
+                usb: drive.usb,
+            });
+        }
+    }
+    rows
+}
+
 fn system_vm(s: &Snapshot) -> launcher_ui_api::SystemVm {
     use launcher_api::{Capability, Connection, OsUpdate};
     use launcher_ui_api::{AudioOutputVm, BluetoothDeviceVm, InstallDiskVm, SystemJobVm, WifiVm};
@@ -1246,6 +1294,13 @@ fn system_vm(s: &Snapshot) -> launcher_ui_api::SystemVm {
                 model: d.model.clone(),
             })
             .collect(),
+        drives_available: reason(Capability::Drives).is_none(),
+        drives_reason: match system.capabilities.get(&Capability::Drives) {
+            Some(why) => why.clone().unwrap_or_default(),
+            None => crate::drives::CANT_ACT.into(),
+        },
+        drives: drive_rows(s, reason(Capability::Drives).is_none()),
+        usb_drives: s.drives.iter().filter(|d| d.usb).count() as i32,
         jobs: system
             .jobs
             .iter()

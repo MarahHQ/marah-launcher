@@ -452,7 +452,14 @@ fn full_view() -> AppView {
             keymap: vec![KeyBinding { button: s(), keys: s() }],
         }),
         notices: vec![s()],
-        notice_cards: vec![NoticeVm { id: 1, text: s(), kind: NoticeKind::Info, art: Some(image()), opens: s() }],
+        notice_cards: vec![NoticeVm {
+            id: 1,
+            text: s(),
+            kind: NoticeKind::Info,
+            art: Some(image()),
+            opens: s(),
+            drive: s(),
+        }],
         browser: FolderBrowserVm {
             crumbs: vec![BrowseCrumbVm::default()],
             places: vec![BrowsePlaceVm::default()],
@@ -506,6 +513,7 @@ fn full_view() -> AppView {
                 mok: true,
                 nvidia_later: true,
             }],
+            drives: vec![DriveRowVm::default()],
             ..SystemVm::default()
         },
     }

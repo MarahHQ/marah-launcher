@@ -565,6 +565,7 @@ impl Core {
             launcher_update: self.launcher_update().snapshot(),
             backup: self.backup().snapshot(),
             browser: self.browsing().snapshot(),
+            drives: self.drives().known(),
             backup_folder: crate::backups::folder(self).ok(),
             vpn: self.vpn().snapshot(),
             downloads: self.inner.downloads.jobs(),

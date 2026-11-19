@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use emu_pc::PcPlugin;
 use launcher_api::{GameKey, PluginBox, SystemDrive};
+use launcher_core::system::{Place, SystemCommand};
 use launcher_core::{Area, Command, DriveCmd, LibraryCmd, SessionCmd};
 use launcher_testkit::{FakeHost, FakeSystem, TestCore};
 
@@ -42,14 +43,25 @@ async fn drive(t: &TestCore, command: DriveCmd) -> launcher_core::CoreResult<()>
     t.core.dispatch(Command::Drive(command)).await
 }
 
-/// A machine with `drives`, mounting into a folder of the test's.
+/// The launcher as the whole screen: its own session, with no desktop.
+fn whole_screen() -> Place {
+    Place { whole_screen: true, ..Place::default() }
+}
+
+/// A machine with `drives`, mounting into a folder of the test's, with the launcher as the whole
+/// screen.
 async fn boot(system: &FakeSystem, drives: Vec<SystemDrive>, media: &Path) -> TestCore {
+    boot_in(system, drives, media, whole_screen()).await
+}
+
+async fn boot_in(system: &FakeSystem, drives: Vec<SystemDrive>, media: &Path, place: Place) -> TestCore {
     let media = media.to_path_buf();
     system.with(|m| {
         m.drives = drives;
         m.mount_at = Some(media);
     });
-    let t = FakeHost::new().plugin(system.plugin()).built_in(PluginBox::code(PcPlugin)).boot_core().await;
+    let host = FakeHost::new().place(place).plugin(system.plugin()).built_in(PluginBox::code(PcPlugin));
+    let t = host.boot_core().await;
     drive(&t, DriveCmd::Refresh).await.unwrap();
     t
 }
@@ -65,6 +77,41 @@ async fn a_drive_plugged_in_mounts_on_its_own_and_a_notice_names_it() {
     t.until(Area::Notices, |core| core.view().notices.iter().any(|n| n == "Drive STICK found")).await;
     assert_eq!(system.read(|m| m.drive_actions.clone()), ["mount /dev/sda1"]);
     assert!(media.path().join("STICK").is_dir());
+}
+
+#[tokio::test]
+async fn on_a_desktop_a_plugged_drive_is_listed_and_the_desktop_mounts_it() {
+    let (system, media) = (FakeSystem::new(), tempfile::tempdir().unwrap());
+    let t = boot_in(&system, Vec::new(), media.path(), Place::default()).await;
+    system.with(|m| m.drives.push(stick(None)));
+    drive(&t, DriveCmd::Refresh).await.unwrap();
+    assert!(system.read(|m| m.drive_actions.is_empty()), "no mount of its own");
+    assert!(t.core.view().notices.is_empty(), "no notice of its own");
+    assert_eq!(t.core.view().system.usb_drives, 1);
+}
+
+#[tokio::test]
+async fn the_drives_panel_has_each_drive_s_actions_and_the_notice_opens_it() {
+    let (system, media) = (FakeSystem::new(), tempfile::tempdir().unwrap());
+    let t = boot(&system, vec![internal()], media.path()).await;
+    system.with(|m| m.drives.push(stick(None)));
+    drive(&t, DriveCmd::Refresh).await.unwrap();
+    t.until(Area::Notices, |core| core.view().notices.iter().any(|n| n == "Drive STICK found")).await;
+    t.core.dispatch(Command::System(SystemCommand::Refresh)).await.unwrap();
+
+    let vm = t.core.view();
+    let card = vm.notice_cards.iter().find(|n| n.text == "Drive STICK found").unwrap();
+    assert_eq!((card.drive.as_str(), card.opens.as_str()), ("1A2B-3C4D", "Open or use for games"));
+    assert!(vm.system.drives_available);
+    assert_eq!(vm.system.usb_drives, 1);
+    let rows: Vec<(&str, &str, bool)> =
+        vm.system.drives.iter().map(|r| (r.name.as_str(), r.action.as_str(), r.first)).collect();
+    assert_eq!(
+        rows,
+        [("Games disk", "mount", true), ("STICK", "open", true), ("STICK", "use", false), ("STICK", "eject", false)]
+    );
+    assert_eq!(vm.system.drives[0].detail, "500.0 GB · Not mounted · ntfs");
+    assert_eq!(vm.system.drives[1].path, media.path().join("STICK").display().to_string());
 }
 
 #[tokio::test]
@@ -108,6 +155,11 @@ async fn without_udisks_the_drives_are_the_mounted_folders_and_mounting_says_wha
     let refused = drive(&t, DriveCmd::Mount("5A1C".into())).await.unwrap_err().to_string();
     assert!(refused.contains("no drive 5A1C"), "the mount folders don't list it: {refused}");
     assert!(system.read(|m| m.drive_actions.is_empty()));
+    t.core.dispatch(Command::System(SystemCommand::Refresh)).await.unwrap();
+    let vm = t.core.view().system;
+    assert!(!vm.drives_available);
+    assert_eq!(vm.drives_reason, "UDisks (udisksctl) isn't installed");
+    assert!(vm.drives.iter().all(|r| r.action == "open" || r.action == "use"), "no Mount or Eject: {:?}", vm.drives);
 }
 
 /// A PC game in `games`, which the PC plugin lists.

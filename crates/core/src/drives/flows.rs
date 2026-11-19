@@ -3,8 +3,8 @@
 //!
 //! - The adapter is the system plugin's when one provides `drives` and can use it, else the
 //!   mount folders ([`adopt`], at each read).
-//! - The drives are read again on the system's refresh tick. A drive that came is mounted, and a
-//!   notice says so.
+//! - The drives are read again on the system's refresh tick. When the launcher is the whole
+//!   screen, a drive that came is mounted, and a notice says so; a desktop does that itself.
 //! - Unmount and eject wait while a game runs from the drive, or a download or an install writes
 //!   there.
 //! - A game folder on a drive keeps the drive's id (`app.folder_drives`). At the start, that drive
@@ -51,7 +51,7 @@ pub enum DriveCmd {
 
 pub(crate) async fn handle(core: &Core, command: DriveCmd) -> CoreResult<()> {
     match command {
-        DriveCmd::Refresh => refresh(core).await,
+        DriveCmd::Refresh => {}
         DriveCmd::Mount(id) => {
             mount(core, &id).await?;
         }
@@ -74,7 +74,8 @@ pub(crate) async fn handle(core: &Core, command: DriveCmd) -> CoreResult<()> {
             ended(&job, core.drives().eject(&id, job.clone())).await?;
         }
     }
-    changed(core);
+    // A drive ejected is gone at once, not at the next tick.
+    refresh(core).await;
     Ok(())
 }
 
@@ -159,6 +160,10 @@ pub(crate) async fn refresh(core: &Core) {
     let changes = core.drives().refresh().await;
     if core.drives().known() != before {
         changed(core);
+    }
+    // A desktop mounts a drive and says so itself: only the whole screen does it here.
+    if !core.kernel().host().place.whole_screen {
+        return;
     }
     for drive in changes.plugged {
         let core = core.clone();

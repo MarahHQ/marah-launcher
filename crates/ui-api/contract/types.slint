@@ -493,12 +493,20 @@ export struct LauncherUpdate { state: string, current: string, version: string, 
 // Marah Launcher is the whole screen (the Marah Launcher session, Marah OS): show the network, sound and
 // Bluetooth controls and Settings → System then. connection: none | wired | wifi. bars: 0-4.
 // os-update: "" (not Marah OS) | current | checking | staged | failed. A job's kind: join |
-// scan | pair | install; state: running | done | failed; percent: 0-100, or -1 when unknown.
+// scan | pair | install | mount | unmount | eject; state: running | done | failed; percent:
+// 0-100, or -1 when unknown. drives: the Drives panel's rows, one action on one drive each, a
+// drive's rows together (`first` on its first row, under the drive's `name` and `detail`, such
+// as "64.0 GB · 40.0 GB free · exfat"); action: mount | open | use | eject | unmount, each with
+// the drive's id for the commands Drive Mount, Unmount and Eject, and its `path` for open (the
+// folder browser) and use (AddFolder games). drives-available: drives can be mounted here, else
+// drives-reason says why. usb-drives: how many drives the player can take out are plugged in:
+// show the drives' icon while there is one.
 export struct WifiItem { ssid: string, bars: int, secured: bool, saved: bool, active: bool }
 export struct AudioOutputItem { name: string, description: string, current: bool }
 export struct BluetoothItem { address: string, name: string, paired: bool, connected: bool }
 export struct DiskItem { path: string, size: string, windows: bool, usb: bool, model: string }
 export struct SystemJobItem { id: int, kind: string, target: string, state: string, percent: int, text: string, mok: bool, nvidia-later: bool }
+export struct DriveRow { drive: string, name: string, detail: string, path: string, action: string, label: string, first: bool, usb: bool }
 export struct System {
     whole-screen: bool, own-os: bool, stick: bool,
     network-available: bool, network-reason: string, connection: string, network-name: string, signal-bars: int,
@@ -509,13 +517,15 @@ export struct System {
     power-available: bool, power-reason: string, battery-shown: bool, battery-percent: int, battery-charging: bool,
     os-update: string, os-update-text: string,
     disks: [DiskItem], jobs: [SystemJobItem],
+    drives-available: bool, drives-reason: string, drives: [DriveRow], usb-drives: int,
 }
 
 // The trailer playing in the window: `position` and `duration` in seconds.
 // A short message for the player. kind: info | success | error. art: the art of the game it
 // is about, or empty. opens: what clicking it opens (the command Notice Open), for example
-// "Open Downloads"; empty for nothing.
-export struct Notice { id: int, text: string, kind: string, art: image, opens: string }
+// "Open Downloads"; empty for nothing. drive: the id of the drive a "Drive found" notice is
+// about: clicking it opens the Drives panel instead; empty for the other notices.
+export struct Notice { id: int, text: string, kind: string, art: image, opens: string, drive: string }
 
 export struct Trailer { playing: bool, loading: bool, position: float, duration: float }
 

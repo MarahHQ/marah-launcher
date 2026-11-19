@@ -212,6 +212,15 @@ export global Commands {
     public function forget-wifi(ssid: string) { Host.command("System", "{\"ForgetWifi\":" + Json.text(ssid) + "}"); }
     public function set-bluetooth(on: bool) { Host.command("System", "{\"SetBluetooth\":" + Json.flag(on) + "}"); }
     public function scan-bluetooth() { Host.command("System", "\"ScanBluetooth\""); }
+    // The drives, by a drive's id. Open shows the drive's folder (a full path) in the folder
+    // browser, to pick a game folder there.
+    public function mount-drive(drive: string) { Host.command("Drive", "{\"Mount\":" + Json.text(drive) + "}"); }
+    public function unmount-drive(drive: string) { Host.command("Drive", "{\"Unmount\":" + Json.text(drive) + "}"); }
+    public function eject-drive(drive: string) { Host.command("Drive", "{\"Eject\":" + Json.text(drive) + "}"); }
+    public function refresh-drives() { Host.command("Drive", "\"Refresh\""); }
+    public function open-drive(path: string) {
+        Host.command("Browse", "{\"Open\":{\"at\":" + Json.text(path) + ",\"purpose\":{\"Pick\":\"games\"}}}");
+    }
     public function pair-device(address: string) { Host.command("System", "{\"Pair\":" + Json.text(address) + "}"); }
     public function connect-device(address: string) { Host.command("System", "{\"ConnectDevice\":" + Json.text(address) + "}"); }
     public function disconnect-device(address: string) {

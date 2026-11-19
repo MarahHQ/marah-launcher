@@ -139,6 +139,7 @@ fn rows() -> Vec<Row> {
         doc(("SystemVm", "os_update"), ("System", "os-update")),
         doc(("SystemJobVm", "kind"), ("SystemJobItem", "kind")),
         doc(("SystemJobVm", "state"), ("SystemJobItem", "state")),
+        doc(("DriveRowVm", "action"), ("DriveRow", "action")),
         of_enum("NoticeKind", serde_words(every!(NoticeKind: Info, Success, Error)), ("Notice", "kind")),
         of_enum(
             "ScreenId",

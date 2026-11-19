@@ -250,7 +250,8 @@ impl MountFolders {
 }
 
 /// What the base adapter says when asked to act.
-const CANT_ACT: &str = "Mounting needs UDisks. Install udisks2, or mount the drive with the system's own tools";
+pub(crate) const CANT_ACT: &str =
+    "Mounting needs UDisks. Install udisks2, or mount the drive with the system's own tools";
 
 #[async_trait]
 impl Adapter for MountFolders {

@@ -438,3 +438,95 @@ fn as_the_whole_screen_the_top_bar_ends_with_the_clock_settings_then_the_machine
         assert!(x(pair[0]) > x(pair[1]), "{} {} after {} {}", pair[0], x(pair[0]), pair[1], x(pair[1]));
     }
 }
+
+/// A USB stick, plugged in and mounted, and a drive inside the PC that isn't mounted.
+fn with_drives(system: &FakeSystem, media: &std::path::Path) {
+    let stick = media.join("STICK");
+    std::fs::create_dir_all(&stick).unwrap();
+    system.with(|m| {
+        m.mount_at = Some(media.to_path_buf());
+        m.drives = vec![
+            launcher_api::SystemDrive {
+                device: "/dev/sda1".into(),
+                disk: "/dev/sda".into(),
+                uuid: "1A2B-3C4D".into(),
+                label: "STICK".into(),
+                size: 64_000_000_000,
+                filesystem: "exfat".into(),
+                usb: true,
+                mount: Some(stick),
+                free: Some(40_000_000_000),
+                ..launcher_api::SystemDrive::default()
+            },
+            launcher_api::SystemDrive {
+                device: "/dev/nvme0n1p4".into(),
+                disk: "/dev/nvme0n1".into(),
+                uuid: "5A1C".into(),
+                label: "Games disk".into(),
+                size: 500_000_000_000,
+                filesystem: "ntfs".into(),
+                ..launcher_api::SystemDrive::default()
+            },
+        ];
+    });
+}
+
+/// The drives' icon shows only while a USB drive is plugged in, as the whole screen, after
+/// Bluetooth; the keys reach it before Settings, and its panel mounts, ejects and opens.
+#[test]
+fn a_usb_drive_shows_the_drives_icon_and_its_panel_in_every_theme() {
+    use slint::platform::Key;
+    let media = tempfile::tempdir().unwrap();
+    let system = machine();
+    let mut host = shown(&system, WHOLE_SCREEN);
+    for theme in ["classic", "default"] {
+        host.ui.switch(&id(theme)).unwrap();
+        host.dispatch(Command::Navigate(launcher_core::Route::Home));
+        host.settle();
+        assert_eq!(host.count("status:drives"), 0, "{theme}: no USB drive, no icon");
+    }
+    with_drives(&system, media.path());
+    host.dispatch(Command::Drive(launcher_core::DriveCmd::Refresh));
+    refreshed(&mut host);
+    for theme in ["classic", "default"] {
+        host.ui.switch(&id(theme)).unwrap();
+        host.dispatch(Command::Navigate(launcher_core::Route::Home));
+        host.settle();
+        assert_eq!(host.value("status:drives"), "1", "{theme}: one USB drive");
+        let x = |label: &str| host.first(label).absolute_position().x;
+        assert!(x("status:drives") > x("status:bluetooth") && x("Settings") > x("status:drives"), "{theme}");
+
+        // L1 twice from Home: Settings, then the drives' icon before it.
+        host.navigate(Key::Backtab);
+        host.navigate(Key::Backtab);
+        host.navigate(Key::Return);
+        host.settle();
+        assert_eq!(host.value("system-panel"), "drives", "{theme}: the keys reach the drives' icon");
+        let rows = host.values("drive-action");
+        assert_eq!(rows, ["STICK: Open", "STICK: Use for games", "STICK: Eject", "Games disk: Mount"], "{theme}");
+        assert_eq!(host.values("drive"), ["STICK", "Games disk"], "{theme}: each drive's name over its rows");
+        host.navigate(Key::Escape);
+    }
+
+    // Down to Mount, then Enter: the drive inside the PC mounts.
+    host.dispatch(Command::Navigate(launcher_core::Route::Home));
+    host.settle();
+    host.press_first("status:drives");
+    for _ in 0..3 {
+        host.navigate(Key::DownArrow);
+    }
+    host.navigate(Key::Return);
+    host.settle();
+    assert_eq!(system.read(|m| m.drive_actions.clone()), ["mount /dev/nvme0n1p4"]);
+    // Up to Eject: the stick goes, and with it the icon and its panel.
+    host.navigate(Key::Escape);
+    host.press_first("status:drives");
+    host.navigate(Key::DownArrow);
+    host.navigate(Key::DownArrow);
+    host.navigate(Key::Return);
+    host.settle();
+    refreshed(&mut host);
+    assert_eq!(system.read(|m| m.drive_actions.clone()), ["mount /dev/nvme0n1p4", "eject /dev/sda"]);
+    assert_eq!(host.count("status:drives"), 0, "the last USB drive went");
+    assert_eq!(host.count("system-panel"), 0, "its panel closed");
+}
