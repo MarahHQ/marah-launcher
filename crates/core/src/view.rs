@@ -789,6 +789,9 @@ fn detail_vm(s: &Snapshot, owned: &Ownership, key: &GameKey) -> Option<GameDetai
                             .map(|j| if j.total > 0 { (j.done as f64 / j.total as f64).min(1.0) as f32 } else { 0.0 })
                             .unwrap_or(0.0),
                         download_text: String::new(),
+                        title_text: String::new(),
+                        peers_text: String::new(),
+                        sheet_text: String::new(),
                     })
                     .collect()
             })

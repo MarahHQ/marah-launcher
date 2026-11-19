@@ -151,6 +151,11 @@ export struct SettingsPanel { slot: Slot, fields: [Field] }
 // `download` is its download's state (see Torrent), empty for none, with its progress, and
 // `download-text` what its Download button says: "Download", "Downloading 43%", "Install in
 // Steam".
+// `title-text` is its title, from `version`, `region` and `system`: "Version 1.02 · Europe ·
+// Linux", or "Release · Europe" with no version. `peers-text` is the catalog's counts in words,
+// from `seeders` and `leechers`: "5 seeders · 1 leecher"; empty when it has no count of seeders.
+// `sheet-text` is what its download sheet says of it, from `version`, `region`, `size` and the
+// game's emulator: "Version 1.02 · Europe · 7.6 GB · runs with KytyPS5".
 // `system` is a PC release's system ("Linux", "Windows", "macOS"), and `not-here` why this
 // computer can't start it; both empty when there is nothing to say. `warning` is why it may
 // not install, such as a retail PS5 package; empty for none. `no-room` is why it doesn't fit
@@ -164,7 +169,7 @@ export struct SettingsPanel { slot: Slot, fields: [Field] }
 // `store`: the store that installs it ("Steam"), for a release its store installs: its
 // Download asks the store (the command Torrent Download with no folder), with no download
 // sheet. Empty for a torrent.
-export struct Release { id: string, store: string, version: string, region: string, size: string, added: string, new: bool, description: string, system: string, not-here: string, warning: string, no-room: string, download: string, download-progress: float, download-text: string, version-label: string, best: bool, seeders: string, leechers: string, counted: string, availability: string, availability-text: string }
+export struct Release { id: string, store: string, version: string, region: string, size: string, added: string, new: bool, description: string, system: string, not-here: string, warning: string, no-room: string, download: string, download-progress: float, download-text: string, title-text: string, peers-text: string, sheet-text: string, version-label: string, best: bool, seeders: string, leechers: string, counted: string, availability: string, availability-text: string }
 
 // How one emulator's games run on this PC. level: good | slow | no | unknown. headline:
 // "Should run well", "May run slowly", "Won't start" or "Can't tell yet"; why: the reason.
