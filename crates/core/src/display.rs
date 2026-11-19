@@ -18,6 +18,7 @@ pub(crate) fn write(view: &mut AppView) {
         job.progress_text = progress_text(job.received, job.total);
     }
     for t in &mut view.downloads.torrents {
+        t.state_text = torrent_state_text(t);
         t.detail = torrent_detail(t);
         t.file_summary = file_summary(t);
     }
@@ -54,6 +55,7 @@ fn game(d: &mut GameDetailVm) {
         r.added_text = date_text(&r.added);
         r.counted_text = date_text(r.counted_at.get(..10).unwrap_or_default());
         r.availability_text = availability_text(&r.availability);
+        r.download_text = download_text(&r.store, &r.download, r.download_progress);
     }
 }
 
@@ -238,6 +240,49 @@ fn torrent_detail(t: &TorrentVm) -> String {
     }
 }
 
+/// A download's state in words, for its card: the first that holds, in order, of its install,
+/// its queue, its archives, then its state. A store's adds where: "Queued in Steam".
+fn torrent_state_text(t: &TorrentVm) -> String {
+    // An install that didn't start: "Download and install", or the install sheet.
+    let not_started = t.state == "complete" && t.install.is_empty() && !t.install_error.is_empty();
+    let words = match (t.install.as_str(), t.unpack.as_str(), t.state.as_str()) {
+        ("installing", _, _) => "Installing",
+        ("done", _, _) => "Installed",
+        ("failed", _, _) => "Install failed",
+        _ if not_started => "Install didn't start",
+        (_, _, "queued") => "Queued",
+        (_, "unpacking", _) => "Unpacking",
+        (_, "failed", _) => "Unpacking failed",
+        (_, _, "resolving") => "Reading its files",
+        (_, _, "ready") if t.install_after => "Ready",
+        (_, _, "ready") => "Ready: choose the files, then download",
+        (_, _, "checking") => "Checking",
+        (_, _, "downloading") => "Downloading",
+        (_, _, "paused") if t.waiting_vpn => "Paused · waiting for your VPN",
+        (_, _, "paused") => "Paused",
+        (_, _, "complete") if t.seeding => "Complete · sharing",
+        (_, _, "complete") if t.verifying => "Complete · checking",
+        (_, _, "complete") => "Complete",
+        (_, _, "failed") => "Failed",
+        _ => "Cancelled · the files stay",
+    };
+    if t.store.is_empty() { words.to_owned() } else { format!("{words} in {}", t.store) }
+}
+
+/// What a release's Download button says, by its store, or its download's state and progress.
+fn download_text(store: &str, download: &str, progress: f32) -> String {
+    match download {
+        _ if !store.is_empty() => format!("Install in {store}"),
+        "" => "Download".into(),
+        // As the kit worked it out: in f64, so a percent on a half rounds as it did.
+        "downloading" => format!("Downloading {}%", (f64::from(progress) * 100.0).round() as u32),
+        "complete" => "Downloaded".into(),
+        "paused" => "Paused".into(),
+        "failed" => "Failed".into(),
+        _ => "In Downloads".into(),
+    }
+}
+
 /// What the file list shows: `120 files · 1.5 GB · first 100 shown`.
 fn file_summary(t: &TorrentVm) -> String {
     let files = if t.file_count == 1 { "1 file".to_owned() } else { format!("{} files", t.file_count) };
@@ -284,6 +329,84 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(torrent_detail(&t), "Installing · 43% · it runs in the background");
+    }
+
+    #[test]
+    fn a_download_s_state_reads_in_words() {
+        let t = |state: &str| TorrentVm { state: state.into(), ..Default::default() };
+        let rows: Vec<(&str, TorrentVm, &str)> = vec![
+            ("installing", TorrentVm { install: "installing".into(), ..t("complete") }, "Installing"),
+            ("installed", TorrentVm { install: "done".into(), ..t("complete") }, "Installed"),
+            ("install failed", TorrentVm { install: "failed".into(), ..t("complete") }, "Install failed"),
+            (
+                "install didn't start",
+                TorrentVm { install_error: "No room".into(), ..t("complete") },
+                "Install didn't start",
+            ),
+            ("queued", t("queued"), "Queued"),
+            ("unpacking", TorrentVm { unpack: "unpacking".into(), ..t("complete") }, "Unpacking"),
+            ("unpacking failed", TorrentVm { unpack: "failed".into(), ..t("complete") }, "Unpacking failed"),
+            ("resolving", t("resolving"), "Reading its files"),
+            ("ready to install", TorrentVm { install_after: true, ..t("ready") }, "Ready"),
+            ("ready", t("ready"), "Ready: choose the files, then download"),
+            ("checking", t("checking"), "Checking"),
+            ("downloading", t("downloading"), "Downloading"),
+            ("waiting for a VPN", TorrentVm { waiting_vpn: true, ..t("paused") }, "Paused · waiting for your VPN"),
+            ("paused", t("paused"), "Paused"),
+            ("sharing", TorrentVm { seeding: true, ..t("complete") }, "Complete · sharing"),
+            ("checking before sharing", TorrentVm { verifying: true, ..t("complete") }, "Complete · checking"),
+            ("complete", t("complete"), "Complete"),
+            ("failed", t("failed"), "Failed"),
+            ("cancelled", t("cancelled"), "Cancelled · the files stay"),
+            ("no state", t(""), "Cancelled · the files stay"),
+            // Two rules hold: the first one wins.
+            (
+                "installing and unpacking",
+                TorrentVm { install: "installing".into(), unpack: "unpacking".into(), ..t("complete") },
+                "Installing",
+            ),
+            ("installed, download failed", TorrentVm { install: "done".into(), ..t("failed") }, "Installed"),
+            ("queued and unpacking", TorrentVm { unpack: "unpacking".into(), ..t("queued") }, "Queued"),
+            (
+                "sharing and checking",
+                TorrentVm { seeding: true, verifying: true, ..t("complete") },
+                "Complete · sharing",
+            ),
+            ("install cancelled", TorrentVm { install: "cancelled".into(), ..t("complete") }, "Complete"),
+            ("paused with an install error", TorrentVm { install_error: "No room".into(), ..t("paused") }, "Paused"),
+            // A store's install says where it is.
+            ("in a store", TorrentVm { store: "Steam".into(), ..t("queued") }, "Queued in Steam"),
+            (
+                "installing in a store",
+                TorrentVm { store: "Steam".into(), install: "installing".into(), ..t("downloading") },
+                "Installing in Steam",
+            ),
+        ];
+        for (name, vm, words) in rows {
+            assert_eq!(torrent_state_text(&vm), words, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_release_s_download_button_says_its_download_s_state() {
+        let rows = [
+            ("in a store", ("Steam", "downloading", 0.5), "Install in Steam"),
+            ("no download", ("", "", 0.0), "Download"),
+            ("downloading", ("", "downloading", 0.43), "Downloading 43%"),
+            ("just started", ("", "downloading", 0.0), "Downloading 0%"),
+            ("all there", ("", "downloading", 1.0), "Downloading 100%"),
+            // Slint works out the percent in f64: 0.415 as f32 is just under 41.5%.
+            ("on a half", ("", "downloading", 0.415), "Downloading 41%"),
+            ("complete", ("", "complete", 1.0), "Downloaded"),
+            ("paused", ("", "paused", 0.5), "Paused"),
+            ("failed", ("", "failed", 0.5), "Failed"),
+            ("resolving", ("", "resolving", 0.0), "In Downloads"),
+            ("ready", ("", "ready", 0.0), "In Downloads"),
+            ("cancelled", ("", "cancelled", 0.5), "In Downloads"),
+        ];
+        for (name, (store, download, progress), words) in rows {
+            assert_eq!(download_text(store, download, progress), words, "{name}");
+        }
     }
 
     #[test]

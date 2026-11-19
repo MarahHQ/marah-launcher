@@ -788,6 +788,7 @@ fn detail_vm(s: &Snapshot, owned: &Ownership, key: &GameKey) -> Option<GameDetai
                             .get(&r.id)
                             .map(|j| if j.total > 0 { (j.done as f64 / j.total as f64).min(1.0) as f32 } else { 0.0 })
                             .unwrap_or(0.0),
+                        download_text: String::new(),
                     })
                     .collect()
             })
@@ -1040,6 +1041,7 @@ fn torrent_vm(library: &LibrarySnapshot, installs: &InstallsSnapshot, owned: &Ow
         version: j.version.clone(),
         region: j.region.clone(),
         state: j.state.as_str().into(),
+        state_text: String::new(),
         progress: if j.state == S::Complete {
             1.0
         } else if j.total > 0 {

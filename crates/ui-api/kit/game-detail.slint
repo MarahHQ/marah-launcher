@@ -526,13 +526,7 @@ component ReleaseRow inherits Rectangle {
         h: 54 * Look.px;
         icon: root.d == "" ? "download" : "";
         primary: root.d == "";
-        text: root.release.store != "" ? "Install in " + root.release.store
-            : root.d == "" ? "Download"
-            : root.d == "downloading" ? "Downloading " + Math.round(root.release.download-progress * 100) + "%"
-            : root.d == "complete" ? "Downloaded"
-            : root.d == "paused" ? "Paused"
-            : root.d == "failed" ? "Failed"
-            : "In Downloads";
+        text: root.release.download-text;
         accessible-role: button;
         accessible-label: "release-download";
         accessible-value: root.release.id;
