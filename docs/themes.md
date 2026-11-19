@@ -53,11 +53,16 @@ Two themes are compiled into the binary. Each crate's `build.rs` embeds every fi
 - **Classic** (`classic`, `plugins/themes/classic/theme/`): a hero and a row of game tiles on
   Home. It sets every token, each to its default value.
 
-The two share most files. Only `theme.toml`, `shell.slint` (one comment), `screens/home.slint`,
-`components/nav.slint`, `components/top-bar.slint` and `components/library-view.slint` differ.
-Default adds `components/chip-row.slint`, `images/all-games-icon.png` and
-`images/all-games-cover.jpg`. Both draw Downloads, the Game Hub, plugin pages
-and the Emulators and Themes lists with kit pages.
+The two share most files. Only `theme.toml`, `shell.slint` (one comment and two lines that read
+Classic's Library tile), `screens/home.slint`, `screens/library.slint`, `components/nav.slint`,
+`components/top-bar.slint` and `components/library-view.slint` differ. The behaviour both need is
+in the kit: `ShellKeys` starts the kit's pages afresh on a new screen, and `Games`
+(`kit/games.slint`) holds the games on screen, the selection that goes to the core after the
+moves stop, the commands for the view on screen and a card's commands. Each theme keeps its own
+keys and zones in `components/nav.slint`. Default adds `components/chip-row.slint`,
+`components/systems-cover.slint`, `images/all-games-icon.png` and `images/all-games-cover.jpg`.
+Both draw Downloads, the Game Hub, plugin pages and the Emulators and Themes lists with kit
+pages.
 
 ## Where a theme is installed
 
@@ -193,7 +198,7 @@ doesn't know.
 
 | Key | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `ui_api` | version range | required | The `launcher-ui-api` contract versions the theme works with. The host's is `UI_API_VERSION`, `0.4.1` (`crates/ui-api/src/lib.rs`). A theme that doesn't match fails with `ThemeError::UiApi`. |
+| `ui_api` | version range | required | The `launcher-ui-api` contract versions the theme works with. The host's is `UI_API_VERSION`, `0.5.0` (`crates/ui-api/src/lib.rs`). A theme that doesn't match fails with `ThemeError::UiApi`. |
 | `fallback` | bool | `false` | This theme is the one the app starts with, falls back to, and shows in safe mode. Exactly one installed theme sets it. Default does. See [Switching](#switching-the-fallback-theme-and-safe-mode). |
 | `input` | list | `["pointer"]` | The input devices the theme supports, the main one first: `pointer`, `gamepad`, `touch`. The first one is `Vm.input-mode` at start. |
 | `navigation` | `pointer` or `focus` | `pointer` | How the player moves around. No host code reads it yet. |
@@ -427,6 +432,7 @@ Three rules hold for every kit file. Tests in `contract.rs` check them:
 | `game-menu.slint` | `GameMenu`, `MenuRow`, `GameMenuSheet` | A game's options menu, with Uninstall asking first. |
 | `game-settings.slint` | `GameSettingsPage` | One game's own settings, from its emulator: one page like Settings (`SettingsFrame`), with the game's name in the header bar. |
 | `game-stage.slint` | `GameStage` | A game on the whole screen, as its launch and its closing show it: its art dimmed behind its cover, its title, a line, what you add as children, and a turning ring. |
+| `games.slint` | `Games` | The games on screen (the Library's or the Catalog's view, else Home's) and the theme's own selection of one: `select` moves it at once, `ShellKeys` sends it to the core `Look.select-after` after the last move, and it follows the core when the core's selection changes for another reason (`core-moved`). `select-now` selects at once, for a click. The search, filters, sort and next page of the view on screen (`search`, `system`, `genre`, `sort`, `more`), its sorts (`sorts`, `sort-index`), and a card's eye (`hide`) and main action (`act`). |
 | `icon.slint` | `Icon` | The launcher's icons, drawn as paths. |
 | `install-os.slint` | `Setup`, `InstallOs` | Marah OS's USB stick: welcome, the disks, the question before erasing, progress. |
 | `install-prompt.slint` | `Prompt`, `InstallPrompt` | The prompt to install an emulator before a first play. |
@@ -451,7 +457,7 @@ Three rules hold for every kit file. Tests in `contract.rs` check them:
 | `settings-rows.slint` | `Prefs`, `RailTab`, `Tab`, `Header`, `Row`, `Value`, `Editor`, `FieldRow`, `FolderRow` | The rows of a settings sheet, and where the keys are in it. The kit's sheets use the rail (`RailTab`); `Tab` stays for themes that draw tabs. |
 | `settings-sections.slint` | `GamesSection`, `UpdatesSection`, `LauncherSection`, `DownloadsSection`, `PcSection`, `SystemSection`, `BackupSection`, `PowerSection` | The rows of each Settings tab. |
 | `sheet-frame.slint` | `SheetFrame` | A side sheet: the wash behind and the panel that slides in. A click on the wash goes back. |
-| `shell.slint` | `Screens`, `ShellKeys`, `Overlays`, `ShellHints`, `Hint` | The shell's keys in the order every theme answers them (`ShellKeys`, a `FocusScope` around the screens), the key hints for what is up (`ShellHints.pick`, a list of `Hint`; the theme gives its own Home hints), what opens over the screens (`Overlays`: the prompts, the game menu, a trailer, the screenshot viewer, the backup browser, Install OS, the power menu and the closing screen), which kind of screen is up (`Screens.home`, `.list`, `.sheet`), and the side a screen moves on (`Screens.side(leaving)`, from `Vm.nav-direction`). |
+| `shell.slint` | `Screens`, `ShellKeys`, `Overlays`, `ShellHints`, `Hint` | The shell's keys in the order every theme answers them (`ShellKeys`, a `FocusScope` around the screens, which also starts the kit's pages afresh on a new screen), the key hints for what is up (`ShellHints.pick`, a list of `Hint`; the theme gives its own Home hints), what opens over the screens (`Overlays`: the prompts, the game menu, a trailer, the screenshot viewer, the backup browser, Install OS, the power menu and the closing screen), which kind of screen is up (`Screens.home`, `.list`, `.sheet`), and the side a screen moves on (`Screens.side(leaving)`, from `Vm.nav-direction`). |
 | `shot-viewer.slint` | `Viewer`, `ShotViewer` | A game's screenshots, full screen. |
 | `slot-actions.slint` | `SlotActions` | Plugin actions as round buttons. |
 | `slot-badges.slint` | `SlotBadges` | Plugin badges as small tags with a dot in their tone. |
@@ -473,6 +479,16 @@ order:
   `Viewer.key`, `Prompt.key` while each is open;
 - `Prefs.key` on a settings sheet, `PluginList.key` on Emulators and Themes, `Hub.key` on the
   Game Hub, `Dl.key` on Downloads.
+
+`ShellKeys` also runs the timer that sends a key move among the games to the core
+(`Games.send`), and moves the cursor back to the core's selection when that changes
+(`Games.core-moved`).
+
+When `Vm.screen` changes, `ShellKeys` starts the kit's pages afresh: the Game Hub on its first
+button (`Hub.reset`), Downloads on its first row (`Dl.reset`), a settings sheet on its first row
+(`Prefs.reset`), the game menu and the screenshot viewer closed. It then calls `screen-changed`,
+where your theme sets its own focus for the new screen, and takes the keys back. To open the
+Game Hub on its releases, set `Hub.to-releases` before you open it.
 
 Your theme answers the keys only it knows in three callbacks: `sort-key` while `sort-open`,
 `theme-key` before the sheets' tabs (a search key, a trailer key, your own top bar) and
@@ -505,6 +521,12 @@ then the theme's files over it, so the theme's copy wins (`ResolvedTheme::slint_
 file that imports it, the kit's own included, gets the theme's copy. The theme's copy is checked
 as a theme file, not as a kit file, so it may use hex colors. Keep its exports: a kit file that
 imports it still needs them, or the theme doesn't compile.
+
+A kit file that gains a member another kit file uses is a breaking change for a theme with its
+own copy, so the contract's minor version goes up. Version 0.5.0 added `Hub.reset()` and
+`Hub.to-releases` to `kit/game-detail.slint`: the kit's `ShellKeys` and `Games` use them. A
+theme with its own copy of that file adds both, then sets `ui_api = "^0.5"`. A theme that still
+says `^0.4` is refused with `ThemeError::UiApi` before it compiles.
 
 ## Tokens
 
