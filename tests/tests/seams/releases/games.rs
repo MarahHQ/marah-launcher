@@ -219,6 +219,35 @@ async fn a_card_is_new_when_another_of_its_versions_is() {
 }
 
 #[tokio::test]
+async fn the_card_stands_for_the_versions_the_grid_picked_it_from() {
+    // No AVX2: the PS5 version is the best, and it came this week.
+    let t = astro_added(strong_pc(false), &days_ago(2)).await;
+    // A search that finds the PS4 version alone: the grid picks it, and the card has both chips.
+    t.core.dispatch(Command::CatalogSearch("CUSA01234".into())).await.unwrap();
+    assert_eq!(cards(&t), [(ASTRO_PS4.to_owned(), vec!["PS4".to_owned(), "PS5".to_owned()])]);
+    t.core.dispatch(Command::CatalogSearch(String::new())).await.unwrap();
+    assert_eq!(cards(&t)[0], (ASTRO_PS5.to_owned(), vec!["PS5".to_owned(), "PS4".to_owned()]), "the best again");
+    // The player hides the PS5 version alone.
+    let hide =
+        Command::Library(launcher_core::LibraryCmd::HideVersion { game: ASTRO_PS5.parse().unwrap(), hidden: true });
+    t.core.dispatch(hide).await.unwrap();
+    let new = |t: &TestCore| -> Vec<bool> {
+        t.core.view().catalog.games.games.iter().map(|c| c.badges.iter().any(|b| b.id == "new")).collect()
+    };
+    let quest = "release-catalog:emu-ps4/CUSA00002".to_owned();
+    // All: the grid picks the PS4 version, and its card has no chip and no New from the hidden one.
+    assert_eq!(cards(&t), [(ASTRO_PS4.to_owned(), Vec::new()), (quest, Vec::new())]);
+    assert_eq!(new(&t), [false, false], "the hidden PS5 version doesn't make the card New");
+    let chip = |id: &str, count| (id.to_owned(), count);
+    assert!(chips(&t).contains(&chip("", 2)) && chips(&t).contains(&chip("hidden", 1)), "{:?}", chips(&t));
+    // Hidden: the PS5 version alone, with no chip for the PS4 version the player didn't hide.
+    let filter = Command::CatalogSystem(Some(launcher_core::SystemChoice::Filter(launcher_core::GridFilter::Hidden)));
+    t.core.dispatch(filter).await.unwrap();
+    assert_eq!(cards(&t), [(ASTRO_PS5.to_owned(), Vec::new())]);
+    assert_eq!(new(&t), [true], "New from its own release");
+}
+
+#[tokio::test]
 async fn a_version_takes_the_community_result_of_the_installed_game_it_is() {
     // The player has Astro Bot on PS4 (title id CUSA00000): its list says Playable.
     let t = FakeHost::new()
