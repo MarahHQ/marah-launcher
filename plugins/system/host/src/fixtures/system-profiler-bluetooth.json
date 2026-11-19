@@ -1,0 +1,41 @@
+{
+  "SPBluetoothDataType" : [
+    {
+      "controller_properties" : {
+        "controller_address" : "AA:BB:CC:00:11:22",
+        "controller_chipset" : "BCM_4378",
+        "controller_discoverable" : "attrib_off",
+        "controller_firmwareVersion" : "22.1.534.4271",
+        "controller_productID" : "0x4378",
+        "controller_state" : "attrib_on",
+        "controller_supportedServices" : "0x392039 < HFP AVRCP A2DP HID Braille LEA AACP GATT SerialPort >",
+        "controller_transport" : "PCIe",
+        "controller_vendorID" : "0x004C (Apple)"
+      },
+      "device_connected" : [
+        {
+          "Example Wireless Controller" : {
+            "device_address" : "11:22:33:44:55:66",
+            "device_minorType" : "Gamepad",
+            "device_productID" : "0x0B13",
+            "device_services" : "0x800020 < HID ACL >",
+            "device_vendorID" : "0x045E"
+          }
+        }
+      ],
+      "device_not_connected" : [
+        {
+          "Example Headphones" : {
+            "device_address" : "66:55:44:33:22:11",
+            "device_minorType" : "Headphones"
+          }
+        },
+        {
+          "Example Keyboard" : {
+            "device_address" : "AB:CD:EF:01:23:45"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -28,6 +28,9 @@ mod tools;
 // Linux reads the VPN interfaces. The tests run everywhere.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod vpn;
+// macOS's tools' output as the areas' data. The tests run everywhere.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod macmap;
 // Windows' values as the areas' data. The tests run everywhere.
 #[cfg_attr(not(windows), allow(dead_code))]
 mod winmap;
