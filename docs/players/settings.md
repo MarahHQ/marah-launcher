@@ -10,7 +10,7 @@ screen and the power menu.
 Settings saves each change at once. It is one page: every section is under its own heading,
 with a column of their icons on the left that lights the section you are in. The sections go
 in four groups: the launcher itself (Launcher, Updates, Backup), playing (Games, Downloads), the
-machine (System, when the launcher is the whole screen, and This PC), and Power last. Settings
+machine (System and This PC), and Power last. Settings
 opens on Launcher.
 
 - Up and Down move through the rows, from one section into the next.
@@ -82,10 +82,11 @@ and the games of a folder you take out leave the Library.
 
 ## System
 
-This section shows only when the launcher is the whole screen, with no desktop behind it: in the
-Marah Launcher session on the login screen, or on Marah OS.
+This section shows wherever the launcher runs: in a window on your desktop, in the Marah
+Launcher session on the login screen, and on Marah OS.
 
-- **Internet**, **Sound** and **Bluetooth** open their panels.
+- **Internet**, **Sound** and **Bluetooth** open their panels. When the system can't manage one
+  of them, its row says why.
 - On Marah OS, **Marah OS updates** shows the system's update.
 - On the Marah OS USB stick, **Install Marah OS on this PC** starts the install.
 
@@ -100,10 +101,12 @@ only shows information.
 row reads **Restart Marah Launcher**, and the session starts the launcher again.
 
 - In the Marah Launcher session on a desktop, **Log out** goes back to the login screen.
-- When the launcher is the whole screen and the system allows it, **Restart** and **Shut down**
-  restart or turn off the PC.
-- Log out, Restart and Shut down ask you to press twice. Before they act, they close what runs:
-  a running game first, then Steam, when the launcher started it. The screen says what it is
+- When the system allows it, **Restart** and **Shut down** restart or turn off the PC.
+- On a desktop, Restart and Shut down close every app on the PC, so they ask first in a dialog.
+  The dialog starts on **Cancel**. Esc, B (○) or a click outside the dialog cancels.
+- Log out asks you to press twice. When the launcher is the whole screen, Restart and Shut down
+  ask the same way.
+- Before Log out, Restart and Shut down act, they close what runs: a running game first, then Steam, when the launcher started it. The screen says what it is
   closing. A game that won't close is ended after a few seconds.
 
 The power menu (hold the PS button, or Ctrl+P) has the same items, from any screen.

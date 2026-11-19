@@ -38,11 +38,14 @@ in the `[os]` section of `brand.toml`.
 | `whole_screen` | `MARAH_SESSION=1`, or `own_os`, or `stick` | `MARAH_SESSION=1` |
 
 The view carries them as `Vm.system.whole-screen`, `Vm.system.own-os` and `Vm.system.stick`.
-The kit reads them:
+They are facts of the session only. They don't decide which of the machine's controls show: the
+network, sound, Bluetooth and drives icons, Settings → System, and Restart and Shut down show
+wherever the launcher runs, on a desktop too. Whether each works comes from its system area's
+state ([ADR-0004](../adr/0004-every-system-area-has-one-interface.md)). The kit reads the facts:
 
 | Field | What changes |
 | --- | --- |
-| `whole-screen` | The top bar shows the network, sound and Bluetooth buttons. Settings has the System section, with Restart and Shut down when the plugin allows power. "Quit" becomes "Restart" for the launcher. The power menu has Log out. |
+| `whole-screen` | "Quit" becomes "Restart" for the launcher. The power menu and Settings have Log out (not on Marah OS). Restart and Shut down ask by a second press, not in a dialog. The game menu opens nothing outside the launcher. A drive that comes is mounted by the launcher. |
 | `own-os` | Log out goes away (`kit/power-menu.slint`, `kit/settings-layout.slint`): greetd would log the player in again at once. |
 | `stick` | "Welcome to Marah OS" and the install screens show (`kit/install-os.slint`). Settings has the install row. |
 

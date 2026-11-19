@@ -129,11 +129,12 @@ desktop. Each counts only when its value is `1` (`Place::detect` in `crates/core
 
 | Variable | What shows |
 | --- | --- |
-| `MARAH_SESSION=1` | The launcher as the whole screen: the network, sound and Bluetooth buttons in the top bar, Settings → System, Log out, Restart and Shut down |
+| `MARAH_SESSION=1` | The launcher as the whole screen: "Restart Marah Launcher" in place of Quit, Log out, and Restart and Shut down that ask by a second press, not in a dialog |
 | `MARAH_OS=1` | Also Marah OS: Log out goes away |
 | `MARAH_USB=1` | Also the Marah OS USB stick: the welcome and install screens |
 
-The controls act on this computer through `nmcli`, `bluetoothctl`, `pactl` and `systemctl`.
+The network, sound, Bluetooth and drives controls, Settings → System, and Restart and Shut down
+show without these variables too, in a window on the desktop. The controls act on this computer through `nmcli`, `bluetoothctl`, `pactl` and `systemctl`.
 Joining a Wi-Fi network, pairing, the volume, Restart and Shut down are real. System updates
 and the install need Marah OS: elsewhere they fail and show their error. See
 [The OS contract](os-contract.md).

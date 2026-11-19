@@ -221,7 +221,7 @@ The keys act on one zone at a time:
 
 | Zone | What it is |
 | --- | --- |
-| `tabs` | The top bar: the "Home" and "Library" tabs, the screen buttons, the machine's icons when the launcher is the whole screen, and Settings. |
+| `tabs` | The top bar: the "Home" and "Library" tabs, the screen buttons, the machine's icons, and Settings. |
 | `row` | Home's tiles. |
 | `actions` | The buttons under the game on Home. |
 | `bar` | The grid's bar: search, sort, the card sizes, and in the Catalog the catalog plugin's button. |
@@ -297,10 +297,9 @@ game yet" or "No games here".
 ### Top bar (`components/top-bar.slint`)
 
 On the reading side: the "Home" and "Library" tabs. On the far side: the running game, the
-active download, the screen buttons (Search, Downloads, Emulators, Themes), the network, sound
-and Bluetooth icons when the launcher is the whole screen, the drives' icon, the battery when
-the PC has one,
-Settings, and the clock. Search shows only when there is a Catalog.
+active download, the screen buttons (Search, Downloads, Emulators, Themes), the kit's status bar
+(`StatusBar`: the network, sound, Bluetooth and drives icons, wherever the launcher runs, then
+the battery when the PC has one), Settings, and the clock. Search shows only when there is a Catalog.
 
 ## Accessible labels
 

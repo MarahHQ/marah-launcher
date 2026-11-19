@@ -76,5 +76,7 @@ work there, and a new part meant editing the `Capability` list, `Provided`, its
   `tests/tests/seams/system_theme.rs`; and
   `the_areas_global_places_each_area_where_the_view_lists_it` in
   `crates/ui-api/src/contract.rs`.
-- Not decided here: when the top bar shows the network, sound and Bluetooth icons. That is still
-  `Place::whole_screen`, and splitting it is a later step.
+- Not decided here: when the top bar shows the network, sound and Bluetooth icons. A later step
+  decided it: they show wherever the launcher runs, each by its area's state, and
+  `Place::whole_screen` is a fact of the session only (see the theme contract's 0.7.0 notes in
+  `docs/themes/reference.md`).

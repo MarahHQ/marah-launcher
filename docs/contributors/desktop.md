@@ -318,6 +318,12 @@ them, then what their launches left running, through the plugin's
 step. The script itself, its settings and what it does with each line are in
 [the OS contract](os-contract.md).
 
+The session changes how the launcher leaves, not what the player can manage. In a window on a
+desktop the top bar has the same network, sound, Bluetooth and drives icons, and Settings has the
+same System section. Restart and Shut down show there too, when the system plugin allows them.
+They act on the whole PC, so on a desktop they ask in a dialog first (`kit/power-ask.slint`); in
+the session they ask by a second press.
+
 ## Tests
 
 The app's unit tests open no windows. They run with the rest (see

@@ -24,10 +24,9 @@ clock.
 
 - While a game runs, the top bar shows the game with **Resume** and **Stop**.
 - While a download runs, it shows the download's progress.
-- When the launcher is the whole screen, with no desktop behind it, the top bar also has
-  network, sound and Bluetooth icons. Each one opens a panel for its settings.
-- The top bar has a drive icon, on a desktop too. It opens the Drives panel (see
-  [Drives](#drives)).
+- The top bar has network, sound, Bluetooth and drive icons, wherever the launcher runs: in a
+  window on your desktop too. Each one opens a panel for its settings. The drive icon opens the
+  Drives panel (see [Drives](#drives)).
 - An icon for something this PC can't do shows dimmed, such as Bluetooth on a PC without an
   adapter, or the drives without UDisks. It opens nothing. Point at it, or move to it with the
   keys or the pad, to see why.

@@ -330,6 +330,7 @@ Tests in `contract.rs` hold every kit file to three rules:
 | `plugin-list.slint` | `PluginList`, `PluginListSheet` | The Emulators or Themes list as a side sheet, and its keys. |
 | `plugin.slint` | `PluginPage` | One plugin's page, on `SettingsFrame`. For a theme, "Use this theme" and its options. |
 | `pop.slint` | `Pop` | A pop-up: a wash over the screen and a card in its middle. |
+| `power-ask.slint` | `PowerAsk`, `PowerAskSheet` | On a desktop, the dialog before Restart or Shut down: the focus starts on Cancel. Esc, the pad's ○ and a click outside cancel. `Overlays` shows it and `ShellKeys` sends it its keys. |
 | `power-menu.slint` | `PowerMenu`, `PowerMenuSheet` | The power menu: Log out, restart the launcher, Restart, Shut down, or quit. |
 | `progress-bar.slint` | `ProgressBar` | A thin progress bar. |
 | `question-prompt.slint` | `Question`, `QuestionPrompt` | A plugin's question at the start, with its two buttons. |
@@ -347,7 +348,8 @@ Tests in `contract.rs` hold every kit file to three rules:
 | `slot-actions.slint` | `SlotActions` | Plugin actions as round buttons. |
 | `slot-badges.slint` | `SlotBadges` | Plugin badges as small tags with a dot in their tone. |
 | `slot-sections.slint` | `SlotSections` | Plugin sections as fact cards. |
-| `system-panel.slint` | `Sys`, `NetIcon`, `SoundIcon`, `BluetoothIcon`, `StorageIcon`, `BatteryIcon`, `SystemSheet` | The network, sound and Bluetooth icons and panels for when the launcher is the whole screen, the drives' icon and the Drives panel (`Sys.toggle(3)`), on a desktop too, and the battery. `Sys.toggle` and `Sys.show-status` open a status icon's panel, and open nothing for a disabled area. `Sys.loading`, `Sys.disabled` and `Sys.reason` read a panel's area. A notice with a `drive` opens the Drives panel. |
+| `status-bar.slint` | `StatusBar`, `StatusButton` | The machine's status icons in one row, the same in every theme: the network, sound, Bluetooth and drives icons, then the battery. Put it in your top bar before Settings, and give it `focused`, the icon the keys are on (0 to `Sys.statuses` - 1, or -1). |
+| `system-panel.slint` | `Sys`, `NetIcon`, `SoundIcon`, `BluetoothIcon`, `StorageIcon`, `BatteryIcon`, `SystemSheet` | The network, sound, Bluetooth and drives icons and their panels, wherever the launcher runs, and the battery. `Sys.statuses` is how many status icons there are (4). `Sys.toggle` and `Sys.show-status` open a status icon's panel, and open nothing for a disabled area. `Sys.loading`, `Sys.disabled` and `Sys.reason` read a panel's area. A notice with a `drive` opens the Drives panel. |
 | `trailer-player.slint` | `Trailers`, `TrailerPlayer` | A trailer in the window, with its keys. |
 | `widgets.slint` | `FocusRing`, `KeyCap`, `BackButton`, `Stars`, `Chip`, `Pill`, `Kicker`, `Switch`, `Shimmer`, `Cover` | Small widgets. |
 
@@ -448,10 +450,8 @@ Version 0.6.0 moved the backup browser out of Settings → Backup: it is the fol
 - `System` has `drives-available` and `drives` (each a `DriveItem`, one per
   drive, with its `actions` as buttons and the `busy` one). `Notice`
   has `drive`. A job's kind can be `mount`, `unmount` or `eject`.
-- A theme with its own top bar shows the drives' icon on the whole screen and on a desktop,
-  and counts it among its machine icons so the keys reach it. Both built-in themes' `Nav.statuses` is 3 for the network,
-  sound and Bluetooth icons on the whole screen, plus 1 for the drives' icon. On a desktop the
-  drives' icon is the only one.
+- A theme with its own top bar shows the drives' icon, and counts it among its machine icons
+  so the keys reach it.
 - `drives-listing` is true until the drives' first list read ends. `FolderBrowser` has
   `places-loading`, true while the browser reads the drives for its places.
 
@@ -472,13 +472,25 @@ Version 0.7.0 put every system area in one list
   power area is ready and its `reason` is empty.
 - An area that can't be used here (absent or unsupported) no longer hides its icon: the icon
   shows disabled (see [Status icons](#status-icons)).
+- The machine's controls show wherever the launcher runs, on a desktop too: the network, sound,
+  Bluetooth and drives icons, Settings → System, and Restart and Shut down. Whether a control
+  works comes from its area's state only. `whole-screen` is a fact of the session now: Quit
+  restarts the launcher, the game menu opens nothing outside it, and Restart and Shut down ask
+  by a second press. On a desktop they ask in a dialog (`kit/power-ask.slint`).
+- The kit draws the status icons: `StatusBar` in `kit/status-bar.slint`. Both built-in themes
+  use it, and their `Nav.statuses` is `Sys.statuses`, 4.
+- Settings' tabs come from one list, `Prefs.settings-tabs`, the same in every place. System is
+  always section 5, Backup 6 and Power 7 (`Prefs.backup-section`, `Prefs.power-section`).
+  `Prefs.sections` is 8 in Settings.
 
 A theme built for 0.6 that reads `Vm.system.*-loading`, `*-reason` or `*-available` reads
 `Vm.system.areas` instead, then sets `ui_api = "^0.7"`.
 
 #### Status icons
 
-Every status icon that can show is in place from the first frame, so the top bar never shifts.
+The kit's `StatusBar` (`kit/status-bar.slint`) draws every status icon in the same order in every
+theme, wherever the launcher runs. A theme with a top bar of its own puts it before its Settings
+button. Every status icon is in place from the first frame, so the top bar never shifts.
 The kit's `StatusState` (`kit/loading.slint`) shows an area's state over its icon. Put it in the
 icon's button with the area's place, and read its `dim`, `cursor`, `disabled` and `lit`:
 
@@ -512,7 +524,7 @@ place at its first frame.
 | Piece | Used by | Motion | Time (`Motion`) |
 | --- | --- | --- | --- |
 | `Popover` | the system panels and the Drives panel | grows from 0.96 at its anchor's side and fades in; fades out | `popover-in` 120 ms, `popover-out` 90 ms |
-| `Sheet` | the folder browser, a folder's list | the wash fades in, the card slides up 16 px and fades in; both fade out | `sheet-in` 150 ms, `sheet-out` 110 ms |
+| `Sheet` | the folder browser, a folder's list, the dialog before Restart or Shut down | the wash fades in, the card slides up 16 px and fades in; both fade out | `sheet-in` 150 ms, `sheet-out` 110 ms |
 | `Leaving` | the shells and `Overlays` | keeps a part on screen while it fades out | the part's out time |
 | `Tooltip` | the Drives panel's buttons | fades in at once on key focus, after `tip-wait` under the pointer | `tip-in` 80 ms, `tip-wait` 250 ms, `tip-out` 60 ms |
 | Settings' rail | the lit square and the focus ring | one square moves to the section | `focus` 90 ms |
