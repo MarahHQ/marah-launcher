@@ -54,14 +54,15 @@ Two themes are compiled into the binary. Each crate's `build.rs` embeds every fi
   Home. It sets every token, each to its default value.
 
 The two share most files. Only `theme.toml`, `shell.slint` (one comment and two lines that read
-Classic's Library tile), `screens/home.slint`, `components/nav.slint`, `components/top-bar.slint`
-and `components/library-view.slint` differ. The behaviour both need is in the kit: `ShellKeys`
-starts the kit's pages afresh on a new screen, and `Games` (`kit/games.slint`) holds the games on
-screen, the selection that goes to the core after the moves stop, the commands for the view on
-screen and a card's commands. Each theme keeps its own keys and zones in `components/nav.slint`.
-Default adds `components/chip-row.slint`, `images/all-games-icon.png` and
-`images/all-games-cover.jpg`. Both draw Downloads, the Game Hub, plugin pages
-and the Emulators and Themes lists with kit pages.
+Classic's Library tile), `screens/home.slint`, `screens/library.slint`, `components/nav.slint`,
+`components/top-bar.slint` and `components/library-view.slint` differ. The behaviour both need is
+in the kit: `ShellKeys` starts the kit's pages afresh on a new screen, and `Games`
+(`kit/games.slint`) holds the games on screen, the selection that goes to the core after the
+moves stop, the commands for the view on screen and a card's commands. Each theme keeps its own
+keys and zones in `components/nav.slint`. Default adds `components/chip-row.slint`,
+`components/systems-cover.slint`, `images/all-games-icon.png` and `images/all-games-cover.jpg`.
+Both draw Downloads, the Game Hub, plugin pages and the Emulators and Themes lists with kit
+pages.
 
 ## Where a theme is installed
 
