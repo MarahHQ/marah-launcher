@@ -2,7 +2,7 @@
 //! games, [`FakeStore`], a store that describes games, and [`FakeService`], a service that
 //! fills slots.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -22,6 +22,16 @@ enum Build {
     ToInstall,
     /// This build is installed, or none for "". A first play asks to install build 1.0.
     Installed(&'static str),
+}
+
+/// The game installer a [`FakeCatalog`] has.
+#[derive(Clone, Copy)]
+enum GameInstall {
+    None,
+    /// [`FakeCatalog::waiting_installer`].
+    Waiting,
+    /// [`FakeCatalog::installs`], as the game with this title.
+    AtOnce(&'static str),
 }
 
 /// An emulator plugin with a catalog of games, built for a test. Its games are `G0`, `G1`, …
@@ -44,11 +54,16 @@ pub struct FakeCatalog {
     slots: bool,
     launcher: bool,
     compatibility: bool,
+    /// [`FakeCatalog::tested_for_any_id`].
+    any_id: bool,
     /// The community list's results by title id, for any game, installed or not.
     listed: Vec<(String, CompatLevel)>,
     build: Build,
     packages: bool,
-    waiting_installer: bool,
+    game_installer: GameInstall,
+    /// Where each install of [`GameInstall::AtOnce`] began.
+    sources: Arc<Mutex<Vec<HostPath>>>,
+    install_note: Option<String>,
     in_folders: bool,
     keymap: Vec<(String, String)>,
     requires: Option<String>,
@@ -73,10 +88,13 @@ impl FakeCatalog {
             slots: true,
             launcher: false,
             compatibility: false,
+            any_id: false,
             listed: Vec::new(),
             build: Build::None,
             packages: false,
-            waiting_installer: false,
+            game_installer: GameInstall::None,
+            sources: Arc::default(),
+            install_note: None,
             in_folders: false,
             keymap: Vec::new(),
             requires: None,
@@ -171,9 +189,19 @@ impl FakeCatalog {
         self
     }
 
-    /// The community's result for each game: Playable, last tested on 2026-09-01.
+    /// The community's result for each game: Playable, last tested on 2026-09-01. A game not
+    /// in its catalog is NotFound.
     pub fn tested(mut self) -> Self {
         self.compatibility = true;
+        self
+    }
+
+    /// The community's result for any game id, in its catalog or not: Playable, last tested
+    /// on 2026-09-01. This breaks `contract::emulator`. A test uses it to prove that the core
+    /// never asks `status` for a game that is not the emulator's.
+    pub fn tested_for_any_id(mut self) -> Self {
+        self.compatibility = true;
+        self.any_id = true;
         self
     }
 
@@ -220,7 +248,28 @@ impl FakeCatalog {
     /// A game installer that writes a quarter of the game into the games folder, then waits
     /// until the player cancels.
     pub fn waiting_installer(mut self) -> Self {
-        self.waiting_installer = true;
+        self.game_installer = GameInstall::Waiting;
+        self
+    }
+
+    /// A game installer that installs each download at once, where it is, as the game `title`.
+    /// Its work folder is `<console>/<title>.part` in the games folder, with the games'
+    /// platform for a catalog with no console. [`FakeCatalog::installed_from`] says where each
+    /// install began.
+    pub fn installs(mut self, title: &'static str) -> Self {
+        self.game_installer = GameInstall::AtOnce(title);
+        self
+    }
+
+    /// Where each install of [`FakeCatalog::installs`] began, in order. It shares them with its
+    /// clones.
+    pub fn installed_from(&self) -> Vec<HostPath> {
+        self.sources.lock().unwrap().clone()
+    }
+
+    /// The manifest's `install_note`: what its game installer installs from.
+    pub fn install_note(mut self, note: &str) -> Self {
+        self.install_note = Some(note.into());
         self
     }
 
@@ -239,7 +288,7 @@ impl FakeCatalog {
         if !matches!(self.build, Build::None) {
             capabilities.extend(["installer", "downloader"]);
         }
-        if self.waiting_installer {
+        if !matches!(self.game_installer, GameInstall::None) {
             capabilities.push("game_installer");
         }
         let capabilities: Vec<String> = capabilities.iter().map(|c| format!("\"{c}\"")).collect();
@@ -251,6 +300,9 @@ impl FakeCatalog {
         toml += "version = \"1.0.0\"\nhost_api = \"^0.3\"\n";
         if let Some(console) = &self.console {
             toml += &format!("console = \"{console}\"\n");
+        }
+        if let Some(note) = &self.install_note {
+            toml += &format!("install_note = \"{note}\"\n");
         }
         toml += &format!("capabilities = [{}]\n", capabilities.join(", "));
         if self.system {
@@ -276,7 +328,7 @@ impl FakeCatalog {
         if self.packages {
             toml += "[[permissions.filesystem]]\nfolder = \"packages\"\n";
         }
-        if self.waiting_installer || self.in_folders {
+        if !matches!(self.game_installer, GameInstall::None) || self.in_folders {
             toml += "[[permissions.filesystem]]\nfolder = \"games\"\nwrite = true\n";
         }
         for (button, keys) in &self.keymap {
@@ -307,9 +359,11 @@ impl FakeCatalog {
                 provided.launcher = Some(Arc::new(Play));
             }
             if self.compatibility {
+                let games = (!self.any_id).then(|| (0..self.titles.len()).map(|i| format!("G{i}")).collect());
+                let tested = Tested(games);
                 provided.compatibility = match self.listed.is_empty() {
-                    true => Some(Arc::new(Tested)),
-                    false => Some(Arc::new(Listed(self.listed.clone()))),
+                    true => Some(Arc::new(tested)),
+                    false => Some(Arc::new(Listed(tested, self.listed.clone()))),
                 };
             }
             match self.build {
@@ -323,8 +377,13 @@ impl FakeCatalog {
                     provided.downloader = Some(Arc::new(NoBuild));
                 }
             }
-            if self.waiting_installer {
-                provided.game_installer = Some(Arc::new(WaitingInstaller));
+            match self.game_installer {
+                GameInstall::None => {}
+                GameInstall::Waiting => provided.game_installer = Some(Arc::new(WaitingInstaller)),
+                GameInstall::AtOnce(title) => {
+                    let console = self.console.clone().unwrap_or_else(|| self.platform.clone());
+                    provided.game_installer = Some(Arc::new(AtOnce { title, console, sources: self.sources.clone() }));
+                }
             }
             let art: Vec<(&str, Vec<u8>)> = [("system/icon.png", &self.icon), ("system/cover.png", &self.cover)]
                 .into_iter()
@@ -350,11 +409,13 @@ struct Games {
 
 #[async_trait]
 impl Catalog for Games {
-    async fn list(&self, _: PageRequest) -> PluginResult<Page<GameSummary>> {
+    async fn list(&self, page: PageRequest) -> PluginResult<Page<GameSummary>> {
         let items = self
             .titles
             .iter()
             .enumerate()
+            .skip(page.offset as usize)
+            .take(page.limit as usize)
             .map(|(i, t)| GameSummary {
                 id: format!("G{i}"),
                 title: t.clone(),
@@ -368,8 +429,12 @@ impl Catalog for Games {
             .collect();
         Ok(Page { items, total: None })
     }
-    async fn search(&self, _: &SearchQuery) -> PluginResult<Vec<GameSummary>> {
-        Ok(self.list(PageRequest::ALL).await?.items)
+    /// The games whose title has the text, in any case.
+    async fn search(&self, query: &SearchQuery) -> PluginResult<Vec<GameSummary>> {
+        let text = query.text.to_lowercase();
+        let found =
+            self.list(PageRequest::ALL).await?.items.into_iter().filter(|g| g.title.to_lowercase().contains(&text));
+        Ok(found.take(query.limit as usize).collect())
     }
     async fn details(&self, game: &str) -> PluginResult<GameDetails> {
         if self.details_fail {
@@ -461,11 +526,15 @@ impl Launcher for Play {
     }
 }
 
-struct Tested;
+/// The community's result for each of these games, or for any id with `None`.
+struct Tested(Option<Vec<String>>);
 
 #[async_trait]
 impl Compatibility for Tested {
-    async fn status(&self, _: &str) -> PluginResult<CompatInfo> {
+    async fn status(&self, game: &str) -> PluginResult<CompatInfo> {
+        if self.0.as_ref().is_some_and(|games| !games.iter().any(|id| id == game)) {
+            return Err(PluginError::NotFound(game.into()));
+        }
         Ok(CompatInfo {
             level: CompatLevel::Playable,
             notes: Some("Tested on Linux".into()),
@@ -477,16 +546,16 @@ impl Compatibility for Tested {
 }
 
 /// [`Tested`], with a list that looks up title ids.
-struct Listed(Vec<(String, CompatLevel)>);
+struct Listed(Tested, Vec<(String, CompatLevel)>);
 
 #[async_trait]
 impl Compatibility for Listed {
     async fn status(&self, game: &str) -> PluginResult<CompatInfo> {
-        Tested.status(game).await
+        self.0.status(game).await
     }
 
     async fn result_for_title(&self, title_id: &str) -> PluginResult<Option<CompatInfo>> {
-        let Some((_, level)) = self.0.iter().find(|(id, _)| id.eq_ignore_ascii_case(title_id)) else {
+        let Some((_, level)) = self.1.iter().find(|(id, _)| id.eq_ignore_ascii_case(title_id)) else {
             return Ok(None);
         };
         Ok(Some(CompatInfo {
@@ -575,6 +644,27 @@ impl GameInstaller for WaitingInstaller {
             job.finished(Err(PluginError::Other("The install was cancelled".into())));
         });
         Ok(HostPath::new("games", 0, RelPath::new("PS5/game.part").unwrap()))
+    }
+}
+
+/// A game installer that installs each download at once, where it is.
+struct AtOnce {
+    title: &'static str,
+    /// The folder its work goes in, in the games folder.
+    console: String,
+    sources: Arc<Mutex<Vec<HostPath>>>,
+}
+
+#[async_trait]
+impl GameInstaller for AtOnce {
+    async fn candidates(&self) -> PluginResult<Vec<Installable>> {
+        Ok(vec![])
+    }
+    async fn begin(&self, source: &HostPath, job: Arc<dyn InstallJob>) -> PluginResult<HostPath> {
+        self.sources.lock().unwrap().push(source.clone());
+        job.finished(Ok(InstalledGame { dest: source.clone(), title: self.title.into() }));
+        let work = format!("{}/{}.part", self.console, self.title.to_lowercase());
+        Ok(HostPath::new("games", 0, RelPath::new(work).expect("a plain title")))
     }
 }
 

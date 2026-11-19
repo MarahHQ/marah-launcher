@@ -327,9 +327,11 @@ async fn an_offer_its_list_says_doesn_t_start_loses_the_best_pick() {
 
 #[tokio::test]
 async fn a_list_without_the_title_look_up_leaves_the_offers_as_before() {
-    // Both emulators have a list, but neither looks up a title id: a game nobody has is not
+    // Both emulators have a list that says Playable for any game id, but neither looks up a
+    // title id. The core asks only the look-up for an offer, so a game nobody has is not
     // tested, and the PS4 version is the best, as with no list.
-    let t = astro_with(strong_pc(true), "2026-10-01", emu_ps5().tested(), emu_ps4().tested()).await;
+    let t =
+        astro_with(strong_pc(true), "2026-10-01", emu_ps5().tested_for_any_id(), emu_ps4().tested_for_any_id()).await;
     let quest = "release-catalog:emu-ps4/CUSA00002".to_owned();
     assert_eq!(cards(&t), [(ASTRO_PS4.to_owned(), vec!["PS4".to_owned(), "PS5".to_owned()]), (quest, Vec::new())]);
     assert!(!chips(&t).iter().any(|(id, _)| id == "ingame"), "no In-game chip: {:?}", chips(&t));

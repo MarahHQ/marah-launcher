@@ -98,15 +98,7 @@ export component Card inherits Rectangle {
             "magnet": format!("magnet:?xt=urn:btih:{:040x}", n + 1), "game_info": { "name": title } })
         })
         .collect();
-    let catalog = serde_json::json!({ "complete": true, "translation": { "language": "en" }, "topic_count": 3,
-        "topics": topics });
-    host.test.http.serve("https://xyz.dev/c/ps5.json", catalog.to_string());
-    host.dispatch(Command::SetConfig {
-        plugin: id("release-catalog"),
-        scope: launcher_api::ConfigScope::Emulator,
-        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
-    });
-    host.catalogs_fetched();
+    host.serve_catalog(&[("ps5", serde_json::json!(topics))]);
     host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
 
     let resolved = host.ui.resolved().unwrap();

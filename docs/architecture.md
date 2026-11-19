@@ -568,12 +568,13 @@ per area. `spans.rs` is its own binary. The seams, from the highest:
    every task waits for a timer. A test waits for work with `TestCore::until(area, done)` or
    `FakeClock::run_until_idle`.
 2. **The capability contracts** (`launcher_testkit::contract`): `contract::emulator` checks
-   `FakeEmulator` (`contracts.rs`) and each real emulator plugin in its own seam file
-   (`kyty.rs`, `shadps4.rs`, `lichii.rs`, `pc.rs`, `steam.rs`). `contract::archives` checks
-   `FakeArchives`, and the app's `HostArchives` in `crates/app/src/archives.rs`.
-   `contract::process_tree` checks `FakeProcessTree`, and the app's `SystemProcesses` on Linux
-   in `crates/app/src/processes.rs`. `contract::windows` checks `FakeWindows`, and the
-   app's `SystemWindows` in the opt-in desktop test (`crates/app/tests/desktop.rs`).
+   `FakeEmulator` and a `FakeCatalog` with games and no build (`contracts.rs`), and each real
+   emulator plugin in its own seam file (`kyty.rs`, `shadps4.rs`, `lichii.rs`, `pc.rs`,
+   `steam.rs`). `contract::archives` checks `FakeArchives`, and the app's `HostArchives` in
+   `crates/app/src/archives.rs`. `contract::process_tree` checks `FakeProcessTree`, and the
+   app's `SystemProcesses` on Linux in `crates/app/src/processes.rs`. `contract::windows`
+   checks `FakeWindows`, and the app's `SystemWindows` in the opt-in desktop test
+   (`crates/app/tests/desktop.rs`).
 3. **The composed host**: the core and the `AppShell` the app ships, on Slint's testing backend
    with `FakePlatform`. A test drives the theme through `ThemeDriver` (accessible labels, keys,
    clicks) and checks the view through `core.view()`. `every_theme.rs` runs one suite against

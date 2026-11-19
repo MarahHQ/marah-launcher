@@ -56,18 +56,11 @@ fn astro_with(home: &std::path::Path, emulator: launcher_testkit::StubPlugin) ->
         h.home(home).plugin(emulator).built_in(launcher_api::PluginBox::code(release_catalog::ReleaseCatalog::default()))
     });
     host.ui.start().unwrap();
-    let catalog = serde_json::json!({ "complete": true, "translation": { "language": "en" }, "topic_count": 1,
-        "topics": [{ "id": "1", "title": "[PS5] Astro [EUR / v01.05]", "size": "1 GB",
-            "magnet": format!("magnet:?xt=urn:btih:{hash}"),
-            "game_info": { "name": "Astro", "title_id": "PPSA01234", "version": "v01.05", "region": "EUR" } }] });
-    host.test.http.serve("https://xyz.dev/c/ps5.json", catalog.to_string());
     host.test.torrents.has(hash, "Astro", &[("Astro/astro.pkg", b"package")]);
-    host.dispatch(Command::SetConfig {
-        plugin: id("release-catalog"),
-        scope: launcher_api::ConfigScope::Emulator,
-        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
-    });
-    host.catalogs_fetched();
+    let topics = serde_json::json!([{ "id": "1", "title": "[PS5] Astro [EUR / v01.05]", "size": "1 GB",
+        "magnet": format!("magnet:?xt=urn:btih:{hash}"),
+        "game_info": { "name": "Astro", "title_id": "PPSA01234", "version": "v01.05", "region": "EUR" } }]);
+    host.serve_catalog(&[("ps5", topics)]);
     host.resize(1600.0, 900.0);
     host.dispatch(Command::Navigate(launcher_core::Route::Catalog));
     host.dispatch(Command::OpenGame("release-catalog:emu-kyty/PPSA01234".parse().unwrap()));
@@ -104,16 +97,7 @@ fn first_offer_on(
             .built_in(launcher_api::PluginBox::code(release_catalog::ReleaseCatalog::default()))
     });
     host.ui.start().unwrap();
-    let count = topics.as_array().unwrap().len();
-    let catalog = serde_json::json!({ "complete": true, "translation": { "language": "en" }, "topic_count": count,
-        "topics": topics });
-    host.test.http.serve("https://xyz.dev/c/ps5.json", catalog.to_string());
-    host.dispatch(Command::SetConfig {
-        plugin: id("release-catalog"),
-        scope: launcher_api::ConfigScope::Emulator,
-        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
-    });
-    host.catalogs_fetched();
+    host.serve_catalog(&[("ps5", topics)]);
     host.resize(1600.0, 900.0);
     host.dispatch(Command::Navigate(launcher_core::Route::Catalog));
     let offer = host.core().view().catalog.games.games.first().cloned().expect("the offer");
