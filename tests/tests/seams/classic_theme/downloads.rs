@@ -432,18 +432,11 @@ fn penguins_on_the_sheet(
             .built_in(launcher_api::PluginBox::code(release_catalog::ReleaseCatalog::default()))
     });
     host.ui.start().unwrap();
-    let catalog = serde_json::json!({ "complete": true, "translation": { "language": "en" }, "topic_count": 1,
-        "topics": [{ "id": "1", "title": "Penguins (v1.2) [amd64] [Native]", "size": "1 GB",
-            "magnet": format!("magnet:?xt=urn:btih:{ASTRO_HASH}"), "game_info": {} }] });
-    host.test.http.serve("https://xyz.dev/c/pc.json", catalog.to_string());
     let files: &[(&str, &[u8])] = &[("Penguins/penguins.x86_64", &elf()), ("Penguins/Soundtrack/01.flac", b"music")];
     host.test.torrents.has(ASTRO_HASH, "Penguins", files);
-    host.dispatch(Command::SetConfig {
-        plugin: id("release-catalog"),
-        scope: launcher_api::ConfigScope::Emulator,
-        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
-    });
-    host.catalogs_fetched();
+    let topics = serde_json::json!([{ "id": "1", "title": "Penguins (v1.2) [amd64] [Native]", "size": "1 GB",
+        "magnet": format!("magnet:?xt=urn:btih:{ASTRO_HASH}"), "game_info": {} }]);
+    host.serve_catalog(&[("pc", topics)]);
     host.resize(1600.0, 900.0);
     host.dispatch(Command::Navigate(launcher_core::Route::Catalog));
     let offer = host.core().view().catalog.games.games[0].key.clone();

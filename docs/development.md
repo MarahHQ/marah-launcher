@@ -238,6 +238,12 @@ contracts, and the composed host (core, theme host and a theme). They are one te
 `tests/tests/seams/common/` builds and links once. `tests/tests/spans.rs` is its own binary,
 because `tracing` caches per-callsite interest across threads.
 
+A test that needs the Game Catalog to offer releases gives `common::serve_catalog` the topics
+of each console, or `Composed::serve_catalog` on the composed host. It serves each file at
+`common::CATALOG_URL`, sets the Game Catalog's address, and waits until the catalog is read.
+A test of the catalog file or its settings (`catalog_refresh.rs`, `releases/`) writes them out
+itself. An emulator that installs a download is `FakeCatalog::kyty().installs(title)`.
+
 `every_theme.rs` runs one suite against each built-in theme (Classic and Default). A new
 built-in theme goes into its `THEMES` list.
 

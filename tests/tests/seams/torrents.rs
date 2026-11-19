@@ -1,73 +1,32 @@
 //! Seam 1, core app API: downloading a release a catalog offers, through the host's torrent
 //! port (a fake swarm), and handing the finished download to the emulator's game installer.
 
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use launcher_api::*;
 use launcher_core::{Area, Command, GameInstallCmd, TorrentAction};
-use launcher_testkit::{FakeCatalog, FakeHost, StubPlugin, TestCore, until as until_in};
+use launcher_testkit::{FakeCatalog, FakeHost, TestCore, until as until_in};
 
-use crate::common::{catalogs_fetched, id, native};
+use crate::common::{catalogs_fetched, native, serve_catalog};
 
 const HASH: &str = "c12fe1c06bba254a9dc9f519b335aa7c1367a88a";
-const URL: &str = "https://xyz.dev/c/ps5.json";
 const PACKAGE: &[u8] = b"a game package";
 
-/// An emulator with no games of its own, whose game installer says which source it got.
-fn emulator(sources: Arc<Mutex<Vec<HostPath>>>) -> StubPlugin {
-    struct Emu(Arc<Mutex<Vec<HostPath>>>);
-    #[async_trait]
-    impl Catalog for Emu {
-        async fn list(&self, _: PageRequest) -> PluginResult<Page<GameSummary>> {
-            Ok(Page { items: vec![], total: None })
-        }
-        async fn search(&self, _: &SearchQuery) -> PluginResult<Vec<GameSummary>> {
-            Ok(vec![])
-        }
-        async fn details(&self, game: &str) -> PluginResult<GameDetails> {
-            Err(PluginError::NotFound(game.into()))
-        }
-        async fn artwork(&self, _: &str, _: ArtworkKind) -> PluginResult<Option<ImageSource>> {
-            Ok(None)
-        }
-    }
-    #[async_trait]
-    impl GameInstaller for Emu {
-        async fn candidates(&self) -> PluginResult<Vec<Installable>> {
-            Ok(vec![])
-        }
-        async fn begin(&self, source: &HostPath, job: Arc<dyn InstallJob>) -> PluginResult<HostPath> {
-            self.0.lock().unwrap().push(source.clone());
-            job.finished(Ok(InstalledGame { dest: source.clone(), title: "Astro".into() }));
-            Ok(HostPath::new("games", 0, RelPath::new("PS5/astro.part").unwrap()))
-        }
-    }
-    StubPlugin::from_toml(
-        "id = \"emu-kyty\"\nkind = \"emulator\"\nname = \"KytyPS5\"\nversion = \"1.0.0\"\nhost_api = \"^0.3\"\n\
-         console = \"PS5\"\n\
-         install_note = \"Installs from a folder.\"\n\
-         capabilities = [\"catalog\", \"game_installer\"]\n\
-         [[permissions.filesystem]]\nfolder = \"packages\"\n\
-         [[permissions.filesystem]]\nfolder = \"games\"\nwrite = true\n",
-    )
-    .provides(move |_| {
-        let emu = Arc::new(Emu(sources.clone()));
-        Ok(Provided { catalog: Some(emu.clone()), game_installer: Some(emu), ..Provided::default() })
-    })
+/// KytyPS5 with no games of its own, whose game installer installs Astro from a folder.
+fn emulator() -> FakeCatalog {
+    FakeCatalog::kyty().installs("Astro").install_note("Installs from a folder.")
 }
 
-fn catalog(magnet: &str) -> String {
-    serde_json::json!({ "complete": true, "translation": { "language": "en" }, "topic_count": 1,
-        "topics": [{ "id": "1", "title": "[PS5] Astro [EUR / v01.05]", "size": "1 GB", "magnet": magnet,
-            "game_info": { "name": "Astro", "title_id": "PPSA01234", "region": "EUR", "version": "v01.05" } }] })
-    .to_string()
+/// The catalog's one release, of Astro, with this magnet.
+fn astro(magnet: &str) -> serde_json::Value {
+    serde_json::json!([{ "id": "1", "title": "[PS5] Astro [EUR / v01.05]", "size": "1 GB", "magnet": magnet,
+        "game_info": { "name": "Astro", "title_id": "PPSA01234", "region": "EUR", "version": "v01.05" } }])
 }
 
 struct Setup {
     t: TestCore,
     home: tempfile::TempDir,
-    sources: Arc<Mutex<Vec<HostPath>>>,
+    emulator: FakeCatalog,
 }
 
 async fn setup() -> Setup {
@@ -81,36 +40,21 @@ async fn setup_with(hash: &str) -> Setup {
 
 /// [`setup_with`] on a host that `build` changes first.
 async fn setup_on(hash: &str, build: impl FnOnce(FakeHost) -> FakeHost) -> Setup {
-    let sources = Arc::new(Mutex::new(Vec::new()));
-    setup_plugin(hash, emulator(sources.clone()), sources, build).await
+    setup_plugin(hash, emulator(), build).await
 }
 
-/// [`setup_on`] with `plugin` as the emulator.
-async fn setup_plugin(
-    hash: &str,
-    plugin: StubPlugin,
-    sources: Arc<Mutex<Vec<HostPath>>>,
-    build: impl FnOnce(FakeHost) -> FakeHost,
-) -> Setup {
+/// [`setup_on`] with `emulator` as the emulator.
+async fn setup_plugin(hash: &str, emulator: FakeCatalog, build: impl FnOnce(FakeHost) -> FakeHost) -> Setup {
     let home = tempfile::tempdir().unwrap();
     let t = build(FakeHost::new())
         .home(home.path())
-        .plugin(plugin)
+        .plugin(emulator.clone().build())
         .built_in(PluginBox::code(release_catalog::ReleaseCatalog::default()))
         .boot_core()
         .await;
-    t.http.serve(URL, catalog(&format!("magnet:?xt=urn:btih:{hash}")));
     t.torrents.has(HASH, "Astro", &[("Astro/astro.pkg", PACKAGE)]);
-    t.core
-        .dispatch(Command::SetConfig {
-            plugin: id("release-catalog"),
-            scope: ConfigScope::Emulator,
-            value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
-        })
-        .await
-        .unwrap();
-    catalogs_fetched(&t.core).await;
-    Setup { t, home, sources }
+    serve_catalog(&t, &[("ps5", astro(&format!("magnet:?xt=urn:btih:{hash}")))]).await;
+    Setup { t, home, emulator }
 }
 
 fn offer() -> GameKey {
@@ -265,7 +209,7 @@ async fn a_finished_download_installs_through_the_emulator_s_game_installer() {
     until(t, "complete").await;
 
     install(t).await;
-    let sources = s.sources.lock().unwrap().clone();
+    let sources = s.emulator.installed_from();
     assert_eq!(sources, [HostPath::new("packages", 0, RelPath::new(format!("PS5/torrent-{HASH}")).unwrap())]);
     t.until(Area::Installs, |_| row(t).install == "done").await;
     assert_eq!(row(t).install, "done");
@@ -521,7 +465,7 @@ async fn a_download_goes_to_the_folder_the_player_picks_inside_a_packages_folder
     until(t, "complete").await;
     assert!(home.join(format!("Other/PS5/torrent-{HASH}/Astro/astro.pkg")).is_file());
     install(t).await;
-    let sources = s.sources.lock().unwrap().clone();
+    let sources = s.emulator.installed_from();
     assert_eq!(sources, [HostPath::new("packages", 1, RelPath::new(format!("PS5/torrent-{HASH}")).unwrap())]);
 }
 
@@ -545,26 +489,15 @@ async fn downloaded(
         .built_in(PluginBox::code(release_catalog::ReleaseCatalog::default()))
         .boot_core()
         .await;
-    let catalog = serde_json::json!({ "complete": true, "translation": { "language": "en" }, "topic_count": 1,
-        "topics": [topic] });
-    t.http.serve(&format!("https://xyz.dev/c/{}.json", console.to_ascii_lowercase()), catalog.to_string());
+    t.torrents.has(HASH, "Game", files);
     // The other consoles' catalogs are empty: else the bundled ones show, and their newer
     // releases push this one off the Catalog's first page.
-    let empty = serde_json::json!({ "complete": true, "translation": { "language": "en" }, "topic_count": 0,
-        "topics": [] });
-    for other in ["pc", "ps4", "ps5", "switch"].into_iter().filter(|c| *c != console.to_ascii_lowercase()) {
-        t.http.serve(&format!("https://xyz.dev/c/{other}.json"), empty.to_string());
-    }
-    t.torrents.has(HASH, "Game", files);
-    t.core
-        .dispatch(Command::SetConfig {
-            plugin: id("release-catalog"),
-            scope: ConfigScope::Emulator,
-            value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
-        })
-        .await
-        .unwrap();
-    catalogs_fetched(&t.core).await;
+    let console_file = console.to_ascii_lowercase();
+    let catalogs: Vec<(&str, serde_json::Value)> = ["pc", "ps4", "ps5", "switch"]
+        .into_iter()
+        .map(|c| (c, if c == console_file { serde_json::json!([topic.clone()]) } else { serde_json::json!([]) }))
+        .collect();
+    serve_catalog(&t, &catalogs).await;
     t.core.dispatch(Command::Navigate(launcher_core::Route::Catalog)).await.unwrap();
     let offers = t.core.view().catalog.games.games;
     let offer =
@@ -867,7 +800,7 @@ async fn downloads_count_what_downloads_and_what_shares() {
 
 #[tokio::test]
 async fn an_install_shows_on_its_download_s_card_which_cancels_it() {
-    let s = setup_plugin(HASH, FakeCatalog::kyty().waiting_installer().build(), Default::default(), |h| h).await;
+    let s = setup_plugin(HASH, FakeCatalog::kyty().waiting_installer(), |h| h).await;
     let t = &s.t;
     t.core
         .dispatch(Command::Torrent(launcher_core::TorrentCmd::Download {

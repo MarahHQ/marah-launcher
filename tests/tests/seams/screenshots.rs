@@ -565,17 +565,10 @@ fn shoot_this_pc(window: &MinimalSoftwareWindow, out: &Path) {
                 .built_in(launcher_api::PluginBox::code(release_catalog::ReleaseCatalog::default()))
         });
         host.ui.start().unwrap();
-        let catalog = serde_json::json!({ "complete": true, "translation": { "language": "en" }, "topic_count": 1,
-            "topics": [{ "id": "1", "title": "[PS5] Astro Drift [EUR / v01.05]", "size": "50 GB",
-                "magnet": "magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a",
-                "game_info": { "name": "Astro Drift", "title_id": "PPSA01234", "version": "v01.05", "region": "EUR" } }] });
-        host.test.http.serve("https://xyz.dev/c/ps5.json", catalog.to_string());
-        host.dispatch(Command::SetConfig {
-            plugin: id("release-catalog"),
-            scope: launcher_api::ConfigScope::Emulator,
-            value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
-        });
-        host.catalogs_fetched();
+        let topics = serde_json::json!([{ "id": "1", "title": "[PS5] Astro Drift [EUR / v01.05]", "size": "50 GB",
+            "magnet": "magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a",
+            "game_info": { "name": "Astro Drift", "title_id": "PPSA01234", "version": "v01.05", "region": "EUR" } }]);
+        host.serve_catalog(&[("ps5", topics)]);
         host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
         host.dispatch(Command::Navigate(Route::Home));
         host.load_images();
@@ -611,20 +604,18 @@ fn shoot_releases(window: &MinimalSoftwareWindow, out: &Path) {
                 "size": format!("{id}.4 GB"), "magnet": format!("magnet:?xt=urn:btih:{id:040x}"),
                 "game_info": { "name": "Astro Drift", "title_id": "PPSA01234", "version": version, "region": region } })
         };
-        let catalog = serde_json::json!({ "complete": true, "translation": { "language": "en" }, "topic_count": 4,
-            "topics": [
-                topic(1, "fpkg", "1.000.010 (dated 30.03.2026)", "EU² / US² / JP² / AS² / INT(GLO)² / EU¹ / US¹ / JP¹ / AS¹"),
-                topic(2, "folder", "1.000.010 (dated 30.03.2026)", "EU¹ / US¹ / JP¹ / AS¹ / INT(GLO)¹"),
-                topic(3, "fpkg", "v01.000.000 (v01.000.010)", "EUR"),
-                topic(4, "folder", "v01.000.000 (v01.000.010)", "EUR"),
-            ] });
-        host.test.http.serve("https://xyz.dev/c/ps5.json", catalog.to_string());
-        host.dispatch(Command::SetConfig {
-            plugin: id("release-catalog"),
-            scope: launcher_api::ConfigScope::Emulator,
-            value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
-        });
-        host.catalogs_fetched();
+        let topics = serde_json::json!([
+            topic(
+                1,
+                "fpkg",
+                "1.000.010 (dated 30.03.2026)",
+                "EU² / US² / JP² / AS² / INT(GLO)² / EU¹ / US¹ / JP¹ / AS¹"
+            ),
+            topic(2, "folder", "1.000.010 (dated 30.03.2026)", "EU¹ / US¹ / JP¹ / AS¹ / INT(GLO)¹"),
+            topic(3, "fpkg", "v01.000.000 (v01.000.010)", "EUR"),
+            topic(4, "folder", "v01.000.000 (v01.000.010)", "EUR"),
+        ]);
+        host.serve_catalog(&[("ps5", topics)]);
         host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
         host.dispatch(Command::OpenGame("release-catalog:emu-kyty/PPSA01234".parse().unwrap()));
         host.load_images();
@@ -1858,21 +1849,9 @@ fn astro_drift(theme: &str) -> Composed {
             "game_info": { "name": title, "title_id": title_id, "version": "1.00", "region": "EUR",
                 "release_year": "2024", "publisher": "Sony" } })
     };
-    let file = |topics: serde_json::Value| {
-        serde_json::json!({ "complete": true, "translation": { "language": "en" }, "topic_count": topics.as_array().unwrap().len(),
-            "topics": topics }).to_string()
-    };
-    let ps5 = file(serde_json::json!([topic("PS5", 1, "PPSA01234", "Astro Drift")]));
-    let ps4 =
-        file(serde_json::json!([topic("PS4", 2, "CUSA01234", "Astro Drift"), topic("PS4", 3, "CUSA00002", "Quest")]));
-    host.test.http.serve("https://xyz.dev/c/ps5.json", ps5);
-    host.test.http.serve("https://xyz.dev/c/ps4.json", ps4);
-    host.dispatch(Command::SetConfig {
-        plugin: id("release-catalog"),
-        scope: launcher_api::ConfigScope::Emulator,
-        value: serde_json::json!({ "catalog_url": "https://xyz.dev/c", "hide_without_images": false }),
-    });
-    host.catalogs_fetched();
+    let ps5 = serde_json::json!([topic("PS5", 1, "PPSA01234", "Astro Drift")]);
+    let ps4 = serde_json::json!([topic("PS4", 2, "CUSA01234", "Astro Drift"), topic("PS4", 3, "CUSA00002", "Quest")]);
+    host.serve_catalog(&[("ps5", ps5), ("ps4", ps4)]);
     host.until(launcher_core::Area::Hardware, |core| core.view().settings.hardware.known);
     host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
     host.dispatch(Command::Navigate(Route::Catalog));
