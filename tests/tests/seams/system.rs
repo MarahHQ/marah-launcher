@@ -55,7 +55,7 @@ async fn without_a_system_plugin_each_setting_is_unavailable_and_says_why() {
     let vm = t.core.view().system;
     assert!(!vm.whole_screen, "a desktop");
     assert!(!vm.network_available && !vm.audio_available && !vm.bluetooth_available && !vm.power_available);
-    assert!(!vm.network_reason.is_empty());
+    assert!(!vm.area("network").reason.is_empty());
     assert!(!vm.battery_shown);
     let joined = t.core.dispatch(Command::System(SystemCommand::JoinWifi { ssid: "Home".into(), password: None }));
     assert!(joined.await.is_err(), "nothing to join with");
@@ -179,7 +179,7 @@ async fn a_setting_the_plugin_can_t_use_here_shows_its_reason() {
     ask(SystemCommand::Refresh, &t).await;
     let vm = t.core.view().system;
     assert!(!vm.bluetooth_available);
-    assert_eq!(vm.bluetooth_reason, "No Bluetooth adapter");
+    assert_eq!(vm.area("bluetooth").reason, "No Bluetooth adapter");
     assert!(vm.network_available, "the rest still works");
 }
 
@@ -492,8 +492,9 @@ async fn a_failed_read_keeps_the_last_state_and_a_failed_first_read_says_why() {
     let t = FakeHost::new().plugin(system.plugin()).boot_core().await;
     ask(SystemCommand::Refresh, &t).await;
     let vm = t.core.view().system;
-    assert!(!vm.audio_available && !vm.audio_loading, "{vm:?}");
-    assert!(vm.audio_reason.starts_with("Couldn't read it"), "{}", vm.audio_reason);
+    assert_eq!(vm.area("audio").state, "unsupported", "{vm:?}");
+    assert!(!vm.audio_available);
+    assert!(vm.area("audio").reason.starts_with("Couldn't read it"), "{:?}", vm.area("audio"));
 
     system.with(|m| m.panics.clear());
     ask(SystemCommand::Refresh, &t).await;
@@ -518,7 +519,7 @@ async fn a_power_area_that_refuses_restart_still_shows_the_battery() {
     ask(SystemCommand::Refresh, &t).await;
     let vm = t.core.view().system;
     assert!(!vm.power_available && vm.battery_shown, "{vm:?}");
-    assert_eq!(vm.power_reason, "Restart from the system's own menu");
+    assert_eq!(vm.area("power").reason, "Restart from the system's own menu");
     let restart = t.core.dispatch(Command::System(SystemCommand::Restart)).await;
     assert!(restart.unwrap_err().to_string().contains("system's own menu"));
     assert_eq!(system.read(|m| m.restarts), 0);
@@ -537,4 +538,19 @@ async fn the_vpn_area_s_reason_shows_after_its_first_read() {
     ask(SystemCommand::Refresh, &t).await;
     assert_eq!(t.core.view().settings.vpn.problem, "Not available on Windows");
     assert!(t.core.dispatch(Command::Vpn(launcher_core::VpnCmd::SetOnly(true))).await.is_err());
+}
+
+/// The view lists every area, in the contract's order, each in its state: what a plugin provides
+/// is ready, what nobody provides is absent and says so, and nothing runs in either.
+#[tokio::test]
+async fn the_view_lists_every_area_in_the_contract_s_order() {
+    let t = FakeHost::new().plugin(machine().plugin_with(&["power"])).boot_core().await;
+    ask(SystemCommand::Refresh, &t).await;
+    let areas = t.core.view().system.areas;
+    let names: Vec<&str> = areas.iter().map(|a| a.name.as_str()).collect();
+    assert_eq!(names, launcher_ui_api::AREAS);
+    let state = |name: &str| areas.iter().find(|a| a.name == name).map(|a| (a.state.clone(), a.reason.is_empty()));
+    assert_eq!(state("power"), Some(("ready".into(), true)));
+    assert_eq!(state("bluetooth"), Some(("absent".into(), false)), "an absent area says why");
+    assert!(areas.iter().all(|a| !a.busy));
 }

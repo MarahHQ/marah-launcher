@@ -499,6 +499,7 @@ fn full_view() -> AppView {
         closing: Some(s()),
         closing_game: Some(ClosingGameVm { title: s(), cover: Some(image()), background: Some(image()) }),
         system: SystemVm {
+            areas: vec![AreaVm { name: s(), state: s(), reason: s(), busy: true }],
             wifi: vec![WifiVm { ssid: s(), bars: 1, secured: true, saved: true, active: true }],
             outputs: vec![AudioOutputVm { name: s(), description: s(), current: true }],
             devices: vec![BluetoothDeviceVm { address: s(), name: s(), paired: true, connected: true }],

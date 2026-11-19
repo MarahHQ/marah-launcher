@@ -356,7 +356,10 @@ async fn the_first_frame_shows_before_any_read_of_the_machine() {
     let core = launcher_core::Core::start_after_first_frame(host.kernel.clone()).await;
     host.clock.advance(std::time::Duration::from_secs(30)).await;
     let first = core.view();
-    assert!(first.system.audio_loading && first.system.drives_listing, "the first frame: still loading");
+    assert!(
+        first.system.area("audio").state == "loading" && first.system.drives_listing,
+        "the first frame: still loading"
+    );
     assert_eq!(system.read(|m| m.calls.len()), 0, "no read of the machine before the first frame");
 
     core.first_frame_shown();

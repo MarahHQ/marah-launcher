@@ -1,4 +1,4 @@
-import { Vm, Host } from "../types.slint";
+import { Vm, Host, Areas } from "../types.slint";
 import { Commands } from "../kit/commands.slint";
 import { Tokens } from "../tokens.slint";
 import { Look } from "../kit/look.slint";
@@ -8,7 +8,7 @@ import { NetIcon, SoundIcon, BluetoothIcon, StorageIcon, BatteryIcon, Sys } from
 import { SystemChips } from "chip-row.slint";
 import { Hint } from "../kit/shell.slint";
 import { Reveal } from "../kit/reveal.slint";
-import { StatusSlot, StatusLoading, LoadingLine } from "../kit/loading.slint";
+import { StatusSlot, StatusState, LoadingLine } from "../kit/loading.slint";
 import { Leaving, Motion } from "../kit/motion.slint";
 import { Games } from "../kit/games.slint";
 
@@ -68,33 +68,34 @@ component RoundButton inherits Rectangle {
 }
 
 // A machine status icon on the far side of the top bar, as a round button: its panel opens
-// under it. Its icon is its child.
+// under it. Its icon is its child. Its area's state shows over it (`StatusState`): loading, or
+// disabled where the area can't be used here, which still takes the focus and shows why.
 component StatusButton inherits Rectangle {
     in property <string> label;
     in property <string> value;
     in property <bool> focused;
     in property <bool> current;
-    // Its part isn't read yet: the icon dims, a thin line sweeps under it, and "Checking…"
-    // shows on hover or key focus. It can still be focused and clicked: its panel says what
-    // it reads.
-    in property <bool> loading;
+    // Its area's place in `Vm.system.areas`.
+    in property <int> area;
     callback clicked();
     width: 52 * Look.px;
     height: 52 * Look.px;
     border-radius: 26 * Look.px;
-    background: root.focused ? #ffffff : root.current ? #ffffff24 : ta.has-hover ? #ffffff14 : transparent;
+    background: root.focused ? #ffffff : root.current ? #ffffff24 : ta.has-hover && !status.disabled ? #ffffff14 : transparent;
     accessible-role: button;
     accessible-label: root.label;
-    accessible-value: root.loading ? "loading" : root.value;
-    accessible-action-default => { root.clicked(); }
+    accessible-value: status.loading ? "loading" : status.disabled ? "disabled" : root.value;
+    accessible-enabled: !status.disabled;
+    accessible-description: status.disabled ? Vm.system.areas[root.area].reason : "";
+    accessible-action-default => { if (!status.disabled) { root.clicked(); } }
     animate background { duration: Tokens.motion-fast; }
     Rectangle {
-        opacity: root.loading ? 0.45 : 1;
+        opacity: status.dim;
         animate opacity { duration: Motion.focus; easing: Motion.enter; }
         @children
     }
-    if root.loading : StatusLoading { focused: root.focused; hovered: ta.has-hover; }
-    ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+    status := StatusState { area: root.area; focused: root.focused; hovered: ta.has-hover; }
+    ta := TouchArea { mouse-cursor: status.cursor; clicked => { if (!status.disabled) { root.clicked(); } } }
 }
 
 // A small button inside the playing pill.
@@ -135,9 +136,8 @@ export component TopBar inherits Rectangle {
         y: root.height - 3 * Look.px;
         width: root.width - 2 * 96 * Look.px;
     }
-    // The drives' icon and the battery stay while they fade out and their places close.
-    drives-place := Leaving { open: Vm.system.drives-available || Vm.system.drives-loading; time: Motion.sheet-out; }
-    battery-place := Leaving { open: Vm.system.battery-shown || Vm.system.power-loading; time: Motion.sheet-out; }
+    // The battery stays while it fades out and its place closes.
+    battery-place := Leaving { open: Vm.system.battery-shown || Vm.system.areas[Areas.power].state == "loading"; time: Motion.sheet-out; }
 
     // Back to the list of systems while a system's games show, then the Library's systems (or
     // the Catalog's), in one row on the reading side, up to the far side's buttons. Right to
@@ -262,11 +262,11 @@ export component TopBar inherits Rectangle {
                 gap: 22 * Look.px;
                 StatusButton {
                     label: "status:network";
-                    loading: Vm.system.network-loading;
+                    area: Areas.network;
                     value: Vm.system.connection == "wifi" ? "wifi " + Vm.system.signal-bars : Vm.system.connection;
                     current: Sys.open == 0;
                     focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 4;
-                    clicked => { if (Sys.open == 0) { Sys.close(); } else { Sys.show(0); } }
+                    clicked => { Sys.toggle(0); }
                     NetIcon { tint: parent.focused ? Look.ink : Tokens.color-text; }
                 }
             }
@@ -275,11 +275,11 @@ export component TopBar inherits Rectangle {
                 gap: 22 * Look.px;
                 StatusButton {
                     label: "status:sound";
-                    loading: Vm.system.audio-loading;
+                    area: Areas.audio;
                     value: Vm.system.muted ? "muted" : Vm.system.volume;
                     current: Sys.open == 1;
                     focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 5;
-                    clicked => { if (Sys.open == 1) { Sys.close(); } else { Sys.show(1); } }
+                    clicked => { Sys.toggle(1); }
                     SoundIcon { color: parent.focused ? Look.ink : Tokens.color-text; }
                 }
             }
@@ -288,26 +288,25 @@ export component TopBar inherits Rectangle {
                 gap: 22 * Look.px;
                 StatusButton {
                     label: "status:bluetooth";
-                    loading: Vm.system.bluetooth-loading;
+                    area: Areas.bluetooth;
                     value: !Vm.system.bluetooth-on ? "off" : "on " + Vm.system.connected-devices;
                     current: Sys.open == 2;
                     focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 6;
-                    clicked => { if (Sys.open == 2) { Sys.close(); } else { Sys.show(2); } }
+                    clicked => { Sys.toggle(2); }
                     BluetoothIcon { color: parent.focused ? Look.ink : Tokens.color-text; }
                 }
             }
-            // Wherever drives can be managed: its panel mounts, opens, uses and ejects every
-            // drive. Where they can't, the icon fades out and its place closes.
-            if drives-place.shown : StatusSlot {
-                open: drives-place.open;
+            // Everywhere: its panel mounts, opens, uses and ejects every drive. Where drives
+            // can't be managed, the icon shows disabled and says why.
+            StatusSlot {
                 item-width: 52 * Look.px;
                 gap: 22 * Look.px;
                 StatusButton {
                     label: "status:drives";
-                    loading: Vm.system.drives-loading;
+                    area: Areas.drives;
                     current: Sys.open == 3;
-                    focused: drives-place.open && root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 4 + Nav.statuses - 1;
-                    clicked => { if (Sys.open == 3) { Sys.close(); } else { Sys.show(3); } }
+                    focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 4 + Nav.statuses - 1;
+                    clicked => { Sys.toggle(3); }
                     StorageIcon { color: parent.focused ? Look.ink : Tokens.color-text; }
                 }
             }

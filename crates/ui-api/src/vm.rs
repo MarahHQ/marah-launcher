@@ -1345,9 +1345,8 @@ pub struct ReportPreviewVm {
     pub step: String,
 }
 
-/// The machine's settings, from the system plugins. A part whose `*_available` is false shows
-/// its `*_reason` instead of its controls. A part whose `*_loading` is true isn't read yet:
-/// it is neither available nor unavailable, and its reason is empty.
+/// The machine's settings, from the system plugins. `areas` says what each system area is:
+/// loading, absent, unsupported (with why) or ready. The rest is each ready area's data.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SystemVm {
     /// Marah Launcher is the whole screen (the Marah Launcher session, Marah OS): the theme shows the network,
@@ -1356,11 +1355,11 @@ pub struct SystemVm {
     pub own_os: bool,
     /// Marah OS started from its USB stick, which can install it.
     pub stick: bool,
+    /// Every system area, always all of them, in the order of [`AREAS`].
+    pub areas: Vec<AreaVm>,
 
+    /// The network area is ready: the same as its entry in `areas`.
     pub network_available: bool,
-    /// The first read of the part isn't over.
-    pub network_loading: bool,
-    pub network_reason: String,
     /// none | wired | wifi
     pub connection: String,
     /// The Wi-Fi network's or the wired connection's name.
@@ -1369,29 +1368,22 @@ pub struct SystemVm {
     pub signal_bars: i32,
     pub wifi: Vec<WifiVm>,
 
+    /// The sound area is ready: the same as its entry in `areas`.
     pub audio_available: bool,
-    /// The first read of the part isn't over.
-    pub audio_loading: bool,
-    pub audio_reason: String,
     /// 0 to 100.
     pub volume: i32,
     pub muted: bool,
     pub outputs: Vec<AudioOutputVm>,
 
+    /// The Bluetooth area is ready: the same as its entry in `areas`.
     pub bluetooth_available: bool,
-    /// The first read of the part isn't over.
-    pub bluetooth_loading: bool,
-    pub bluetooth_reason: String,
     pub bluetooth_on: bool,
     /// How many devices are connected.
     pub connected_devices: i32,
     pub devices: Vec<BluetoothDeviceVm>,
 
-    /// Restart and shut down.
+    /// Restart and shut down work here: the power area is ready and refuses neither.
     pub power_available: bool,
-    /// The first read of the power and the battery isn't over.
-    pub power_loading: bool,
-    pub power_reason: String,
     pub battery_shown: bool,
     pub battery_percent: i32,
     pub battery_charging: bool,
@@ -1406,15 +1398,39 @@ pub struct SystemVm {
     /// Long work going on, and work that just ended.
     pub jobs: Vec<SystemJobVm>,
 
-    /// Drives can be mounted, unmounted and ejected here.
+    /// The drives area is ready: drives can be mounted, unmounted and ejected here.
     pub drives_available: bool,
-    /// It isn't known yet whether drives can be managed here.
-    pub drives_loading: bool,
     /// The first read of the drives isn't over: the list isn't known yet.
     pub drives_listing: bool,
-    pub drives_reason: String,
     /// The Drives panel's drives: every drive, inside the PC or plugged in, mounted or not.
     pub drives: Vec<DriveItemVm>,
+}
+
+/// The system areas' names, in the order `SystemVm::areas` lists them.
+pub const AREAS: [&str; 8] = ["network", "vpn", "bluetooth", "audio", "power", "os_updates", "os_install", "drives"];
+
+impl SystemVm {
+    /// The area named `name` (see [`AREAS`]); a loading one when the list doesn't have it.
+    pub fn area(&self, name: &str) -> AreaVm {
+        let found = self.areas.iter().find(|a| a.name == name).cloned();
+        found.unwrap_or_else(|| AreaVm { name: name.to_owned(), state: "loading".into(), ..AreaVm::default() })
+    }
+}
+
+/// One system area, as its status icon and its rows show it.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct AreaVm {
+    /// network | vpn | bluetooth | audio | power | os_updates | os_install | drives
+    pub name: String,
+    /// loading | absent | unsupported | ready. loading: its first read isn't over. absent:
+    /// nothing here manages it. unsupported: it can't be used here, and `reason` says why.
+    /// ready: it works.
+    pub state: String,
+    /// Why it can't be used, for the player ("No Bluetooth adapter"). A ready area's reason
+    /// says which of its actions it refuses (power: restart and shut down). Empty otherwise.
+    pub reason: String,
+    /// Long work runs in it now: a join, a scan, a pairing, an install, a mount.
+    pub busy: bool,
 }
 
 /// One drive of the Drives panel, with its actions as buttons.

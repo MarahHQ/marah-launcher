@@ -312,6 +312,23 @@ mod tests {
     }
 
     #[test]
+    fn the_areas_global_places_each_area_where_the_view_lists_it() {
+        let block = TYPES_SLINT.split("export global Areas {").nth(1).expect("types.slint has Areas");
+        let block = &block[..block.find('}').expect("Areas ends")];
+        let places: Vec<(String, usize)> = block
+            .lines()
+            .filter_map(|line| line.trim().strip_prefix("out property <int> "))
+            .map(|line| {
+                let (name, place) = line.trim_end_matches(';').split_once(": ").expect("name: place");
+                (name.replace('-', "_"), place.parse().expect("a number"))
+            })
+            .collect();
+        let expected: Vec<(String, usize)> =
+            crate::AREAS.iter().enumerate().map(|(i, name)| ((*name).to_owned(), i)).collect();
+        assert_eq!(places, expected);
+    }
+
+    #[test]
     fn every_kit_file_on_disk_is_served() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("kit");
         let mut on_disk: Vec<String> =

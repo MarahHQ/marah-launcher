@@ -1,9 +1,11 @@
+import { Vm } from "../types.slint";
 import { Tokens } from "../tokens.slint";
 import { Look } from "look.slint";
 import { Motion, Tooltip } from "motion.slint";
 
-// What shows while a part of the machine is still read (`Vm.system.*-loading`): a status icon's
-// thin line, a panel's loading row, and the slot that keeps a status icon's place in the top bar.
+// What shows while a system area is still read (`Vm.system.areas`, state loading): a status
+// icon's thin line, a panel's loading row, and the slot that keeps a status icon's place in the
+// top bar. And the state a status icon shows for its area: loading, disabled or ready.
 // Each moves only while it is on screen: put it in an `if` on the loading state, and it stops
 // with it. With Animations off each stands still.
 
@@ -81,7 +83,8 @@ export component LoadingRow inherits Rectangle {
 
 // A status icon's place in the top bar: `item-width` and the `gap` after it. While `open` turns
 // false the icon fades out and the place closes, so the icons after it slide over; it opens
-// again the same way. Open from its first frame, it is in place at once: the bar never shifts at
+// again the same way. An area that can't be used keeps its place: its icon shows disabled
+// (`StatusState`); only what isn't there at all closes its place, such as a battery. Open from its first frame, it is in place at once: the bar never shifts at
 // the start. The place's width is the one size that moves, on purpose: it is the gap closing.
 export component StatusSlot inherits Rectangle {
     in property <bool> open: true;
@@ -119,5 +122,38 @@ export component StatusLoading inherits Rectangle {
         shown: root.focused || root.hovered;
         hovered: root.hovered && !root.focused;
         name: "status-checking";
+    }
+}
+
+// The state a status icon shows for its area (`Vm.system.areas[area]`), the same in every theme.
+// The theme's icon reads `dim`, `cursor` and `disabled`, and puts this over itself.
+// - loading: the icon dims, the line sweeps under it, and "Checking…" shows under it on hover or
+//   key focus. It can still be clicked: its panel says what it reads.
+// - absent or unsupported: the icon is disabled. It stays in place, dimmer, with the plain pointer,
+//   and does nothing when clicked or pressed. It still takes the keys' and the pad's focus and the
+//   pointer's hover, and then its reason shows under it ("This PC has no Bluetooth adapter").
+// - ready: nothing over the icon.
+export component StatusState inherits Rectangle {
+    // The area's place in `Vm.system.areas` (`Areas`).
+    in property <int> area;
+    in property <bool> focused;
+    in property <bool> hovered;
+    out property <string> state: Vm.system.areas[root.area].state;
+    out property <bool> loading: root.state == "loading";
+    out property <bool> disabled: root.state == "absent" || root.state == "unsupported";
+    // The icon's opacity.
+    out property <float> dim: root.loading ? 0.45 : root.disabled ? 0.35 : 1;
+    // A hand only where a click does something.
+    out property <MouseCursor> cursor: root.disabled ? MouseCursor.default : MouseCursor.pointer;
+    if root.loading : StatusLoading { focused: root.focused; hovered: root.hovered; }
+    if root.disabled : Tooltip {
+        y: parent.height + 4 * Look.px;
+        x: (parent.width - self.width) / 2;
+        width: 200 * Look.px;
+        wrap: word-wrap;
+        text: Vm.system.areas[root.area].reason;
+        shown: root.focused || root.hovered;
+        hovered: root.hovered && !root.focused;
+        name: "status-reason";
     }
 }

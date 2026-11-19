@@ -14,8 +14,8 @@ export { Origin } from "../kit/origin.slint";
 // plugin's button) and its grid (`grid`). The Library has one card size.
 //
 // The top bar has no tabs: the five screen buttons (0 to 4), then, when Marah Launcher is the whole
-// screen, the network, sound and Bluetooth icons, then the drives' icon wherever drives can be
-// managed, on a desktop too. A system opens the Library screen on
+// screen, the network, sound and Bluetooth icons, then the drives' icon, on a desktop
+// too. A system opens the Library screen on
 // its games (LibrarySystem, then Navigate); Back from it is the core's. The list shows no game,
 // so the shell's game keys (Menu, T) work only in the Library. The shell, the card, the top bar
 // and the running screen read the other members.
@@ -55,9 +55,9 @@ export global Nav {
 
     out property <int> tabs: 0;
     // The screen buttons, the network, sound and Bluetooth icons when Marah Launcher is the whole screen
-    // (`Sys`), the drives' icon wherever drives can be managed, and Settings last.
+    // (`Sys`), the drives' icon, and Settings last.
     out property <int> buttons: 5 + root.statuses;
-    out property <int> statuses: (Vm.system.whole-screen ? 3 : 0) + (Vm.system.drives-available || Vm.system.drives-loading ? 1 : 0);
+    out property <int> statuses: (Vm.system.whole-screen ? 3 : 0) + 1;
 
     public pure function platform(entry: int) -> string {
         entry < 0 || entry >= Vm.home.groups.length ? "" : Vm.home.groups[entry].platform
@@ -114,7 +114,7 @@ export global Nav {
     public function activate-tab(index: int) {
         if (index >= root.tabs + 4 && index < root.tabs + 4 + root.statuses) {
             // On a desktop the drives' icon is the only machine icon.
-            Sys.show(Vm.system.whole-screen ? index - root.tabs - 4 : 3);
+            Sys.show-status(Vm.system.whole-screen ? index - root.tabs - 4 : 3);
         } else {
             Host.play-sound("select");
             Commands.navigate(index == 0 ? "catalog"

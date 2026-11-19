@@ -164,7 +164,7 @@ async fn without_udisks_the_drives_are_the_mounted_folders_and_mounting_says_wha
     t.core.dispatch(Command::System(SystemCommand::Refresh)).await.unwrap();
     let vm = t.core.view().system;
     assert!(!vm.drives_available);
-    assert_eq!(vm.drives_reason, "UDisks (udisksctl) isn't installed");
+    assert_eq!(vm.area("drives").reason, "UDisks (udisksctl) isn't installed");
     assert!(
         vm.drives.iter().flat_map(|r| &r.actions).all(|a| a == "open" || a == "use"),
         "no Mount or Eject: {:?}",

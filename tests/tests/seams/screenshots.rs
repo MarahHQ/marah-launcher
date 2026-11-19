@@ -1371,8 +1371,58 @@ shots! {
     the_keyboard => shoot_keyboard,
     the_pad_hints => shoot_pad_hints,
     the_system_controls => shoot_system,
+    the_status_areas => shoot_status_areas,
     a_game_s_own_settings => shoot_game_settings,
     send_ratings => shoot_send_ratings,
+}
+
+/// The top bar's status icons in each built-in theme, one area in each state: the network is
+/// ready, the sound still reads, and Bluetooth is disabled (no adapter), as
+/// `<theme>-status-areas.png`; then with the keys on Bluetooth's icon, which shows why, as
+/// `<theme>-status-disabled-focused.png`.
+fn shoot_status_areas(window: &MinimalSoftwareWindow, out: &Path) {
+    use launcher_core::system::Place;
+    use slint::platform::Key;
+    window.set_size(slint::PhysicalSize::new(WIDTH, HEIGHT));
+    for theme in [theme_classic::ID, theme_default::ID] {
+        let system = launcher_testkit::FakeSystem::new();
+        system.with(|m| {
+            m.network = launcher_api::NetworkStatus {
+                connection: launcher_api::Connection::Wifi,
+                name: "Home".into(),
+                signal: Some(80),
+            };
+            m.unavailable = vec![("bluetooth", "This PC has no Bluetooth adapter".into())];
+            // The sound's read doesn't end while the shots are taken.
+            m.slow = vec![("audio.unavailable", Duration::from_secs(600))];
+        });
+        let place = Place { whole_screen: true, own_os: true, stick: false };
+        let plugin = system.plugin();
+        let mut host = composed_on_current_platform(|h| {
+            h.place(place)
+                .call_timeout(Duration::from_secs(900))
+                .plugin(plugin)
+                .plugin(FakeCatalog::new("emu-a").system("PS5").games(["Astro Drift"]).build())
+        });
+        host.ui.start_with(Some(id(theme))).unwrap();
+        host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
+        // The machine's own tick reads it: a Refresh would wait for the sound's read.
+        follow(&mut host);
+        follow(&mut host);
+        let vm = host.core().view().system;
+        assert_eq!(
+            [vm.area("network").state, vm.area("audio").state, vm.area("bluetooth").state],
+            ["ready", "loading", "unsupported"],
+            "{theme}"
+        );
+        shoot(window, &out.join(format!("{theme}-status-areas.png")));
+        // From Settings, back past the drives' icon to Bluetooth's.
+        for _ in 0..3 {
+            key(&mut host, Key::Backtab);
+        }
+        follow(&mut host);
+        shoot(window, &out.join(format!("{theme}-status-disabled-focused.png")));
+    }
 }
 
 /// Settings → Send ratings in each built-in theme: the ratings to pick from, then a report in

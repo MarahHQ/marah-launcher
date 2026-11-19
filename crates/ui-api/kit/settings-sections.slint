@@ -468,12 +468,12 @@ export component SystemSection inherits VerticalLayout {
         Row {
             label: "Internet";
             machine: "network";
-            hint: Vm.system.network-available ? "" : Vm.system.network-reason;
+            hint: Vm.system.network-available ? "" : Sys.reason(0);
             focused: Prefs.is(5, 0);
             first: true;
             accessible-role: button;
             accessible-label: "system-internet";
-            accessible-value: Vm.system.network-loading ? "loading" : Vm.system.connection;
+            accessible-value: Sys.loading(0) ? "loading" : Vm.system.connection;
             accessible-action-default => { self.open-panel(); }
             reveal(y, h) => { root.reveal(y, h); }
             clicked => { Prefs.section = 5; Prefs.row = 0; self.open-panel(); }
@@ -487,7 +487,7 @@ export component SystemSection inherits VerticalLayout {
                 kind: "choice";
                 focused: parent.focused;
                 // While the network is read for the first time: "Checking…", not a state.
-                text: Vm.system.network-loading ? "Checking…"
+                text: Sys.loading(0) ? "Checking…"
                     : Vm.system.connection == "wifi" ? "Wi-Fi · " + Vm.system.network-name
                     : Vm.system.connection == "wired" ? "Cable" : "Not connected";
             }
@@ -495,11 +495,11 @@ export component SystemSection inherits VerticalLayout {
         Row {
             label: "Sound";
             machine: "sound";
-            hint: Vm.system.audio-available ? "" : Vm.system.audio-reason;
+            hint: Vm.system.audio-available ? "" : Sys.reason(1);
             focused: Prefs.is(5, 1);
             accessible-role: button;
             accessible-label: "system-sound";
-            accessible-value: Vm.system.audio-loading ? "loading" : Vm.system.muted ? "muted" : Vm.system.volume;
+            accessible-value: Sys.loading(1) ? "loading" : Vm.system.muted ? "muted" : Vm.system.volume;
             accessible-action-default => { self.open-panel(); }
             reveal(y, h) => { root.reveal(y, h); }
             clicked => { Prefs.section = 5; Prefs.row = 1; self.open-panel(); }
@@ -509,17 +509,17 @@ export component SystemSection inherits VerticalLayout {
             changed place => { if (Sys.anchored && Sys.open == 1) { Sys.close(); } }
             property <int> seen: Prefs.serial;
             changed seen => { if (self.focused && Prefs.pending == 0) { self.open-panel(); } }
-            Value { kind: "choice"; focused: parent.focused; text: Vm.system.audio-loading ? "Checking…" : Vm.system.muted ? "Muted" : Vm.system.volume + "%"; }
+            Value { kind: "choice"; focused: parent.focused; text: Sys.loading(1) ? "Checking…" : Vm.system.muted ? "Muted" : Vm.system.volume + "%"; }
         }
         Row {
             label: "Bluetooth";
             machine: "bluetooth";
-            hint: Vm.system.bluetooth-available ? "Controllers and headsets" : Vm.system.bluetooth-reason;
+            hint: Vm.system.bluetooth-available ? "Controllers and headsets" : Sys.reason(2);
             focused: Prefs.is(5, 2);
             last: SystemRows.count == 3;
             accessible-role: button;
             accessible-label: "system-bluetooth";
-            accessible-value: Vm.system.bluetooth-loading ? "loading" : Vm.system.bluetooth-on ? "on" : "off";
+            accessible-value: Sys.loading(2) ? "loading" : Vm.system.bluetooth-on ? "on" : "off";
             accessible-action-default => { self.open-panel(); }
             reveal(y, h) => { root.reveal(y, h); }
             clicked => { Prefs.section = 5; Prefs.row = 2; self.open-panel(); }
@@ -532,7 +532,7 @@ export component SystemSection inherits VerticalLayout {
             Value {
                 kind: "choice";
                 focused: parent.focused;
-                text: Vm.system.bluetooth-loading ? "Checking…" : !Vm.system.bluetooth-on ? "Off" : Vm.system.connected-devices + " connected";
+                text: Sys.loading(2) ? "Checking…" : !Vm.system.bluetooth-on ? "Off" : Vm.system.connected-devices + " connected";
             }
         }
         if SystemRows.os >= 0 : Row {

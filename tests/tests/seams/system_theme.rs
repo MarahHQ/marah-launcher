@@ -156,10 +156,18 @@ fn the_bluetooth_panel_turns_it_off_and_a_missing_adapter_says_why() {
     assert!(!system.read(|m| m.bluetooth_on));
     assert_eq!(host.value("status:bluetooth"), "off");
 
+    // Without an adapter the icon is disabled and says why; Settings → System opens the panel,
+    // which says it too.
     let system = machine();
     system.with(|m| m.unavailable = vec![("bluetooth", "This PC has no Bluetooth adapter".into())]);
     let mut host = shown(&system, WHOLE_SCREEN);
     host.press_first("status:bluetooth");
+    assert_eq!(host.count("system-panel"), 0, "the disabled icon opens nothing");
+    assert_eq!(host.description("status:bluetooth"), "This PC has no Bluetooth adapter");
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    host.settings_tab("System");
+    host.press_first("system-bluetooth");
     assert_eq!(host.value("system-reason"), "This PC has no Bluetooth adapter");
 }
 
@@ -649,9 +657,11 @@ fn loading_until_read(theme: &str) {
     let system = machine();
     let mut host = reading(&system, WHOLE_SCREEN, theme);
     let vm = host.core().view().system;
-    assert!(vm.network_loading && vm.audio_loading && vm.bluetooth_loading && vm.power_loading, "{vm:?}");
-    assert!(vm.drives_loading && vm.drives_listing, "{vm:?}");
-    assert!(vm.network_reason.is_empty() && vm.drives_reason.is_empty(), "no reason before the read");
+    for area in ["network", "audio", "bluetooth", "power", "drives"] {
+        assert_eq!(vm.area(area).state, "loading", "{vm:?}");
+    }
+    assert!(vm.drives_listing, "{vm:?}");
+    assert!(vm.area("network").reason.is_empty() && vm.area("drives").reason.is_empty(), "no reason before the read");
     for label in ["status:network", "status:sound", "status:bluetooth", "status:drives", "battery"] {
         assert_eq!(host.value(label), "loading", "{label}");
     }
@@ -681,7 +691,8 @@ fn loading_until_read(theme: &str) {
     host.advance(std::time::Duration::from_secs(31));
     host.settle();
     let vm = host.core().view().system;
-    assert!(!vm.network_loading && !vm.drives_loading && !vm.drives_listing && vm.drives_available, "{vm:?}");
+    let read = |area: &str| vm.area(area).state != "loading";
+    assert!(read("network") && read("drives") && !vm.drives_listing && vm.drives_available, "{vm:?}");
     assert_eq!(host.count("loading"), 0, "the panel fills in");
     assert_eq!(host.values("drive").len(), 0, "no drive here");
     assert_eq!(host.value("status:network"), "wired");
@@ -707,18 +718,66 @@ fn a_slow_network_read_leaves_the_drives_icon_ready() {
     assert_ne!(host.value("status:sound"), "loading");
 }
 
-/// Drives that turn out not to be managed here: the drives' icon loads, then fades out and its
-/// place closes.
+/// Drives that turn out not to be managed here: the drives' icon loads, then stays in its place,
+/// disabled, and the bar doesn't move. The mouse reaches it: a click opens nothing, the pointer
+/// stays plain, and the pointer over it shows why.
 #[test]
-fn the_drives_icon_goes_when_drives_turn_out_unavailable() {
+fn the_drives_icon_shows_disabled_when_drives_turn_out_unavailable() {
     for theme in ["classic", "default"] {
         let system = machine();
         system.with(|m| m.unavailable.push(("drives", "No udisks here".into())));
         let mut host = reading(&system, WHOLE_SCREEN, theme);
         assert_eq!(host.value("status:drives"), "loading", "{theme}");
+        let settings = host.first("Settings").absolute_position().x;
         host.advance(std::time::Duration::from_secs(31));
         host.settle();
-        assert_eq!(host.count("status:drives"), 0, "{theme}: it went");
+        assert_eq!(host.count("status:drives"), 1, "{theme}: it stays");
+        assert_eq!(host.value("status:drives"), "disabled", "{theme}");
+        assert_eq!(host.description("status:drives"), "No udisks here", "{theme}");
+        assert_eq!(host.first("Settings").absolute_position().x, settings, "{theme}: the bar didn't move");
+        assert_eq!(host.count("status-reason"), 0, "{theme}: no reason before hover or focus");
+
+        // The pointer reaches the bar once the boot screen is gone.
+        host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
+        host.settle();
+        host.click("status:drives");
+        assert_eq!(host.count("system-panel"), 0, "{theme}: a click opens nothing");
+        assert_eq!(host.values("status-reason"), ["No udisks here"], "{theme}: the hover shows why");
+        host.first("status:drives").invoke_accessible_default_action();
+        host.settle();
+        assert_eq!(host.count("system-panel"), 0, "{theme}: nor does its default action");
+    }
+}
+
+/// An unsupported area's icon takes the keys' and the pad's focus, says why, and its ✕ and Enter
+/// open nothing. Left and right from the panel beside it go past it.
+#[test]
+fn a_disabled_icon_takes_the_focus_and_says_why_but_opens_nothing() {
+    use slint::platform::Key;
+    for theme in ["classic", "default"] {
+        let system = machine();
+        system.with(|m| m.unavailable.push(("bluetooth", "This PC has no Bluetooth adapter".into())));
+        let mut host = shown(&system, WHOLE_SCREEN);
+        host.ui.switch(&id(theme)).unwrap();
+        host.settle();
+        assert_eq!(host.value("status:bluetooth"), "disabled", "{theme}");
+        // From Settings, back past the drives' icon to Bluetooth's.
+        host.send_key(Key::Backtab);
+        host.send_key(Key::Backtab);
+        host.send_key(Key::Backtab);
+        host.settle();
+        assert_eq!(host.values("status-reason"), ["This PC has no Bluetooth adapter"], "{theme}: the focus shows why");
+        host.pad(launcher_ui_host::PadButton::South);
+        assert_eq!(host.count("system-panel"), 0, "{theme}: ✕ opens nothing");
+        host.navigate(Key::Return);
+        assert_eq!(host.count("system-panel"), 0, "{theme}: nor does Enter");
+
+        // The sound's panel, off its volume row: right goes past Bluetooth to the drives.
+        host.press_first("status:sound");
+        assert_eq!(host.value("system-panel"), "sound", "{theme}");
+        host.navigate(Key::DownArrow);
+        host.navigate(Key::RightArrow);
+        assert_eq!(host.value("system-panel"), "drives", "{theme}: past the disabled one");
     }
 }
 

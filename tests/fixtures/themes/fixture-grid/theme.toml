@@ -9,7 +9,7 @@ capabilities = ["theme"]
 type = "data"
 
 [theme]
-ui_api = "^0.6"
+ui_api = "^0.7"
 input = ["pointer"]
 navigation = "pointer"
 

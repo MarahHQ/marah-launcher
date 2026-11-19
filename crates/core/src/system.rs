@@ -72,6 +72,16 @@ pub enum JobKind {
 }
 
 impl JobKind {
+    /// The area the work runs in.
+    pub fn area(self) -> SystemArea {
+        match self {
+            JobKind::JoinWifi => SystemArea::Network,
+            JobKind::ScanBluetooth | JobKind::Pair => SystemArea::Bluetooth,
+            JobKind::InstallOs => SystemArea::OsInstall,
+            JobKind::Mount | JobKind::Unmount | JobKind::Eject => SystemArea::Drives,
+        }
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             JobKind::JoinWifi => "join",
