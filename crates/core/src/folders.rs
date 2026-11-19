@@ -257,6 +257,15 @@ impl HostFolders {
         }
     }
 
+    /// The real folders of grant `folder`, in the player's order, and whether the player saved
+    /// them in Settings. Unsaved, they are the grant's defaults, which may leave out a folder
+    /// that isn't there now.
+    pub(crate) fn roots_of(&self, folder: &str) -> PluginResult<(Vec<PathBuf>, bool)> {
+        let grant = self.grant(folder)?;
+        let saved = self.config.get(&["app", "folders", &grant.folder]).is_array();
+        Ok((roots(&self.config, self.home.as_deref(), self.platform, grant), saved))
+    }
+
     /// Where `path` is on disk, checked against the plugin's grants.
     pub(crate) fn resolve(&self, path: &HostPath) -> PluginResult<PathBuf> {
         self.storage(path, false)?.resolve(&path.path)
