@@ -13,7 +13,7 @@ capabilities = ["network", "vpn", "bluetooth", "audio", "power", "os_updates", "
 # NetworkManager, BlueZ, PipeWire's sound tools, systemd, rpm-ostree (Marah OS's updates),
 # the Marah OS USB stick's installer, UDisks with lsblk for the drives, Windows' restart and
 # shut down, and macOS's own tools: pmset for the battery, diskutil for the drives,
-# networksetup and scutil for the network and VPNs, system_profiler for Bluetooth, and
+# networksetup and scutil for the network, system_profiler for Bluetooth, and
 # osascript for the sound and for restart and shut down.
 # udisksctl isn't in `polkit`: it runs as the player, and the UDisks service asks polkit itself.
 process = [
@@ -45,7 +45,6 @@ long_running = [
     "system:shutdown",
     "system:diskutil",
     "system:networksetup",
-    "system:scutil",
     "system:osascript",
 ]
 # Installing Marah OS erases a disk: the installer runs as the administrator, which the USB

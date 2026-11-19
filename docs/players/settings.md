@@ -92,10 +92,10 @@ Launcher session on the login screen, and on Marah OS.
   sound output, pair a device that asks for a PIN, and join a network that needs an account in
   Windows' own settings. Windows connects a paired device by itself when you turn it on.
 - On macOS, the launcher does what the tools macOS ships allow. It joins your saved Wi-Fi
-  networks, turns your VPNs on and off, shows your paired Bluetooth devices, changes the volume,
-  restarts and shuts down the Mac, and mounts, unmounts and ejects external drives. Look for
-  new networks, forget a network, choose the sound output, and turn on, pair or connect
-  Bluetooth devices in macOS's own menus and System Settings.
+  networks, shows your paired Bluetooth devices, changes the volume, restarts and shuts down
+  the Mac, and mounts and ejects external drives. Look for new networks, forget a network,
+  choose the sound output, turn on, pair or connect Bluetooth devices, and connect a VPN in
+  macOS's own menus, System Settings, or the VPN's own app.
 - On Marah OS, **Marah OS updates** shows the system's update.
 - On the Marah OS USB stick, **Install Marah OS on this PC** starts the install.
 

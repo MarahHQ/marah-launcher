@@ -1,5 +1,6 @@
 //! macOS: only the tools macOS ships, each through the [`Runner`]. `diskutil` for the external
-//! drives, `networksetup` and `scutil` for the network and Wi-Fi, `scutil` for the VPNs,
+//! drives, `networksetup` and `scutil` for the network and Wi-Fi, every network with an address
+//! for the VPNs,
 //! `system_profiler` for Bluetooth, `osascript` for the sound and for restart and shut down,
 //! and `pmset` for the battery. What they print becomes the areas' data in `macmap.rs`, which
 //! the tests run on every OS.
@@ -9,7 +10,7 @@
 //! macOS the player does them.
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use launcher_api::serde_json::Value;
 use launcher_api::{
@@ -31,8 +32,7 @@ const OSASCRIPT: Tool = Tool::new("osascript", "AppleScript");
 /// says which one is missing, in this order.
 pub const AREAS: &[(SystemArea, &[Tool])] = &[
     (SystemArea::Network, &[NETWORKSETUP, SCUTIL]),
-    // The networks with an address are listed without scutil; it lists and switches the VPNs.
-    (SystemArea::Vpn, &[SCUTIL]),
+    (SystemArea::Vpn, &[]),
     (SystemArea::Bluetooth, &[SYSTEM_PROFILER]),
     (SystemArea::Audio, &[OSASCRIPT]),
     // Without osascript, restart and shut down are refused, and the battery still shows.
@@ -60,11 +60,6 @@ const EJECT_TIME: Duration = Duration::from_secs(600);
 /// A call that may wait for the player to answer macOS's question about Automation: inside the
 /// core's 30-second limit on a plugin call, so the player reads which tool took too long.
 const ANSWER_TIME: Duration = Duration::from_secs(25);
-/// How long a VPN may take to connect, and how often its state is read meanwhile. A VPN that
-/// still reads as disconnected after the grace didn't start.
-const VPN_TIME: Duration = Duration::from_secs(20);
-const VPN_GRACE: Duration = Duration::from_secs(5);
-const VPN_POLL: Duration = Duration::from_millis(500);
 
 #[derive(Clone)]
 struct Mac {
@@ -266,62 +261,14 @@ impl Mac {
 }
 
 /// VPNs: macOS can't tell which network a download should go through, so the list has every
-/// network with an address, and the player picks the one the VPN uses. Next to them are the
-/// VPNs System Settings knows (`scutil --nc list`), which scutil starts and stops. Those have no
-/// interface, so a download never goes through one by its name.
-impl Mac {
-    async fn services(&self) -> Vec<Vpn> {
-        let text = self.tools.read(SCUTIL, &["--nc", "list"]).await;
-        text.map(|text| macmap::services(&text)).unwrap_or_default()
-    }
-
-    async fn vpns(&self) -> Vec<Vpn> {
-        let addressed = crate::unix::addressed().into_iter().map(|name| Vpn {
-            kind: "Network".into(),
-            connected: true,
-            interface: name.clone(),
-            switchable: false,
-            name,
-        });
-        addressed.chain(self.services().await).collect()
-    }
-
-    /// Fails unless `name` is a VPN that scutil can switch.
-    async fn service(&self, name: &str) -> PluginResult<()> {
-        if self.services().await.iter().any(|v| v.name == name && v.switchable) {
-            Ok(())
-        } else {
-            Err(PluginError::Unsupported("this system can't change that network: use the VPN's own app".into()))
-        }
-    }
-
-    async fn status(&self, name: &str) -> String {
-        let text = self.tools.read(SCUTIL, &["--nc", "status", name]).await.unwrap_or_default();
-        macmap::nc_status(&text).to_owned()
-    }
-
-    /// scutil only asks for the VPN to start: its state then says whether it did.
-    async fn connect(&self, name: &str) -> PluginResult<()> {
-        self.service(name).await?;
-        self.tools.act(SCUTIL, &["--nc", "start", name]).await?;
-        let started = Instant::now();
-        while started.elapsed() < VPN_TIME {
-            match self.status(name).await.as_str() {
-                "Connected" => return Ok(()),
-                "Disconnected" | "Invalid" if started.elapsed() >= VPN_GRACE => {
-                    return Err(PluginError::Other("The VPN didn't connect: open its app to see why".into()));
-                }
-                _ => tokio::time::sleep(VPN_POLL).await,
-            }
-        }
-        // Still connecting: the next state shows how it ends.
-        Ok(())
-    }
-
-    async fn disconnect(&self, name: &str) -> PluginResult<()> {
-        self.service(name).await?;
-        self.tools.act(SCUTIL, &["--nc", "stop", name]).await.map(drop)
-    }
+/// network with an address, and the player picks the one the VPN uses. The VPN's own app
+/// connects it: the player's pick of a row is the only thing a row does here, so a VPN that
+/// `scutil --nc` could switch has no row of its own (it has no interface to pick).
+fn vpns() -> Vec<Vpn> {
+    let addressed = crate::unix::addressed().into_iter();
+    addressed
+        .map(|name| Vpn { kind: "Network".into(), connected: true, interface: name.clone(), switchable: false, name })
+        .collect()
 }
 
 /// One of the areas macOS manages, through the same interface as every other.
@@ -339,7 +286,7 @@ impl AreaSettings for MacArea {
     async fn state(&self) -> PluginResult<AreaState> {
         let mac = &self.mac;
         let missing = match self.area {
-            // The networks with an address list without scutil, and the battery without osascript.
+            // The battery reads without osascript.
             SystemArea::Vpn | SystemArea::Power => None,
             area => mac.missing(area).await,
         };
@@ -351,9 +298,7 @@ impl AreaSettings for MacArea {
                 let (status, wifi) = mac.network().await;
                 AreaState::Ready(AreaData::Network { status, wifi })
             }
-            SystemArea::Vpn => {
-                AreaState::Ready(AreaData::Vpn { finds_vpns: false, can_import: false, vpns: mac.vpns().await })
-            }
+            SystemArea::Vpn => AreaState::Ready(AreaData::Vpn { finds_vpns: false, can_import: false, vpns: vpns() }),
             SystemArea::Bluetooth => mac.bluetooth().await?,
             // A level that isn't read leaves the area ready: setting the volume may still work.
             SystemArea::Audio => {
@@ -379,9 +324,9 @@ impl AreaSettings for MacArea {
             A::ForgetWifi { .. } => {
                 refuse("macOS asks for an administrator to forget a network: forget it in System Settings, Wi-Fi")
             }
-            A::ConnectVpn { name } => mac.connect(&name).await,
-            A::DisconnectVpn { name } => mac.disconnect(&name).await,
-            A::ImportVpn { .. } => refuse("macOS adds a VPN in System Settings, VPN, or in the VPN's own app"),
+            A::ConnectVpn { .. } | A::DisconnectVpn { .. } | A::ImportVpn { .. } => {
+                refuse("this system can't change a VPN: use the VPN's own app")
+            }
             A::SetBluetooth { .. } => {
                 refuse("macOS has no built-in tool that turns Bluetooth on or off: use the Bluetooth menu")
             }

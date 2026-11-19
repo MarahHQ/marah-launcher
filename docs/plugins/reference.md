@@ -929,9 +929,11 @@ Notes on each:
     signal. Since macOS 14 it hides the joined network's name from a program without Location
     Services: the network then shows as "Wi-Fi". Forgetting a network needs an administrator,
     so it is refused.
-  - `vpn`: every network with an address, as before, and the VPNs that System Settings knows
-    (`scutil --nc list`), which `scutil --nc start` and `stop` switch. Those have no interface,
-    so a download never goes through one by its name. Adding a VPN is refused.
+  - `vpn`: every network with an address, and the player picks the one the VPN uses. The VPN's
+    own app connects it. `scutil --nc start` and `stop` could switch the VPNs System Settings
+    knows, but those have no interface to pick, and while the system can't tell VPNs apart a
+    row's only action is the pick, so they aren't listed. Adding, connecting and disconnecting a
+    VPN are refused.
   - `bluetooth`: whether it is on, and the paired devices (`system_profiler SPBluetoothDataType
     -json`, macOS 12 and later). macOS has no built-in tool that turns Bluetooth on or off,
     pairs, connects or forgets a device, so those are refused.
