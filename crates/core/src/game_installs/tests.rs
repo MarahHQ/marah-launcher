@@ -377,3 +377,29 @@ fn the_work_folder_a_crash_left_goes_at_the_next_start() {
     assert!(!s.games.path().join("astro.part").exists());
     assert_eq!(s.config.get(&["app", "game_installs"]), serde_json::json!({}));
 }
+
+#[test]
+fn a_work_folder_out_of_reach_at_the_start_goes_at_a_later_start() {
+    let s = setup();
+    // The games folder is on a drive that isn't plugged in.
+    let drive = s.games.path().join("drive");
+    s.config.set(&["app", "folders", "games"], serde_json::json!([drive.display().to_string()])).unwrap();
+    let left = serde_json::json!({ "plugin": "emu-g", "work": at("games", "astro.part") });
+    s.config.set(&["app", "game_installs"], serde_json::json!({ "1": left })).unwrap();
+
+    s.installs.clean_up(|p| (p == &plugin()).then(|| s.folders()));
+
+    let kept = s.config.get(&["app", "game_installs"]);
+    assert_eq!(kept.as_object().map(|r| r.values().collect::<Vec<_>>()), Some(vec![&left]), "kept: {kept}");
+    // This run's install 1 comes and goes, and leaves the last run's record as it was.
+    s.installs.inner.records.save(JobId(1), &plugin(), &at("games", "quest.part"));
+    s.installs.inner.records.forget(JobId(1));
+    assert_eq!(s.config.get(&["app", "game_installs"]), kept);
+
+    // At the next start, the drive is back.
+    std::fs::create_dir_all(drive.join("astro.part")).unwrap();
+    s.installs.clean_up(|p| (p == &plugin()).then(|| s.folders()));
+
+    assert!(!drive.join("astro.part").exists());
+    assert_eq!(s.config.get(&["app", "game_installs"]), serde_json::json!({}));
+}

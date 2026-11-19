@@ -667,7 +667,8 @@ The work writes into the work folder and moves it into place at the end. It repo
 the `InstallJob`: `progress(done, total)`, `cancelled()`, and `finished(result)` exactly once.
 On an error, the work folder must be gone. `games_folder()` gives the folder the player picked.
 `take(from, to)` moves a folder instead of copying it, when the host agrees. The host removes
-the work folder if the app stops before the end.
+the work folder at the next start if the app stops before the end. A work folder out of reach
+at that start, such as on a drive that isn't plugged in, goes at a later start.
 
 ### Metadata
 
