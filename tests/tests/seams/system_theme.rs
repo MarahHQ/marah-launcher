@@ -368,6 +368,37 @@ fn on_a_desktop_restart_asks_in_a_dialog_with_the_focus_on_cancel() {
     }
 }
 
+/// The keys reach Restart in Settings → Power on a desktop, and its dialog, as a player gets
+/// there: Down to the row, Enter opens the dialog on Cancel, and a held Enter doesn't pick.
+#[test]
+fn on_a_desktop_the_keys_open_restart_s_dialog_and_a_held_enter_picks_nothing() {
+    use slint::platform::{Key, WindowEvent};
+    let system = machine();
+    let mut host = shown(&system, Place::default());
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    host.settings_tab("Power");
+    host.navigate(Key::RightArrow);
+    // Quit, then Restart.
+    host.navigate(Key::DownArrow);
+    assert!(host.lit("system-restart"), "the keys are on Restart");
+    host.navigate(Key::Return);
+    assert_eq!(asking(&host).as_deref(), Some("restart"));
+    assert_eq!(host.focused("power-confirm-choice"), ["Cancel"]);
+    // Enter held down repeats: the dialog takes no repeat.
+    let enter: slint::SharedString = Key::Return.into();
+    host.instance().window().dispatch_event(WindowEvent::KeyPressRepeated { text: enter.clone() });
+    host.settle();
+    assert_eq!(asking(&host).as_deref(), Some("restart"), "a held Enter picks nothing");
+    host.navigate(Key::DownArrow);
+    host.instance().window().dispatch_event(WindowEvent::KeyPressRepeated { text: enter });
+    host.settle();
+    assert_eq!(system.read(|m| m.restarts), 0, "nor on the action");
+    host.navigate(Key::Escape);
+    assert_eq!(asking(&host), None);
+    assert!(host.lit("system-restart"), "the keys are back on Restart");
+}
+
 /// From the power menu on a desktop, Shut down asks in the same dialog; a click on its choice acts.
 #[test]
 fn on_a_desktop_shut_down_from_the_power_menu_asks_in_the_dialog() {
@@ -733,6 +764,26 @@ fn reading(system: &FakeSystem, place: Place, theme: &str) -> Composed {
     host.resize(1600.0, 900.0);
     host.settle();
     host
+}
+
+/// On a desktop the machine's own tick reads every area, with no Refresh asked: each icon loads,
+/// then shows its state.
+#[test]
+fn on_a_desktop_the_tick_reads_every_icon() {
+    for theme in ["classic", "default"] {
+        let system = machine();
+        let mut host = reading(&system, Place::default(), theme);
+        for label in ["status:network", "status:sound", "status:bluetooth", "status:drives", "battery"] {
+            assert_eq!(host.value(label), "loading", "{theme}: {label}");
+        }
+        host.pump();
+        host.advance(std::time::Duration::from_secs(31));
+        host.settle();
+        assert_eq!(host.value("status:network"), "wired", "{theme}");
+        assert_eq!(host.value("status:sound"), "40", "{theme}");
+        assert_eq!(host.value("status:bluetooth"), "on 1", "{theme}");
+        assert_eq!(host.value("battery"), "18", "{theme}");
+    }
 }
 
 /// Before its first read each part is loading: no reason shows, every icon is in place with
