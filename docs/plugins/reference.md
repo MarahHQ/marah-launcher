@@ -226,11 +226,13 @@ folder is: see [the architecture](../contributors/architecture.md#data-folder).
 - `Programs::find` returns a program's real path, or `None`.
 - `Programs::output` runs a program with arguments and no input, and returns its standard output:
   at most `MAX_PROGRAM_OUTPUT` (64 KiB). The caller gives a timeout, at most `MAX_PROGRAM_TIME`
-  (10 seconds). A program past its time fails with `PluginError::Timeout`. Use it to see whether
-  a build is there and to read its version.
+  (10 seconds). A program past its time is killed, and the call fails with
+  `PluginError::Timeout`. Use it to see whether a build is there and to read its version.
 - `Programs::stream` runs a program with no time limit and passes each line it writes to a
-  callback. It is for system plugins only. The program must be in `permissions.long_running`,
-  and in `permissions.polkit` to run as the administrator.
+  callback. When the `cancelled` callback says so, the host kills the program. A plugin that
+  wants a time limit says it is cancelled at the limit. It is for system plugins only. The
+  program must be in `permissions.long_running`, and in `permissions.polkit` to run as the
+  administrator.
 
 A program is a `Location` (`plans.rs`): `Location::Data(RelPath)` in the data folder,
 `Location::Folder(HostPath)` in a host folder, or `Location::System(name)` on the system's

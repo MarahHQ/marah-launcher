@@ -152,8 +152,16 @@ provides only `vpn` and `power`. The programs it may run are `permissions.proces
 | The install from the stick | `marah-os-install` | The stick's installer |
 
 A missing tool makes its area unsupported, with the tool's name, such as "NetworkManager (nmcli)
-isn't installed" (`plugins/system/host/src/linux.rs`). The area's status icon then shows
-disabled, with that reason on hover and focus.
+isn't installed". The area's status icon then shows disabled, with that reason on hover and
+focus. The table `AREAS` in `plugins/system/host/src/linux.rs` lists each area's tools.
+
+Every tool runs through the plugin's tool runner (`plugins/system/host/src/tools.rs`), with a
+time limit on each call. At the limit the launcher kills the tool, and the call fails with "lsblk
+took too long", so a tool that hangs, such as `lsblk` on a dead drive, doesn't keep running. A
+read and a quick change have 10 seconds. A call that takes longer has its own limit: joining a
+Wi-Fi network, pairing, and UDisks writing what is left to a slow drive before it unmounts it.
+The install from the stick and "Choose partitions instead" have none: they wait on the player,
+who can cancel the install.
 
 ### polkit rules
 

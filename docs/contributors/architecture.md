@@ -414,6 +414,16 @@ with its state, reason and whether a job runs in it. The theme reads an area by 
 that list (`Areas` in `types.slint`). The kit's `StatusState` shows an area's state over its
 status icon: loading, or disabled where the area is absent or unsupported.
 
+The built-in system plugin (`plugins/system/host`) runs every system tool through one tool
+runner (`tools.rs`) on the `Programs` port. Each call has a time limit, and at the limit the host
+kills the tool before the call returns. The runner words the errors the same for every tool: a
+missing tool ("NetworkManager (nmcli) isn't installed"), a tool past its limit ("lsblk took too
+long"), and a change the tool refused (the tool's own message). Each OS has one module
+(`linux.rs`, `macos.rs`, `windows.rs`) with no `#[cfg]` inside it; `lib.rs` picks one. The
+module's `AREAS` table lists the areas it manages and the tools each runs. `init` and the
+manifest's capabilities read the table, and a test checks that `permissions.process` lists
+every tool in it. A new OS is one module with its table.
+
 ## Plugin loading
 
 `crates/api/src/plugin.rs` has one root trait and two kinds of plugin:
