@@ -17,6 +17,18 @@ pub const FAKE_EMULATOR_PERMISSIONS: &str = "network = [\"builds.example\"]\npro
 /// The report form of [`FakeEmulator::list`]'s community list.
 pub const FAKE_REPORT_FORM: &str = "https://lists.example/new?template=report.yml";
 
+/// How [`FakeEmulator`] answers `Launcher::close_left_running`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CloseAnswer {
+    /// It closes what its launches left running.
+    #[default]
+    Closes,
+    /// It panics, as a broken plugin does.
+    Panics,
+    /// It never answers, as a stuck plugin does.
+    Hangs,
+}
+
 /// An emulator for driving the core: a catalog of titles, one build to download, an installer
 /// that writes into the plugin's storage, and a launcher that runs `builds/<version>/emu`.
 ///
@@ -42,6 +54,8 @@ pub struct FakeEmulator {
     /// It has a community list that takes reports through the form [`FAKE_REPORT_FORM`],
     /// which its manifest's links allow.
     pub list: bool,
+    /// How it answers when the host asks it to close what its launches left running.
+    pub close_answer: CloseAnswer,
     storage: Arc<Mutex<Option<Arc<dyn Storage>>>>,
     exits: Arc<Mutex<Vec<(String, ExitInfo)>>>,
     /// How many times the host asked it to close what its launches left running.
@@ -63,6 +77,7 @@ impl FakeEmulator {
             game_process: None,
             refuses: None,
             list: false,
+            close_answer: CloseAnswer::Closes,
             storage: Arc::default(),
             exits: Arc::default(),
             closes: Arc::default(),
@@ -299,7 +314,11 @@ impl Launcher for FakeEmulator {
 
     async fn close_left_running(&self) -> PluginResult<()> {
         *self.closes.lock().unwrap() += 1;
-        Ok(())
+        match self.close_answer {
+            CloseAnswer::Closes => Ok(()),
+            CloseAnswer::Panics => panic!("the fake emulator panics as it closes"),
+            CloseAnswer::Hangs => std::future::pending().await,
+        }
     }
 }
 

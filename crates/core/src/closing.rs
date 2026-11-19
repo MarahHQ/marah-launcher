@@ -85,18 +85,14 @@ pub(crate) async fn close_everything(core: &Core, purpose: Purpose) {
 /// Closes what `plugin`'s launches left running (Steam's client): the plugin is asked first,
 /// as it knows how to close it cleanly, then what still runs is ended.
 async fn close_left_running(core: &Core, plugin: &PluginId) {
-    let clock = core.ports().clock.clone();
-    let call_limit = core.kernel().host().call_timeout;
-    let name =
-        core.kernel().manifest(plugin).map(|m| m.emulator_name().to_owned()).unwrap_or_else(|_| plugin.to_string());
+    let kernel = core.kernel();
+    let name = kernel.manifest(plugin).map(|m| m.emulator_name().to_owned()).unwrap_or_else(|_| plugin.to_string());
     show_step(core, Step { text: format!("Closing {name}"), game: None });
-    if let Some(launcher) = core.kernel().provided(plugin).await.ok().and_then(|p| p.launcher) {
-        match clock.timeout(call_limit, launcher.close_left_running()).await {
-            Some(Ok(())) => {}
-            Some(Err(e)) => {
-                tracing::warn!(%plugin, error = %e, "the plugin couldn't close what its launch left running")
-            }
-            None => tracing::warn!(%plugin, "the plugin took too long to close what its launch left running"),
+    if let Some(launcher) = kernel.provided(plugin).await.ok().and_then(|p| p.launcher) {
+        // The guard cuts off a plugin that panics or takes longer than the host's call limit.
+        let asked = kernel.guard(plugin, "launcher.close_left_running", launcher.close_left_running()).await;
+        if let Err(e) = asked {
+            tracing::warn!(%plugin, error = %e, "the plugin couldn't close what its launch left running");
         }
     }
     let ended = || !core.sessions().leaves_running(plugin);
