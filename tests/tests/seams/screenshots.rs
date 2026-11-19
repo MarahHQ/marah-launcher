@@ -1411,7 +1411,7 @@ fn shoot_status_areas(window: &MinimalSoftwareWindow, out: &Path) {
         follow(&mut host);
         let vm = host.core().view().system;
         assert_eq!(
-            [vm.area("network").state, vm.area("audio").state, vm.area("bluetooth").state],
+            [&vm.area("network").state, &vm.area("audio").state, &vm.area("bluetooth").state],
             ["ready", "loading", "unsupported"],
             "{theme}"
         );

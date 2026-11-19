@@ -449,3 +449,23 @@ async fn games_added_while_closed_show_at_the_next_start() {
     library_has(&next, "Hades", true).await;
     assert!(titles(&next).contains(&"Celeste".to_owned()));
 }
+
+/// A read of the drives that fails after a drive mounted on its own changes nothing: the drive
+/// stays mounted, and the list read before the mount doesn't come back.
+#[tokio::test]
+async fn a_failed_read_after_a_mount_keeps_the_drive_mounted() {
+    let (system, media) = (FakeSystem::new(), tempfile::tempdir().unwrap());
+    let t = boot(&system, vec![internal()], media.path()).await;
+    system.with(|m| m.drives.push(stick(None)));
+    drive(&t, DriveCmd::Refresh).await.unwrap();
+    t.until(Area::Notices, |core| core.view().notices.iter().any(|n| n == "Drive STICK found")).await;
+    let stick_path = |t: &TestCore| {
+        let drives = t.core.view().system.drives;
+        drives.into_iter().find(|d| d.drive == "1A2B-3C4D").map(|d| d.path).unwrap_or_default()
+    };
+    assert!(!stick_path(&t).is_empty(), "it mounted on its own");
+
+    system.with(|m| m.panics = vec!["drives"]);
+    drive(&t, DriveCmd::Refresh).await.unwrap();
+    assert!(!stick_path(&t).is_empty(), "the failed read changed nothing");
+}

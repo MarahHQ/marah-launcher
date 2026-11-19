@@ -344,6 +344,9 @@ async fn ask(core: &Core, area: SystemArea) -> CoreResult<(AreaState, Option<Arc
 /// the downloads, and the drives' list.
 pub(crate) async fn read(core: &Core, area: SystemArea) {
     let rereads = core.drives().rereads();
+    // The plugin's read of the drives runs the system's tools and waits on them, holding no
+    // thread: it takes no turn of the disk. The free space and the mount folders' list, which
+    // do, take one in `drives::listed`.
     let asked = ask(core, area).await;
     let mut notice = None;
     let (changed, now) = {
@@ -384,7 +387,7 @@ pub(crate) async fn read(core: &Core, area: SystemArea) {
                 core.changed(Area::Vpn);
             }
         }
-        SystemArea::Drives => crate::drives::listed(core, rereads).await,
+        SystemArea::Drives => crate::drives::listed(core, asked.is_ok().then_some(rereads)).await,
         _ => {}
     }
 }

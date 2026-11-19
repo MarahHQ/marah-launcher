@@ -541,8 +541,9 @@ installed into the `games` folders. Backups go to the backup folder.
    `Core::start`, which starts the machine's reads at once.
 
 The reads that go through many files or ask the drives (a scan's listing of each plugin, the free
-space, the drives' list, the files the view needs) take a turn first: at most `DISK_TURNS` (2) run
-at once.
+space, the mount folders' list of drives, the files the view needs) take a turn first: at most
+`DISK_TURNS` (2) run at once. A system plugin's read of the drives area runs the system's tools
+and holds no thread, so it takes no turn; filling in the free space of its list does.
 
 When the event loop ends, `Core::shutdown` runs for at most `SHUTDOWN_LIMIT` (10 seconds). It
 stops the torrents first, so each writes down the pieces it has, then shuts down every plugin.

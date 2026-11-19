@@ -719,8 +719,8 @@ fn a_slow_network_read_leaves_the_drives_icon_ready() {
 }
 
 /// Drives that turn out not to be managed here: the drives' icon loads, then stays in its place,
-/// disabled, and the bar doesn't move. The mouse reaches it: a click opens nothing, the pointer
-/// stays plain, and the pointer over it shows why.
+/// disabled, and the bar doesn't move. The mouse reaches it: a click opens nothing, and the
+/// pointer over it shows why.
 #[test]
 fn the_drives_icon_shows_disabled_when_drives_turn_out_unavailable() {
     for theme in ["classic", "default"] {

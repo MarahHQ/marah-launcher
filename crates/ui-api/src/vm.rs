@@ -1410,10 +1410,10 @@ pub struct SystemVm {
 pub const AREAS: [&str; 8] = ["network", "vpn", "bluetooth", "audio", "power", "os_updates", "os_install", "drives"];
 
 impl SystemVm {
-    /// The area named `name` (see [`AREAS`]); a loading one when the list doesn't have it.
-    pub fn area(&self, name: &str) -> AreaVm {
-        let found = self.areas.iter().find(|a| a.name == name).cloned();
-        found.unwrap_or_else(|| AreaVm { name: name.to_owned(), state: "loading".into(), ..AreaVm::default() })
+    /// The area named `name` (see [`AREAS`]), for tests and tools. It panics when the list
+    /// doesn't have it: the list always holds every area.
+    pub fn area(&self, name: &str) -> &AreaVm {
+        self.areas.iter().find(|a| a.name == name).unwrap_or_else(|| panic!("no area {name} in {:?}", self.areas))
     }
 }
 

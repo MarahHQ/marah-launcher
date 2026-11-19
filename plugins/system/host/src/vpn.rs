@@ -15,9 +15,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use launcher_api::async_trait;
-use launcher_api::{
-    AreaAction, AreaData, AreaSettings, AreaState, PluginError, PluginResult, Programs, SystemJob, Vpn,
-};
+use launcher_api::{AreaAction, AreaSettings, AreaState, PluginError, PluginResult, Programs, SystemJob, Vpn};
 
 /// Interfaces that look like tunnels but don't hide the player's address from the internet.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))] // Linux reads it; the tests run everywhere.
@@ -253,7 +251,7 @@ impl Vpns {
 impl AreaSettings for Vpns {
     async fn state(&self) -> PluginResult<AreaState> {
         let vpns = self.vpns().await;
-        Ok(AreaState::Ready(AreaData::Vpn { finds_vpns: true, can_import: self.can_import(), vpns }))
+        Ok(AreaState::Ready(launcher_api::AreaData::Vpn { finds_vpns: true, can_import: self.can_import(), vpns }))
     }
 
     async fn act(&self, action: AreaAction, _job: Arc<dyn SystemJob>) -> PluginResult<()> {
@@ -282,7 +280,7 @@ impl AreaSettings for Vpns {
                 name,
             })
             .collect();
-        Ok(AreaState::Ready(AreaData::Vpn { finds_vpns: false, can_import: false, vpns }))
+        Ok(AreaState::Ready(launcher_api::AreaData::Vpn { finds_vpns: false, can_import: false, vpns }))
     }
 
     async fn act(&self, _action: AreaAction, _job: Arc<dyn SystemJob>) -> PluginResult<()> {
