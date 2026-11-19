@@ -197,7 +197,7 @@ doesn't know.
 
 | Key | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `ui_api` | version range | required | The `launcher-ui-api` contract versions the theme works with. The host's is `UI_API_VERSION`, `0.4.2` (`crates/ui-api/src/lib.rs`). A theme that doesn't match fails with `ThemeError::UiApi`. |
+| `ui_api` | version range | required | The `launcher-ui-api` contract versions the theme works with. The host's is `UI_API_VERSION`, `0.5.0` (`crates/ui-api/src/lib.rs`). A theme that doesn't match fails with `ThemeError::UiApi`. |
 | `fallback` | bool | `false` | This theme is the one the app starts with, falls back to, and shows in safe mode. Exactly one installed theme sets it. Default does. See [Switching](#switching-the-fallback-theme-and-safe-mode). |
 | `input` | list | `["pointer"]` | The input devices the theme supports, the main one first: `pointer`, `gamepad`, `touch`. The first one is `Vm.input-mode` at start. |
 | `navigation` | `pointer` or `focus` | `pointer` | How the player moves around. No host code reads it yet. |
@@ -520,6 +520,12 @@ then the theme's files over it, so the theme's copy wins (`ResolvedTheme::slint_
 file that imports it, the kit's own included, gets the theme's copy. The theme's copy is checked
 as a theme file, not as a kit file, so it may use hex colors. Keep its exports: a kit file that
 imports it still needs them, or the theme doesn't compile.
+
+A kit file that gains a member another kit file uses is a breaking change for a theme with its
+own copy, so the contract's minor version goes up. Version 0.5.0 added `Hub.reset()` and
+`Hub.to-releases` to `kit/game-detail.slint`: the kit's `ShellKeys` and `Games` use them. A
+theme with its own copy of that file adds both, then sets `ui_api = "^0.5"`. A theme that still
+says `^0.4` is refused with `ThemeError::UiApi` before it compiles.
 
 ## Tokens
 

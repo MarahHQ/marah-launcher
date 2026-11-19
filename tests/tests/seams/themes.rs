@@ -144,6 +144,25 @@ fn a_theme_built_for_another_ui_api_is_refused() {
     assert!(matches!(host.ui.switch(&id("future")), Err(ThemeError::UiApi { .. })));
 }
 
+/// Version 0.5.0 of the contract added `Hub.reset` and `Hub.to-releases`, which the kit's shell
+/// and `Games` use. A theme built for 0.4 may ship its own `kit/game-detail.slint` without them:
+/// it is refused for its version, and never gets as far as a compile error.
+#[test]
+fn a_theme_built_for_0_4_is_refused_for_its_version_and_not_compiled() {
+    let dir = tempfile::tempdir().unwrap();
+    write_theme(dir.path(), "old", "ui_api = \"^0.4.1\"", &[("kit/game-detail.slint", "export global Hub {}")]);
+    let mut host = composed(|h| h.discover(dir.path()));
+    host.ui.start().unwrap();
+
+    let error = host.ui.switch(&id("old")).unwrap_err();
+    assert!(matches!(&error, ThemeError::UiApi { .. }), "{error}");
+    assert_eq!(
+        error.to_string(),
+        format!("theme old needs UI API ^0.4.1, this host has {}", launcher_ui_api::UI_API_VERSION)
+    );
+    assert_eq!(host.ui.current(), Some(&id("classic")), "the theme on screen stays");
+}
+
 #[test]
 fn imports_that_leave_the_theme_folder_are_refused() {
     let dir = tempfile::tempdir().unwrap();
