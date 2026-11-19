@@ -94,6 +94,30 @@ impl GameInstaller for FakeInstaller {
     }
 }
 
+/// Lists a package in the background and never answers `begin`, as a plugin's slow listing of a
+/// large package. Its work stops once the job is cancelled, and says so on `stopped`.
+struct HangingInstaller {
+    stopped: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+}
+
+#[async_trait]
+impl GameInstaller for HangingInstaller {
+    async fn candidates(&self) -> launcher_api::PluginResult<Vec<Installable>> {
+        Ok(Vec::new())
+    }
+
+    async fn begin(&self, _source: &HostPath, job: Arc<dyn InstallJob>) -> launcher_api::PluginResult<HostPath> {
+        let stopped = self.stopped.lock().unwrap().take().unwrap();
+        tokio::spawn(async move {
+            while !job.cancelled() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            let _ = stopped.send(());
+        });
+        std::future::pending().await
+    }
+}
+
 /// What the core heard, with the job's phase at that moment.
 type Heard = Arc<Mutex<Vec<(String, Option<GamePhase>)>>>;
 
@@ -110,6 +134,11 @@ struct Setup {
 }
 
 fn setup() -> Setup {
+    setup_with(Duration::from_secs(5))
+}
+
+/// [`setup`], with `call_timeout` the longest a plugin's `begin` may take.
+fn setup_with(call_timeout: Duration) -> Setup {
     let config = Arc::new(ConfigService::in_memory());
     let (games, packages) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let folders = serde_json::json!({
@@ -146,7 +175,7 @@ fn setup() -> Setup {
             hardware: Arc::new(NoHardware),
             clock: Arc::new(TokioClock),
             downloads: downloads.clone(),
-            call_timeout: Duration::from_secs(5),
+            call_timeout,
         },
         Records::new(config.clone()),
         Notifier::new(changes.clone(), EventBus::new(16)),
@@ -294,6 +323,24 @@ async fn the_same_source_doesn_t_install_twice_at_once() {
     let again = s.installs.begin(s.new_install(2, at("packages", "astro"))).await;
     assert!(again.unwrap_err().to_string().contains("already installing"));
     assert_eq!(s.phase(2), None, "the refused install isn't listed");
+}
+
+#[tokio::test]
+async fn a_begin_that_times_out_cancels_the_plugin_s_work() {
+    let s = setup_with(Duration::from_millis(50));
+    let (stopped, heard) = tokio::sync::oneshot::channel();
+    let mut install = s.new_install(1, at("packages", "huge"));
+    install.installer = Arc::new(HangingInstaller { stopped: Mutex::new(Some(stopped)) });
+
+    let begun = s.installs.begin(install).await;
+
+    assert!(begun.unwrap_err().to_string().contains("timed out"), "the plugin didn't answer in time");
+    assert_eq!(s.phase(1), None, "the install that didn't start isn't listed");
+    let stops = tokio::time::timeout(Duration::from_secs(5), heard).await;
+    assert!(stops.is_ok_and(|told| told.is_ok()), "the plugin's work saw the job cancelled");
+    // The work dropped the job as it stopped: the player heard of the failure from `begin`.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(s.heard(), [], "no second failure");
 }
 
 #[tokio::test]

@@ -482,6 +482,7 @@ impl GameInstallsSubsystem {
             disposable,
         });
         let timeout = self.inner.ports.call_timeout;
+        let handle = job.clone();
         let call = installer.begin(&source, job);
         let begun = crate::guard::guarded(clock.as_ref(), &plugin, "game_installer.begin", timeout, call)
             .await
@@ -489,7 +490,13 @@ impl GameInstallsSubsystem {
         let work = match begun {
             Ok(work) => work,
             Err(e) => {
-                self.state().jobs().remove(&id);
+                // The player hears why from this error, so the job's own end says nothing more.
+                // Then a `begin` that timed out may have left work running that holds the job:
+                // it stops at its next look at `cancelled`.
+                handle.ended.store(true, Ordering::SeqCst);
+                if let Some(job) = self.state().jobs().remove(&id) {
+                    job.cancel.store(true, Ordering::SeqCst);
+                }
                 self.changed();
                 return Err(e);
             }

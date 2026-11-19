@@ -654,7 +654,9 @@ Three action names make the host do the work itself instead of calling `run_acti
 - `candidates()` lists the `Installable` sources in the folders the plugin may read.
 - `begin(source, job)` checks `source`, starts the install in the background, and returns the
   work folder at once. A source that isn't a package fails here, as `InvalidInput`. A game that
-  is already installed fails here too, as `Precondition`: uninstall it first.
+  is already installed fails here too, as `Precondition`: uninstall it first. When `begin` takes
+  longer than the host's call timeout, the host cancels the job: work that `begin` started stops
+  at its next look at `cancelled()`.
 
 An emulator plugin gives the emulator kit's `game_install::install` the tree to copy and where it
 goes. The kit refuses an installed game, clears the work folder (`<dest>.part`), copies or moves
