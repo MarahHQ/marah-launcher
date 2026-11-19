@@ -509,6 +509,7 @@ export component SystemSection inherits VerticalLayout {
         }
         if SystemRows.os >= 0 : Row {
             label: Brand.os-name + " updates";
+            machine: "refresh";
         last: SystemRows.install < 0;
             hint: Vm.system.os-update-text;
             focused: Prefs.is(5, SystemRows.os);
@@ -531,6 +532,7 @@ export component SystemSection inherits VerticalLayout {
         }
         if SystemRows.install >= 0 : Row {
             label: "Install " + Brand.os-name + " on this PC";
+            machine: "usb";
             hint: "From this USB stick";
             focused: Prefs.is(5, SystemRows.install);
             last: true;

@@ -72,6 +72,8 @@ fn on_a_desktop_the_top_bar_shows_every_machine_icon_and_settings_has_system() {
         host.settle();
         host.settings_tab("System");
         assert_eq!(host.value("system-internet"), "wired", "{theme}: Settings has System");
+        let icons = ["network", "sound", "bluetooth", "refresh"];
+        assert_eq!(host.values("row-icon"), icons, "{theme}: each System row has its icon");
     }
 }
 
@@ -502,6 +504,8 @@ fn on_the_stick_try_it_leaves_the_launcher_and_choose_partitions_starts_that_ins
     host.dispatch(Command::Navigate(launcher_core::Route::Settings));
     host.settle();
     host.settings_tab("System");
+    let icons = ["network", "sound", "bluetooth", "refresh", "usb"];
+    assert_eq!(host.values("row-icon"), icons, "each System row has its icon, Install too");
     host.press_first("system-install");
     assert_eq!(host.value("install-os"), "disks");
     // No disk: "Choose partitions instead" is first.

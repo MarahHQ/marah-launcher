@@ -394,13 +394,23 @@ export component Header inherits Text {
 }
 
 // One row of a section card in Settings: rows between two headers share one card, and the
-// A System row's icon, the same component as the top bar's, in the row's text colour.
+// A System row's icon, in the row's text colour: for network, sound and bluetooth the same
+// component as the top bar's, else the kit `Icon` of that name.
 component MachineIcon inherits VerticalLayout {
     in property <string> kind;
     alignment: center;
+    accessible-role: image;
+    accessible-label: "row-icon";
+    accessible-value: root.kind;
     if root.kind == "network" : NetIcon { width: 22 * Look.px; height: 22 * Look.px; tint: Tokens.color-text; }
     if root.kind == "sound" : SoundIcon { width: 22 * Look.px; height: 22 * Look.px; color: Tokens.color-text; }
     if root.kind == "bluetooth" : BluetoothIcon { width: 22 * Look.px; height: 22 * Look.px; color: Tokens.color-text; }
+    if root.kind != "network" && root.kind != "sound" && root.kind != "bluetooth" : Icon {
+        name: root.kind;
+        width: 22 * Look.px;
+        height: 22 * Look.px;
+        color: Tokens.color-text;
+    }
 }
 
 // focused row gets a white edge.
@@ -419,8 +429,8 @@ export component Row inherits Rectangle {
     in property <bool> inert;
     // From 0 to 1: a bar under the label and hint, for work that runs. -1 for none.
     in property <float> progress: -1;
-    // A System row's icon before its label, the same as the top bar's: network | sound |
-    // bluetooth; "" for none.
+    // A System row's icon before its label: network | sound | bluetooth, the same as the top
+    // bar's, or the name of a kit `Icon`; "" for none.
     in property <string> machine;
     // How far the hint under the label moves in, to line up after the icon.
     property <length> indent: root.machine != "" ? 22 * Look.px + 12 * Look.px : 0;
