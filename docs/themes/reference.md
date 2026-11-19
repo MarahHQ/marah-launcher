@@ -338,7 +338,7 @@ Tests in `contract.rs` hold every kit file to three rules:
 | `send-ratings.slint` | `Sending`, `SendRatings` | Send ratings: the ratings that wait, then each picked report in full. |
 | `settings-frame.slint` | `Sections`, `PageScroll`, `SectionHead`, `PageSection`, `SettingsFrame` | The frame that Settings, a plugin's page and a game's own settings share: the header bar, the rail of section icons when there are two sections or more, and the page of sections. |
 | `settings-layout.slint` | `LauncherRows`, `DownloadsRows`, `SystemRows`, `BackupRows`, `PowerRows` | Where each row of a Settings section is, so the keys know where to stop. |
-| `settings-page.slint` | `SettingsPage` | Settings as a side sheet on `SettingsFrame`, with the rail that lights the focused section. Set `logo` to your emblem for the About card, the last thing on the page, under Power. |
+| `settings-page.slint` | `SettingsPage` | Settings as a side sheet on `SettingsFrame`, with the rail that lights the focused section. Set `logo` to your mark for the About card, the last thing on the page, under Power: the built-in themes give it `Assets.logo-mark`. |
 | `settings-rows.slint` | `Prefs`, `Tab`, `RailTab`, `Header`, `Row`, `Value`, `Editor`, `FieldRow`, `FolderRow` | The rows of a settings sheet, and where the keys are in it. The kit's sheets use the rail (`RailTab`); `Tab` stays for themes that draw tabs. |
 | `settings-sections.slint` | `GamesSection`, `UpdatesSection`, `LauncherSection`, `DownloadsSection`, `PcSection`, `SystemSection`, `BackupSection`, `PowerSection` | The rows of each Settings section. |
 | `sheet-frame.slint` | `SheetFrame` | A side sheet: the wash behind and the panel that slides in. A click on the wash goes back. |
@@ -712,6 +712,7 @@ fonts = [
 
 [theme.assets.images]
 logo = "images/logo.png"
+logo-mark = "images/logo-mark.png"
 all-games-icon = "images/all-games-icon.png"
 all-games-cover = "images/all-games-cover.jpg"
 
@@ -728,6 +729,12 @@ The host decodes PNG and JPEG, and shrinks an image to fit 1920×1080 (`MAX_WIDT
 `MAX_HEIGHT` in `crates/ui-host/src/images.rs`). A missing or broken image stops the load with
 `ThemeError::Asset`. Game art comes from `Vm` (`GameCard.cover` and the like), not from
 `Assets`.
+
+The built-in themes declare two images of the launcher: `logo`, the full emblem, for the
+closing screen (`Overlays`), and `logo-mark`, the gamepad alone, for the loading screen and the
+About card in Settings. Both are PNGs at 512 px: `logo-mark.png` is
+`assets/logo-mark-static.svg` drawn by `scripts/make-icons.sh`. The host draws no SVG, and the
+mark's wink (`assets/logo-mark.svg`) is a CSS animation, so the themes use the still mark.
 
 **Fonts.** The host registers each font file through imports in the served `tokens.slint`. Set
 `font-family` to the family name inside the files, such as `"Inter"`. A font path must stay

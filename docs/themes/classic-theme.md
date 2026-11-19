@@ -76,7 +76,7 @@ From `theme.toml`:
 | `navigation` | `focus` |
 | breakpoints | `compact` (`max_width = 900`), then `regular` |
 | fonts | the six font files above |
-| images | `logo` |
+| images | `logo`, `logo-mark` |
 | sounds | `move`, `select`, `back`, `error`, `start` |
 
 It has no `fallback` key.
@@ -242,7 +242,7 @@ last move: the kit's `ShellKeys` timer calls `Games.send`.
   card the player was on (`Origin`): the cover grows from the card's place.
 - **Downloads** (`screens/downloads.slint`): the kit's `DownloadsPage`.
 - **Settings** (`screens/settings.slint`): the kit's `SettingsPage`, one page of sections with a
-  rail of their icons. Its `logo` is the theme's emblem.
+  rail of their icons. Its `logo` is the theme's mark (`Assets.logo-mark`).
 - **Emulators** and **Themes** (`screens/emulators.slint`, `screens/themes.slint`): the kit's
   `PluginListSheet`, with these titles and lines:
   - "Emulators", "Open one to turn it on or off, install it and change its settings".

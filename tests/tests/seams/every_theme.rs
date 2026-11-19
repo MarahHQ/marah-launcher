@@ -848,3 +848,21 @@ fn a_sheet_opened_with_the_keys_takes_keys_at_once_in_every_theme() {
         press(&host, Key::Escape);
     }
 }
+
+/// The boot screen draws the logo mark, the gamepad alone, in every theme: the theme's
+/// `logo-mark` image, which isn't its full logo.
+#[test]
+fn the_boot_screen_draws_the_logo_mark_in_every_theme() {
+    for theme in THEMES {
+        let work = std::sync::Arc::new(Asker::default());
+        let host = in_theme(theme, |h| two_emulators(h).plugin(asker(work.clone())));
+        assert!(!host.core().view().boot.ready, "{theme}: the boot screen shows");
+        assert_eq!(host.count("logo-mark"), 1, "{theme}");
+        let image = |name: &str| match host.instance().get_global_property("Assets", name) {
+            Ok(slint_interpreter::Value::Image(image)) => image.to_rgba8().expect("pixels").as_bytes().to_vec(),
+            other => panic!("{theme}: no image {name}: {other:?}"),
+        };
+        let (mark, logo) = (image("logo-mark"), image("logo"));
+        assert!(!mark.is_empty() && mark != logo, "{theme}: the mark is its own image");
+    }
+}

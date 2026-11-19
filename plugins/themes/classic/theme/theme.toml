@@ -33,6 +33,9 @@ fonts = [
 [theme.assets.images]
 # The Marah Launcher emblem (assets/logo.svg in the repository, drawn at 512 px).
 logo = "images/logo.png"
+# The mark alone, the gamepad (assets/logo-mark-static.svg, drawn at 512 px): the loading
+# screen and Settings.
+logo-mark = "images/logo-mark.png"
 
 # select, back, error and start are made by scripts/make-sounds.py.
 [theme.assets.sounds]
