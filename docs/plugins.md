@@ -653,7 +653,13 @@ Three action names make the host do the work itself instead of calling `run_acti
 
 - `candidates()` lists the `Installable` sources in the folders the plugin may read.
 - `begin(source, job)` checks `source`, starts the install in the background, and returns the
-  work folder at once. A source that isn't a package fails here.
+  work folder at once. A source that isn't a package fails here, as `InvalidInput`. A game that
+  is already installed fails here too, as `Precondition`: uninstall it first.
+
+An emulator plugin gives the emulator kit's `game_install::install` the tree to copy and where it
+goes. The kit refuses an installed game, clears the work folder (`<dest>.part`), copies or moves
+the files, and moves the work folder into place. The `game_install` contract in the testkit
+checks the refusal for each emulator.
 
 The work writes into the work folder and moves it into place at the end. It reports through
 the `InstallJob`: `progress(done, total)`, `cancelled()`, and `finished(result)` exactly once.
