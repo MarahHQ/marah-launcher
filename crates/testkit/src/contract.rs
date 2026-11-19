@@ -205,7 +205,8 @@ async fn launch_contract(test: &TestCore, plugin: &PluginId, game: &str) {
 
 /// The game install contract, for a plugin whose game installer installs from `source`: the game
 /// installs, and installing it again is refused before the plugin's `begin` returns, as
-/// [`PluginError::Precondition`], with no work folder (`<name>.part`) left in any host folder.
+/// [`PluginError::Precondition`]. Neither the install nor the refusal leaves a work folder
+/// (`<name>.part`) in any host folder.
 pub async fn game_install(test: &TestCore, plugin: &PluginId, source: &HostPath) {
     let start = || Command::RunAction {
         plugin: plugin.clone(),
@@ -213,6 +214,8 @@ pub async fn game_install(test: &TestCore, plugin: &PluginId, source: &HostPath)
         game: None,
         args: serde_json::to_value(source).expect("a host path is JSON"),
     };
+    // A fixture may hold a work folder of its own: only a new one counts.
+    let work_before = work_folders(test);
     let before = test.core.view().downloads.jobs.len();
     test.core.dispatch(start()).await.unwrap_or_else(|e| panic!("contract game install: install {}: {e}", source.path));
     test.until(launcher_core::Area::Installs, |core| {
@@ -223,8 +226,8 @@ pub async fn game_install(test: &TestCore, plugin: &PluginId, source: &HostPath)
     .await;
     let job = test.core.view().downloads.jobs.into_iter().next().expect("the install's job");
     assert_eq!(job.state, "done", "contract game install: install {}: {}", source.path, job.error);
+    assert_eq!(work_folders(test), work_before, "contract game install: a finished install leaves no work folder");
 
-    let work_before = work_folders(test);
     // An error from the dispatch is an error from `begin`: once `begin` returns, the install runs.
     let again = test.core.dispatch(start()).await;
     assert!(

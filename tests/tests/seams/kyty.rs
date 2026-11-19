@@ -540,6 +540,12 @@ async fn packages(k: &Kyty, files: &[(&str, Vec<u8>)]) -> tempfile::TempDir {
     dir
 }
 
+/// The work folders (`<name>.part`) in the games folder's `PS5` folder.
+fn work_folders(k: &Kyty) -> Vec<String> {
+    let entries = std::fs::read_dir(k.games.path().join("PS5")).into_iter().flatten().flatten();
+    entries.map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.ends_with(".part")).collect()
+}
+
 /// Starts the install the Emulators screen offers for `file`, and waits for it to end.
 async fn install_game(k: &Kyty, file: &str) -> String {
     k.test.core.dispatch(Command::Navigate(Route::Emulators)).await.unwrap();
@@ -579,7 +585,7 @@ async fn a_ps5_package_installs_into_the_games_folder_and_shows_in_the_library()
     assert_eq!(std::fs::read(game.join("eboot.bin")).unwrap(), b"fixture executable");
     assert_eq!(std::fs::read(game.join("sce_module/a.prx")).unwrap(), b"module");
     assert!(game.join("sce_sys/param.json").is_file());
-    assert!(!k.games.path().join("PS5/game.part").exists());
+    assert_eq!(work_folders(&k), Vec::<String>::new(), "no work folder is left");
     let titles: Vec<_> = k.test.core.view().home.games.into_iter().map(|g| g.title).collect();
     assert!(titles.contains(&"Generated fixture".to_owned()), "{titles:?}");
 }
@@ -650,7 +656,7 @@ async fn a_game_that_is_already_installed_is_not_installed_twice() {
 
     let end = install_game(&k, "game.pkg").await;
     assert!(end.starts_with("failed") && end.contains("already"), "{end}");
-    assert!(!k.games.path().join("PS5/game.part").exists());
+    assert_eq!(work_folders(&k), Vec::<String>::new(), "no work folder is left");
 }
 
 #[tokio::test]
