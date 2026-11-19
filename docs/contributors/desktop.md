@@ -321,7 +321,8 @@ step. The script itself, its settings and what it does with each line are in
 The session changes how the launcher leaves, not what the player can manage. In a window on a
 desktop the top bar has the same network, sound, Bluetooth and drives icons, and Settings has the
 same System section. Restart and Shut down show there too, when the system plugin allows them:
-on Linux through `systemctl` and on Windows through `shutdown`. macOS refuses them.
+on Linux through `systemctl`, on Windows through `shutdown`, and on macOS through System Events
+(`osascript`), which macOS asks the player to allow once.
 They act on the whole PC, so on a desktop they ask in a dialog first (`kit/power-ask.slint`); in
 the session they ask by a second press.
 

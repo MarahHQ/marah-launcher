@@ -920,7 +920,35 @@ Notes on each:
 - **PlayStation Store.** It describes PS4 and PS5 games by title id from Sony's public catalog
   API.
 - **This PC.** It runs the system's own tools. On Linux it provides every system capability. On
-  macOS it provides only `vpn` and `power`. On Windows it uses Windows' own calls
+  macOS it runs only the tools macOS ships (`src/macos.rs`; their output is read in
+  `src/macmap.rs`) and provides:
+  - `network`: how the Mac is online (`scutil --nwi`, with the ports of `networksetup
+    -listallhardwareports`), the saved Wi-Fi networks (`-listpreferredwirelessnetworks`), and
+    joining one (`-setairportnetwork`). macOS has no built-in tool that scans since 14.4
+    (`airport` does nothing), so Scan is refused and the list holds the saved networks, with no
+    signal. Since macOS 14 it hides the joined network's name from a program without Location
+    Services: the network then shows as "Wi-Fi". Forgetting a network needs an administrator,
+    so it is refused.
+  - `vpn`: every network with an address, as before, and the VPNs that System Settings knows
+    (`scutil --nc list`), which `scutil --nc start` and `stop` switch. Those have no interface,
+    so a download never goes through one by its name. Adding a VPN is refused.
+  - `bluetooth`: whether it is on, and the paired devices (`system_profiler SPBluetoothDataType
+    -json`, macOS 12 and later). macOS has no built-in tool that turns Bluetooth on or off,
+    pairs, connects or forgets a device, so those are refused.
+  - `audio`: the volume and mute (`osascript`, `get volume settings`). macOS has no built-in
+    tool that lists or chooses the outputs (`SwitchAudioSource` isn't built in), so the list is
+    empty and choosing one is refused.
+  - `power`: the battery (`pmset -g batt`), and restart and shut down through System Events
+    (`osascript`). `shutdown` needs root. macOS asks once whether the launcher may control
+    System Events; after "Don't Allow" the message says where to allow it.
+  - `drives`: the volumes on the external disks (`diskutil list -plist external`, then
+    `diskutil info -plist` for each), with label, size, free space and mount state, and mount,
+    unmount and eject (`diskutil mount`, `unmount`, `eject`). An APFS volume ejects with the
+    physical disk that holds its container. The Mac's own disks aren't listed. No plist crate is
+    in the workspace, so `macmap.rs` reads the XML that `diskutil` prints.
+  - OS updates and the OS install are absent.
+
+  On Windows it uses Windows' own calls
   (`src/windows.rs`, through the `windows` crate) and provides:
   - `network`: how the PC is online, the Wi-Fi networks in reach, and joining and forgetting
     one, through the WLAN API. Not `netsh`: it prints in the language Windows is set to. Since
