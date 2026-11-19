@@ -68,7 +68,7 @@ impl ProcessSpawner for TokioSpawner {
             Some(Ok(out)) => Ok(Some(out)),
             Some(Err(e)) => Err(launcher_api::PluginError::Other(format!("{:?}: {e}", command.program))),
             None => {
-                let _ = child.kill().await;
+                stop(&mut child).await;
                 Ok(None)
             }
         }
@@ -108,8 +108,9 @@ impl ProcessSpawner for TokioSpawner {
                     None => err_open = false,
                 },
                 _ = tick.next() => if cancelled() {
-                    let _ = child.kill().await;
-                    break;
+                    // A program the kill couldn't end yet ended by a signal, as far as its caller knows.
+                    stop(&mut child).await;
+                    return Ok(-1);
                 },
             }
         }
@@ -124,6 +125,22 @@ impl ProcessSpawner for TokioSpawner {
         };
         let path = std::env::var_os("PATH")?;
         std::env::split_paths(&path).flat_map(|dir| names.iter().map(move |n| dir.join(n))).find(|p| p.is_file())
+    }
+}
+
+/// How long a stopped program has to end before its caller stops waiting for it.
+const STOP_WAIT: Duration = Duration::from_secs(1);
+
+/// Kills `child`, and waits at most [`STOP_WAIT`] for it to end. A program stuck in the kernel,
+/// such as `lsblk` on a dead drive, ends only when the kernel lets it go: the caller doesn't wait
+/// for that, and tokio reaps the program later.
+async fn stop(child: &mut tokio::process::Child) {
+    if let Err(e) = child.start_kill() {
+        tracing::debug!(error = %e, "the program wasn't killed: it has ended");
+    }
+    let clock: &dyn Clock = &TokioClock;
+    if clock.timeout(STOP_WAIT, child.wait()).await.is_none() {
+        tracing::debug!("a killed program hasn't ended yet: it is left to end");
     }
 }
 
@@ -308,6 +325,47 @@ mod tests {
         let status =
             tokio::process::Command::new("kill").args(["-0", pid]).stderr(std::process::Stdio::null()).status();
         status.await.unwrap().success()
+    }
+
+    /// A program that writes its process id to `pidfile`, then sleeps as that process.
+    fn sleeper(pidfile: &Path) -> SpawnCommand {
+        sh(&format!("echo $$ > {}; exec sleep 30", pidfile.display()))
+    }
+
+    /// The id `pidfile` holds, once it is written.
+    async fn pid_in(pidfile: &Path) -> String {
+        loop {
+            match std::fs::read_to_string(pidfile) {
+                Ok(pid) if pid.ends_with('\n') => break pid.trim().to_owned(),
+                _ => TokioClock.sleep(Duration::from_millis(20)).await,
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn output_kills_the_program_it_stops_at_the_timeout() {
+        let dir = tempfile::tempdir().unwrap();
+        let pidfile = dir.path().join("pid");
+
+        let out = TokioSpawner.output(sleeper(&pidfile), Duration::from_millis(300), 1024).await.unwrap();
+
+        assert_eq!(out, None);
+        let pid = pid_in(&pidfile).await;
+        assert!(!alive(&pid).await, "the program still runs after the timeout");
+    }
+
+    #[tokio::test]
+    async fn stream_kills_the_program_when_it_is_cancelled() {
+        let dir = tempfile::tempdir().unwrap();
+        let pidfile = dir.path().join("pid");
+        let started = REAL.now();
+        let cancelled = || REAL.now() - started > Duration::from_millis(300);
+
+        let code = TokioSpawner.stream(sleeper(&pidfile), &|_| {}, &cancelled).await.unwrap();
+
+        assert_eq!(code, -1);
+        let pid = pid_in(&pidfile).await;
+        assert!(!alive(&pid).await, "the program still runs after the cancel");
     }
 
     #[tokio::test]
