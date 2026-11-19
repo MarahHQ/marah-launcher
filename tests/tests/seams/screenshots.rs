@@ -1303,9 +1303,9 @@ macro_rules! shots {
 
 /// Settings → Backup with a backup and its menu open, as `classic-backup-menu.png`; and the
 /// browser of "Restore from another folder" in each built-in theme: a folder, a backup in it, and
-/// the dialog before a restore, as `<theme>-backup-browser[-backup|-confirm].png`. Over the
-/// library the other screens show: the real KytyPS5 plugin names its saves; the home folder is a
-/// temporary one.
+/// the dialog before a restore, as `<theme>-backup-browser[-backup|-confirm].png`, and with a
+/// keyboard's hints as `<theme>-backup-browser-confirm-keys.png`. Over the library the other screens
+/// show: the real KytyPS5 plugin names its saves; the home folder is a temporary one.
 fn shoot_backup(window: &MinimalSoftwareWindow, out: &Path) {
     use slint::platform::Key;
     window.set_size(slint::PhysicalSize::new(WIDTH, HEIGHT));
@@ -1352,6 +1352,12 @@ fn shoot_backup(window: &MinimalSoftwareWindow, out: &Path) {
         follow(&mut host);
         shoot(window, &out.join(format!("{theme}-backup-browser-confirm.png")));
         round_corners(&host, out, &format!("{theme}-backup-browser-confirm"), "browser-confirm-title");
+        // The same with a mouse and keyboard: the hints show the keys.
+        let mode = host.ui.input_mode().unwrap();
+        host.ui.set_input_mode("pointer");
+        follow(&mut host);
+        shoot(window, &out.join(format!("{theme}-backup-browser-confirm-keys.png")));
+        host.ui.set_input_mode(&mode);
         key(&mut host, Key::Escape);
         host.dispatch(Command::Backup(launcher_core::BackupCmd::CloseBrowser));
     }

@@ -2,8 +2,17 @@ import { Tokens } from "../tokens.slint";
 import { Look } from "look.slint";
 import { Motion } from "motion.slint";
 
+// A key the hints show: the pad's button, the keyboard's key and what it does.
+export struct Hint { pad: string, key: string, label: string }
+
 // The keys of a question with two choices (`Ask`): 0 is Cancel, 1 the action.
 export global AskKeys {
+    // The key hints while a question is up, whichever choice has the focus.
+    out property <[Hint]> hints: [
+        { pad: "⮜  ⮞", key: "← →", label: "Choose" },
+        { pad: "✕", key: "Enter", label: "Select" },
+        { pad: "○", key: "Esc", label: "Cancel" },
+    ];
     // The choice a key moves the focus to from `focus`, or `focus` for a key that doesn't move
     // it. Left and Right go to the pill on that side; Up and Shift+Tab go to Cancel, Down and
     // Tab to the action.

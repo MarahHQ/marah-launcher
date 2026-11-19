@@ -34,6 +34,8 @@ export global Browser {
     in-out property <int> at-entry;
     // The backup the dialog asks about, by its index in the files; -1 while no dialog shows.
     in-out property <int> confirm: -1;
+    // The dialog shows: it takes the keys, and the hints are its own.
+    out property <bool> asking: root.confirm >= 0 && root.confirm < root.entries;
     // In the dialog (an `Ask`): 0 Cancel, where the focus starts, 1 Restore.
     in-out property <int> choice;
     // The text typed to filter the files. The sheet keeps it, so keys typed faster than the
@@ -148,7 +150,7 @@ export global Browser {
             && text != Key.PageDown && text != Key.Backspace) {
             return true;
         }
-        if (root.confirm >= 0) {
+        if (root.asking) {
             let next = AskKeys.moved(text, root.choice);
             if (next != root.choice) {
                 root.choice = next;
@@ -289,6 +291,9 @@ component KeyHint inherits HorizontalLayout {
         font-size: 16 * Look.tpx;
         color: Tokens.color-text-muted;
         vertical-alignment: center;
+        accessible-role: text;
+        accessible-label: "hint";
+        accessible-value: self.text;
     }
 }
 
@@ -621,19 +626,21 @@ export component FolderBrowser inherits Rectangle {
                     overflow: elide;
                     horizontal-stretch: 1;
                 }
+                // While the dialog is up, its keys; the browser's come back when it closes.
+                for h in Browser.asking ? AskKeys.hints : [] : KeyHint { pad: h.pad; key: h.key; label: h.label; }
                 // ✕ does nothing in an empty folder: no hint for it there.
-                if Browser.pane == 0 || Browser.entries > 0 : KeyHint {
+                if !Browser.asking && (Browser.pane == 0 || Browser.entries > 0) : KeyHint {
                     pad: "✕";
                     key: "Enter";
                     label: Browser.pane == 0 ? (Vm.browser.places[Browser.at-place].mounted ? "Go" : "Mount")
                         : root.entry.folder ? "Open" : root.entry.newer ? "Can't restore" : "Restore";
                 }
-                if Browser.picking : KeyHint { pad: "△"; key: "/"; label: "Use this folder"; }
-                KeyHint { pad: "○"; key: "Esc"; label: Browser.typed != "" ? "Clear" : Browser.pane == 0 || Vm.browser.parent == "" ? "Close" : "Up a folder"; }
-                KeyHint { pad: "L1  R1"; key: "← →"; label: "Places / Files"; }
-                KeyHint { pad: "□"; key: "Ctrl+H"; label: Vm.browser.hidden ? "Hide hidden" : "Show hidden"; }
+                if !Browser.asking && Browser.picking : KeyHint { pad: "△"; key: "/"; label: "Use this folder"; }
+                if !Browser.asking : KeyHint { pad: "○"; key: "Esc"; label: Browser.typed != "" ? "Clear" : Browser.pane == 0 || Vm.browser.parent == "" ? "Close" : "Up a folder"; }
+                if !Browser.asking : KeyHint { pad: "L1  R1"; key: "← →"; label: "Places / Files"; }
+                if !Browser.asking : KeyHint { pad: "□"; key: "Ctrl+H"; label: Vm.browser.hidden ? "Hide hidden" : "Show hidden"; }
                 Rectangle { horizontal-stretch: 1; }
-                if Vm.input-mode != "gamepad" : Text {
+                if !Browser.asking && Vm.input-mode != "gamepad" : Text {
                     text: "Type to find";
                     font-size: 16 * Look.tpx;
                     color: Look.text3;
@@ -644,7 +651,7 @@ export component FolderBrowser inherits Rectangle {
     }
 
     // The dialog before a restore: a click outside it says no.
-    if Browser.confirm >= 0 && Browser.confirm < Browser.entries : dialog := Rectangle {
+    if Browser.asking : dialog := Rectangle {
         property <BrowseEntry> asked: Vm.browser.entries[Browser.confirm];
         accessible-role: groupbox;
         accessible-label: "browser-confirm";

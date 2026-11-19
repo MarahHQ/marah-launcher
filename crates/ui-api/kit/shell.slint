@@ -23,9 +23,10 @@ import { Prompt, InstallPrompt } from "install-prompt.slint";
 import { Question } from "question-prompt.slint";
 import { Ask, ResultPrompt } from "result-prompt.slint";
 import { Sending, SendRatings } from "send-ratings.slint";
+import { AskKeys, Hint } from "ask.slint";
 
-// A key the hints at the bottom show: the pad's button, the keyboard's key and what it does.
-export struct Hint { pad: string, key: string, label: string }
+// A key the hints at the bottom show, for the themes.
+export { Hint }
 
 // The hints for what is up, in the order the keys answer: an overlay's, then the screen's.
 export global ShellHints {
@@ -33,11 +34,7 @@ export global ShellHints {
     // header rows (search, filters). `home`: the theme's own hints for Home, empty elsewhere.
     // `trailer-key`: the shown game has a trailer, and its key opens it.
     public pure function pick(sort-open: bool, grid-header: bool, home: [Hint], trailer-key: bool) -> [Hint] {
-        PowerAsk.asking != "" ? [
-            { pad: "⮜  ⮞", key: "← →", label: "Choose" },
-            { pad: "✕", key: "Enter", label: "Select" },
-            { pad: "○", key: "Esc", label: "Cancel" },
-        ]
+        PowerAsk.asking != "" ? AskKeys.hints
         : Osk.open ? [
             { pad: "✕", key: "Enter", label: "Type" },
             { pad: "□", key: "⌫", label: "Delete" },

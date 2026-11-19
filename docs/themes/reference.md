@@ -304,13 +304,13 @@ Tests in `contract.rs` hold every kit file to three rules:
 
 | File | Exports | What it gives |
 | --- | --- | --- |
-| `ask.slint` | `Ask`, `AskKeys` | A question before something that can't be taken back, for a `Sheet`'s card: the question, what happens, and Cancel and the action as pills side by side. Cancel comes first in reading order and has the focus first; the action is red. `AskKeys.moved` moves the focus for a key. The dialogs before Restart, Shut down and a restore use it. |
+| `ask.slint` | `Hint`, `Ask`, `AskKeys` | A question before something that can't be taken back, for a `Sheet`'s card: the question, what happens, and Cancel and the action as pills side by side. Cancel comes first in reading order and has the focus first; the action is red. `AskKeys.moved` moves the focus for a key, and `AskKeys.hints` are the key hints while it is up: Choose, Select and Cancel. The dialogs before Restart, Shut down and a restore use it. |
 | `button.slint` | `Button` | A small round button. Primary and the current choice are white; others light up on hover and focus. |
 | `closing.slint` | `Closing`, `ClosingScreen` | Covers the screen while Log out, Restart or Shut down closes what runs. It takes every key: hide your key hints while `Closing.shows`. |
 | `commands.slint` | `Commands` | One function for each thing the player asks of the core. |
 | `cover-wall.slint` | `CoverWall` | A slowly drifting wall of the library's covers, dimmed, as the boot and closing screens show it. |
 | `downloads.slint` | `Dl`, `DownloadsPage` | The Downloads screen, its keys, the download sheet, and the install and remove sheets. |
-| `folder-browser.slint` | `Browser`, `FolderBrowser` | The folder browser, for a restore or to pick a folder: places (a drive that isn't mounted mounts from here), folders and backups, details, its own keys, "Use this folder" when it picks, and one dialog before a restore (an `Ask`). Accessible labels: `browser-confirm`, `browser-confirm-title`, `browser-confirm-cancel` and `browser-confirm-restore`. |
+| `folder-browser.slint` | `Browser`, `FolderBrowser` | The folder browser, for a restore or to pick a folder: places (a drive that isn't mounted mounts from here), folders and backups, details, its own keys, "Use this folder" when it picks, and one dialog before a restore (an `Ask`). While the dialog is up, its hint line shows the dialog's hints (`AskKeys.hints`). Accessible labels: `hint` (each hint's label), `browser-confirm`, `browser-confirm-title`, `browser-confirm-cancel` and `browser-confirm-restore`. |
 | `folder-list.slint` | `FolderList`, `FolderListSheet` | A named folder's list, which a `FolderRow` opens: each folder with the free space on its drive and Remove, then Add folder (the folder browser) and Type a path. With `FolderList.show-backup()`, the backup folder's: Choose a folder, Type a path, Use the default folder. |
 | `game-detail.slint` | `Hub`, `GameDetailPage` | The Game Hub: buttons, releases, fact cards, technical details and screenshots. |
 | `game-menu.slint` | `GameMenu`, `MenuRow`, `GameMenuSheet` | A game's menu, with Uninstall asking first. |
