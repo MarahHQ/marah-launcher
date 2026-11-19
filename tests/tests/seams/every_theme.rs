@@ -760,3 +760,45 @@ fn a_click_outside_a_sheet_closes_it_and_one_inside_does_not_in_every_theme() {
         assert_eq!(host.count("folder-list"), 0, "{theme}: a click outside closes the list");
     }
 }
+
+/// A drive button's name shows on key focus or on hover, not all the time: the Drives panel
+/// opened with the mouse shows none; Right shows the next button's.
+#[test]
+fn a_drive_button_s_name_shows_on_key_focus_not_all_the_time_in_every_theme() {
+    let media = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(media.path().join("STICK")).unwrap();
+    let system = launcher_testkit::FakeSystem::new();
+    system.with(|m| {
+        m.drives = vec![launcher_api::SystemDrive {
+            device: "/dev/sda1".into(),
+            disk: "/dev/sda".into(),
+            uuid: "1A2B-3C4D".into(),
+            label: "STICK".into(),
+            size: 64_000_000_000,
+            filesystem: "exfat".into(),
+            usb: true,
+            mount: Some(media.path().join("STICK")),
+            free: Some(40_000_000_000),
+            ..launcher_api::SystemDrive::default()
+        }];
+    });
+    for theme in THEMES {
+        let plugin = system.plugin();
+        let mut host = in_theme(theme, |h| h.plugin(plugin));
+        host.dispatch(Command::Drive(launcher_core::DriveCmd::Refresh));
+        host.dispatch(Command::System(launcher_core::system::SystemCommand::Refresh));
+        host.settle();
+        host.click("status:drives");
+        assert_eq!(host.value("system-panel"), "drives", "{theme}");
+        assert_eq!(host.count("drive-button-label"), 0, "{theme}: opened with the mouse, no name shows");
+        host.navigate(Key::RightArrow);
+        assert_eq!(host.values("drive-button-label"), ["Use for games"], "{theme}: Right shows the next button's name");
+        host.navigate(Key::Escape);
+        // A click outside the panel closes it; one inside, on a drive's row, keeps it.
+        host.click("status:drives");
+        host.click("drive");
+        assert_eq!(host.count("system-panel"), 1, "{theme}: a click inside keeps it");
+        host.click_at(4.0, 300.0);
+        assert_eq!(host.count("system-panel"), 0, "{theme}: a click outside closes it");
+    }
+}

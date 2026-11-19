@@ -26,6 +26,10 @@ export global Sys {
     in-out property <int> row;
     // In the Drives panel: the focused button of the focused drive, by its place in `actions`.
     in-out property <int> button;
+    // A key or a pad's button was pressed in the open panel since it opened, or since the
+    // pointer last moved over a button: the Drives panel draws its focused button, and its
+    // name, only then. The pointer shows a button's name on hover.
+    in-out property <bool> keyed;
     // The network whose password is being typed; "" for none.
     in-out property <string> asking;
 
@@ -46,6 +50,7 @@ export global Sys {
         root.open = panel;
         root.row = 0;
         root.button = 0;
+        root.keyed = false;
         root.asking = "";
         Host.play-sound("select");
         Commands.refresh-system();
@@ -95,6 +100,7 @@ export global Sys {
     }
     // Handles a key while a panel is open. Returns whether it did anything.
     public function key(text: string) -> bool {
+        root.keyed = true;
         if (text == Key.Escape || text == Key.Backspace) { root.close(); Host.play-sound("back"); return true; }
         if (text == Key.DownArrow) {
             if (root.row + 1 < root.rows(root.open)) { root.row += 1; root.button = 0; Host.play-sound("move"); }
@@ -284,13 +290,15 @@ component DriveButton inherits Rectangle {
     callback clicked();
     width: 32 * Look.px;
     height: 32 * Look.px;
-    property <bool> named: root.focused || ta.has-hover;
+    property <bool> named: (root.focused && Sys.keyed) || ta.has-hover;
+    // Drawn as focused only once the keys moved in the panel.
+    property <bool> lit: root.focused && Sys.keyed;
     circle := Rectangle {
         width: parent.width;
         height: parent.height;
         border-radius: self.height / 2;
-        background: root.focused ? Tokens.color-focus : ta.has-hover && !root.waiting ? Tokens.color-tint.with-alpha(0.149) : Tokens.color-tint.with-alpha(0.071);
-        border-width: root.focused ? 2 * Look.px : 0;
+        background: root.lit ? Tokens.color-focus : ta.has-hover && !root.waiting ? Tokens.color-tint.with-alpha(0.149) : Tokens.color-tint.with-alpha(0.071);
+        border-width: root.lit ? 2 * Look.px : 0;
         border-color: Tokens.color-tint;
         opacity: root.waiting && !root.running ? 0.4 : 1;
         animate background { duration: Tokens.motion-fast; }
@@ -302,13 +310,13 @@ component DriveButton inherits Rectangle {
         accessible-action-default => { root.clicked(); }
         if !root.running : Icon {
             name: DriveActions.icon(root.action);
-            color: root.focused ? Look.ink : Tokens.color-text;
+            color: root.lit ? Look.ink : Tokens.color-text;
             width: 18 * Look.px;
             height: 18 * Look.px;
         }
         if !root.running && root.action == "use" : Icon {
             name: "plus";
-            color: root.focused ? Look.ink : Tokens.color-text;
+            color: root.lit ? Look.ink : Tokens.color-text;
             x: parent.width - 13 * Look.px;
             y: 3 * Look.px;
             width: 10 * Look.px;
@@ -319,12 +327,17 @@ component DriveButton inherits Rectangle {
             height: 20 * Look.px;
             viewbox-width: 24;
             viewbox-height: 24;
-            stroke: root.focused ? Look.ink : Tokens.color-text;
+            stroke: root.lit ? Look.ink : Tokens.color-text;
             stroke-width: 2.5 * Look.px;
             commands: "M 12 3 A 9 9 0 1 1 3 12";
             transform-rotation: Look.clock * 400deg;
         }
-        ta := TouchArea { mouse-cursor: root.waiting ? default : pointer; clicked => { if (!root.waiting) { root.clicked(); } } }
+        ta := TouchArea {
+            mouse-cursor: root.waiting ? default : pointer;
+            clicked => { if (!root.waiting) { root.clicked(); } }
+            // The pointer is back: the keys' focus hides in favour of the hover.
+            changed has-hover => { if (self.has-hover) { Sys.keyed = false; } }
+        }
     }
     // Wider than the button: "Use for games" is one line under it.
     Text {
@@ -333,8 +346,12 @@ component DriveButton inherits Rectangle {
         width: 120 * Look.px;
         text: DriveActions.label(root.action);
         font-size: 12 * Look.tpx;
-        color: root.named ? Tokens.color-text : transparent;
+        visible: root.named;
+        color: Tokens.color-text;
         horizontal-alignment: center;
+        accessible-role: text;
+        accessible-label: "drive-button-label";
+        accessible-value: self.text;
     }
 }
 
@@ -348,8 +365,8 @@ component DriveRow inherits Rectangle {
     callback pressed(int);
     height: 76 * Look.px;
     border-radius: 12 * Look.px;
-    background: root.focused ? Tokens.color-tint.with-alpha(0.149) : ta.has-hover ? Tokens.color-tint.with-alpha(0.071) : transparent;
-    border-width: root.focused ? 2 * Look.px : 0;
+    background: root.focused && Sys.keyed ? Tokens.color-tint.with-alpha(0.149) : ta.has-hover ? Tokens.color-tint.with-alpha(0.071) : transparent;
+    border-width: root.focused && Sys.keyed ? 2 * Look.px : 0;
     border-color: Tokens.color-tint;
     accessible-role: list-item;
     accessible-label: "drive";
