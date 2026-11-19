@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.15.0](https://github.com/MarahHQ/marah-launcher/compare/v0.14.0...v0.15.0) (2026-11-19)
+
+
+### Features
+
+* the follow-ups from the reviews of [#69](https://github.com/MarahHQ/marah-launcher/issues/69) to [#97](https://github.com/MarahHQ/marah-launcher/issues/97) ([#98](https://github.com/MarahHQ/marah-launcher/issues/98)) ([03ecec7](https://github.com/MarahHQ/marah-launcher/commit/03ecec79b1e98fe1ad91fe3809846c1b9ae7e96e))
+
+
+### Bug Fixes
+
+* **assets:** the logo's gamepad has the icon's dark body, as on the website ([#100](https://github.com/MarahHQ/marah-launcher/issues/100)) ([ee45286](https://github.com/MarahHQ/marah-launcher/commit/ee452862d86a498b4c2276206da40c3807885b26))
+* **installs:** the follow-ups from the review of [#98](https://github.com/MarahHQ/marah-launcher/issues/98) ([#101](https://github.com/MarahHQ/marah-launcher/issues/101)) ([d192a22](https://github.com/MarahHQ/marah-launcher/commit/d192a22a70bff2a1e3d090482b33621f09fb30e3))
+
 ## [0.14.0](https://github.com/MarahHQ/marah-launcher/compare/v0.13.0...v0.14.0) (2026-11-19)
 
 
