@@ -6,7 +6,7 @@ version = "0.1.0"
 host_api = "^0.4"
 platforms = ["linux", "macos", "windows"]
 # Linux's. Each OS keeps the areas in its own module's AREAS table (src/linux.rs, macos.rs,
-# windows.rs): on macOS only vpn and power.
+# windows.rs): on macOS only vpn and power, and on Windows all but os_updates and os_install.
 capabilities = ["network", "vpn", "bluetooth", "audio", "power", "os_updates", "os_install", "drives"]
 
 [permissions]

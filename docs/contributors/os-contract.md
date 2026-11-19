@@ -140,9 +140,11 @@ works. Under gamescope, the launcher tags its windows with `xprop`, as
 The built-in system plugin (`plugins/system/host/`) does the work. It declares `network`,
 `vpn`, `bluetooth`, `audio`, `power`, `os_updates`, `os_install` and `drives`, each a system
 area behind the same interface (`AreaSettings`, see
-[ADR-0004](../adr/0004-every-system-area-has-one-interface.md)). On macOS and Windows it
-provides only `vpn` and `power`. The programs it may run are `permissions.process` in
-`plugins/system/host/plugin.toml`.
+[ADR-0004](../adr/0004-every-system-area-has-one-interface.md)). On macOS it provides only
+`vpn` and `power`. On Windows it provides `network`, `vpn`, `bluetooth`, `audio`, `power` and
+`drives` through Windows' own calls: the
+[plugin reference](../plugins/reference.md#the-built-in-plugins) says what works there. The
+programs it may run are `permissions.process` in `plugins/system/host/plugin.toml`.
 
 | Feature | The launcher runs | The image gives |
 | --- | --- | --- |

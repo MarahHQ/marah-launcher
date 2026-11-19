@@ -87,6 +87,10 @@ Launcher session on the login screen, and on Marah OS.
 
 - **Internet**, **Sound** and **Bluetooth** open their panels. When the system can't manage one
   of them, its row says why.
+- On Windows, the launcher does what Windows lets a program do. It joins Wi-Fi networks, pairs
+  Bluetooth devices that ask for no PIN, changes the volume, and ejects USB drives. Choose the
+  sound output, pair a device that asks for a PIN, and join a network that needs an account in
+  Windows' own settings. Windows connects a paired device by itself when you turn it on.
 - On Marah OS, **Marah OS updates** shows the system's update.
 - On the Marah OS USB stick, **Install Marah OS on this PC** starts the install.
 
