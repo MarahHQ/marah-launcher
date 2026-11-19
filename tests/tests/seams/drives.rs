@@ -330,3 +330,32 @@ async fn games_away_are_kept_by_their_folder_s_path_not_its_place_in_the_list() 
     assert!(titles.contains(&"Alpha".to_owned()), "A is away: its game stays: {titles:?}");
     assert!(!titles.contains(&"Bravo".to_owned()), "B was taken out: its game goes: {titles:?}");
 }
+
+/// A mount that never ends fails after 30 s, with a plain reason; the panel doesn't wait forever.
+#[tokio::test]
+async fn a_mount_that_never_ends_fails_after_a_while() {
+    let (system, media) = (FakeSystem::new(), tempfile::tempdir().unwrap());
+    let t = boot(&system, vec![internal()], media.path()).await;
+    system.with(|m| m.hold_jobs = true);
+    let core = t.core.clone();
+    let mounting = tokio::spawn(async move { core.dispatch(Command::Drive(DriveCmd::Mount("5A1C".into()))).await });
+    t.until(Area::System, |core| core.view().system.drives.first().is_some_and(|d| d.busy == "mount")).await;
+    t.host.clock.advance(std::time::Duration::from_secs(31)).await;
+    let failed = mounting.await.unwrap().unwrap_err().to_string();
+    assert!(failed.contains("didn't answer in 30 seconds"), "{failed}");
+    let jobs = t.core.view().system.jobs;
+    assert!(jobs.iter().any(|j| j.kind == "mount" && j.state == "failed"), "{jobs:?}");
+}
+
+/// One tick of the machine's settings asks the system plugin once why drives can't be managed:
+/// the drives reuse the system's answer, and keep their adapter while it stays the same.
+#[tokio::test]
+async fn a_tick_asks_once_why_drives_can_t_be_managed() {
+    let (system, media) = (FakeSystem::new(), tempfile::tempdir().unwrap());
+    let t = boot(&system, vec![internal()], media.path()).await;
+    t.core.dispatch(Command::System(SystemCommand::Refresh)).await.unwrap();
+    let before = system.read(|m| m.drive_reason_reads);
+    t.core.dispatch(Command::System(SystemCommand::Refresh)).await.unwrap();
+    drive(&t, DriveCmd::Refresh).await.unwrap();
+    assert_eq!(system.read(|m| m.drive_reason_reads) - before, 1, "the system's read only");
+}

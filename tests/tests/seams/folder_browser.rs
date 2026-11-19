@@ -140,7 +140,9 @@ async fn the_backup_folder_is_chosen_in_the_browser_and_says_its_free_space() {
     std::fs::create_dir_all(chosen.path().join("old-pc")).unwrap();
     let backup = format!("{}2026-01-01-000000.tar.gz", launcher_api::brand::FILES_BACKUP_PREFIX);
     std::fs::write(chosen.path().join(backup), b"").unwrap();
-    assert_eq!(t.core.view().settings.backup.free, "120.5 GB free");
+    // The free space is read ahead, on the next tick of the machine's settings.
+    t.host.clock.advance(std::time::Duration::from_secs(5)).await;
+    t.until(launcher_core::Area::Hardware, |core| core.view().settings.backup.free == "120.5 GB free").await;
 
     let open = BrowseCmd::Open { at: None, purpose: BrowsePurpose::BackupFolder };
     browse(&t, open).await.unwrap();
@@ -190,4 +192,22 @@ async fn a_drive_plugged_in_just_now_mounts_from_the_browser() {
     assert!(t.core.view().browser.places.iter().any(|p| p.drive == "NEW"), "listed");
     browse(&t, BrowseCmd::Mount("NEW".into())).await.unwrap();
     assert_eq!(t.core.view().browser.shown, media.path().join("NEW").display().to_string());
+}
+
+/// Building the view asks the drives nothing: their free space is read ahead, so a drive that
+/// hangs can't hold the screen. A change of the folders reads it again.
+#[tokio::test]
+async fn the_view_reads_the_drives_free_space_ahead_not_on_each_build() {
+    let folder = tempfile::tempdir().unwrap();
+    let host = FakeHost::new().free_space(120_500_000_000).plugin(games_plugin());
+    let calls = host.drive_calls();
+    let t = host.boot_core().await;
+    t.core.dispatch(Command::SetFolders { name: "games".into(), paths: vec![folder.path().into()] }).await.unwrap();
+    let before = calls.load(std::sync::atomic::Ordering::SeqCst);
+    for _ in 0..5 {
+        let view = t.core.view();
+        assert_eq!(view.settings.folders[0].list[0].free, "120.5 GB free");
+        assert_eq!(view.settings.backup.free, "", "no backup folder there");
+    }
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), before, "no drive was asked");
 }

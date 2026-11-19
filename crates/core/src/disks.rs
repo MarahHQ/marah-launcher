@@ -3,8 +3,9 @@
 //! sheet, the room where its files go and where its game installs.
 //!
 //! The view reads these on every render, so they are read ahead: [`refresh`] runs when a Game
-//! Hub opens, the catalogs are read, a folder changes and a download starts or ends, and keeps
-//! the answer in the core's state. Each answer is a [`Room`]: the view asks it the same question
+//! Hub opens, the catalogs are read, a folder changes, a download starts or ends, and on the
+//! system's 5 s tick, and keeps the answer in the core's state. So does the free space of each
+//! host folder's folders and of the backup folder: a drive that hangs can't hold a render. Each answer is a [`Room`]: the view asks it the same question
 //! the command asks its own reading on the click.
 
 use std::collections::BTreeMap;
@@ -34,6 +35,11 @@ pub(crate) struct Disks {
     /// The room where each download's files go and in its emulator's game folder, the one the
     /// install sheet offers, by the download's id.
     downloads: Arc<BTreeMap<String, Room>>,
+    /// The free bytes on the drive of each host folder's folder that is there; `None` when the
+    /// system doesn't say. Settings' folder lists show it.
+    pub roots_free: Arc<BTreeMap<PathBuf, Option<u64>>>,
+    /// The free bytes on the backup folder's drive, while the folder is there.
+    pub backup_free: Option<u64>,
 }
 
 impl Disks {
@@ -94,5 +100,25 @@ fn read(core: &Core) -> Disks {
         });
         downloads.insert(job.id.clone(), Room::read(drives, &job.folder, game_folder.as_deref()));
     }
-    Disks { folders: Arc::new(folders), downloads: Arc::new(downloads) }
+    // Each host folder's folders, as the first plugin that asks for each sees them.
+    let kernel = core.kernel();
+    let host = kernel.host();
+    let mut roots_free = BTreeMap::new();
+    let mut named = std::collections::BTreeSet::new();
+    for manifest in kernel.order().iter().filter_map(|id| kernel.manifest(id).ok()) {
+        for grant in &manifest.permissions.filesystem {
+            if !named.insert(grant.folder.clone()) {
+                continue;
+            }
+            for root in crate::folders::roots(kernel.config(), host.home.as_deref(), host.platform, grant) {
+                if root.is_dir() {
+                    let free = crate::drives::free(drives, &root);
+                    roots_free.insert(root, free);
+                }
+            }
+        }
+    }
+    let backup_free =
+        crate::backups::folder(core).ok().filter(|f| f.is_dir()).and_then(|f| crate::drives::free(drives, &f));
+    Disks { folders: Arc::new(folders), downloads: Arc::new(downloads), roots_free: Arc::new(roots_free), backup_free }
 }

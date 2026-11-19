@@ -162,6 +162,7 @@ async fn restore(core: &Core, path: PathBuf) -> CoreResult<()> {
 /// Sets the backup folder, then reads the list there.
 pub(crate) async fn set_folder(core: &Core, value: serde_json::Value) -> CoreResult<()> {
     core.preferences().set(Pref::BackupFolder, value).await?;
+    crate::disks::refresh(core);
     list(core).await;
     Ok(())
 }

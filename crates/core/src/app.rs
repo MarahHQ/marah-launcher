@@ -567,10 +567,6 @@ impl Core {
             browser: self.browsing().snapshot(),
             drives: self.drives().known(),
             backup_folder: crate::backups::folder(self).ok(),
-            backup_free: crate::backups::folder(self)
-                .ok()
-                .filter(|f| f.is_dir())
-                .and_then(|f| crate::drives::free(self.ports().drives.as_ref(), &f)),
             vpn: self.vpn().snapshot(),
             downloads: self.inner.downloads.jobs(),
             theme_options: state.theme.as_ref().map(|theme| self.theme_options(theme)).unwrap_or(Value::Null),

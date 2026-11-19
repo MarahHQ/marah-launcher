@@ -55,6 +55,8 @@ pub struct FakeMachine {
     pub mount_refusals: Vec<(String, String)>,
     /// What was asked of the drives: `mount /dev/sda1`, `unmount …`, `eject /dev/sda`.
     pub drive_actions: Vec<String>,
+    /// How many times the core asked why drives can't be managed here.
+    pub drive_reason_reads: usize,
     /// Why a capability is unavailable, by its name ("network", "bluetooth", "audio", "power").
     pub unavailable: Vec<(&'static str, String)>,
     /// Calls that never answer, by method name ("status", "devices", …).
@@ -376,6 +378,7 @@ impl OsInstall for FakeSystem {
 #[async_trait]
 impl DriveSettings for FakeSystem {
     async fn unavailable(&self) -> Option<String> {
+        self.with(|m| m.drive_reason_reads += 1);
         FakeSystem::unavailable(self, "drives")
     }
 

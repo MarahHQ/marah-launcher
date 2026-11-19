@@ -108,11 +108,18 @@ pub(crate) struct Drives {
     adapter: Mutex<Arc<dyn Adapter>>,
     /// The list at the last read; `None` before the first one.
     last: Mutex<Option<Vec<Drive>>>,
+    /// The plugin the adapter came from, and why it couldn't manage drives: `None` before the
+    /// first choice.
+    adopted: Mutex<Option<Adoption>>,
 }
+
+/// What an adapter was chosen from: the system plugin with the `drives` capability, if one, and
+/// why it can't manage drives here, if it can't.
+type Adoption = (Option<launcher_api::PluginId>, Option<String>);
 
 impl Drives {
     pub(crate) fn new(space: Arc<dyn DriveSpace>, adapter: Arc<dyn Adapter>) -> Self {
-        Self { space, adapter: Mutex::new(adapter), last: Mutex::new(None) }
+        Self { space, adapter: Mutex::new(adapter), last: Mutex::new(None), adopted: Mutex::new(None) }
     }
 
     fn adapter(&self) -> Arc<dyn Adapter> {
@@ -123,6 +130,18 @@ impl Drives {
     /// doesn't list isn't plugged in. The mount folders' adapter lists mount folders only.
     pub(crate) fn names_by_file_system(&self) -> bool {
         self.adapter().kind() != "mount folders"
+    }
+
+    /// Keeps `adoption` as what the adapter comes from: whether it is another than the last, and
+    /// so a new adapter is due.
+    pub(crate) fn adopt(&self, plugin: Option<launcher_api::PluginId>, why: Option<String>) -> bool {
+        let adoption = Some((plugin, why));
+        let mut adopted = lock(&self.adopted);
+        if *adopted == adoption {
+            return false;
+        }
+        *adopted = adoption;
+        true
     }
 
     /// Uses `adapter` from now on. With another kind of adapter, the next read finds what is

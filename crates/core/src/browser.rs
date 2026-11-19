@@ -407,9 +407,12 @@ fn inside(dir: &Path, restore: bool) -> Inside {
     let Ok(read) = std::fs::read_dir(dir) else { return Inside::Unreadable };
     let (mut any, mut backups) = (false, 0);
     for entry in read.filter_map(Result::ok) {
+        // A pick says only whether a folder is empty: the first entry tells.
+        if !restore {
+            return Inside::Other;
+        }
         any = true;
-        if restore
-            && entry.file_type().is_ok_and(|t| t.is_file())
+        if entry.file_type().is_ok_and(|t| t.is_file())
             && entry.file_name().to_str().and_then(crate::backup::archive::kind_of).is_some()
         {
             backups += 1;

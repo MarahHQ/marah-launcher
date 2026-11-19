@@ -39,6 +39,8 @@ pub struct FakeHost {
     free_space: Option<u64>,
     /// Folders on a disk of their own, and its free bytes.
     disks: Vec<(PathBuf, u64)>,
+    /// How many times the core asked the drives a question.
+    drive_calls: Arc<std::sync::atomic::AtomicUsize>,
     /// The computer's name, for the backups it makes.
     computer: String,
     first_run: bool,
@@ -99,6 +101,7 @@ impl FakeHost {
             hardware: None,
             controllers: Vec::new(),
             free_space: None,
+            drive_calls: Arc::default(),
             disks: Vec::new(),
             computer: String::new(),
             first_run: false,
@@ -243,6 +246,12 @@ impl FakeHost {
     }
 
     /// The clock the core's timers and its plugin calls' timeouts run on.
+    /// How many times the core asked the drives a question (free space, which drive), with
+    /// [`FakeHost::free_space`] or [`FakeHost::disk`].
+    pub fn drive_calls(&self) -> Arc<std::sync::atomic::AtomicUsize> {
+        self.drive_calls.clone()
+    }
+
     pub fn clock(&self) -> FakeClock {
         self.clock.clone()
     }
@@ -290,7 +299,8 @@ impl FakeHost {
             builder = builder.hardware(Arc::new(hardware));
         }
         if self.free_space.is_some() || !self.disks.is_empty() {
-            builder = builder.drives(Arc::new(FixedDrives { free_space: self.free_space, disks: self.disks }));
+            let calls = self.drive_calls.clone();
+            builder = builder.drives(Arc::new(FixedDrives { free_space: self.free_space, disks: self.disks, calls }));
         }
         for (plugin, third_party) in self.plugins {
             builder = if third_party { builder.third_party(plugin) } else { builder.plugin(plugin) };
@@ -438,15 +448,18 @@ struct FixedHardware {
 struct FixedDrives {
     free_space: Option<u64>,
     disks: Vec<(PathBuf, u64)>,
+    calls: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl launcher_core::DriveSpace for FixedDrives {
     fn free_bytes(&self, path: &std::path::Path) -> Option<u64> {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         self.disks.iter().find(|(disk, _)| path.starts_with(disk)).map(|(_, free)| *free).or(self.free_space)
     }
 
     /// A drive of its own is its place in the list; every other drive doesn't say.
     fn drive_id(&self, path: &std::path::Path) -> Option<u64> {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         self.disks.iter().position(|(disk, _)| path.starts_with(disk)).map(|at| at as u64)
     }
 }

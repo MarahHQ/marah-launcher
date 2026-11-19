@@ -147,18 +147,40 @@ fn refuse_when_busy(core: &Core, drives: &[&Drive]) -> CoreResult<()> {
 
 /// Uses the system plugin's drives when one provides them and can use them here; else the mount
 /// folders.
+/// The system's last answer to why drives can't be managed: `None` before its first read.
+fn stored_reason(core: &Core) -> Option<Option<String>> {
+    core.state().system.capabilities.get(&launcher_api::Capability::Drives).cloned()
+}
+
 async fn adopt(core: &Core) {
-    let mut adapter: Option<Arc<dyn Adapter>> = None;
-    if let Some((plugin, settings)) = provider(core, |p| p.drives.clone()).await {
-        let why = core.kernel().guard(&plugin, "drives.unavailable", async { Ok(settings.unavailable().await) }).await;
-        match why {
-            Ok(None) => adapter = Some(Arc::new(PluginDrives { kernel: core.kernel().clone(), plugin, settings })),
-            Ok(Some(why)) => tracing::debug!(%why, "the drives come from the mount folders"),
-            Err(e) => tracing::debug!(error = %e, "the drives come from the mount folders"),
-        }
+    let provided = provider(core, |p| p.drives.clone()).await;
+    // Why the plugin can't manage drives: the system's read on this tick already asked; only
+    // before that read is it asked here.
+    let why = match &provided {
+        None => None,
+        Some((plugin, settings)) => match stored_reason(core) {
+            Some(stored) => stored,
+            None => {
+                let asked = async { Ok(settings.unavailable().await) };
+                core.kernel().guard(plugin, "drives.unavailable", asked).await.unwrap_or_else(|e| Some(e.to_string()))
+            }
+        },
+    };
+    // The adapter stays while its plugin and the plugin's answer stay.
+    if !core.drives().adopt(provided.as_ref().map(|(plugin, _)| plugin.clone()), why.clone()) {
+        return;
     }
-    let home = core.kernel().host().home.clone();
-    core.drives().use_adapter(adapter.unwrap_or_else(|| Arc::new(MountFolders::here(home.as_deref()))));
+    let adapter: Arc<dyn Adapter> = match (provided, &why) {
+        (Some((plugin, settings)), None) => Arc::new(PluginDrives { kernel: core.kernel().clone(), plugin, settings }),
+        (_, why) => {
+            if let Some(why) = why {
+                tracing::debug!(%why, "the drives come from the mount folders");
+            }
+            let home = core.kernel().host().home.clone();
+            Arc::new(MountFolders::here(home.as_deref()))
+        }
+    };
+    core.drives().use_adapter(adapter);
 }
 
 /// Reads the drives again. A drive that came is mounted, with a notice; the view hears of any

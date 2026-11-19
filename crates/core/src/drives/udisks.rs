@@ -3,6 +3,7 @@
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use launcher_api::{DriveSettings, PluginId, SystemDrive, SystemJob};
@@ -16,16 +17,30 @@ pub(crate) struct PluginDrives {
     pub settings: Arc<dyn DriveSettings>,
 }
 
+/// The longest a mount or an unmount may take, and an eject, which unmounts every part of a
+/// disk first. A drive that doesn't answer must not hold its panel forever.
+const MOUNT_LIMIT: Duration = Duration::from_secs(30);
+const EJECT_LIMIT: Duration = Duration::from_secs(60);
+
 impl PluginDrives {
-    /// Starts an action, which reports through `watched`, and waits for its end.
+    /// Starts an action, which reports through `watched`, and waits for its end, for at most
+    /// `limit`: then the job fails, with a plain reason.
     async fn act(
         &self,
         method: &'static str,
         watched: &Watched,
+        limit: Duration,
         start: impl Future<Output = launcher_api::PluginResult<()>>,
     ) -> CoreResult<String> {
         self.kernel.guard(&self.plugin, method, start).await?;
-        watched.wait().await.map_err(CoreError::Invalid)
+        match self.kernel.ports().clock.timeout(limit, watched.wait()).await {
+            Some(ended) => ended.map_err(CoreError::Invalid),
+            None => {
+                let why = format!("The drive didn't answer in {} seconds", limit.as_secs());
+                watched.failed(&why);
+                Err(CoreError::Invalid(why))
+            }
+        }
     }
 }
 
@@ -65,19 +80,19 @@ impl Adapter for PluginDrives {
     async fn mount(&self, drive: &Drive, job: Arc<dyn SystemJob>) -> CoreResult<PathBuf> {
         let watched = Watched::over(job);
         let start = self.settings.mount(&drive.device, watched.clone());
-        Ok(PathBuf::from(self.act("drives.mount", &watched, start).await?))
+        Ok(PathBuf::from(self.act("drives.mount", &watched, MOUNT_LIMIT, start).await?))
     }
 
     async fn unmount(&self, drive: &Drive, job: Arc<dyn SystemJob>) -> CoreResult<()> {
         let watched = Watched::over(job);
         let start = self.settings.unmount(&drive.device, watched.clone());
-        self.act("drives.unmount", &watched, start).await.map(|_| ())
+        self.act("drives.unmount", &watched, MOUNT_LIMIT, start).await.map(|_| ())
     }
 
     async fn eject(&self, drive: &Drive, job: Arc<dyn SystemJob>) -> CoreResult<()> {
         let watched = Watched::over(job);
         let start = self.settings.eject(&drive.disk, watched.clone());
-        self.act("drives.eject", &watched, start).await.map(|_| ())
+        self.act("drives.eject", &watched, EJECT_LIMIT, start).await.map(|_| ())
     }
 }
 

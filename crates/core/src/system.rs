@@ -356,6 +356,7 @@ pub(crate) fn schedule_refresh(core: &Core) {
                 refresh(&core).await;
             }
             crate::drives::refresh(&core).await;
+            crate::disks::refresh(&core);
             let wait = core.ports().clock.sleep(REFRESH_EVERY);
             drop(core);
             wait.await;

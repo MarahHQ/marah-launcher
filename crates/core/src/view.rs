@@ -1452,7 +1452,12 @@ fn backup_vm(s: &Snapshot) -> launcher_ui_api::BackupVm {
         s.backup_folder.as_ref().map(|f| crate::display::short_home(&f.display().to_string(), home.as_deref()));
     let job = backup.job.as_ref();
     launcher_ui_api::BackupVm {
-        free: s.backup_free.map(|b| format!("{} free", crate::browser::drive_size_text(b))).unwrap_or_default(),
+        free: s
+            .state
+            .disks
+            .backup_free
+            .map(|b| format!("{} free", crate::browser::drive_size_text(b)))
+            .unwrap_or_default(),
         folder: folder.unwrap_or_default(),
         running: job.is_some(),
         restoring: job.is_some_and(|j| j.restoring),
@@ -1660,8 +1665,8 @@ fn folders_vm(s: &Snapshot) -> Vec<FolderVm> {
 /// One folder of a named host folder, with the free space on its drive.
 fn folder_path_vm(s: &Snapshot, path: &std::path::Path) -> launcher_ui_api::FolderPathVm {
     let home = s.plugins.host().home.as_deref().map(|h| h.display().to_string());
-    let there = s.files.free.contains_key(path);
-    let free = match s.files.free.get(path) {
+    let there = s.state.disks.roots_free.contains_key(path);
+    let free = match s.state.disks.roots_free.get(path) {
         Some(Some(bytes)) => format!("{} free", crate::browser::drive_size_text(*bytes)),
         Some(None) => String::new(),
         None => "Not there".into(),
