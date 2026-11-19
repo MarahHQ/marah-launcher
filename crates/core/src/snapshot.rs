@@ -32,6 +32,8 @@ pub(crate) struct Snapshot<'a> {
     pub torrents: TorrentsSnapshot,
     pub installs: InstallsSnapshot,
     pub sessions: SessionsSnapshot,
+    /// The emulators' builds, the installs under way and the install prompt.
+    pub builds: crate::builds::BuildsSnapshot,
     pub prefs: PreferencesSnapshot,
     pub notices: Arc<Vec<Notice>>,
     pub launcher_update: LauncherUpdateSnapshot,
@@ -41,8 +43,8 @@ pub(crate) struct Snapshot<'a> {
     pub vpn: VpnSnapshot,
     /// The emulator downloads.
     pub downloads: Vec<Job>,
-    /// The core's own state: the screens, the selection, the grids, the emulators' builds, the
-    /// settings panels and the rest no subsystem holds yet.
+    /// The core's own state: the screens, the selection, the grids, the settings panels and the
+    /// rest no subsystem holds yet.
     pub state: AppState,
     /// The game whose Game Hub the view shows (see [`detail_game`]).
     pub detail_game: Option<GameKey>,
