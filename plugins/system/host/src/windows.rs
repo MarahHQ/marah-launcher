@@ -1,6 +1,10 @@
 //! Windows: the battery (`GetSystemPowerStatus`), restart and shut down (`shutdown`), and the
-//! drives (the volumes with a letter, and Configuration Manager's eject), and the sound (Core
-//! Audio). VPNs say why they can't work there.
+//! drives (the volumes with a letter, and Configuration Manager's eject), the sound (Core
+//! Audio), and the network (WinRT's connection profile, and the WLAN API for Wi-Fi). VPNs say
+//! why they can't work there.
+//!
+//! Wi-Fi goes through the WLAN API, not `netsh`: `netsh` prints in the language Windows is set
+//! to, so its output can't be read the same way on every PC.
 //!
 //! Windows' own calls block: each runs on a blocking thread with COM set up for it, for at
 //! most a time limit ([`blocking`]). What Windows' calls return becomes the areas' data in
@@ -10,9 +14,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use launcher_api::{
-    AreaAction, AreaData, AreaSettings, AreaState, AudioLevel, AudioOutput, PluginError, PluginResult, SystemArea,
-    SystemDrive, SystemJob,
+    AreaAction, AreaData, AreaSettings, AreaState, AudioLevel, AudioOutput, Connection, NetworkStatus, PluginError,
+    PluginResult, SystemArea, SystemDrive, SystemJob, WifiNetwork,
 };
+use windows::Networking::Connectivity::NetworkInformation;
 use windows::Win32::Devices::DeviceAndDriverInstallation::{
     CM_GET_DEVICE_INTERFACE_LIST_PRESENT, CM_Get_Device_Interface_List_SizeW, CM_Get_Device_Interface_ListW,
     CM_Get_Device_Interface_PropertyW, CM_LOCATE_DEVNODE_NORMAL, CM_Locate_DevNodeW, CM_Request_Device_EjectW,
@@ -24,6 +29,13 @@ use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
 use windows::Win32::Media::Audio::{
     DEVICE_STATE_ACTIVE, IMMDevice, IMMDeviceEnumerator, MMDeviceEnumerator, eConsole, eRender,
+};
+use windows::Win32::NetworkManagement::WiFi::{
+    DOT11_SSID, WLAN_AVAILABLE_NETWORK, WLAN_AVAILABLE_NETWORK_CONNECTED, WLAN_AVAILABLE_NETWORK_HAS_PROFILE,
+    WLAN_AVAILABLE_NETWORK_LIST, WLAN_CONNECTION_ATTRIBUTES, WLAN_CONNECTION_PARAMETERS, WLAN_INTERFACE_INFO_LIST,
+    WlanCloseHandle, WlanConnect, WlanDeleteProfile, WlanEnumInterfaces, WlanFreeMemory, WlanGetAvailableNetworkList,
+    WlanOpenHandle, WlanQueryInterface, WlanScan, WlanSetProfile, dot11_BSS_type_infrastructure,
+    wlan_connection_mode_profile, wlan_interface_state_connected, wlan_intf_opcode_current_connection,
 };
 use windows::Win32::Storage::FileSystem::{
     CreateFileW, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE, GetDiskFreeSpaceExW, GetDriveTypeW,
@@ -40,7 +52,7 @@ use windows::Win32::System::Ioctl::{
 use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
 use windows::Win32::System::SystemInformation::GetWindowsDirectoryW;
 use windows::Win32::System::WindowsProgramming::{DRIVE_CDROM, DRIVE_FIXED, DRIVE_RAMDISK, DRIVE_REMOVABLE};
-use windows::core::PCWSTR;
+use windows::core::{GUID, HRESULT, PCWSTR};
 
 use crate::tools::{self, Runner, Tool};
 use crate::winmap;
@@ -58,6 +70,7 @@ pub fn adapter(area: SystemArea, tools: Arc<Runner>) -> Arc<dyn AreaSettings> {
         SystemArea::Vpn => Arc::new(Vpns),
         SystemArea::Drives => Arc::new(Drives),
         SystemArea::Audio => Arc::new(Audio),
+        SystemArea::Network => Arc::new(Network),
         _ => Arc::new(Power(tools)),
     }
 }
@@ -554,6 +567,321 @@ impl AreaSettings for Audio {
                 "Windows lets no program change the sound output: change it in Windows' sound settings".into(),
             )),
             other => Err(PluginError::Unsupported(format!("the sound area can't run {other:?}"))),
+        }
+    }
+}
+
+/// Why Windows didn't list the Wi-Fi networks when it refused: Windows 11 shows them to a
+/// program only with location access.
+const WIFI_REFUSED: &str = "Windows didn't let the launcher see the Wi-Fi networks: turn on location access for desktop apps in Windows' privacy settings";
+
+/// How long joining a network may take: the WLAN API's wait, and some more.
+const JOIN_TIME: Duration = Duration::from_secs(60);
+const JOIN_WAIT: Duration = Duration::from_secs(45);
+/// How long a Wi-Fi scan takes: Windows asks drivers to end one in 4 seconds.
+const SCAN_TIME: Duration = Duration::from_secs(4);
+
+/// A WLAN API error code as a plain error: `what` failed, and why.
+fn wlan(code: u32, what: &str) -> PluginResult<()> {
+    const ACCESS_DENIED: u32 = 5;
+    match code {
+        0 => Ok(()),
+        ACCESS_DENIED => Err(PluginError::PermissionDenied(WIFI_REFUSED.into())),
+        code => Err(PluginError::Other(format!("{what}: {}", HRESULT::from_win32(code).message()))),
+    }
+}
+
+/// Memory the WLAN API made, freed on drop.
+struct WlanMemory<T>(*mut T);
+
+impl<T> Drop for WlanMemory<T> {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            #[allow(unsafe_code)] // Frees memory the WLAN API made.
+            // SAFETY: the pointer came from a WLAN API call and is freed once, here.
+            unsafe {
+                WlanFreeMemory(self.0.cast_const().cast())
+            };
+        }
+    }
+}
+
+/// The SSID's bytes.
+fn ssid(ssid: &DOT11_SSID) -> &[u8] {
+    &ssid.ucSSID[..(ssid.uSSIDLength as usize).min(ssid.ucSSID.len())]
+}
+
+/// The WLAN API, open on its first Wi-Fi adapter. Closed on drop.
+struct Wlan {
+    handle: HANDLE,
+    adapter: GUID,
+}
+
+impl Wlan {
+    /// `None` when the PC has no Wi-Fi adapter, or the WLAN service doesn't run.
+    fn open() -> Option<Wlan> {
+        let (mut version, mut handle) = (0u32, HANDLE::default());
+        #[allow(unsafe_code)] // Opens a WLAN handle that `Wlan` closes.
+        // SAFETY: `version` and `handle` are writable.
+        let code = unsafe { WlanOpenHandle(2, None, &mut version, &mut handle) };
+        if code != 0 {
+            return None;
+        }
+        let mut list = WlanMemory::<WLAN_INTERFACE_INFO_LIST>(std::ptr::null_mut());
+        #[allow(unsafe_code)] // Lists the adapters into memory `list` frees.
+        // SAFETY: `handle` is open; `list.0` is writable.
+        let code = unsafe { WlanEnumInterfaces(handle, None, &mut list.0) };
+        #[allow(unsafe_code)] // Reads the list the call made.
+        // SAFETY: on success the list holds `dwNumberOfItems` adapters, read here before it is freed.
+        let adapter = (code == 0 && !list.0.is_null())
+            .then(|| unsafe { ((*list.0).dwNumberOfItems > 0).then(|| (*list.0).InterfaceInfo[0].InterfaceGuid) })
+            .flatten();
+        let wlan = Wlan { handle, adapter: adapter.unwrap_or_default() };
+        adapter.map(|_| wlan)
+    }
+
+    /// The networks in reach, as the adapter's last scan found them.
+    fn networks(&self) -> PluginResult<Vec<WLAN_AVAILABLE_NETWORK>> {
+        let mut list = WlanMemory::<WLAN_AVAILABLE_NETWORK_LIST>(std::ptr::null_mut());
+        #[allow(unsafe_code)] // Lists the networks into memory `list` frees.
+        // SAFETY: the handle is open; `list.0` is writable.
+        let code = unsafe { WlanGetAvailableNetworkList(self.handle, &self.adapter, 0, None, &mut list.0) };
+        wlan(code, "The Wi-Fi networks weren't read")?;
+        if list.0.is_null() {
+            return Ok(Vec::new());
+        }
+        #[allow(unsafe_code)] // Copies the list the call made before it is freed.
+        // SAFETY: the list holds `dwNumberOfItems` networks after its header.
+        let networks = unsafe {
+            std::slice::from_raw_parts((*list.0).Network.as_ptr(), (*list.0).dwNumberOfItems as usize).to_vec()
+        };
+        Ok(networks)
+    }
+
+    /// The network the adapter is on now: its SSID and signal. `None` while it is on none.
+    fn current(&self) -> Option<(Vec<u8>, u8)> {
+        let (mut size, mut data) = (0u32, WlanMemory::<WLAN_CONNECTION_ATTRIBUTES>(std::ptr::null_mut()));
+        #[allow(unsafe_code)] // Reads the connection into memory `data` frees.
+        // SAFETY: the handle is open; `size` and `data.0` are writable.
+        let code = unsafe {
+            WlanQueryInterface(
+                self.handle,
+                &self.adapter,
+                wlan_intf_opcode_current_connection,
+                None,
+                &mut size,
+                std::ptr::from_mut(&mut data.0).cast(),
+                None,
+            )
+        };
+        if code != 0 || data.0.is_null() {
+            return None;
+        }
+        #[allow(unsafe_code)] // Reads the connection the call made before it is freed.
+        // SAFETY: on success the call wrote a WLAN_CONNECTION_ATTRIBUTES there.
+        let connection = unsafe { &*data.0 };
+        let on = connection.isState == wlan_interface_state_connected;
+        let association = &connection.wlanAssociationAttributes;
+        on.then(|| (ssid(&association.dot11Ssid).to_vec(), association.wlanSignalQuality.min(100) as u8))
+    }
+
+    fn scan(&self) -> PluginResult<()> {
+        #[allow(unsafe_code)] // Asks the adapter to look for networks again.
+        // SAFETY: the handle is open; no SSID or extra data.
+        let code = unsafe { WlanScan(self.handle, &self.adapter, None, None, None) };
+        wlan(code, "Windows didn't look for Wi-Fi networks")
+    }
+
+    /// The saved profile for `wanted`, as Windows names it; `None` when it has none.
+    fn profile(&self, wanted: &str) -> PluginResult<Option<String>> {
+        Ok(self.networks()?.iter().find_map(|n| {
+            let saved = n.dwFlags & WLAN_AVAILABLE_NETWORK_HAS_PROFILE != 0;
+            (saved && String::from_utf8_lossy(ssid(&n.dot11Ssid)) == wanted).then(|| unwide(&n.strProfileName))
+        }))
+    }
+
+    fn set_profile(&self, xml: &str) -> PluginResult<()> {
+        let (xml, mut reason) = (wide(xml), 0u32);
+        #[allow(unsafe_code)] // Saves a profile from a nul-ended XML text.
+        // SAFETY: the handle is open; `xml` ends with a nul; `reason` is writable.
+        let code = unsafe {
+            WlanSetProfile(self.handle, &self.adapter, 0, PCWSTR(xml.as_ptr()), PCWSTR::null(), true, None, &mut reason)
+        };
+        wlan(code, "Windows didn't keep the network's settings")
+    }
+
+    fn delete_profile(&self, name: &str) -> PluginResult<()> {
+        let name = wide(name);
+        #[allow(unsafe_code)] // Deletes a profile by its nul-ended name.
+        // SAFETY: the handle is open; `name` ends with a nul.
+        let code = unsafe { WlanDeleteProfile(self.handle, &self.adapter, PCWSTR(name.as_ptr()), None) };
+        wlan(code, "Windows didn't forget the network")
+    }
+
+    fn connect(&self, profile: &str) -> PluginResult<()> {
+        let profile = wide(profile);
+        let parameters = WLAN_CONNECTION_PARAMETERS {
+            wlanConnectionMode: wlan_connection_mode_profile,
+            strProfile: PCWSTR(profile.as_ptr()),
+            pDot11Ssid: std::ptr::null_mut(),
+            pDesiredBssidList: std::ptr::null_mut(),
+            dot11BssType: dot11_BSS_type_infrastructure,
+            dwFlags: 0,
+        };
+        #[allow(unsafe_code)] // Starts joining with a saved profile.
+        // SAFETY: the handle is open; `parameters` and the name it points to live through the call.
+        let code = unsafe { WlanConnect(self.handle, &self.adapter, &parameters, None) };
+        wlan(code, "Windows didn't start joining the network")
+    }
+
+    /// Joins `wanted`: with its saved profile, or with a new one made from `password`. Waits
+    /// until the adapter is on it, `cancelled` says so, or [`JOIN_WAIT`] passes. A new profile
+    /// that didn't join is deleted, so a wrong password isn't kept.
+    fn join(&self, wanted: &str, password: Option<&str>, cancelled: &dyn Fn() -> bool) -> PluginResult<()> {
+        let networks = self.networks()?;
+        let named = |n: &&WLAN_AVAILABLE_NETWORK| String::from_utf8_lossy(ssid(&n.dot11Ssid)) == wanted;
+        let network =
+            networks.iter().find(named).ok_or_else(|| PluginError::NotFound(format!("{wanted} isn't in reach")))?;
+        let saved = self.profile(wanted)?;
+        let (profile, made) = match (&saved, password.filter(|p| !p.is_empty())) {
+            (Some(saved), None) => (saved.clone(), false),
+            (_, password) => {
+                let security = winmap::profile_security(
+                    network.dot11DefaultAuthAlgorithm.0,
+                    network.dot11DefaultCipherAlgorithm.0,
+                )
+                .ok_or_else(|| {
+                    PluginError::Unsupported(format!(
+                        "{wanted} signs in with an account: join it in Windows' own settings"
+                    ))
+                })?;
+                if security.0 != "open" && security.0 != "OWE" && password.is_none() {
+                    return Err(PluginError::InvalidInput(format!("{wanted} needs its password")));
+                }
+                self.set_profile(&winmap::wifi_profile(wanted, security, password))?;
+                (wanted.to_owned(), saved.is_none())
+            }
+        };
+        let joined = self.connect(&profile).and_then(|()| self.wait_on(wanted, cancelled));
+        if joined.is_err() && made {
+            let _kept = self.delete_profile(&profile);
+        }
+        joined
+    }
+
+    fn wait_on(&self, wanted: &str, cancelled: &dyn Fn() -> bool) -> PluginResult<()> {
+        let started = std::time::Instant::now();
+        while started.elapsed() < JOIN_WAIT {
+            if cancelled() {
+                return Err(PluginError::Other("Cancelled".into()));
+            }
+            if self.current().is_some_and(|(on, _)| String::from_utf8_lossy(&on) == wanted) {
+                return Ok(());
+            }
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        Err(PluginError::Other(format!("{wanted} didn't connect: check the password")))
+    }
+}
+
+impl Drop for Wlan {
+    fn drop(&mut self) {
+        #[allow(unsafe_code)] // Closes the handle `open` made.
+        // SAFETY: the handle came from WlanOpenHandle and is closed once, here.
+        unsafe {
+            WlanCloseHandle(self.handle, None)
+        };
+    }
+}
+
+/// The network: how the PC is online (WinRT's internet connection profile), and Wi-Fi.
+struct Network;
+
+impl Network {
+    /// How the PC is online. The Wi-Fi network's name and signal come from `wifi`.
+    fn status(wifi: Option<&Wlan>) -> NetworkStatus {
+        let profile = NetworkInformation::GetInternetConnectionProfile().ok();
+        let Some(profile) = profile else { return NetworkStatus::default() };
+        if profile.IsWlanConnectionProfile().unwrap_or(false) {
+            let current = wifi.and_then(Wlan::current);
+            let name = current.as_ref().map(|(ssid, _)| String::from_utf8_lossy(ssid).into_owned());
+            return NetworkStatus {
+                connection: Connection::Wifi,
+                name: name.or_else(|| profile.ProfileName().ok().map(|n| n.to_string())).unwrap_or_default(),
+                signal: current.map(|(_, signal)| signal),
+            };
+        }
+        let name = profile.ProfileName().map(|n| n.to_string()).unwrap_or_default();
+        NetworkStatus { connection: Connection::Wired, name, signal: None }
+    }
+
+    /// The networks in reach, from what `wifi` lists.
+    fn wifi(wifi: &Wlan) -> PluginResult<Vec<WifiNetwork>> {
+        let networks = wifi.networks()?;
+        let seen = networks.iter().map(|n| winmap::Seen {
+            ssid: ssid(&n.dot11Ssid).to_vec(),
+            signal: n.wlanSignalQuality.min(100) as u8,
+            secured: n.bSecurityEnabled.as_bool(),
+            saved: n.dwFlags & WLAN_AVAILABLE_NETWORK_HAS_PROFILE != 0,
+            active: n.dwFlags & WLAN_AVAILABLE_NETWORK_CONNECTED != 0,
+        });
+        Ok(winmap::wifi(seen.collect()))
+    }
+
+    /// Runs `work` with the Wi-Fi adapter, on a blocking thread.
+    async fn with_wifi<T: Send + 'static>(
+        limit: Duration,
+        work: impl FnOnce(&Wlan) -> PluginResult<T> + Send + 'static,
+    ) -> PluginResult<T> {
+        blocking(limit, move || {
+            work(&Wlan::open().ok_or_else(|| PluginError::NotFound("This PC has no Wi-Fi".into()))?)
+        })
+        .await
+    }
+}
+
+#[launcher_api::async_trait]
+impl AreaSettings for Network {
+    /// The status, and the Wi-Fi networks when the PC has Wi-Fi. A list Windows refuses is
+    /// empty: Scan says why.
+    async fn state(&self) -> PluginResult<AreaState> {
+        let (status, wifi) = blocking(QUICK, || {
+            let wlan = Wlan::open();
+            let wifi = wlan.as_ref().map(Self::wifi).transpose().unwrap_or_default().unwrap_or_default();
+            Ok((Self::status(wlan.as_ref()), wifi))
+        })
+        .await?;
+        Ok(AreaState::Ready(AreaData::Network { status: Some(status), wifi }))
+    }
+
+    async fn act(&self, action: AreaAction, job: Arc<dyn SystemJob>) -> PluginResult<()> {
+        match action {
+            AreaAction::ScanWifi => {
+                Self::with_wifi(QUICK, Wlan::scan).await?;
+                tokio::time::sleep(SCAN_TIME).await;
+                // Reads the list once, so a refusal shows here.
+                Self::with_wifi(QUICK, Self::wifi).await.map(|_| ())
+            }
+            AreaAction::JoinWifi { ssid, password } => {
+                job.progress(None, &format!("Joining {ssid}"));
+                let handle = job.clone();
+                tools::job(job, async move {
+                    let cancelled = move || handle.cancelled();
+                    let joined = ssid.clone();
+                    let join = move |wifi: &Wlan| wifi.join(&ssid, password.as_deref(), &cancelled);
+                    Self::with_wifi(JOIN_TIME, join).await.map_err(tools::reason)?;
+                    Ok(format!("Connected to {joined}"))
+                });
+                Ok(())
+            }
+            AreaAction::ForgetWifi { ssid } => {
+                Self::with_wifi(QUICK, move |wifi| {
+                    let profile = wifi.profile(&ssid)?.unwrap_or_else(|| ssid.clone());
+                    wifi.delete_profile(&profile)
+                })
+                .await
+            }
+            other => Err(PluginError::Unsupported(format!("the network area can't run {other:?}"))),
         }
     }
 }
