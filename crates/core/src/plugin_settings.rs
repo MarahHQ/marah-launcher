@@ -190,6 +190,7 @@ pub(crate) fn set_folders(core: &Core, name: &str, paths: &[std::path::PathBuf])
         return Err(CoreError::Invalid(format!("{} is not a full path", relative.display())));
     }
     let config = core.kernel().config();
+    let before = folder_roots(core, name);
     let saved = if paths.is_empty() {
         config.remove(&["app", "folders", name])
     } else {
@@ -197,6 +198,7 @@ pub(crate) fn set_folders(core: &Core, name: &str, paths: &[std::path::PathBuf])
         config.set(&["app", "folders", name], Value::Array(list))
     };
     saved.map_err(|e| CoreError::Io(e.to_string()))?;
+    core.library().move_folders(name, &before, &folder_roots(core, name));
     crate::drives::remember_folders(core, &paths);
     crate::disks::refresh(core);
     core.changed(Area::Settings);

@@ -565,6 +565,23 @@ impl LibrarySubsystem {
         self.inner.records.keep_folder(key, folder);
     }
 
+    /// The folders of host folder `name` changed from `before` to `after`: each game folder kept
+    /// in one of them follows its folder to its new place in the list, and one in a folder taken
+    /// out of the list is forgotten. A kept folder names its folder by its place in the list.
+    pub fn move_folders(&self, name: &str, before: &[std::path::PathBuf], after: &[std::path::PathBuf]) {
+        for (game, kept) in self.inner.records.game_folders() {
+            if kept.folder != name {
+                continue;
+            }
+            let Some(path) = before.get(kept.root as usize) else { continue };
+            match after.iter().position(|p| p == path) {
+                Some(at) if at as u32 == kept.root => {}
+                Some(at) => self.inner.records.keep_folder(&game, &HostPath { root: at as u32, ..kept }),
+                None => self.inner.records.forget_folder(&game),
+            }
+        }
+    }
+
     /// The boot's count of the store's descriptions, or `None` for none.
     pub fn set_describing(&self, describing: Option<(usize, usize)>) {
         self.change(Area::Library, |s| s.describing = describing);

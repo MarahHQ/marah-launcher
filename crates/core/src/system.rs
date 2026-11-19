@@ -97,6 +97,8 @@ pub struct JobState {
     pub kind: JobKind,
     /// What it works on: the network's name, the device's address, the disk.
     pub target: String,
+    /// The drive it works on, by its id, for a mount, an unmount or an eject; empty otherwise.
+    pub drive: String,
     pub phase: JobPhase,
     pub percent: Option<u8>,
     pub text: String,
@@ -241,6 +243,7 @@ pub(crate) fn start_job(core: &Core, kind: JobKind, target: &str) -> (u64, Arc<d
             id,
             kind,
             target: target.to_owned(),
+            drive: String::new(),
             phase: JobPhase::Running,
             percent: None,
             text: String::new(),

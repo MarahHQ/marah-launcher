@@ -1194,7 +1194,7 @@ fn drive_items(s: &Snapshot, can_act: bool) -> Vec<launcher_ui_api::DriveItemVm>
             }
         }
         // A mount, unmount or eject job runs on the drive: its job names the drive.
-        let busy = s.state.system.jobs.iter().find(|j| j.phase == JobPhase::Running && j.target == drive.label);
+        let busy = s.state.system.jobs.iter().find(|j| j.phase == JobPhase::Running && j.drive == drive.id);
         let busy = match busy.map(|j| j.kind) {
             Some(JobKind::Mount) => "mount",
             Some(JobKind::Unmount) => "unmount",

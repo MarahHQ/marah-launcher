@@ -162,3 +162,32 @@ async fn the_backup_folder_is_chosen_in_the_browser_and_says_its_free_space() {
     t.core.dispatch(Command::Pref(launcher_core::Pref::BackupFolder, serde_json::Value::Null)).await.unwrap();
     assert_eq!(t.core.view().settings.backup.folder, "~/".to_owned() + launcher_core::DEFAULT_BACKUP_FOLDER);
 }
+
+/// A stick plugged in since the last read of the drives: the browser lists it, and mounts it.
+#[tokio::test]
+async fn a_drive_plugged_in_just_now_mounts_from_the_browser() {
+    let (media, start) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let system = FakeSystem::new();
+    system.with(|m| m.mount_at = Some(media.path().to_path_buf()));
+    let t = FakeHost::new().plugin(system.plugin()).plugin(games_plugin()).boot_core().await;
+    t.core.dispatch(Command::Drive(launcher_core::DriveCmd::Refresh)).await.unwrap();
+    // The start's own read of the drives has run: the next read is the tick's, 5 s away.
+    for _ in 0..50 {
+        tokio::task::yield_now().await;
+    }
+    system.with(|m| {
+        m.drives = vec![SystemDrive {
+            device: "/dev/sda1".into(),
+            disk: "/dev/sda".into(),
+            uuid: "NEW".into(),
+            label: "NEW".into(),
+            filesystem: "exfat".into(),
+            usb: true,
+            ..SystemDrive::default()
+        }]
+    });
+    browse(&t, pick(Some(start.path()))).await.unwrap();
+    assert!(t.core.view().browser.places.iter().any(|p| p.drive == "NEW"), "listed");
+    browse(&t, BrowseCmd::Mount("NEW".into())).await.unwrap();
+    assert_eq!(t.core.view().browser.shown, media.path().join("NEW").display().to_string());
+}

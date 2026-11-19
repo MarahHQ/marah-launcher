@@ -254,3 +254,79 @@ async fn while_an_action_runs_the_drive_says_which() {
     assert_eq!(drive.busy, "", "it ended");
     assert_eq!(drive.actions, ["open", "use", "unmount"], "mounted: Open, Use for games, Unmount");
 }
+
+/// Two drives with one name: a job runs on the drive it was started for, by its id.
+#[tokio::test]
+async fn a_job_runs_on_its_own_drive_when_two_have_one_name() {
+    let (system, media) = (FakeSystem::new(), tempfile::tempdir().unwrap());
+    let mut twin = internal();
+    (twin.device, twin.uuid) = ("/dev/sdc1".into(), "TWIN".into());
+    let t = boot(&system, vec![internal(), twin], media.path()).await;
+    system.with(|m| m.hold_jobs = true);
+    let core = t.core.clone();
+    let mounting = tokio::spawn(async move { core.dispatch(Command::Drive(DriveCmd::Mount("TWIN".into()))).await });
+    t.until(Area::System, |core| core.view().system.drives.iter().any(|d| d.busy == "mount")).await;
+    let busy: Vec<(String, String)> = t.core.view().system.drives.into_iter().map(|d| (d.drive, d.busy)).collect();
+    assert_eq!(busy, [("5A1C".to_owned(), String::new()), ("TWIN".to_owned(), "mount".to_owned())]);
+    system.finish_jobs();
+    mounting.await.unwrap().unwrap();
+}
+
+/// A drive's folder that is there while the drive isn't mounted (its empty mount point): the
+/// drive counts as away. Its games stay, and at the next start it mounts.
+#[tokio::test]
+async fn a_mount_point_left_behind_is_a_drive_away_not_a_drive_there() {
+    let (system, media) = (FakeSystem::new(), tempfile::tempdir().unwrap());
+    let at = media.path().join("STICK");
+    let game = pc_game(&at.join("Games"), "Celeste");
+    let t = boot(&system, vec![stick(Some(&at))], media.path()).await;
+    play_from(&t, at.join("Games"), &game).await;
+
+    // Unmounted: the mount point and the game folder in it stay, empty.
+    std::fs::remove_dir_all(at.join("Games/PC")).unwrap();
+    system.with(|m| m.drives = vec![stick(None)]);
+    drive(&t, DriveCmd::Refresh).await.unwrap();
+    t.core.dispatch(Command::Library(LibraryCmd::Refresh)).await.unwrap();
+    let titles: Vec<String> = t.core.view().home.games.into_iter().map(|g| g.title).collect();
+    assert!(titles.contains(&"Celeste".to_owned()), "the drive is away, its games stay: {titles:?}");
+
+    let config = t.host.data_dir().join("config.json");
+    let next_system = FakeSystem::new();
+    next_system.with(|m| {
+        m.drives = vec![stick(None)];
+        m.mount_at = Some(media.path().to_path_buf());
+    });
+    let host = FakeHost::new().plugin(next_system.plugin()).built_in(PluginBox::code(PcPlugin));
+    std::fs::copy(&config, host.data_dir().join("config.json")).unwrap();
+    let next = host.boot_core().await;
+    next.core.dispatch(Command::Library(LibraryCmd::Refresh)).await.unwrap();
+    assert_eq!(
+        next_system.read(|m| m.drive_actions.clone()),
+        ["mount /dev/sda1"],
+        "the folder was there, not the drive"
+    );
+}
+
+/// A game folder away keeps its games by the folder's path, not its place in the list: with
+/// [B, A] and A away, taking B out of the list drops B's games and keeps A's.
+#[tokio::test]
+async fn games_away_are_kept_by_their_folder_s_path_not_its_place_in_the_list() {
+    let (b, a) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (in_b, in_a) = (pc_game(b.path(), "Bravo"), pc_game(a.path(), "Alpha"));
+    let t = FakeHost::new().built_in(PluginBox::code(PcPlugin)).boot_core().await;
+    let roots = vec![b.path().to_path_buf(), a.path().to_path_buf()];
+    t.core.dispatch(Command::SetFolders { name: "games".into(), paths: roots }).await.unwrap();
+    t.core.dispatch(Command::Library(LibraryCmd::Refresh)).await.unwrap();
+    for game in [&in_b, &in_a] {
+        t.core.dispatch(Command::OpenGame(game.clone())).await.unwrap();
+    }
+    // A goes away; B is taken out of the list.
+    let a_away = a.path().with_extension("away");
+    std::fs::rename(a.path(), &a_away).unwrap();
+    t.core.dispatch(Command::RemoveFolder { name: "games".into(), path: b.path().to_path_buf() }).await.unwrap();
+    t.core.dispatch(Command::Library(LibraryCmd::Refresh)).await.unwrap();
+    let titles: Vec<String> = t.core.view().home.games.into_iter().map(|g| g.title).collect();
+    std::fs::rename(&a_away, a.path()).unwrap();
+    assert!(titles.contains(&"Alpha".to_owned()), "A is away: its game stays: {titles:?}");
+    assert!(!titles.contains(&"Bravo".to_owned()), "B was taken out: its game goes: {titles:?}");
+}

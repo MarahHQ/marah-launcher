@@ -119,6 +119,12 @@ impl Drives {
         lock(&self.adapter).clone()
     }
 
+    /// The adapter names drives by their file system (the system plugin's), so a drive it
+    /// doesn't list isn't plugged in. The mount folders' adapter lists mount folders only.
+    pub(crate) fn names_by_file_system(&self) -> bool {
+        self.adapter().kind() != "mount folders"
+    }
+
     /// Uses `adapter` from now on. With another kind of adapter, the next read finds what is
     /// there, as the first one does: the ids changed, not the drives.
     pub(crate) fn use_adapter(&self, adapter: Arc<dyn Adapter>) {

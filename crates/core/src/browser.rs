@@ -209,9 +209,10 @@ impl Browsing {
 pub(crate) async fn handle(core: &Core, command: BrowseCmd) -> CoreResult<()> {
     match command {
         BrowseCmd::Open { at, purpose } => open(core, at, purpose).await,
+        // The places the browser opened with: the drives aren't read again on each move.
         BrowseCmd::Go(at) => {
             let open = core.browsing().snapshot().ok_or_else(|| CoreError::Invalid(CLOSED.into()))?;
-            go(core, at, open.purpose.clone()).await
+            go(core, at, open.purpose.clone(), open.places.clone()).await
         }
         BrowseCmd::Close => {
             core.browsing().close();
@@ -222,7 +223,9 @@ pub(crate) async fn handle(core: &Core, command: BrowseCmd) -> CoreResult<()> {
         BrowseCmd::Mount(drive) => {
             let open = core.browsing().snapshot().ok_or_else(|| CoreError::Invalid(CLOSED.into()))?;
             let at = crate::drives::mount(core, &drive).await?;
-            go(core, at, open.purpose.clone()).await
+            // The drive is mounted now: its place has a folder.
+            let places = places(core, &open.purpose);
+            go(core, at, open.purpose.clone(), places).await
         }
         BrowseCmd::Use => {
             let open = core.browsing().snapshot().ok_or_else(|| CoreError::Invalid(CLOSED.into()))?;
@@ -265,22 +268,24 @@ pub(crate) async fn open(core: &Core, at: Option<PathBuf>, purpose: Purpose) -> 
             .or_else(|| std::env::temp_dir().ancestors().last().map(Path::to_path_buf))
             .ok_or_else(|| CoreError::Invalid("no folder to start from".into()))?,
     };
-    go(core, start, purpose).await
+    // One read of the drives for the browser: its places, and the drives a Mount finds.
+    crate::drives::refresh(core).await;
+    let places = places(core, &purpose);
+    go(core, start, purpose, places).await
 }
 
-/// Opens the browser at `at` for `purpose`, with the places read again.
-async fn go(core: &Core, at: PathBuf, purpose: Purpose) -> CoreResult<()> {
+/// Opens the browser at `at` for `purpose`, with `places` to go to.
+async fn go(core: &Core, at: PathBuf, purpose: Purpose, places: Vec<BrowsePlace>) -> CoreResult<()> {
     if !at.is_absolute() || !at.is_dir() {
         return Err(CoreError::Invalid(format!("{} isn't a folder", at.display())));
     }
-    let places = places(core, &purpose).await;
     core.browsing().open(purpose, at, places).await
 }
 
 /// Where the browser can go: Home, the Downloads, Desktop and Documents folders that are there,
 /// for a restore the backup folder, each drive, then for a restore the folders restores came from
-/// that no other place is.
-async fn places(core: &Core, purpose: &Purpose) -> Vec<BrowsePlace> {
+/// that no other place is. The drives are the ones last read (`Drives::known`).
+fn places(core: &Core, purpose: &Purpose) -> Vec<BrowsePlace> {
     let mut out = Vec::new();
     let mut add = |name: String, path: PathBuf, kind: PlaceKind| {
         out.push(BrowsePlace { name, path, kind, detail: String::new(), drive: None });
@@ -304,11 +309,7 @@ async fn places(core: &Core, purpose: &Purpose) -> Vec<BrowsePlace> {
     {
         add("Backup folder".into(), folder, PlaceKind::Backups);
     }
-    let drives = core.drives().list().await.unwrap_or_else(|e| {
-        tracing::warn!(error = %e, "the drives weren't read: the browser lists none");
-        Vec::new()
-    });
-    for drive in drives {
+    for drive in core.drives().known() {
         out.push(BrowsePlace {
             name: drive.label,
             path: drive.mount.unwrap_or_default(),

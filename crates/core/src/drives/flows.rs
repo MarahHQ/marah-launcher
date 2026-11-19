@@ -58,7 +58,7 @@ pub(crate) async fn handle(core: &Core, command: DriveCmd) -> CoreResult<()> {
         DriveCmd::Unmount(id) => {
             let drive = core.drives().find(&id)?;
             refuse_when_busy(core, &[&drive])?;
-            let job = start_job(core, JobKind::Unmount, &drive.label).1;
+            let job = drive_job(core, JobKind::Unmount, &drive);
             ended(&job, core.drives().unmount(&id, job.clone())).await?;
         }
         DriveCmd::Eject(id) => {
@@ -70,7 +70,7 @@ pub(crate) async fn handle(core: &Core, command: DriveCmd) -> CoreResult<()> {
             let parts: Vec<&Drive> =
                 known.iter().filter(|d| d.id == id || (!d.disk.is_empty() && d.disk == drive.disk)).collect();
             refuse_when_busy(core, &parts)?;
-            let job = start_job(core, JobKind::Eject, &drive.label).1;
+            let job = drive_job(core, JobKind::Eject, &drive);
             ended(&job, core.drives().eject(&id, job.clone())).await?;
         }
     }
@@ -82,10 +82,19 @@ pub(crate) async fn handle(core: &Core, command: DriveCmd) -> CoreResult<()> {
 /// Mounts the drive with this id, as a job the player sees, and returns where.
 pub(crate) async fn mount(core: &Core, id: &str) -> CoreResult<PathBuf> {
     let drive = core.drives().find(id)?;
-    let job = start_job(core, JobKind::Mount, &drive.label).1;
+    let job = drive_job(core, JobKind::Mount, &drive);
     let at = ended(&job, core.drives().mount(id, job.clone())).await;
     changed(core);
     at
+}
+
+/// A job on `drive`, named by its label for the player and kept by its id.
+fn drive_job(core: &Core, kind: JobKind, drive: &Drive) -> Arc<dyn SystemJob> {
+    let (id, job) = start_job(core, kind, &drive.label);
+    if let Some(started) = core.state().system.jobs.iter_mut().find(|j| j.id == id) {
+        started.drive.clone_from(&drive.id);
+    }
+    job
 }
 
 /// `work`'s outcome; a failure ends `job` with its reason, if `work` didn't end it.
@@ -218,21 +227,38 @@ pub(crate) fn remember_folders(core: &Core, paths: &[PathBuf]) {
     }
 }
 
-/// At the start, before the games are read: mounts the drive of each mapped folder that isn't
-/// there, for at most [`BOOT_MOUNT_LIMIT`].
+/// A mapped folder is away: it isn't there, or the drive it remembers (`app.folder_drives`) isn't
+/// mounted. A drive's empty mount point stays a folder while the drive is out. A drive the
+/// adapter doesn't list counts as away only when the adapter names drives by their file system
+/// (the system plugin's): the mount folders' adapter can't tell.
+fn folder_away(core: &Core, path: &Path, remembered: Option<&String>) -> bool {
+    if !path.is_dir() {
+        return true;
+    }
+    let Some(id) = remembered else { return false };
+    match core.drives().known().into_iter().find(|d| &d.id == id) {
+        Some(drive) => drive.mount.is_none(),
+        None => core.drives().names_by_file_system(),
+    }
+}
+
+/// At the start, before the games are read: mounts the drive of each mapped folder that is away,
+/// for at most [`BOOT_MOUNT_LIMIT`].
 pub(crate) async fn mount_game_drives(core: &Core) {
     let mapped = mapped_folders(core);
-    let wanted: BTreeSet<String> = folder_drives(core)
-        .into_iter()
-        .filter(|(path, _)| mapped.contains(path) && !Path::new(path).is_dir())
-        .map(|(_, id)| id)
-        .collect();
-    if wanted.is_empty() {
+    let remembered: BTreeMap<String, String> =
+        folder_drives(core).into_iter().filter(|(path, _)| mapped.contains(path)).collect();
+    if remembered.is_empty() {
         return;
     }
     let work = async {
         refresh(core).await;
-        for id in &wanted {
+        let wanted: BTreeSet<&String> = remembered
+            .iter()
+            .filter(|(path, id)| folder_away(core, Path::new(path), Some(id)))
+            .map(|(_, id)| id)
+            .collect();
+        for id in wanted {
             match core.drives().find(id) {
                 Ok(drive) if drive.mount.is_none() => {
                     if let Err(e) = mount(core, id).await {
@@ -249,17 +275,22 @@ pub(crate) async fn mount_game_drives(core: &Core) {
     }
 }
 
-/// The games `listed` lacks that the library had, in a folder whose drive is away: the root it
-/// is in isn't there. A plugin lists nothing from a root that isn't there, and a drive taken
-/// out, or not mounted yet, must not drop its games.
+/// The games `listed` lacks that the library had, in a folder that is away (see `folder_away`).
+/// A plugin lists nothing from a folder that isn't there, and a drive taken out, or not mounted
+/// yet, must not drop its games. A kept game folder names its root by its place in the list,
+/// which follows the list's changes (`LibrarySubsystem::move_folders`).
 pub(crate) fn away_games(core: &Core, listed: &[Entry]) -> Vec<Entry> {
     let folders = core.library().game_folders();
+    let remembered = folder_drives(core);
     let kernel = core.kernel();
     let root_away = |entry: &Entry| {
         let Some(folder) = folders.get(&entry.key) else { return false };
         let Some(host) = kernel.host_folders(&entry.key.plugin) else { return false };
         let roots = host.roots_of(&folder.folder).map(|(roots, _)| roots).unwrap_or_default();
-        roots.get(folder.root as usize).is_some_and(|root| !root.is_dir())
+        roots.get(folder.root as usize).is_some_and(|root| {
+            let id = remembered.iter().find(|(path, _)| root.starts_with(path.as_str())).map(|(_, id)| id);
+            folder_away(core, root, id)
+        })
     };
     let library = core.library().snapshot();
     library.library().filter(|e| !listed.iter().any(|l| l.key == e.key) && root_away(e)).cloned().collect()
