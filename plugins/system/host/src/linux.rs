@@ -1,8 +1,8 @@
 //! Linux: NetworkManager (`nmcli`), BlueZ (`bluetoothctl`), PipeWire's PulseAudio server
 //! (`pactl`), systemd (`systemctl`), the kernel's power supply folder, UDisks (`udisksctl`, with
-//! `lsblk` for the list), and on Marah OS
-//! `rpm-ostree` and the USB stick's installer. Every program runs through the host's
-//! [`Programs`], so the manifest's `permissions.process` decides what may run.
+//! `lsblk` for the list), the VPN interfaces in `/sys/class/net`, and on Marah OS `rpm-ostree`
+//! and the USB stick's installer. Every tool runs through the [`Runner`], so the manifest's
+//! `permissions.process` decides what may run, and every call has a time limit.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -10,23 +10,73 @@ use std::time::Duration;
 
 use launcher_api::{
     AreaAction, AreaData, AreaSettings, AreaState, AudioLevel, AudioOutput, Battery, BluetoothDevice, Connection,
-    InstallDisk, Location, NetworkStatus, OsUpdate, PluginError, PluginResult, Programs, SystemArea, SystemDrive,
-    SystemJob, WifiNetwork,
+    InstallDisk, NetworkStatus, OsUpdate, PluginError, PluginResult, SystemArea, SystemDrive, SystemJob, Vpn,
+    WifiNetwork,
 };
 
 use crate::parse;
+use crate::tools::{self, Call, Limit, Runner, Tool};
+use crate::vpn;
 
-/// How long a quick read may take: the host's own limit.
-const QUICK: Duration = launcher_api::MAX_PROGRAM_TIME;
+const NMCLI: Tool = Tool::new("nmcli", "NetworkManager");
+const BLUETOOTHCTL: Tool = Tool::new("bluetoothctl", "BlueZ");
+const PACTL: Tool = Tool::new("pactl", "PipeWire's sound tools");
+const SYSTEMCTL: Tool = Tool::new("systemctl", "systemd");
+const RPM_OSTREE: Tool = Tool::new("rpm-ostree", "rpm-ostree");
+/// The stick has the installer on its PATH (docs/contributors/os-contract.md).
+const OS_INSTALL: Tool = Tool::new(launcher_api::brand::OS_INSTALL_COMMAND, "the USB stick's installer");
+const UDISKSCTL: Tool = Tool::new("udisksctl", "UDisks");
+const LSBLK: Tool = Tool::new("lsblk", "util-linux");
+
+/// Each area Linux manages, and the tools it runs. An area that can't work without its tools
+/// says which one is missing, in this order.
+pub const AREAS: &[(SystemArea, &[Tool])] = &[
+    (SystemArea::Network, &[NMCLI]),
+    // The VPNs are listed without NetworkManager; it imports and switches them.
+    (SystemArea::Vpn, &[NMCLI]),
+    (SystemArea::Bluetooth, &[BLUETOOTHCTL]),
+    (SystemArea::Audio, &[PACTL]),
+    // Without systemd, restart and shut down are refused, and the battery still shows.
+    (SystemArea::Power, &[SYSTEMCTL]),
+    (SystemArea::OsUpdates, &[RPM_OSTREE, SYSTEMCTL]),
+    (SystemArea::OsInstall, &[OS_INSTALL]),
+    (SystemArea::Drives, &[UDISKSCTL, LSBLK]),
+];
+
+/// The adapter for `area`, one of [`AREAS`].
+pub fn adapter(area: SystemArea, tools: Arc<Runner>) -> Arc<dyn AreaSettings> {
+    match area {
+        SystemArea::Vpn => Arc::new(Vpns::new(tools)),
+        area => Arc::new(LinuxArea { area, linux: Linux::new(tools) }),
+    }
+}
+
+/// The tools of `area` in [`AREAS`].
+fn tools_of(area: SystemArea) -> &'static [Tool] {
+    AREAS.iter().find(|(a, _)| *a == area).map_or(&[], |(_, tools)| tools)
+}
+
 /// Marah OS's marker, and its USB stick's installer.
 const MARAH_OS: &str = launcher_api::brand::OS_RELEASE_MARKER;
 const INSTALLER: &str = launcher_api::brand::OS_INSTALLER;
 /// The service that looks for a Marah OS update (a polkit rule lets the player start it).
 const UPDATE_SERVICE: &str = launcher_api::brand::OS_UPDATE_SERVICE;
 
+/// `nmcli --wait 45` joins a network: the time it gives itself, and some more.
+const JOIN_TIME: Duration = Duration::from_secs(60);
+/// `bluetoothctl --timeout 25 pair`, and `--timeout 15 connect`.
+const PAIR_TIME: Duration = Duration::from_secs(40);
+const CONNECT_TIME: Duration = Duration::from_secs(30);
+/// UDisks mounts a drive, or writes what is left to it before it unmounts or powers it off: a
+/// slow stick can take minutes.
+const MOUNT_TIME: Duration = Duration::from_secs(120);
+const UNMOUNT_TIME: Duration = Duration::from_secs(600);
+/// `nmcli connection up` waits 90 seconds for a VPN by default.
+const VPN_TIME: Duration = Duration::from_secs(100);
+
 #[derive(Clone)]
-pub struct Linux {
-    programs: Arc<dyn Programs>,
+struct Linux {
+    tools: Arc<Runner>,
     /// Where the power supplies are: `/sys/class/power_supply`, or a test's folder.
     power_supply: std::path::PathBuf,
     /// Where Bluetooth adapters are: `/sys/class/bluetooth`.
@@ -34,102 +84,24 @@ pub struct Linux {
 }
 
 impl Linux {
-    pub fn new(programs: Arc<dyn Programs>) -> Self {
-        Self {
-            programs,
-            power_supply: "/sys/class/power_supply".into(),
-            bluetooth_class: "/sys/class/bluetooth".into(),
-        }
+    fn new(tools: Arc<Runner>) -> Self {
+        Self { tools, power_supply: "/sys/class/power_supply".into(), bluetooth_class: "/sys/class/bluetooth".into() }
     }
 
-    /// Runs a system tool briefly, and returns what it printed.
-    async fn run(&self, program: &str, args: &[&str]) -> PluginResult<String> {
-        let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
-        let out = self.programs.output(&Location::System(program.into()), &args, QUICK).await?;
-        Ok(String::from_utf8_lossy(&out).into_owned())
-    }
-
-    /// Whether a system tool is installed.
-    async fn has(&self, program: &str) -> bool {
-        self.programs.find(&Location::System(program.into())).await.ok().flatten().is_some()
-    }
-
-    /// Runs a tool line by line, with no time limit, until it ends or `cancelled` says so; its
-    /// exit code and its last line.
-    async fn exec(
-        &self,
-        program: &str,
-        args: &[&str],
-        elevated: bool,
-        cancelled: &(dyn Fn() -> bool + Send + Sync),
-        each: impl Fn(&str) + Send + Sync,
-    ) -> PluginResult<(i32, String)> {
-        let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
-        let last = std::sync::Mutex::new(String::new());
-        let line = |text: &str| {
-            if !text.trim().is_empty() {
-                *last.lock().expect("not poisoned") = text.trim().to_owned();
-            }
-            each(text);
-        };
-        let program = Location::System(program.into());
-        let code = self.programs.stream(&program, &args, elevated, &line, cancelled).await?;
-        let last = last.into_inner().expect("not poisoned");
-        Ok((code, last))
-    }
-
-    /// [`Linux::exec`] for a job, which the player can cancel.
-    async fn stream(
-        &self,
-        program: &str,
-        args: &[&str],
-        elevated: bool,
-        job: &Arc<dyn SystemJob>,
-        each: impl Fn(&str) + Send + Sync,
-    ) -> PluginResult<(i32, String)> {
-        self.exec(program, args, elevated, &|| job.cancelled(), each).await
-    }
-
-    /// Runs a tool that changes something, and fails with its error when it says no.
-    async fn act(&self, program: &str, args: &[&str]) -> PluginResult<()> {
-        let (code, last) = self.exec(program, args, false, &|| false, |_| {}).await?;
-        if code == 0 { Ok(()) } else { Err(PluginError::Other(parse::error_line(&last))) }
-    }
-
-    /// Runs `work` in the background, ending `job` with its outcome.
-    fn background(job: Arc<dyn SystemJob>, work: impl Future<Output = Result<String, String>> + Send + 'static) {
-        tokio::spawn(async move {
-            match work.await {
-                Ok(text) => job.done(&text),
-                Err(_) if job.cancelled() => job.failed("Cancelled"),
-                Err(reason) => job.failed(&reason),
-            }
-        });
-    }
-
-    async fn missing(&self, program: &str, what: &str) -> Option<String> {
-        (!self.has(program).await).then(|| format!("{what} ({program}) isn't installed"))
-    }
-}
-
-fn failed(error: PluginError) -> String {
-    match error {
-        PluginError::NotFound(_) => "the system's tool isn't installed".into(),
-        other => other.to_string(),
+    /// Why `area` can't be used: the first of its tools that isn't installed.
+    async fn missing(&self, area: SystemArea) -> Option<String> {
+        self.tools.missing(tools_of(area)).await
     }
 }
 
 /// Network and Wi-Fi.
 impl Linux {
-    async fn network_unavailable(&self) -> Option<String> {
-        self.missing("nmcli", "NetworkManager").await
-    }
-
     async fn network_status(&self) -> PluginResult<NetworkStatus> {
-        let mut status = parse::network(&self.run("nmcli", &["-t", "-f", "TYPE,STATE,CONNECTION", "device"]).await?);
+        let mut status =
+            parse::network(&self.tools.read(NMCLI, &["-t", "-f", "TYPE,STATE,CONNECTION", "device"]).await?);
         if status.connection == Connection::Wifi {
             let list =
-                self.run("nmcli", &["-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi", "list"]).await?;
+                self.tools.read(NMCLI, &["-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi", "list"]).await?;
             status.signal = parse::wifi(&list).into_iter().find(|w| w.in_use).map(|w| w.signal);
         }
         Ok(status)
@@ -139,8 +111,10 @@ impl Linux {
         let rescan = if rescan { "yes" } else { "no" };
         let args = ["-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi", "list", "--rescan", rescan];
         // The list and the saved networks don't need each other: both are read at once.
-        let (list, saved) =
-            tokio::join!(self.run("nmcli", &args), self.run("nmcli", &["-t", "-f", "NAME,TYPE", "connection", "show"]));
+        let (list, saved) = tokio::join!(
+            self.tools.read(NMCLI, &args),
+            self.tools.read(NMCLI, &["-t", "-f", "NAME,TYPE", "connection", "show"])
+        );
         let (list, saved) = (parse::wifi(&list?), parse::saved_wifi(&saved?));
         Ok(list
             .into_iter()
@@ -159,12 +133,14 @@ impl Linux {
         let me = self.clone();
         let (ssid, password) = (ssid.to_owned(), password.filter(|p| !p.is_empty()).map(str::to_owned));
         let handle = job.clone();
-        Linux::background(job, async move {
+        tools::job(job, async move {
             let mut args = vec!["--wait", "45", "device", "wifi", "connect", ssid.as_str()];
             if let Some(password) = &password {
                 args.extend(["password", password.as_str()]);
             }
-            let (code, last) = me.stream("nmcli", &args, false, &handle, |_| {}).await.map_err(failed)?;
+            let call = Call::job(&handle, Limit::After(JOIN_TIME));
+            let ran = me.tools.run(NMCLI, &args, call, |_| {}).await.map_err(tools::reason)?;
+            let (code, last) = (ran.code, ran.last);
             if code == 0 {
                 Ok("Connected".into())
             } else if last.contains("Secrets were required") || last.contains("802-11-wireless-security") {
@@ -177,14 +153,14 @@ impl Linux {
     }
 
     async fn forget(&self, ssid: &str) -> PluginResult<()> {
-        self.act("nmcli", &["connection", "delete", "id", ssid]).await
+        self.tools.act(NMCLI, &["connection", "delete", "id", ssid]).await.map(drop)
     }
 }
 
 /// Bluetooth.
 impl Linux {
     async fn bluetooth_unavailable(&self) -> Option<String> {
-        if let Some(missing) = self.missing("bluetoothctl", "BlueZ").await {
+        if let Some(missing) = self.missing(SystemArea::Bluetooth).await {
             return Some(missing);
         }
         let class = self.bluetooth_class.clone();
@@ -198,18 +174,18 @@ impl Linux {
     }
 
     async fn powered(&self) -> PluginResult<bool> {
-        Ok(parse::powered(&self.run("bluetoothctl", &["show"]).await?))
+        Ok(parse::powered(&self.tools.read(BLUETOOTHCTL, &["show"]).await?))
     }
 
     async fn set_powered(&self, on: bool) -> PluginResult<()> {
-        self.act("bluetoothctl", &["power", if on { "on" } else { "off" }]).await
+        self.tools.act(BLUETOOTHCTL, &["power", if on { "on" } else { "off" }]).await.map(drop)
     }
 
     async fn devices(&self) -> PluginResult<Vec<BluetoothDevice>> {
         let (all, paired, connected) = tokio::join!(
-            self.run("bluetoothctl", &["devices"]),
-            self.run("bluetoothctl", &["devices", "Paired"]),
-            self.run("bluetoothctl", &["devices", "Connected"]),
+            self.tools.read(BLUETOOTHCTL, &["devices"]),
+            self.tools.read(BLUETOOTHCTL, &["devices", "Paired"]),
+            self.tools.read(BLUETOOTHCTL, &["devices", "Connected"]),
         );
         Ok(parse::bluetooth(&all?, &paired?, &connected?))
     }
@@ -218,12 +194,15 @@ impl Linux {
         job.progress(None, "Looking for devices: put yours in pairing mode");
         let me = self.clone();
         let handle = job.clone();
-        Linux::background(job, async move {
-            let _ = me.run("bluetoothctl", &["power", "on"]).await;
+        tools::job(job, async move {
+            let _ = me.tools.read(BLUETOOTHCTL, &["power", "on"]).await;
+            // `--timeout` ends the scan: the limit is for a bluetoothctl that doesn't.
+            let call = Call::job(&handle, Limit::After(Duration::from_secs(u64::from(seconds) + 15)));
             let seconds = seconds.to_string();
-            me.stream("bluetoothctl", &["--timeout", &seconds, "scan", "on"], false, &handle, |_| {})
+            me.tools
+                .run(BLUETOOTHCTL, &["--timeout", &seconds, "scan", "on"], call, |_| {})
                 .await
-                .map_err(failed)?;
+                .map_err(tools::reason)?;
             Ok("Done looking".into())
         });
         Ok(())
@@ -234,16 +213,17 @@ impl Linux {
         let me = self.clone();
         let address = address.to_owned();
         let handle = job.clone();
-        Linux::background(job, async move {
-            let steps: [(&str, &[&str]); 3] = [
-                ("Pairing", &["--timeout", "25", "pair", &address]),
+        tools::job(job, async move {
+            let steps: [(&str, &[&str], Limit); 3] = [
+                ("Pairing", &["--timeout", "25", "pair", &address], Limit::After(PAIR_TIME)),
                 // Trusted, it connects again by itself.
-                ("Trusting", &["trust", &address]),
-                ("Connecting", &["--timeout", "15", "connect", &address]),
+                ("Trusting", &["trust", &address], Limit::Quick),
+                ("Connecting", &["--timeout", "15", "connect", &address], Limit::After(CONNECT_TIME)),
             ];
-            for (what, args) in steps {
+            for (what, args, limit) in steps {
                 handle.progress(None, what);
-                let (code, last) = me.stream("bluetoothctl", args, false, &handle, |_| {}).await.map_err(failed)?;
+                let ran = me.tools.run(BLUETOOTHCTL, args, Call::job(&handle, limit), |_| {});
+                let tools::Ran { code, last, .. } = ran.await.map_err(tools::reason)?;
                 let refused = ["Failed", "not available", "org.bluez.Error"].iter().any(|w| last.contains(w));
                 if code != 0 || refused {
                     return Err(format!("{what} didn't work: {}", parse::error_line(&last)));
@@ -255,65 +235,59 @@ impl Linux {
     }
 
     async fn connect_device(&self, address: &str) -> PluginResult<()> {
-        self.act("bluetoothctl", &["--timeout", "8", "connect", address]).await
+        self.tools.act(BLUETOOTHCTL, &["--timeout", "8", "connect", address]).await.map(drop)
     }
 
     async fn disconnect_device(&self, address: &str) -> PluginResult<()> {
-        self.act("bluetoothctl", &["disconnect", address]).await
+        self.tools.act(BLUETOOTHCTL, &["disconnect", address]).await.map(drop)
     }
 
     async fn remove_device(&self, address: &str) -> PluginResult<()> {
-        self.act("bluetoothctl", &["remove", address]).await
+        self.tools.act(BLUETOOTHCTL, &["remove", address]).await.map(drop)
     }
 }
 
 /// Sound.
 impl Linux {
-    async fn audio_unavailable(&self) -> Option<String> {
-        self.missing("pactl", "PipeWire's sound tools").await
-    }
-
     async fn outputs(&self) -> PluginResult<Vec<AudioOutput>> {
-        let (sinks, default) =
-            tokio::join!(self.run("pactl", &["-f", "json", "list", "sinks"]), self.run("pactl", &["get-default-sink"]));
+        let (sinks, default) = tokio::join!(
+            self.tools.read(PACTL, &["-f", "json", "list", "sinks"]),
+            self.tools.read(PACTL, &["get-default-sink"])
+        );
         Ok(parse::outputs(&sinks?, &default?))
     }
 
     async fn set_output(&self, name: &str) -> PluginResult<()> {
-        self.act("pactl", &["set-default-sink", name]).await
+        self.tools.act(PACTL, &["set-default-sink", name]).await.map(drop)
     }
 
     async fn level(&self) -> PluginResult<AudioLevel> {
         let (volume, mute) = tokio::join!(
-            self.run("pactl", &["get-sink-volume", "@DEFAULT_SINK@"]),
-            self.run("pactl", &["get-sink-mute", "@DEFAULT_SINK@"]),
+            self.tools.read(PACTL, &["get-sink-volume", "@DEFAULT_SINK@"]),
+            self.tools.read(PACTL, &["get-sink-mute", "@DEFAULT_SINK@"]),
         );
         Ok(parse::level(&volume?, &mute?))
     }
 
     async fn set_volume(&self, volume: u8) -> PluginResult<()> {
         let volume = format!("{}%", volume.min(100));
-        self.act("pactl", &["set-sink-mute", "@DEFAULT_SINK@", "0"]).await?;
-        self.act("pactl", &["set-sink-volume", "@DEFAULT_SINK@", &volume]).await
+        self.tools.act(PACTL, &["set-sink-mute", "@DEFAULT_SINK@", "0"]).await?;
+        self.tools.act(PACTL, &["set-sink-volume", "@DEFAULT_SINK@", &volume]).await.map(drop)
     }
 
     async fn set_muted(&self, muted: bool) -> PluginResult<()> {
-        self.act("pactl", &["set-sink-mute", "@DEFAULT_SINK@", if muted { "1" } else { "0" }]).await
+        self.tools.act(PACTL, &["set-sink-mute", "@DEFAULT_SINK@", if muted { "1" } else { "0" }]).await.map(drop)
     }
 }
 
 /// Restart, shut down and the battery.
 impl Linux {
-    async fn power_unavailable(&self) -> Option<String> {
-        self.missing("systemctl", "systemd").await
-    }
-
     async fn restart(&self) -> PluginResult<()> {
-        self.act("systemctl", &["reboot"]).await
+        self.tools.act(SYSTEMCTL, &["reboot"]).await.map(drop)
     }
 
     async fn shut_down(&self) -> PluginResult<()> {
-        self.act("systemctl", &["poweroff"]).await
+        self.tools.act(SYSTEMCTL, &["poweroff"]).await.map(drop)
     }
 
     async fn battery(&self) -> PluginResult<Option<Battery>> {
@@ -330,7 +304,7 @@ impl Linux {
         if !tokio::fs::try_exists(MARAH_OS).await.unwrap_or(false) {
             return Err(PluginError::NotFound(format!("this isn't {}", launcher_api::brand::PRODUCT_OS_NAME)));
         }
-        let json = self.run("rpm-ostree", &["status", "--json"]).await?;
+        let json = self.tools.read(RPM_OSTREE, &["status", "--json"]).await?;
         match parse::staged(&json) {
             Some(Some(version)) => Ok(OsUpdate::Staged { version }),
             Some(None) => Ok(OsUpdate::Current),
@@ -339,7 +313,7 @@ impl Linux {
     }
 
     async fn check_now(&self) -> PluginResult<()> {
-        self.act("systemctl", &["start", "--no-block", UPDATE_SERVICE]).await
+        self.tools.act(SYSTEMCTL, &["start", "--no-block", UPDATE_SERVICE]).await.map(drop)
     }
 }
 
@@ -349,8 +323,7 @@ impl Linux {
         if !tokio::fs::try_exists(INSTALLER).await.unwrap_or(false) {
             return Ok(Vec::new());
         }
-        // The stick has the installer on its PATH as marah-os-install (docs/contributors/os-contract.md).
-        Ok(parse::disks(&self.run(launcher_api::brand::OS_INSTALL_COMMAND, &["--disks"]).await?))
+        Ok(parse::disks(&self.tools.read(OS_INSTALL, &["--disks"]).await?))
     }
 
     async fn install(&self, disk: &Path, job: Arc<dyn SystemJob>) -> PluginResult<()> {
@@ -358,17 +331,16 @@ impl Linux {
         let me = self.clone();
         let disk = disk.display().to_string();
         let handle = job.clone();
-        Linux::background(job, async move {
+        tools::job(job, async move {
             let end = std::sync::Mutex::new(None);
             let each = |line: &str| match parse::install_line(line) {
                 Some(parse::InstallLine::Progress(percent, text)) => handle.progress(Some(percent), &text),
                 Some(other) => *end.lock().expect("not poisoned") = Some(other),
                 None => {}
             };
-            let (code, _) = me
-                .stream(launcher_api::brand::OS_INSTALL_COMMAND, &[&disk], true, &handle, each)
-                .await
-                .map_err(failed)?;
+            // It takes as long as the disk does: the player can cancel it.
+            let call = Call::job(&handle, Limit::Never).elevated();
+            let code = me.tools.run(OS_INSTALL, &[&disk], call, each).await.map_err(tools::reason)?.code;
             match end.into_inner().expect("not poisoned") {
                 Some(parse::InstallLine::Done(installed)) => {
                     Ok(launcher_api::serde_json::to_string(&installed).expect("Installed is JSON"))
@@ -383,9 +355,9 @@ impl Linux {
 
     async fn choose_partitions(&self) -> PluginResult<()> {
         // The installer knows how this stick reaches Anaconda (see docs/contributors/os-contract.md).
-        let (code, last) = self
-            .exec(launcher_api::brand::OS_INSTALL_COMMAND, &["--choose-partitions"], true, &|| false, |_| {})
-            .await?;
+        // pkexec waits for the player's password first.
+        let call = Call { limit: Limit::Never, ..Call::quick() }.elevated();
+        let tools::Ran { code, last, .. } = self.tools.run(OS_INSTALL, &["--choose-partitions"], call, |_| {}).await?;
         if code == 0 { Ok(()) } else { Err(PluginError::Other(parse::error_line(&last))) }
     }
 }
@@ -395,40 +367,34 @@ const LSBLK_COLUMNS: &str =
     "NAME,PKNAME,PATH,TYPE,SIZE,FSTYPE,PARTTYPE,LABEL,UUID,MOUNTPOINTS,FSAVAIL,TRAN,HOTPLUG,RM,MODEL";
 
 impl Linux {
-    /// Runs `udisksctl <action> -b <device>` for a job, without asking for a password: UDisks asks
-    /// polkit itself, and the session has no one to type it. Every line it printed, or why it
-    /// failed.
-    async fn udisks(&self, action: &str, device: &str, job: &Arc<dyn SystemJob>) -> Result<String, String> {
-        let printed = std::sync::Mutex::new(String::new());
-        let each = |line: &str| {
-            let mut printed = printed.lock().expect("not poisoned");
-            printed.push_str(line);
-            printed.push('\n');
-        };
+    /// Runs `udisksctl <action> -b <device>` for a job, for at most `limit`, without asking for a
+    /// password: UDisks asks polkit itself, and the session has no one to type it. Every line it
+    /// printed, or why it failed.
+    async fn udisks(
+        &self,
+        action: &str,
+        device: &str,
+        limit: Duration,
+        job: &Arc<dyn SystemJob>,
+    ) -> Result<String, String> {
         let args = [action, "-b", device, "--no-user-interaction"];
-        let (code, last) = self.stream("udisksctl", &args, false, job, each).await.map_err(failed)?;
-        if code == 0 { Ok(printed.into_inner().expect("not poisoned")) } else { Err(parse::udisks_error(&last)) }
+        let call = Call::job(job, Limit::After(limit));
+        let ran = self.tools.run(UDISKSCTL, &args, call, |_| {}).await.map_err(tools::reason)?;
+        if ran.code == 0 { Ok(ran.text) } else { Err(parse::udisks_error(&ran.last)) }
     }
 }
 
 /// Drives.
 impl Linux {
-    async fn drives_unavailable(&self) -> Option<String> {
-        match self.missing("udisksctl", "UDisks").await {
-            Some(missing) => Some(missing),
-            None => self.missing("lsblk", "util-linux").await,
-        }
-    }
-
     async fn drives(&self) -> PluginResult<Vec<SystemDrive>> {
-        Ok(parse::drives(&self.run("lsblk", &["--json", "--list", "-b", "-o", LSBLK_COLUMNS]).await?))
+        Ok(parse::drives(&self.tools.read(LSBLK, &["--json", "--list", "-b", "-o", LSBLK_COLUMNS]).await?))
     }
 
     async fn mount(&self, device: &str, job: Arc<dyn SystemJob>) -> PluginResult<()> {
         job.progress(None, "Mounting");
         let (me, device, handle) = (self.clone(), device.to_owned(), job.clone());
-        Linux::background(job, async move {
-            let reply = me.udisks("mount", &device, &handle).await?;
+        tools::job(job, async move {
+            let reply = me.udisks("mount", &device, MOUNT_TIME, &handle).await?;
             // lsblk says where first: the reply's words may change from one UDisks to the next.
             let listed = me.drives().await.ok().and_then(|list| list.into_iter().find(|d| d.device == device)?.mount);
             let at = listed.or_else(|| parse::mounted_at(&reply));
@@ -440,8 +406,8 @@ impl Linux {
     async fn unmount(&self, device: &str, job: Arc<dyn SystemJob>) -> PluginResult<()> {
         job.progress(None, "Writing what is left to the drive");
         let (me, device, handle) = (self.clone(), device.to_owned(), job.clone());
-        Linux::background(job, async move {
-            me.udisks("unmount", &device, &handle).await?;
+        tools::job(job, async move {
+            me.udisks("unmount", &device, UNMOUNT_TIME, &handle).await?;
             Ok("Unmounted".into())
         });
         Ok(())
@@ -454,11 +420,11 @@ impl Linux {
             return Err(PluginError::InvalidInput("the system runs from this drive".into()));
         }
         let (me, disk, handle) = (self.clone(), disk.to_owned(), job.clone());
-        Linux::background(job, async move {
+        tools::job(job, async move {
             for part in parts.iter().filter(|d| d.mount.is_some()) {
-                me.udisks("unmount", &part.device, &handle).await?;
+                me.udisks("unmount", &part.device, UNMOUNT_TIME, &handle).await?;
             }
-            me.udisks("power-off", &disk, &handle).await?;
+            me.udisks("power-off", &disk, UNMOUNT_TIME, &handle).await?;
             Ok("You can take it out now".into())
         });
         Ok(())
@@ -466,9 +432,9 @@ impl Linux {
 }
 
 /// One of the areas Linux manages, through the same interface as every other.
-pub struct LinuxArea {
-    pub area: SystemArea,
-    pub linux: Arc<Linux>,
+struct LinuxArea {
+    area: SystemArea,
+    linux: Linux,
 }
 
 /// An area that can't be used here, and why, else its data.
@@ -487,7 +453,7 @@ impl AreaSettings for LinuxArea {
         let linux = &self.linux;
         Ok(match self.area {
             SystemArea::Network => {
-                let missing = linux.network_unavailable().await;
+                let missing = linux.missing(SystemArea::Network).await;
                 let (status, wifi) = match missing {
                     Some(_) => (Err(PluginError::Other(String::new())), Ok(Vec::new())),
                     None => tokio::join!(linux.network_status(), linux.wifi(false)),
@@ -506,7 +472,7 @@ impl AreaSettings for LinuxArea {
                 })
             }
             SystemArea::Audio => {
-                let missing = linux.audio_unavailable().await;
+                let missing = linux.missing(SystemArea::Audio).await;
                 let (outputs, level) = match missing {
                     Some(_) => (Ok(Vec::new()), Err(PluginError::Other(String::new()))),
                     None => tokio::join!(linux.outputs(), linux.level()),
@@ -514,7 +480,7 @@ impl AreaSettings for LinuxArea {
                 ready_unless(missing, || AreaData::Audio { outputs: outputs.unwrap_or_default(), level: level.ok() })
             }
             SystemArea::Power => {
-                let (refused, battery) = tokio::join!(linux.power_unavailable(), linux.battery());
+                let (refused, battery) = tokio::join!(linux.missing(SystemArea::Power), linux.battery());
                 AreaState::Ready(AreaData::Power { battery: battery.ok().flatten(), refused })
             }
             SystemArea::OsUpdates => match linux.os_update().await {
@@ -525,7 +491,7 @@ impl AreaSettings for LinuxArea {
                 false => AreaState::Absent,
                 true => AreaState::Ready(AreaData::OsInstall { disks: linux.disks().await.unwrap_or_default() }),
             },
-            SystemArea::Drives => match linux.drives_unavailable().await {
+            SystemArea::Drives => match linux.missing(SystemArea::Drives).await {
                 Some(why) => AreaState::Unsupported(why),
                 None => AreaState::Ready(AreaData::Drives { drives: linux.drives().await? }),
             },
@@ -564,8 +530,84 @@ impl AreaSettings for LinuxArea {
     }
 }
 
+/// The VPNs: the interfaces in `/sys/class/net` ([`vpn::list_in`]), and the connections
+/// NetworkManager knows, which it imports and switches.
+struct Vpns {
+    tools: Arc<Runner>,
+    /// NetworkManager is there, as the last read of the VPNs found.
+    nmcli: std::sync::OnceLock<bool>,
+}
+
+impl Vpns {
+    fn new(tools: Arc<Runner>) -> Self {
+        Self { tools, nmcli: std::sync::OnceLock::new() }
+    }
+
+    /// Runs `nmcli` with `args`, for at most `limit`. The error is its first line of output,
+    /// without "Error: ".
+    async fn nmcli(&self, args: &[&str], limit: Limit) -> PluginResult<String> {
+        let ran = self.tools.run(NMCLI, args, Call { limit, ..Call::quick() }, |_| {}).await?;
+        if ran.code == 0 { Ok(ran.text) } else { Err(PluginError::Other(parse::error_line(&ran.text))) }
+    }
+
+    async fn vpns(&self) -> Vec<Vpn> {
+        let found = vpn::list_in(Path::new("/sys/class/net"), &crate::unix::addressed());
+        let saved = self.nmcli(&["-t", "-f", "NAME,TYPE,ACTIVE", "connection", "show"], Limit::Quick).await;
+        let _ = self.nmcli.set(saved.is_ok());
+        vpn::merge(found, saved.map(|text| vpn::parse_saved(&text)).unwrap_or_default())
+    }
+
+    fn can_import(&self) -> bool {
+        self.nmcli.get().copied().unwrap_or(false)
+    }
+
+    async fn import(&self, file: &Path) -> PluginResult<()> {
+        let kind = match file.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
+            Some("conf") => "wireguard",
+            Some("ovpn") => "openvpn",
+            _ => return Err(PluginError::Other("Choose a WireGuard .conf or OpenVPN .ovpn file".into())),
+        };
+        let args = ["connection", "import", "type", kind, "file", &file.to_string_lossy()];
+        let out = self.nmcli(&args, Limit::Quick).await?;
+        // "Connection 'wg-se' (<uuid>) successfully added."
+        let name = out
+            .split('\'')
+            .nth(1)
+            .map(str::to_owned)
+            .ok_or_else(|| PluginError::Other("NetworkManager didn't name the connection".into()))?;
+        self.connect(&name).await
+    }
+
+    async fn connect(&self, name: &str) -> PluginResult<()> {
+        self.nmcli(&["connection", "up", "id", name], Limit::After(VPN_TIME)).await.map(drop)
+    }
+
+    async fn disconnect(&self, name: &str) -> PluginResult<()> {
+        self.nmcli(&["connection", "down", "id", name], Limit::After(VPN_TIME)).await.map(drop)
+    }
+}
+
+#[launcher_api::async_trait]
+impl AreaSettings for Vpns {
+    async fn state(&self) -> PluginResult<AreaState> {
+        let vpns = self.vpns().await;
+        Ok(AreaState::Ready(AreaData::Vpn { finds_vpns: true, can_import: self.can_import(), vpns }))
+    }
+
+    async fn act(&self, action: AreaAction, _job: Arc<dyn SystemJob>) -> PluginResult<()> {
+        match action {
+            AreaAction::ImportVpn { file } => self.import(&file).await,
+            AreaAction::ConnectVpn { name } => self.connect(&name).await,
+            AreaAction::DisconnectVpn { name } => self.disconnect(&name).await,
+            _ => Err(PluginError::Unsupported("not a VPN action".into())),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use launcher_api::{Location, Programs};
+
     use super::*;
 
     /// Programs that are all missing: what a system without the tools looks like.
@@ -582,9 +624,12 @@ mod tests {
         }
     }
 
+    fn nothing() -> Arc<Runner> {
+        Arc::new(Runner::new(Arc::new(Nothing)))
+    }
+
     async fn state(area: SystemArea) -> AreaState {
-        let linux = Arc::new(Linux::new(Arc::new(Nothing)));
-        LinuxArea { area, linux }.state().await.unwrap()
+        adapter(area, nothing()).state().await.unwrap()
     }
 
     #[tokio::test]
@@ -594,7 +639,7 @@ mod tests {
         assert_eq!(state(SystemArea::Bluetooth).await, unsupported("BlueZ (bluetoothctl) isn't installed"));
         assert_eq!(state(SystemArea::Audio).await, unsupported("PipeWire's sound tools (pactl) isn't installed"));
         assert_eq!(state(SystemArea::Drives).await, unsupported("UDisks (udisksctl) isn't installed"));
-        assert!(Linux::new(Arc::new(Nothing)).network_status().await.is_err());
+        assert!(Linux::new(nothing()).network_status().await.is_err());
     }
 
     #[tokio::test]
@@ -603,5 +648,16 @@ mod tests {
             panic!("power is ready: the battery reads without the tools");
         };
         assert_eq!(refused.as_deref(), Some("systemd (systemctl) isn't installed"));
+    }
+
+    /// Opt-in, `MARAH_VPN_TESTS=1`: reads this computer's interfaces. It connects nothing.
+    #[test]
+    fn lists_this_computer_s_networks() {
+        if std::env::var_os("MARAH_VPN_TESTS").is_none() {
+            return;
+        }
+        let found = vpn::list_in(Path::new("/sys/class/net"), &crate::unix::addressed());
+        assert!(found.iter().all(|v| !v.name.is_empty()), "{found:?}");
+        println!("{found:?}");
     }
 }
