@@ -60,6 +60,9 @@ fn game(d: &mut GameDetailVm) {
         r.peers_text = peers_text(r.seeders, r.leechers);
         // After `size`: the sheet shows it.
         r.sheet_text = sheet_text(&r.version, &r.region, &r.size, &d.emulator);
+        // After `size` and `added_text`: the row shows them.
+        r.line_text = release_line(&r.version_label, &r.size, &r.added_text);
+        r.not_here_text = not_here_text(&r.not_here);
     }
 }
 
@@ -315,6 +318,24 @@ fn sheet_text(version: &str, region: &str, size: &str, emulator: &str) -> String
     format!("{version}{region}{size} · runs with {emulator}")
 }
 
+/// A release row's second line: "Version 3 of 3 (newest) · 7.6 GB · added Oct 15, 2026".
+fn release_line(version_label: &str, size: &str, added: &str) -> String {
+    let place = if version_label.is_empty() { String::new() } else { format!("{version_label} · ") };
+    let size = if size.is_empty() { "Size unknown" } else { size };
+    let added = if added.is_empty() { String::new() } else { format!(" · added {added}") };
+    format!("{place}{size}{added}")
+}
+
+/// What the download sheet says of a release this computer can't start: "This is a Linux
+/// release: it can't run on Windows. It installs, but it won't start on this computer." Empty
+/// when it can start it.
+fn not_here_text(not_here: &str) -> String {
+    if not_here.is_empty() {
+        return String::new();
+    }
+    format!("{not_here}. It installs, but it won't start on this computer.")
+}
+
 /// What the file list shows: `120 files · 1.5 GB · first 100 shown`.
 fn file_summary(t: &TorrentVm) -> String {
     let files = if t.file_count == 1 { "1 file".to_owned() } else { format!("{} files", t.file_count) };
@@ -488,6 +509,40 @@ mod tests {
         ];
         for (name, (version, region, size), words) in rows {
             assert_eq!(sheet_text(version, region, size, "KytyPS5"), words, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_release_s_row_says_its_place_size_and_day() {
+        let rows = [
+            (
+                "all of it",
+                ("Version 3 of 3 (newest)", "7.6 GB", "Oct 15, 2026"),
+                "Version 3 of 3 (newest) · 7.6 GB · added Oct 15, 2026",
+            ),
+            ("no place", ("", "7.6 GB", "Oct 15, 2026"), "7.6 GB · added Oct 15, 2026"),
+            ("no size", ("Version 1 of 2", "", "Oct 15, 2026"), "Version 1 of 2 · Size unknown · added Oct 15, 2026"),
+            ("no day", ("Version 1 of 2", "7.6 GB", ""), "Version 1 of 2 · 7.6 GB"),
+            ("a size only", ("", "7.6 GB", ""), "7.6 GB"),
+            ("nothing", ("", "", ""), "Size unknown"),
+        ];
+        for (name, (place, size, added), words) in rows {
+            assert_eq!(release_line(place, size, added), words, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_release_this_computer_can_t_start_says_so_on_its_sheet() {
+        let rows = [
+            ("it starts here", "", ""),
+            (
+                "it doesn't",
+                "This is a Linux release: it can't run on Windows",
+                "This is a Linux release: it can't run on Windows. It installs, but it won't start on this computer.",
+            ),
+        ];
+        for (name, not_here, words) in rows {
+            assert_eq!(not_here_text(not_here), words, "{name}");
         }
     }
 

@@ -452,9 +452,7 @@ component ReleaseRow inherits Rectangle {
             }
         }
         Text {
-            text: (root.release.version-label != "" ? root.release.version-label + " · " : "")
-                + (root.release.size != "" ? root.release.size : "Size unknown")
-                + (root.release.added != "" ? " · added " + root.release.added : "");
+            text: root.release.line-text;
             font-size: 16 * Look.px;
             color: Tokens.color-text-muted;
             overflow: elide;
@@ -583,7 +581,7 @@ component DownloadSheet inherits Rectangle {
                 horizontal-alignment: Look.rtl ? right : left;
             }
             if root.release.not-here != "" : Text {
-                text: root.release.not-here + ". It installs, but it won't start on this computer.";
+                text: root.release.not-here-text;
                 font-size: 18 * Look.px;
                 color: Tokens.color-warning;
                 wrap: word-wrap;

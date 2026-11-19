@@ -781,6 +781,8 @@ fn detail_vm(s: &Snapshot, owned: &Ownership, key: &GameKey) -> Option<GameDetai
                         title_text: String::new(),
                         peers_text: String::new(),
                         sheet_text: String::new(),
+                        line_text: String::new(),
+                        not_here_text: String::new(),
                     })
                     .collect()
             })

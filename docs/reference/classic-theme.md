@@ -65,7 +65,7 @@ From `theme.toml`:
 | `version` | `0.3.0` |
 | `host_api` | `^0.3` |
 | `activation` | `eager` |
-| `ui_api` | `^0.5.0` |
+| `ui_api` | `^0.5.1` |
 | `input` | `["gamepad", "pointer"]` |
 | `navigation` | `focus` |
 | breakpoints | `compact` (`max_width = 900`), then `regular` |

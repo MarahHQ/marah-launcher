@@ -163,6 +163,18 @@ fn a_theme_built_for_0_4_is_refused_for_its_version_and_not_compiled() {
     assert_eq!(host.ui.current(), Some(&id("classic")), "the theme on screen stays");
 }
 
+/// Version 0.5.1 of the contract only added fields, so a theme built for 0.5.0 still loads.
+#[test]
+fn a_theme_built_for_0_5_0_loads_on_0_5_1() {
+    let dir = tempfile::tempdir().unwrap();
+    write_theme(dir.path(), "older", "ui_api = \"^0.5.0\"", &[]);
+    let mut host = composed(|h| h.discover(dir.path()));
+    host.ui.start().unwrap();
+
+    host.ui.switch(&id("older")).unwrap();
+    assert_eq!(host.ui.current(), Some(&id("older")));
+}
+
 #[test]
 fn imports_that_leave_the_theme_folder_are_refused() {
     let dir = tempfile::tempdir().unwrap();
