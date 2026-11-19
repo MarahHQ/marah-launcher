@@ -355,7 +355,10 @@ impl AreaSettings for MacArea {
                 AreaState::Ready(AreaData::Vpn { finds_vpns: false, can_import: false, vpns: mac.vpns().await })
             }
             SystemArea::Bluetooth => mac.bluetooth().await?,
-            SystemArea::Audio => AreaState::Ready(AreaData::Audio { outputs: Vec::new(), level: mac.level().await? }),
+            // A level that isn't read leaves the area ready: setting the volume may still work.
+            SystemArea::Audio => {
+                AreaState::Ready(AreaData::Audio { outputs: Vec::new(), level: mac.level().await.ok().flatten() })
+            }
             SystemArea::Power => {
                 let (refused, battery) = tokio::join!(mac.tools.missing(&[OSASCRIPT]), mac.battery());
                 AreaState::Ready(AreaData::Power { battery: battery.ok().flatten(), refused })
