@@ -5,7 +5,7 @@
 //! its builds, which the [`builds::BuildManager`] installs, updates and rolls back, and a
 //! [`console::ConsoleSpec`] for its games, compatibility list and page, which the
 //! [`console::ConsoleEmulator`] serves. The plugin keeps its settings type, its launch
-//! arguments and its game installs.
+//! arguments and what its game installs copy, which [`game_install::install`] puts in place.
 //!
 //! The kit reaches the host only through the narrow facades in [`host::Host`]: storage in the
 //! plugin's data folder, HTTP within the allowlist, named host folders, programs, settings and
@@ -22,6 +22,7 @@ pub mod console;
 pub mod controls;
 pub mod exfat;
 pub mod fail;
+pub mod game_install;
 pub mod games;
 pub mod github;
 pub mod host;

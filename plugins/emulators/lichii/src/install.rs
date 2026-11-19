@@ -7,6 +7,7 @@
 use std::sync::Arc;
 
 use emulator_kit::fail::{Context, Result};
+use emulator_kit::game_install::{self, Part};
 use emulator_kit::games::{is_switch_file, switch_file};
 use emulator_kit::installs::{self, DownloadFile, Entry, HostTree, Tree};
 use emulator_kit::read_at::HostFile;
@@ -120,19 +121,7 @@ impl GameInstaller for Lichii {
         let (files, title) = files(folders.as_ref(), source).await?;
         let base = installs::games_folder(folders.as_ref(), job.as_ref(), FOLDER).await?;
         let dest = base.join(&title)?;
-        if folders.exists(&dest).await? {
-            return Err(PluginError::InvalidInput(format!("{title} is already installed")));
-        }
-        let work = base.join(&format!("{title}.part"))?;
-        folders.remove(&work).await?;
-        let into = work.clone();
-        let mut tree = SwitchFiles::new(folders.clone(), files);
-        installs::spawn(folders, work.clone(), job, move |writer, job| {
-            let entries = tree.entries(&installs::cancel_check(job))?;
-            installs::write_tree(writer, &mut tree, &entries, "", &into, job)?;
-            writer.rename(&into, &dest)?;
-            Ok((dest, title))
-        });
-        Ok(work)
+        let tree = SwitchFiles::new(folders.clone(), files);
+        game_install::install(folders, job, vec![Part::new(dest, title, Box::new(tree))]).await
     }
 }

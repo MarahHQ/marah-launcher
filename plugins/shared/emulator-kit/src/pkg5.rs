@@ -482,6 +482,27 @@ impl Outer {
 
 // ---- Package metadata (CNT) --------------------------------------------------------------------
 
+/// The metadata file `name` of a debug package, such as `param.json`, at most `limit` bytes.
+/// `None` when the package has none. Reads the header and the metadata block, which is in the
+/// clear, and nothing of the file systems: for a quick look before an install opens the package.
+pub fn metadata_file(file: &(impl ReadAt + ?Sized), name: &str, limit: u64) -> Result<Option<Vec<u8>>> {
+    let len = file.len()?;
+    let mut head = [0u8; 0x100];
+    file.read_exact_at(&mut head, 0).context("Read package header")?;
+    ensure!(&head[..4] == FIH_MAGIC, "Not a PS5 package");
+    ensure!(
+        head[5] == 0,
+        "This is a retail PS5 package. Its key is held by the console, so the launcher cannot unpack it"
+    );
+    let cnt = u64::from_le_bytes(head[0x58..0x60].try_into().unwrap());
+    ensure!(cnt >= 0x100 && cnt < len, "Invalid package metadata offset");
+    let Some(entry) = read_cnt(file, cnt, len)?.into_iter().find(|f| f.name == name) else { return Ok(None) };
+    ensure!(entry.size <= limit, "The package's {name} is too large");
+    let mut bytes = vec![0u8; entry.size as usize];
+    file.read_exact_at(&mut bytes, entry.offset).context("Read package metadata file")?;
+    Ok(Some(bytes))
+}
+
 /// The metadata files of a package, under the names the package gives them. Encrypted entries and
 /// entries without a name (digests, keys, licenses) are skipped.
 fn read_cnt(file: &(impl ReadAt + ?Sized), offset: u64, len: u64) -> Result<Vec<CntFile>> {
@@ -1070,6 +1091,20 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_metadata_file_reads_from_the_metadata_block_alone() {
+        let mut pkg = build::package(&build::Spec { files: &[("eboot.bin", b"x")], ..Default::default() });
+        // The file systems before the metadata block are never read: zeroed, the package can't open.
+        let cnt = u64::from_le_bytes(pkg[0x58..0x60].try_into().unwrap()) as usize;
+        pkg[0x100..cnt].fill(0);
+        assert!(Package::open(pkg.clone(), &|| Ok(())).is_err());
+        assert_eq!(metadata_file(&pkg, "param.json", 1 << 20).unwrap().as_deref(), Some(build::PARAM));
+        assert_eq!(metadata_file(&pkg, "icon0.png", 1 << 20).unwrap(), None);
+        assert!(metadata_file(&pkg, "param.json", 4).unwrap_err().to_string().contains("too large"));
+        let retail = build::package(&build::Spec { files: &[("eboot.bin", b"x")], retail: true, ..Default::default() });
+        assert!(metadata_file(&retail, "param.json", 1 << 20).unwrap_err().to_string().contains("retail"));
     }
 }
 
