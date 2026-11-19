@@ -2,27 +2,118 @@
 
 use std::sync::Arc;
 
+use emulator_kit::fail::Context;
 use emulator_kit::game_install::{self, Part};
 use emulator_kit::games;
-use emulator_kit::installs::{self, ExfatImage, Format, Ps5Package, Tree, Writer};
+use emulator_kit::installs::{self, Entry, ExfatImage, Format, Ps5Package, Tree, Writer};
+use emulator_kit::pkg5;
 use emulator_kit::read_at::HostFile;
 use launcher_api::*;
 
 use crate::{CONSOLE, Kyty};
 
-/// What a game installs from: a package or image file, or an unpacked game folder in a
-/// download (its tree and its path in the download).
+/// The most bytes of a `param.json` read.
+const PARAM_LIMIT: u64 = 1 << 20;
+
+/// A tree the background work can take.
+type GameTree = Box<dyn Tree + Send>;
+
+/// What a game installs from.
 enum Source {
+    /// A package or image file the player picked.
     File(HostFile, Format),
-    Folder(installs::HostTree, String),
+    /// An unpacked game folder in a download: its tree, its path in the download, and its
+    /// `param.json`.
+    Folder(installs::HostTree, String, Vec<u8>),
+    /// The package or image in a download that holds the game, opened and listed to find it.
+    Listed(GameTree, Vec<Entry>),
+}
+
+/// A PS5 package that opens when it is listed, in the install's background work: opening one
+/// reads its whole file system index.
+struct LaterPackage {
+    file: Option<HostFile>,
+    package: Option<Ps5Package<HostFile>>,
+}
+
+impl Tree for LaterPackage {
+    fn entries(
+        &mut self,
+        cancel: &dyn Fn() -> emulator_kit::fail::Result<()>,
+    ) -> emulator_kit::fail::Result<Vec<Entry>> {
+        if let Some(file) = self.file.take() {
+            self.package = Some(Ps5Package::open(file, cancel)?);
+        }
+        self.package.as_mut().context("The package didn't open")?.entries(cancel)
+    }
+
+    fn copy(
+        &mut self,
+        index: usize,
+        sink: &mut dyn FnMut(&[u8]) -> emulator_kit::fail::Result<()>,
+    ) -> emulator_kit::fail::Result<()> {
+        self.package.as_mut().context("The package isn't listed")?.copy(index, sink)
+    }
+}
+
+/// The game folder in a listed tree and its `param.json`.
+fn listed_param(tree: &mut dyn Tree, entries: &[Entry]) -> emulator_kit::fail::Result<(String, Vec<u8>)> {
+    let prefix =
+        installs::game_folder(entries, "param.json").context("This holds no PS5 game: it has no sce_sys/param.json")?;
+    let at = entries.iter().position(|e| e.path == format!("{prefix}sce_sys/param.json")).context("param.json")?;
+    let param = Writer::read_entry(tree, at, PARAM_LIMIT)?;
+    Ok((prefix, param))
+}
+
+/// What `begin` finds in a source: the tree to copy, its files when they are listed already,
+/// the game folder in it (a path with a `/` after it, or `""`), and the game's `param.json`.
+struct Found {
+    tree: GameTree,
+    entries: Option<Vec<Entry>>,
+    prefix: String,
+    param: Vec<u8>,
+}
+
+/// Finds the game in `source`, reading as little as it can: a package's metadata block, an
+/// image's folders on the way to its `param.json`. For blocking code.
+fn find(source: Source, cancel: &dyn Fn() -> emulator_kit::fail::Result<()>) -> emulator_kit::fail::Result<Found> {
+    let listed = |mut tree: GameTree, entries: Vec<Entry>| {
+        let (prefix, param) = listed_param(tree.as_mut(), &entries)?;
+        Ok(Found { tree, entries: Some(entries), prefix, param })
+    };
+    match source {
+        Source::Folder(tree, _, param) => {
+            Ok(Found { tree: Box::new(tree), entries: None, prefix: String::new(), param })
+        }
+        Source::Listed(tree, entries) => listed(tree, entries),
+        Source::File(file, Format::Ps5Package) => match pkg5::metadata_file(&file, "param.json", PARAM_LIMIT)? {
+            Some(param) => {
+                let tree = Box::new(LaterPackage { file: Some(file), package: None });
+                Ok(Found { tree, entries: None, prefix: String::new(), param })
+            }
+            // Not in the metadata block: it may be in the game's own files.
+            None => {
+                let mut tree = Box::new(Ps5Package::open(file, cancel)?);
+                let entries = tree.entries(cancel)?;
+                listed(tree, entries)
+            }
+        },
+        Source::File(file, _) => {
+            let image = ExfatImage::open(file)?;
+            let (prefix, param) = image
+                .nearest("sce_sys/param.json", PARAM_LIMIT, cancel)?
+                .context("This holds no PS5 game: it has no sce_sys/param.json")?;
+            Ok(Found { tree: Box::new(image), entries: None, prefix, param })
+        }
+    }
 }
 
 /// The package or image in `download` that holds the game: the one nearest the top. Update
 /// and add-on packages hold no game, so they are skipped. A package that fails to open at or
 /// above that depth might be the game, so its error stops the install; two at the same depth
-/// are never guessed.
+/// are never guessed. The game's tree comes back listed, so the install doesn't list it again.
 async fn game_package(folders: &Arc<dyn Folders>, download: &installs::Download) -> PluginResult<Source> {
-    let mut best: Option<(usize, Vec<String>, HostFile, Format)> = None;
+    let mut best: Option<(usize, Vec<String>, GameTree, Vec<Entry>)> = None;
     let mut failure: Option<(usize, PluginError)> = None;
     for (file, format) in
         download.packages(folders.as_ref(), |f| matches!(f, Format::Ps5Package | Format::Exfat)).await?
@@ -30,23 +121,21 @@ async fn game_package(folders: &Arc<dyn Folders>, download: &installs::Download)
         let depth = file.depth();
         let reader = HostFile::new(folders.clone(), file.path.clone(), file.size);
         let opened = installs::blocking(move || {
-            let mut tree: Box<dyn Tree> = match format {
+            let mut tree: GameTree = match format {
                 Format::Ps5Package => Box::new(Ps5Package::open(reader, &|| Ok(()))?),
                 _ => Box::new(ExfatImage::open(reader)?),
             };
-            Ok(installs::holds_game(&tree.entries(&|| Ok(()))?))
+            let entries = tree.entries(&|| Ok(()))?;
+            Ok((tree, entries))
         })
         .await;
         match opened {
-            Ok(true) => match &mut best {
+            Ok((tree, entries)) if installs::holds_game(&entries) => match &mut best {
                 Some((top, names, ..)) if depth == *top => names.push(file.rel.clone()),
                 Some((top, ..)) if depth > *top => (),
-                _ => {
-                    let reader = HostFile::new(folders.clone(), file.path.clone(), file.size);
-                    best = Some((depth, vec![file.rel.clone()], reader, format));
-                }
+                _ => best = Some((depth, vec![file.rel.clone()], tree, entries)),
             },
-            Ok(false) => (),
+            Ok(_) => (),
             Err(e) => {
                 if failure.as_ref().is_none_or(|f| depth < f.0) {
                     failure = Some((depth, PluginError::InvalidInput(format!("{}: {e}", file.rel))));
@@ -59,14 +148,14 @@ async fn game_package(folders: &Arc<dyn Folders>, download: &installs::Download)
     {
         return Err(e);
     }
-    let Some((_, names, reader, format)) = best else { return Err(download.nothing_to_install()) };
+    let Some((_, names, tree, entries)) = best else { return Err(download.nothing_to_install()) };
     if names.len() > 1 {
         return Err(PluginError::InvalidInput(format!(
             "Several packages hold a game ({}); choose a single release folder",
             names.join(", ")
         )));
     }
-    Ok(Source::File(reader, format))
+    Ok(Source::Listed(tree, entries))
 }
 
 /// The unpacked game folder in `download` that holds the game: the one nearest the top. Folders
@@ -123,39 +212,31 @@ impl GameInstaller for Kyty {
                 }
             }
             Some(download) => match game_folder(folders.as_ref(), &download).await? {
-                Some(prefix) => Source::Folder(download.tree(folders.clone(), &prefix), prefix),
+                Some(prefix) => {
+                    let param =
+                        download.read(folders.as_ref(), &format!("{prefix}sce_sys/param.json"), PARAM_LIMIT).await?;
+                    Source::Folder(download.tree(folders.clone(), &prefix), prefix, param)
+                }
                 None => game_package(&folders, &download).await?,
             },
         };
         // An unpacked folder may move rather than be copied, when the host made it.
-        let folder = match &from {
-            Source::Folder(_, prefix) => Some(source.join(prefix.trim_end_matches('/'))?),
-            Source::File(..) => None,
+        let whole = match &from {
+            Source::Folder(_, prefix, _) => Some(source.join(prefix.trim_end_matches('/'))?),
+            _ => None,
         };
-        // The game's title id names its folder, so the tree opens here: an installed game is
-        // refused before anything is written.
+        // The game's title id names its folder, so `begin` reads its `param.json`: an installed
+        // game is refused before anything is written. It reads only that: the tree is listed
+        // in the background, unless finding the game in a download listed it already.
         let cancel_job = job.clone();
-        let (tree, entries, prefix, title_id, title) = installs::blocking(move || {
-            use emulator_kit::fail::Context;
-            let cancel = installs::cancel_check(cancel_job.as_ref());
-            let mut tree: Box<dyn Tree + Send> = match from {
-                Source::File(file, Format::Ps5Package) => Box::new(Ps5Package::open(file, &cancel)?),
-                Source::File(file, _) => Box::new(ExfatImage::open(file)?),
-                Source::Folder(tree, _) => Box::new(tree),
-            };
-            let entries = tree.entries(&cancel)?;
-            let prefix = installs::game_folder(&entries, "param.json")
-                .context("This holds no PS5 game: it has no sce_sys/param.json")?;
-            let at =
-                entries.iter().position(|e| e.path == format!("{prefix}sce_sys/param.json")).context("param.json")?;
-            let param = Writer::read_entry(tree.as_mut(), at, 1 << 20)?;
-            let (title_id, title) = games::ps5_param(&param).context("Its param.json has no usable title id")?;
-            Ok((tree, entries, prefix, title_id, title))
-        })
-        .await?;
+        let found = installs::blocking(move || find(from, &installs::cancel_check(cancel_job.as_ref()))).await?;
+        let (title_id, title) = games::ps5_param(&found.param)
+            .ok_or_else(|| PluginError::InvalidInput("Its param.json has no usable title id".into()))?;
         let dest = base.join(&format!("{title_id}-app0"))?;
-        let whole = folder.filter(|_| prefix.is_empty());
-        let part = Part::new(dest, title, tree).under(prefix).listed(entries).whole(whole);
+        let mut part = Part::new(dest, title, found.tree).under(found.prefix).whole(whole);
+        if let Some(entries) = found.entries {
+            part = part.listed(entries);
+        }
         game_install::install(folders, job, vec![part]).await
     }
 }

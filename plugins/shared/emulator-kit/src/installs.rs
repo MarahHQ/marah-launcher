@@ -62,6 +62,22 @@ impl<R: ReadAt> ExfatImage<R> {
     }
 }
 
+impl<R: ReadAt> ExfatImage<R> {
+    /// The file at `rel` in the folder nearest the top that holds it, at most `limit` bytes,
+    /// with that folder's path and a `/` after it (`""` at the top). It reads only the folders
+    /// on the way to it, not the whole image.
+    pub fn nearest(&self, rel: &str, limit: u64, cancel: &dyn Fn() -> Result<()>) -> Result<Option<(String, Vec<u8>)>> {
+        let Some((prefix, node)) = self.volume.nearest(rel, cancel)? else { return Ok(None) };
+        ensure!(node.size <= limit, "{} is too large", node.path);
+        let mut bytes = Vec::with_capacity(node.size as usize);
+        self.volume.copy(&node, &mut |piece| {
+            bytes.extend_from_slice(piece);
+            Ok(())
+        })?;
+        Ok(Some((prefix, bytes)))
+    }
+}
+
 impl<R: ReadAt> Tree for ExfatImage<R> {
     fn entries(&mut self, cancel: &dyn Fn() -> Result<()>) -> Result<Vec<Entry>> {
         self.nodes = self.volume.list(cancel)?;

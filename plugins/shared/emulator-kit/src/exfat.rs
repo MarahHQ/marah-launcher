@@ -184,6 +184,55 @@ impl<R: ReadAt> Volume<R> {
         Ok(out)
     }
 
+    /// The file at `rel` (parts split by `/`) in the folder nearest the top that holds it, with
+    /// that folder's path and a `/` after it (`""` at the top). It reads the folders level by
+    /// level down to that one, and the folders on `rel`'s way, never the rest of the image.
+    pub fn nearest(&self, rel: &str, cancel: &dyn Fn() -> Result<()>) -> Result<Option<(String, Node)>> {
+        let parts: Vec<&str> = rel.split('/').collect();
+        let mut level = vec![(String::new(), self.root, None, false)];
+        for _ in 0..MAX_DEPTH {
+            let mut next = Vec::new();
+            for (prefix, first, size, contiguous) in level {
+                cancel()?;
+                let entries = parse_folder(&self.folder(first, size, contiguous)?)?;
+                if let Some(node) = self.walk(&entries, &parts, &prefix)? {
+                    return Ok(Some((prefix, node)));
+                }
+                for e in entries.into_iter().filter(|e| e.directory) {
+                    next.push((format!("{prefix}{}/", e.name), e.first, Some(e.size), e.contiguous));
+                    ensure!(next.len() <= MAX_NODES, "exFAT image has too many folders");
+                }
+            }
+            if next.is_empty() {
+                break;
+            }
+            next.sort_by(|a, b| a.0.cmp(&b.0));
+            level = next;
+        }
+        Ok(None)
+    }
+
+    /// The file at `parts` under the folder whose entries are `entries` and whose path is `prefix`.
+    fn walk(&self, entries: &[Raw], parts: &[&str], prefix: &str) -> Result<Option<Node>> {
+        let Some((name, rest)) = parts.split_first() else { return Ok(None) };
+        let Some(e) = entries.iter().find(|e| e.name == *name) else { return Ok(None) };
+        match (rest.is_empty(), e.directory) {
+            (true, false) => Ok(Some(Node {
+                path: format!("{prefix}{name}"),
+                directory: false,
+                size: e.size,
+                valid: e.valid,
+                first: e.first,
+                contiguous: e.contiguous,
+            })),
+            (false, true) => {
+                let inner = parse_folder(&self.folder(e.first, Some(e.size), e.contiguous)?)?;
+                self.walk(&inner, rest, &format!("{prefix}{name}/"))
+            }
+            _ => Ok(None),
+        }
+    }
+
     /// Stream a file's contents to `sink`. Bytes past its valid data length read as zeros.
     pub fn copy(&self, node: &Node, sink: &mut dyn FnMut(&[u8]) -> Result<()>) -> Result<()> {
         ensure!(!node.directory, "Not a file: {}", node.path);
@@ -489,5 +538,53 @@ mod tests {
         let (_f, v) = open(&far);
         let n = v.list(&|| Ok(())).unwrap().into_iter().find(|n| n.path == "x").unwrap();
         assert!(v.copy(&n, &mut |_| Ok(())).unwrap_err().to_string().contains("outside"));
+    }
+
+    /// An image read from memory, counting its reads.
+    struct Counted<'a> {
+        bytes: &'a [u8],
+        reads: &'a std::cell::Cell<usize>,
+    }
+
+    impl ReadAt for Counted<'_> {
+        fn read_exact_at(&self, buf: &mut [u8], offset: u64) -> std::io::Result<()> {
+            self.reads.set(self.reads.get() + 1);
+            self.bytes.read_exact_at(buf, offset)
+        }
+
+        fn len(&self) -> std::io::Result<u64> {
+            Ok(self.bytes.len() as u64)
+        }
+    }
+
+    #[test]
+    fn the_nearest_file_at_a_path_is_found_without_reading_every_folder() {
+        let mut files: Vec<(String, Vec<u8>)> =
+            (0..200).map(|i| (format!("PPSA1-app0/data/d{i:03}/f.bin"), vec![1u8])).collect();
+        files.push(("PPSA1-app0/sce_sys/param.json".into(), b"{}".to_vec()));
+        files.push(("PPSA1-app0/eboot.bin".into(), b"elf".to_vec()));
+        files.push(("Extras/PPSA1-app0/sce_sys/param.json".into(), b"deeper".to_vec()));
+        let files: Vec<(&str, &[u8])> = files.iter().map(|(p, b)| (p.as_str(), b.as_slice())).collect();
+        let image = build::image(&files, true);
+        let reads = std::cell::Cell::new(0);
+        let v = Volume::open(Counted { bytes: &image, reads: &reads }).unwrap();
+
+        reads.set(0);
+        let (prefix, node) = v.nearest("sce_sys/param.json", &|| Ok(())).unwrap().expect("found");
+        let mut bytes = Vec::new();
+        v.copy(&node, &mut |c| {
+            bytes.extend_from_slice(c);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(
+            (prefix.as_str(), node.path.as_str(), bytes.as_slice()),
+            ("PPSA1-app0/", "PPSA1-app0/sce_sys/param.json", &b"{}"[..])
+        );
+        let found = reads.get();
+        reads.set(0);
+        v.list(&|| Ok(())).unwrap();
+        assert!(found < 20 && reads.get() > 200, "{found} reads to find it, {} to list the image", reads.get());
+        assert!(v.nearest("sce_sys/missing.json", &|| Ok(())).unwrap().is_none());
     }
 }
