@@ -81,8 +81,9 @@
 //!
 //! The code: [`topic`] is the typed model of a catalog file, which [`refresh`] brings up to
 //! date and [`mod@format`] turns into releases. `store.rs` keeps the copies and their meta files,
-//! and `schedule.rs` says when the fetches and the refresh run. `Catalogs` tracks what the core
-//! asked for, and builds the slot items over them.
+//! and `schedule.rs` says when the fetches and the refresh run: it keeps the hold of each one and
+//! why its last try didn't work. `Catalogs` tracks what the core asked for, and builds the slot
+//! items over them.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
@@ -96,7 +97,7 @@ use launcher_api::serde::{Deserialize, Serialize};
 use launcher_api::serde_json::{self, Value};
 use launcher_api::*;
 
-use schedule::{Hold, Outcome, Timing, Work};
+use schedule::{End, Job, Key, Schedule, Timing};
 use store::{CopyFile, CopyStore};
 
 const MANIFEST: &str = include_str!("../plugin.toml");
@@ -222,7 +223,7 @@ async fn refresh_task(catalogs: Weak<Catalogs>, wake: Arc<Notify>) {
             Ok(wait) => wait,
             Err(e) => {
                 catalogs.ctx.log().error(&format!("the catalog fetch and refresh stopped with a panic: {e}"));
-                Some(catalogs.timing.retry)
+                Some(catalogs.schedule().timing().retry)
             }
         };
     }
@@ -481,8 +482,9 @@ fn has_image(release: &launcher_api::Release) -> bool {
         || release.metadata.as_ref().is_some_and(|m| m.cover.is_some() || m.icon.is_some() || !m.screenshots.is_empty())
 }
 
-/// The Game Catalog's state: what the core asked for, how each fetch and refresh ended, and the
-/// catalogs read. The copies are in [`store`], and when work runs is in [`schedule`].
+/// The Game Catalog's state: what the core asked for, the schedule, and the catalogs read. The
+/// copies are in [`store`]. When work runs, and how each fetch and refresh ended, is in
+/// [`schedule`].
 struct Catalogs {
     ctx: PluginContext,
     /// What the topics of each forum are for, from the bundled catalog sources: a catalog file
@@ -500,13 +502,11 @@ struct Catalogs {
     parsed: Mutex<HashMap<String, (String, Arc<ReleaseList>)>>,
     /// What the core asked for, and **Refresh now**.
     asks: Mutex<Asks>,
-    /// How the last fetch and the last refresh of each console ended.
-    tries: Mutex<Tries>,
+    /// The hold and the reason of the sources fetch, and of each console's fetch and refresh.
+    /// Its timing is [`FRESH`] and [`RETRY`] but in tests.
+    schedule: Mutex<Schedule>,
     /// Wakes the refresh task.
     wake: Arc<Notify>,
-    /// How long a copy is used, and the first wait after a try that failed: [`FRESH`] and
-    /// [`RETRY`] but in tests.
-    timing: Timing,
 }
 
 /// What the core asked for, and **Refresh now**.
@@ -528,26 +528,6 @@ struct Asks {
     /// last sources fetch took the ask: one read makes at most one fetch. The core's own read
     /// after [`SLOTS_CHANGED`] sets it too, but finds the copy fresh or the try held.
     page: bool,
-}
-
-/// How the last fetch and the last refresh of each console ended, by file name, and how the
-/// last fetch of the catalog sources ended. A try that works removes its entries.
-#[derive(Default)]
-struct Tries {
-    /// Each fetch of a catalog address that failed, and when it tries again. It is of the
-    /// address.
-    fetch_held: HashMap<String, Hold>,
-    /// Why the last fetch of each console's catalog failed, with the address.
-    fetch_problem: HashMap<String, (String, String)>,
-    /// Each refresh that failed or waits, and when it tries again. It is of the base copy.
-    refresh_held: HashMap<String, Hold>,
-    /// Why the last refresh of each console didn't run or failed.
-    not_run: HashMap<String, String>,
-    /// The fetch of the sources address that failed, and when it tries again. It is of the
-    /// address.
-    sources_held: Option<Hold>,
-    /// Why the last fetch of the catalog sources failed, with the address.
-    sources_problem: Option<(String, String)>,
 }
 
 /// A console's catalog with no refresh: see [`Catalogs::base`].
@@ -584,9 +564,8 @@ impl Catalogs {
             ctx,
             parsed: Mutex::new(HashMap::new()),
             asks: Mutex::new(Asks::default()),
-            tries: Mutex::new(Tries::default()),
+            schedule: Mutex::new(Schedule::new(timing)),
             wake,
-            timing,
         }
     }
 
@@ -604,8 +583,8 @@ impl Catalogs {
         self.asks.lock().unwrap_or_else(|p| p.into_inner())
     }
 
-    fn tries(&self) -> MutexGuard<'_, Tries> {
-        self.tries.lock().unwrap_or_else(|p| p.into_inner())
+    fn schedule(&self) -> MutexGuard<'_, Schedule> {
+        self.schedule.lock().unwrap_or_else(|p| p.into_inner())
     }
 
     /// Tells the core the catalogs changed: it asks for them again.
@@ -725,7 +704,7 @@ impl Catalogs {
     /// before from `url`, if any, else the bundled one. The refresh task fetches (see
     /// [`Catalogs::sources_due`]).
     async fn address_sources(&self, url: &str) -> (sources::Sources, ReleaseSource, Option<String>) {
-        let problem = self.tries().sources_problem.as_ref().filter(|(at, _)| at == url).map(|(_, why)| why.clone());
+        let problem = self.schedule().why(&Key::Sources, Some(url)).map(str::to_owned);
         if self.kept_sources.latest::<Kept>(SOURCES).await.is_some_and(|k| k.url == url)
             && let Ok(list) = sources::read(&self.kept_sources.read_plain(SOURCES).await.unwrap_or_default())
         {
@@ -747,12 +726,10 @@ impl Catalogs {
             .map_err(|e| format!("could not keep the catalog sources: {e}"))
     }
 
-    /// The fetch of the catalog sources from `url`, as the schedule sees it, with the hold of
-    /// its last try.
-    async fn sources_work(&self, url: &str) -> (Option<SystemTime>, Option<Hold>) {
+    /// When the copy of the catalog sources from `url` was fetched. `None` with no such copy.
+    async fn sources_made(&self, url: &str) -> Option<SystemTime> {
         let kept = self.kept_sources.latest::<Kept>(SOURCES).await.filter(|k| k.url == url);
-        let held = self.tries().sources_held.clone();
-        (kept.map(|k| time(k.fetched)), held)
+        kept.map(|k| time(k.fetched))
     }
 
     /// The sources address, when the catalog sources are fetched: it is set, and the refresh is
@@ -770,28 +747,20 @@ impl Catalogs {
     async fn sources_due(&self) -> bool {
         let page = std::mem::take(&mut self.asks().page);
         let Some(url) = Self::sources_address(&self.settings().await, page) else { return false };
-        let (made, held) = self.sources_work(&url).await;
-        let work = Work { of: &url, made, held: held.as_ref(), forced: false };
-        if !schedule::next(self.now(), &work, &self.timing).run {
+        let job = Job { key: &Key::Sources, of: &url, made: self.sources_made(&url).await, forced: false };
+        if !self.schedule().due(self.now(), &job) {
             return false;
         }
         let fetched = self.fetch_sources(&url).await;
-        let outcome = if fetched.is_ok() { Outcome::Done } else { Outcome::Failed };
-        let mut tries = self.tries();
-        tries.sources_held = schedule::hold_after(self.now(), &work, outcome, &self.timing);
+        let end = fetched.as_ref().map_or_else(|why| End::Failed(why.clone()), |()| End::Done);
+        let changed = self.schedule().ended(self.now(), &job, end);
         match fetched {
-            Ok(()) => {
-                tries.sources_problem = None;
-                true
-            }
+            Ok(()) => true,
             Err(why) => {
-                let new = (url.clone(), why);
-                if tries.sources_problem.as_ref() == Some(&new) {
-                    return false;
+                if changed {
+                    self.ctx.log().warn(&format!("{url}: {why}"));
                 }
-                self.ctx.log().warn(&format!("{url}: {}", new.1));
-                tries.sources_problem = Some(new);
-                true
+                changed
             }
         }
     }
@@ -863,7 +832,7 @@ impl Catalogs {
             return Some(Base { list, copy, source: ReleaseSource::Bundled, host: String::new(), problem: None });
         };
         let host = https_host(&url).unwrap_or_default();
-        let problem = self.tries().fetch_problem.get(console).filter(|(at, _)| *at == url).map(|(_, why)| why.clone());
+        let problem = self.schedule().why(&Key::Fetch(console.to_owned()), Some(&url)).map(str::to_owned);
         if let Some(kept) = self.kept_catalog(console).await.filter(|k| k.url == url)
             && let Ok(list) = self.read_kept(console, &kept).await
         {
@@ -875,26 +844,19 @@ impl Catalogs {
         Some(Base { list, copy, source: ReleaseSource::Bundled, host, problem })
     }
 
-    /// The fetch of the catalog named `console` from `url`, as the schedule sees it, with the
-    /// hold of its last try.
-    async fn fetch_work(&self, console: &str, url: &str) -> (Option<SystemTime>, Option<Hold>) {
+    /// When the copy of the catalog named `console` from `url` was fetched. `None` with no such
+    /// copy.
+    async fn fetch_made(&self, console: &str, url: &str) -> Option<SystemTime> {
         let kept = self.kept_catalog(console).await.filter(|k| k.url == url);
-        let held = self.tries().fetch_held.get(console).cloned();
-        (kept.map(|k| time(k.fetched)), held)
+        kept.map(|k| time(k.fetched))
     }
 
-    /// The refresh of the catalog named `console`, as the schedule sees it: its base copy, when
-    /// its refreshed copy of that base copy was made, and the hold of its last try. `None` with
-    /// no catalog.
-    async fn refresh_work(
-        &self,
-        console: &str,
-        settings: &Settings,
-    ) -> Option<(String, Option<SystemTime>, Option<Hold>)> {
+    /// The refresh of the catalog named `console`, for the schedule: its base copy, and when its
+    /// refreshed copy of that base copy was made. `None` with no catalog.
+    async fn refresh_work(&self, console: &str, settings: &Settings) -> Option<(String, Option<SystemTime>)> {
         let copy = self.base(console, settings).await?.copy;
         let kept = self.refreshed_meta(console).await.filter(|m| m.base == copy && !m.body.is_empty());
-        let held = self.tries().refresh_held.get(console).cloned();
-        Some((copy, kept.map(|m| time(m.refreshed)), held))
+        Some((copy, kept.map(|m| time(m.refreshed))))
     }
 
     /// The fetch of each catalog address the core asked for that is due (see [`schedule`]).
@@ -906,29 +868,20 @@ impl Catalogs {
         for console in self.shown(&settings) {
             let name = console.file_name();
             let Some(url) = catalog_url(&settings, &name) else { continue };
-            let (made, held) = self.fetch_work(&name, &url).await;
-            let work = Work { of: &url, made, held: held.as_ref(), forced: false };
-            if !schedule::next(self.now(), &work, &self.timing).run {
+            let key = Key::Fetch(name.clone());
+            let job = Job { key: &key, of: &url, made: self.fetch_made(&name, &url).await, forced: false };
+            if !self.schedule().due(self.now(), &job) {
                 continue;
             }
             let fetched = self.fetch(&url, &name).await;
-            let outcome = if fetched.is_ok() { Outcome::Done } else { Outcome::Failed };
-            let hold = schedule::hold_after(self.now(), &work, outcome, &self.timing);
-            let mut tries = self.tries();
-            match hold {
-                Some(hold) => tries.fetch_held.insert(name.clone(), hold),
-                None => tries.fetch_held.remove(&name),
-            };
+            let end = fetched.as_ref().map_or_else(|why| End::Failed(why.clone()), |_| End::Done);
+            // After a fetch that worked, a change of reason is a reason gone.
+            let reason_changed = self.schedule().ended(self.now(), &job, end);
             match fetched {
-                Ok(new) => {
-                    let solved = tries.fetch_problem.remove(&name).is_some();
-                    changed |= new || solved;
-                }
+                Ok(new) => changed |= new || reason_changed,
                 Err(why) => {
-                    let new = (url.clone(), why);
-                    if tries.fetch_problem.get(&name) != Some(&new) {
-                        self.ctx.log().warn(&format!("{url}: {}", new.1));
-                        tries.fetch_problem.insert(name, new);
+                    if reason_changed {
+                        self.ctx.log().warn(&format!("{url}: {why}"));
                         changed = true;
                     }
                 }
@@ -949,27 +902,26 @@ impl Catalogs {
     async fn next_wake(&self) -> Option<Duration> {
         let settings = self.settings().await;
         let now = self.now();
-        let mut wakes = Vec::new();
+        // Each job with no ask: its key, what it is of, and when its copy was made.
+        let mut jobs = Vec::new();
         if let Some(url) = Self::sources_address(&settings, false) {
-            let (made, held) = self.sources_work(&url).await;
-            let work = Work { of: &url, made, held: held.as_ref(), forced: false };
-            wakes.push(schedule::next(now, &work, &self.timing).wake);
+            let made = self.sources_made(&url).await;
+            jobs.push((Key::Sources, url, made));
         }
         for console in self.shown(&settings) {
             let name = console.file_name();
             if let Some(url) = catalog_url(&settings, &name) {
-                let (made, held) = self.fetch_work(&name, &url).await;
-                let work = Work { of: &url, made, held: held.as_ref(), forced: false };
-                wakes.push(schedule::next(now, &work, &self.timing).wake);
+                let made = self.fetch_made(&name, &url).await;
+                jobs.push((Key::Fetch(name.clone()), url, made));
             }
             if settings.refresh_from_forums
-                && let Some((copy, made, held)) = self.refresh_work(&name, &settings).await
+                && let Some((copy, made)) = self.refresh_work(&name, &settings).await
             {
-                let work = Work { of: &copy, made, held: held.as_ref(), forced: false };
-                wakes.push(schedule::next(now, &work, &self.timing).wake);
+                jobs.push((Key::Refresh(name), copy, made));
             }
         }
-        schedule::sleep(now, wakes, settings.refresh_from_forums, &self.timing)
+        let jobs = jobs.iter().map(|(key, of, made)| Job { key, of, made: *made, forced: false });
+        self.schedule().sleep(now, jobs, settings.refresh_from_forums)
     }
 
     /// The refresh of each console the core asked for that is due (see [`schedule`]): with no
@@ -987,41 +939,33 @@ impl Catalogs {
         let mut changed = !forced.is_empty();
         for console in self.shown(&settings) {
             let name = console.file_name();
-            let Some((copy, made, held)) = self.refresh_work(&name, &settings).await else { continue };
-            let work = Work { of: &copy, made, held: held.as_ref(), forced: forced.contains(&console) };
-            if !schedule::next(self.now(), &work, &self.timing).run {
+            let Some((copy, made)) = self.refresh_work(&name, &settings).await else { continue };
+            let key = Key::Refresh(name.clone());
+            let job = Job { key: &key, of: &copy, made, forced: forced.contains(&console) };
+            if !self.schedule().due(self.now(), &job) {
                 continue;
             }
-            let why = match self.vpn().await {
-                Err(why) => Some((why, Outcome::Waiting)),
+            let end = match self.vpn().await {
+                Err(why) => End::Waiting(why),
                 Ok(vpn) => match self.refresh(&name, &copy, vpn).await {
-                    Ok(_) => None,
-                    Err(e) => Some((format!("Failed: {e}"), Outcome::Failed)),
+                    Ok(_) => End::Done,
+                    Err(e) => End::Failed(format!("Failed: {e}")),
                 },
             };
-            let outcome = why.as_ref().map_or(Outcome::Done, |(_, outcome)| *outcome);
-            let hold = schedule::hold_after(self.now(), &work, outcome, &self.timing);
-            let mut tries = self.tries();
-            match hold {
-                Some(hold) => tries.refresh_held.insert(name.clone(), hold),
-                None => tries.refresh_held.remove(&name),
+            let why = match &end {
+                End::Done => None,
+                End::Waiting(why) | End::Failed(why) => Some(why.clone()),
             };
-            let same = match why {
-                Some((why, _)) => {
-                    let same = tries.not_run.get(&name) == Some(&why);
-                    if !same {
-                        self.ctx.log().warn(&format!("the {name} catalog is not refreshed: {why}"));
-                    }
-                    tries.not_run.insert(name, why);
-                    same
+            let reason_changed = self.schedule().ended(self.now(), &job, end);
+            match why {
+                Some(why) if reason_changed => {
+                    self.ctx.log().warn(&format!("the {name} catalog is not refreshed: {why}"));
+                    changed = true;
                 }
-                None => {
-                    // A refresh that ran changed the catalog.
-                    tries.not_run.remove(&name);
-                    false
-                }
-            };
-            changed |= !same;
+                Some(_) => {}
+                // A refresh that ran changed the catalog.
+                None => changed = true,
+            }
         }
         let mut asks = self.asks();
         // No other Refresh now came while this one ran.
@@ -1084,8 +1028,11 @@ impl Catalogs {
         }
         let asked = self.shown(&settings);
         let why = {
-            let tries = self.tries();
-            asked.iter().find_map(|c| tries.not_run.get(&c.file_name()).map(|why| format!("{}: {why}", c.as_str())))
+            let schedule = self.schedule();
+            asked.iter().find_map(|c| {
+                let why = schedule.why(&Key::Refresh(c.file_name()), None)?;
+                Some(format!("{}: {why}", c.as_str()))
+            })
         };
         let mut newest = None;
         for console in &asked {
@@ -1132,7 +1079,7 @@ impl Catalogs {
                 }
                 None => "Not refreshed yet".into(),
             };
-            let why = self.tries().not_run.get(&name).cloned();
+            let why = self.schedule().why(&Key::Refresh(name.clone()), None).map(str::to_owned);
             let value = match why {
                 Some(why) => format!("{why}. {last}"),
                 None => last,
