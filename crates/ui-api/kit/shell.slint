@@ -11,6 +11,7 @@ import { GameMenu, GameMenuSheet } from "game-menu.slint";
 import { PowerMenu, PowerMenuSheet } from "power-menu.slint";
 import { Browser, FolderBrowser } from "folder-browser.slint";
 import { FolderList, FolderListSheet } from "folder-list.slint";
+import { Leaving, Motion } from "motion.slint";
 import { Viewer, ShotViewer } from "shot-viewer.slint";
 import { Trailers, TrailerPlayer } from "trailer-player.slint";
 import { Notices } from "notices.slint";
@@ -312,8 +313,11 @@ export component Overlays inherits Rectangle {
     if GameMenu.open : GameMenuSheet { width: parent.width; height: parent.height; }
     if Vm.has-result-prompt : ResultPrompt { width: parent.width; height: parent.height; }
     if Vm.ratings.open : SendRatings { width: parent.width; height: parent.height; }
-    if FolderList.open : FolderListSheet { width: parent.width; height: parent.height; }
-    if Browser.open : FolderBrowser { width: parent.width; height: parent.height; }
+    // The folder sheets stay while they fade out (`Leaving`); they take no key then.
+    listing := Leaving { open: FolderList.open; time: Motion.sheet-out; }
+    browsing := Leaving { open: Browser.open; time: Motion.sheet-out; }
+    if listing.shown : FolderListSheet { width: parent.width; height: parent.height; open: FolderList.open; }
+    if browsing.shown : FolderBrowser { width: parent.width; height: parent.height; open: Browser.open; }
     if Setup.shown : InstallOs { width: parent.width; height: parent.height; }
     if PowerMenu.open : PowerMenuSheet { width: parent.width; height: parent.height; }
     // Log out, Restart or Shut down closing what runs: over everything.

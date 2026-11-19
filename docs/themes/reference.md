@@ -323,6 +323,7 @@ Tests in `contract.rs` hold every kit file to three rules:
 | `lingering.slint` | `Lingering` | Keeps a screen or a sheet on screen while it goes out. |
 | `list-item.slint` | `ListItem` | A row: a label, a line under it, a value at the end. |
 | `look.slint` | `Look` | Shared sizes (`k`, `px`, `t`, `tpx`), `rtl`, colors made from tokens, `timed`, `motion-on`, `clock`, the kinds of motion, and words and colors for ratings, results, sorts and states. |
+| `motion.slint` | `Motion`, `Leaving`, `Popover`, `Sheet`, `Tooltip` | The kit's shared motion: its times, a part kept on screen while it fades out, a popover that grows from its anchor, a sheet whose card slides up over a fading wash, and a label that fades in on key focus or after a short hover. |
 | `notices.slint` | `Notices`, `NoticeStack` | The notices on screen. Delete closes the newest. |
 | `origin.slint` | `Origin` | The card the Game Hub opens from, for its cover to grow out of it. |
 | `plugin-list.slint` | `PluginList`, `PluginListSheet` | The Emulators or Themes list as a side sheet, and its keys. |
@@ -454,6 +455,26 @@ Version 0.6.0 moved the backup browser out of Settings → Backup: it is the fol
 A theme built for 0.5 that reads `Vm.backup.browser` or imports `kit/backup-browser.slint`
 changes those names, then sets `ui_api = "^0.6"`.
 
+### Motion
+
+The kit's parts move through shared pieces in `kit/motion.slint`, so every theme gets the same
+motion, and **Animations off** (the motion tokens at 0) stops all of it: each part is then in
+place at its first frame.
+
+| Piece | Used by | Motion | Time (`Motion`) |
+| --- | --- | --- | --- |
+| `Popover` | the system panels and the Drives panel | grows from 0.96 at its anchor's side and fades in; fades out | `popover-in` 120 ms, `popover-out` 90 ms |
+| `Sheet` | the folder browser, a folder's list | the wash fades in, the card slides up 16 px and fades in; both fade out | `sheet-in` 150 ms, `sheet-out` 110 ms |
+| `Leaving` | the shells and `Overlays` | keeps a part on screen while it fades out | the part's out time |
+| `Tooltip` | the Drives panel's buttons | fades in at once on key focus, after `tip-wait` under the pointer | `tip-in` 80 ms, `tip-wait` 250 ms, `tip-out` 60 ms |
+| Settings' rail | the lit square and the focus ring | one square moves to the section | `focus` 90 ms |
+| Rows and buttons | the browser, a folder's list, the Drives panel | the focus and hover tint ease; a press gives to 0.97 | `focus` 90 ms, `press` 70 ms |
+| Bars | the Drives panel's usage bars, the volume | the width eases | `bar` 120 ms |
+| Lists | the browser's folders, the drives | each row comes in a `Look.stagger` after the one before, at most `stagger-cap` (6) steps | `Look` |
+
+Enter eases out strongly (`Motion.enter`, `cubic-bezier(0.2, 0, 0, 1)`); exit eases in. Motion never holds input: a part that goes takes no key or click, and the keys act on what
+opened at once.
+
 ## Tokens
 
 A token is a named design value. Slint reads it as `Tokens.<name>`. The list and the defaults
@@ -484,9 +505,9 @@ with `no such token`.
 | `color-shade` | color | `#000000` |
 | `font-family` | text | `Inter` |
 | `font-size-m` | length | `19` |
-| `motion-fast` | duration | `160` |
-| `motion-normal` | duration | `260` |
-| `motion-slow` | duration | `420` |
+| `motion-fast` | duration | `90` |
+| `motion-normal` | duration | `150` |
+| `motion-slow` | duration | `220` |
 | `layout-direction` | text | `ltr` |
 
 The comments in `tokens.rs` say what some tokens are for:

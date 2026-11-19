@@ -802,3 +802,49 @@ fn a_drive_button_s_name_shows_on_key_focus_not_all_the_time_in_every_theme() {
         assert_eq!(host.count("system-panel"), 0, "{theme}: a click outside closes it");
     }
 }
+
+/// Animations off (the motion tokens at 0): a sheet is in place at its first frame, with no
+/// time for it to move.
+#[test]
+fn with_animations_off_a_sheet_is_in_place_at_once_in_every_theme() {
+    for theme in THEMES {
+        let mut host = in_theme(theme, |h| h.built_in(launcher_api::PluginBox::code(emu_kyty::KytyPlugin)));
+        host.dispatch(Command::Pref(launcher_core::Pref::Animations, false.into()));
+        host.settle();
+        host.dispatch(Command::Browse(launcher_core::BrowseCmd::Open {
+            at: None,
+            purpose: launcher_core::BrowsePurpose::Pick("games".into()),
+        }));
+        let first = host.first("browser-title").absolute_position().y;
+        host.wait(std::time::Duration::from_secs(1));
+        assert_eq!(host.first("browser-title").absolute_position().y, first, "{theme}: it didn't move");
+        host.dispatch(Command::Browse(launcher_core::BrowseCmd::Close));
+        assert_eq!(host.count("folder-browser"), 0, "{theme}: gone at once too");
+    }
+}
+
+/// A sheet opened with the keys takes keys at once, while it still moves in.
+#[test]
+fn a_sheet_opened_with_the_keys_takes_keys_at_once_in_every_theme() {
+    use slint::platform::WindowEvent;
+    for theme in THEMES {
+        let mut host = in_theme(theme, |h| h.built_in(launcher_api::PluginBox::code(emu_kyty::KytyPlugin)));
+        host.dispatch(Command::Navigate(Route::Settings));
+        host.settle();
+        host.settings_tab("Games");
+        host.navigate(Key::RightArrow);
+        let paths = host.core().view().settings.folders[0].list.len();
+        let press = |host: &Composed, key: Key| {
+            let text: slint::SharedString = key.into();
+            host.instance().window().dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
+            host.instance().window().dispatch_event(WindowEvent::KeyReleased { text });
+        };
+        // No time passes between the keys: the list is still on its way in.
+        press(&host, Key::Return);
+        for _ in 0..paths {
+            press(&host, Key::DownArrow);
+        }
+        assert_eq!(host.focused("folder-add").len(), 1, "{theme}: the keys moved in the list at once");
+        press(&host, Key::Escape);
+    }
+}

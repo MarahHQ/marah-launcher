@@ -65,9 +65,9 @@ color-tint = "#ffffff"
 color-shade = "#000000"
 font-family = "Inter"
 font-size-m = 19
-motion-fast = 160
-motion-normal = 260
-motion-slow = 420
+motion-fast = 90
+motion-normal = 150
+motion-slow = 220
 layout-direction = "ltr"
 
 # Hidden for now: the right-to-left layout is not finished, so Settings does not offer it.

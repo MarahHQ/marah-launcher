@@ -64,6 +64,7 @@ pub const KIT: &[(&str, &str)] = &[
     ("lingering.slint", include_str!("../kit/lingering.slint")),
     ("list-item.slint", include_str!("../kit/list-item.slint")),
     ("look.slint", include_str!("../kit/look.slint")),
+    ("motion.slint", include_str!("../kit/motion.slint")),
     ("notices.slint", include_str!("../kit/notices.slint")),
     ("origin.slint", include_str!("../kit/origin.slint")),
     ("plugin-list.slint", include_str!("../kit/plugin-list.slint")),

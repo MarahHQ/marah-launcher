@@ -3,7 +3,7 @@ import { Commands } from "commands.slint";
 import { Tokens } from "../tokens.slint";
 import { Look } from "look.slint";
 import { Icon } from "icon.slint";
-import { Reveal } from "reveal.slint";
+import { Sheet, Motion } from "motion.slint";
 
 // A named folder's list, such as Settings → Game folders: a sheet over everything while
 // `FolderList.open`. Each folder it means, with the free space on its drive and Remove (the folder
@@ -101,6 +101,9 @@ component ListRow inherits Rectangle {
     height: 60 * Look.px;
     border-radius: 12 * Look.px;
     background: root.focused ? Tokens.color-focus : ta.has-hover ? Look.fill : transparent;
+    animate background { duration: Motion.focus; easing: Motion.enter; }
+    transform-scale: ta.pressed ? 0.97 : 1;
+    animate transform-scale { duration: Motion.press; }
     accessible-role: button;
     accessible-label: root.name;
     accessible-value: root.value;
@@ -145,29 +148,20 @@ component ListRow inherits Rectangle {
 }
 
 export component FolderListSheet inherits Rectangle {
-    reveal := Reveal { }
-    background: reveal.in-view ? Tokens.color-overlay.with-alpha(0.7) : Tokens.color-overlay.with-alpha(0);
-    animate background { duration: Tokens.motion-normal; }
-    // Closed by a click outside it.
-    TouchArea { clicked => { FolderList.close(); } }
+    // False while it fades out.
+    in property <bool> open: true;
     accessible-role: groupbox;
     accessible-label: "folder-list";
     accessible-value: FolderList.backup ? "backup" : FolderList.folder.name;
 
-    card := Rectangle {
-        width: Math.min(root.width - 96 * Look.px, 760 * Look.tpx);
-        height: Math.min(root.height - 96 * Look.px, body.preferred-height);
-        x: (root.width - self.width) / 2;
-        y: (root.height - self.height) / 2 + (1 - reveal.move) * 24 * Look.px;
-        opacity: reveal.fade;
-        border-radius: 22 * Look.px;
-        background: @linear-gradient(180deg, Tokens.color-surface 0%, Tokens.color-panel 100%);
-        border-width: 1px;
-        border-color: Look.line;
-        drop-shadow-blur: 48 * Look.px;
-        drop-shadow-color: Tokens.color-shade.with-alpha(0.6);
-        clip: true;
-        TouchArea {}
+    // Closed by a click outside it.
+    Sheet {
+        width: parent.width;
+        height: parent.height;
+        open: root.open;
+        card-width: Math.min(root.width - 96 * Look.px, 760 * Look.tpx);
+        card-height: Math.min(root.height - 96 * Look.px, body.preferred-height);
+        outside => { FolderList.close(); }
         body := VerticalLayout {
             padding: 24 * Look.px;
             spacing: 6 * Look.px;

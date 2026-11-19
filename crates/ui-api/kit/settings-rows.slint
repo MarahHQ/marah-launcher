@@ -333,9 +333,12 @@ export component RailTab inherits Rectangle {
     property <bool> focused: Prefs.tabs && Prefs.tab-of(Prefs.section) == Prefs.tab-of(root.section);
     width: 56 * Look.px;
     height: 56 * Look.px;
-    background: root.current ? Tokens.color-tint.with-alpha(0.149) : (touch.has-hover ? Tokens.color-tint.with-alpha(0.059) : Tokens.color-tint.with-alpha(0));
+    // The lit square and the focus ring are one square the rail moves (`SettingsFrame`); here
+    // only the hover. A rail elsewhere lights its own.
+    in property <bool> lit-here: true;
+    background: root.current && root.lit-here ? Tokens.color-tint.with-alpha(0.149) : (touch.has-hover ? Tokens.color-tint.with-alpha(0.059) : Tokens.color-tint.with-alpha(0));
     border-radius: 14 * Look.px;
-    border-width: root.focused ? 3 * Look.px : 0;
+    border-width: root.focused && root.lit-here ? 3 * Look.px : 0;
     border-color: Tokens.color-tint;
     animate background { duration: Look.emphasis-time; }
     accessible-role: tab;

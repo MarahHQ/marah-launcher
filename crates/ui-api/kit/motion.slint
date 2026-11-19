@@ -1,0 +1,126 @@
+import { Tokens } from "../tokens.slint";
+import { Look } from "look.slint";
+import { Reveal } from "reveal.slint";
+
+// The kit's shared motion: how a popover, a sheet, a tooltip, a focus ring, a pressed button and
+// a bar move. Every time is `Look.timed`, so Animations off (the motion tokens at 0) stops all of
+// it, and each part is then in place at once. Motion never holds input: the keys and the pad act
+// on the new state at once, while the old one fades.
+export global Motion {
+    // A popover (a system panel) grows in from its anchor, and fades out.
+    out property <duration> popover-in: Look.timed(120ms);
+    out property <duration> popover-out: Look.timed(90ms);
+    // A sheet (the folder browser, a folder's list) slides up and fades in, and fades out.
+    out property <duration> sheet-in: Look.timed(150ms);
+    out property <duration> sheet-out: Look.timed(110ms);
+    // A tooltip: it waits under the pointer, not on key focus.
+    out property <duration> tip-in: Look.timed(80ms);
+    out property <duration> tip-wait: Look.timed(250ms);
+    out property <duration> tip-out: Look.timed(60ms);
+    // A focus ring or a lit square moves to the new item.
+    out property <duration> focus: Look.timed(90ms);
+    // A button's hover and press tint, and its press.
+    out property <duration> press: Look.timed(70ms);
+    // A bar's width, a switch's knob.
+    out property <duration> bar: Look.timed(120ms);
+    // A strong ease-out for what comes in; what goes eases in. No overshoot.
+    out property <easing> enter: cubic-bezier(0.2, 0, 0, 1);
+    // A list's rows on first open come in one step after another, at most this many steps: the
+    // rest come with the last.
+    out property <int> stagger-cap: 6;
+}
+
+// Keeps something on screen while it goes out: `shown` stays true for `time` after `open` turns
+// false. Opened again meanwhile, it stays and comes back in from where it is.
+export component Leaving {
+    in property <bool> open;
+    in property <duration> time;
+    out property <bool> shown: root.open || root.closing;
+    property <bool> closing;
+    changed open => { root.closing = !root.open && root.time > 0; }
+    Timer {
+        interval: Math.max(root.time, 1ms);
+        running: root.closing;
+        triggered => { root.closing = false; }
+    }
+}
+
+// A popover: it grows from 0.96 at its anchor's side (`origin-x`, `origin-y`, in its own
+// coordinates) and fades in; it fades out while `open` is false. Put its content inside.
+export component Popover inherits Rectangle {
+    in property <bool> open: true;
+    in property <length> origin-x;
+    in property <length> origin-y;
+    r := Reveal {
+        open: root.open;
+        move-time: root.open ? Motion.popover-in : Motion.popover-out;
+        move-easing: root.open ? Motion.enter : ease-in;
+        fade-time: root.open ? Motion.popover-in : Motion.popover-out;
+        fade-easing: root.open ? Motion.enter : ease-in;
+    }
+    opacity: r.fade;
+    transform-scale: 0.96 + 0.04 * r.move;
+    transform-origin: { x: root.origin-x, y: root.origin-y };
+    @children
+}
+
+// A sheet over everything: the wash behind fades in, and the card in the middle slides up 16 px
+// and fades in; both fade out while `open` is false. A click on the wash says `outside`; a click
+// on the card, off its rows and buttons, does nothing. Put the card's content inside.
+export component Sheet inherits Rectangle {
+    in property <bool> open: true;
+    in property <length> card-width;
+    in property <length> card-height;
+    callback outside();
+    reveal := Reveal {
+        open: root.open;
+        move-time: root.open ? Motion.sheet-in : Motion.sheet-out;
+        move-easing: root.open ? Motion.enter : ease-in;
+        fade-time: root.open ? Motion.sheet-in : Motion.sheet-out;
+        fade-easing: root.open ? Motion.enter : ease-in;
+    }
+    // The wash is drawn once and fades as a whole: no colour changes each frame.
+    Rectangle {
+        background: Tokens.color-overlay.with-alpha(0.75);
+        opacity: reveal.fade;
+    }
+    // A sheet that goes takes no click: the screen behind has them at once.
+    TouchArea { enabled: root.open; clicked => { root.outside(); } }
+    card := Rectangle {
+        width: root.card-width;
+        height: root.card-height;
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2 + (1 - reveal.move) * 16 * Look.px;
+        opacity: reveal.fade;
+        border-radius: 22 * Look.px;
+        background: @linear-gradient(180deg, Tokens.color-surface 0%, Tokens.color-panel 100%);
+        border-width: 1px;
+        border-color: Look.line;
+        drop-shadow-blur: 48 * Look.px;
+        drop-shadow-color: Tokens.color-shade.with-alpha(0.6);
+        clip: true;
+        TouchArea {}
+        @children
+    }
+}
+
+// A small label a control shows of itself: on key focus at once, under the pointer after
+// `Motion.tip-wait`. It fades in and out and takes no place in a layout: put it where it goes.
+// `name` labels it for screen readers and tests while it shows.
+export component Tooltip inherits Text {
+    in property <bool> shown;
+    // It shows for the pointer, not the keys: it waits first.
+    in property <bool> hovered;
+    in property <string> name;
+    font-size: 12 * Look.tpx;
+    color: Tokens.color-text;
+    horizontal-alignment: center;
+    opacity: root.shown ? 1 : 0;
+    animate opacity {
+        duration: root.shown ? Motion.tip-in : Motion.tip-out;
+        delay: root.shown && root.hovered ? Motion.tip-wait : 0ms;
+    }
+    accessible-role: text;
+    accessible-label: root.shown ? root.name : "";
+    accessible-value: root.shown ? self.text : "";
+}

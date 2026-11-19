@@ -3,6 +3,7 @@ import { Commands } from "commands.slint";
 import { Tokens } from "../tokens.slint";
 import { Look } from "look.slint";
 import { Reveal } from "reveal.slint";
+import { Sheet, Motion } from "motion.slint";
 import { Icon } from "icon.slint";
 import { Osk } from "keyboard.slint";
 import { Brand } from "../brand.slint";
@@ -220,7 +221,9 @@ component BrowserRow inherits Rectangle {
     height: 56 * Look.px;
     border-radius: 12 * Look.px;
     background: root.lit ? Tokens.color-focus : root.marked ? Look.fill-lit : touch.has-hover ? Look.fill : transparent;
-    animate background { duration: Look.timed(120ms); }
+    animate background { duration: Motion.focus; easing: Motion.enter; }
+    transform-scale: touch.pressed ? 0.97 : 1;
+    animate transform-scale { duration: Motion.press; }
     touch := TouchArea {
         mouse-cursor: pointer;
         clicked => { root.picked(); }
@@ -313,6 +316,9 @@ component SheetButton inherits Rectangle {
     width: Math.max(120 * Look.px, label.preferred-width + 36 * Look.px);
     border-radius: 22 * Look.px;
     background: root.lit ? (root.danger ? Tokens.color-danger : Tokens.color-focus) : touch.has-hover ? Look.fill-lit : Look.fill;
+    animate background { duration: Motion.press; }
+    transform-scale: touch.pressed ? 0.97 : 1;
+    animate transform-scale { duration: Motion.press; }
     accessible-role: button;
     accessible-label: root.name;
     accessible-item-selected: root.lit;
@@ -327,7 +333,8 @@ component SheetButton inherits Rectangle {
 }
 
 export component FolderBrowser inherits Rectangle {
-    reveal := Reveal { }
+    // False while it fades out: it takes no key or click then (`Sheet`).
+    in property <bool> open: true;
     // The clicks wait this long after one that opened something.
     Timer { interval: 400ms; running: Browser.resting; triggered => { Browser.resting = false; } }
     init => { Browser.resting = false; Browser.arrived(); }
@@ -353,26 +360,17 @@ export component FolderBrowser inherits Rectangle {
     accessible-role: groupbox;
     accessible-label: "folder-browser";
     accessible-value: Vm.browser.shown;
-    background: reveal.in-view ? Tokens.color-overlay.with-alpha(0.8) : Tokens.color-overlay.with-alpha(0);
-    animate background { duration: Tokens.motion-normal; }
-    // A click outside the sheet closes it, as Back does: a pick then picks nothing.
-    TouchArea { clicked => { Browser.close(); } }
+    property <length> card-width: Math.min(root.width - 96 * Look.px, 1400 * Look.px);
 
-    card := Rectangle {
-        width: Math.min(root.width - 96 * Look.px, 1400 * Look.px);
-        height: Math.min(root.height - 96 * Look.px, 860 * Look.px);
-        x: (root.width - self.width) / 2;
-        y: (root.height - self.height) / 2 + (1 - reveal.move) * 24 * Look.px;
-        opacity: reveal.fade;
-        border-radius: 22 * Look.px;
-        background: @linear-gradient(180deg, Tokens.color-surface 0%, Tokens.color-panel 100%);
-        border-width: 1px;
-        border-color: Look.line;
-        drop-shadow-blur: 48 * Look.px;
-        drop-shadow-color: Tokens.color-shade.with-alpha(0.6);
-        clip: true;
-        // A click inside the sheet, off its rows and buttons, does nothing.
-        TouchArea {}
+    // A click outside the sheet closes it, as Back does: a pick then picks nothing. A click
+    // inside it, off its rows and buttons, does nothing.
+    Sheet {
+        width: parent.width;
+        height: parent.height;
+        open: root.open;
+        card-width: root.card-width;
+        card-height: Math.min(root.height - 96 * Look.px, 860 * Look.px);
+        outside => { Browser.close(); }
 
         VerticalLayout {
             // The title, the path and Close.
@@ -466,7 +464,7 @@ export component FolderBrowser inherits Rectangle {
                 vertical-stretch: 1;
                 // The places.
                 Rectangle {
-                    width: Math.max(260 * Look.px, card.width * 0.24);
+                    width: Math.max(260 * Look.px, root.card-width * 0.24);
                     places := Flickable {
                         width: parent.width;
                         height: parent.height;
@@ -518,6 +516,9 @@ export component FolderBrowser inherits Rectangle {
                             padding: 12 * Look.px;
                             spacing: 4 * Look.px;
                             for entry[i] in Vm.browser.entries : BrowserRow {
+                                // The rows come in a step after another, at most a few steps.
+                                r := Reveal { order: Math.min(i, Motion.stagger-cap); }
+                                opacity: r.fade;
                                 icon: entry.folder ? "folder" : "archive";
                                 name: entry.folder ? entry.name : entry.date;
                                 detail: entry.folder ? entry.detail : entry.newer ? "Newer " + Brand.name : entry.size;
@@ -551,7 +552,7 @@ export component FolderBrowser inherits Rectangle {
 
                 // What the focused row is.
                 Rectangle {
-                    width: Math.max(300 * Look.px, card.width * 0.26);
+                    width: Math.max(300 * Look.px, root.card-width * 0.26);
                     VerticalLayout {
                         width: parent.width;
                         height: parent.height;

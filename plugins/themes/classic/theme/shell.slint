@@ -27,6 +27,7 @@ import { Lingering } from "kit/lingering.slint";
 import { GameMenu } from "kit/game-menu.slint";
 import { PowerMenu } from "kit/power-menu.slint";
 import { Browser } from "kit/folder-browser.slint";
+import { Leaving, Motion } from "kit/motion.slint";
 import { Viewer } from "kit/shot-viewer.slint";
 import { Trailers } from "kit/trailer-player.slint";
 import { Notices, NoticeStack } from "kit/notices.slint";
@@ -190,7 +191,9 @@ export component Shell inherits Window {
             width: parent.width;
             keys: root.home;
         }
-        if Sys.open >= 0 && (Vm.system.whole-screen || Sys.open == 3) : SystemSheet { width: parent.width; height: parent.height; }
+        // A panel stays while it fades out (`Leaving`).
+        sys-leaving := Leaving { open: Sys.open >= 0 && (Vm.system.whole-screen || Sys.open == 3); time: Motion.popover-out; }
+        if sys-leaving.shown : SystemSheet { width: parent.width; height: parent.height; }
 
         RunningScreen { width: parent.width; height: parent.height; }
         Overlays { width: parent.width; height: parent.height; logo: Assets.logo; }
