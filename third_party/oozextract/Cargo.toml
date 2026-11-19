@@ -25,3 +25,7 @@ bytes = "1.8.0"
 futures = "0.3.31"
 log = "0.4.22"
 wide = "0.7.28"
+
+# Its own workspace root, so cargo does not look up for one. A git worktree inside the
+# checkout would otherwise find the outer checkout's workspace (#79).
+[workspace]
