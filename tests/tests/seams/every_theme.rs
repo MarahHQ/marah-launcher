@@ -124,6 +124,52 @@ fn the_game_hub_lights_options_only_while_the_keys_are_on_its_row_in_every_theme
     }
 }
 
+/// The installed game's Game Hub, with versions and releases, starts on Play, and the hints say
+/// Play. Down on a version or on a release, Enter picks it: the hints say Select there, and
+/// Play again back on the row.
+#[test]
+fn the_hints_say_play_only_while_the_keys_are_on_the_game_hub_s_row_in_every_theme() {
+    for theme in THEMES {
+        let mut host = in_theme(theme, |h| {
+            h.plugin(FakeCatalog::kyty().build())
+                .plugin(
+                    FakeCatalog::new("emu-ps4").system("PS4").console("PS4").games(["Astro Drift"]).playable().build(),
+                )
+                .built_in(launcher_api::PluginBox::code(release_catalog::ReleaseCatalog::default()))
+        });
+        let topic = |console: &str, id: u32, title_id: &str| {
+            serde_json::json!({ "id": id.to_string(), "title": format!("[{console}] Astro Drift [EUR / v1.00]"),
+                "size": "20 GB", "magnet": format!("magnet:?xt=urn:btih:{id:040x}"),
+                "game_info": { "name": "Astro Drift", "title_id": title_id, "version": "1.00", "region": "EUR",
+                    "release_year": "2024", "publisher": "Sony" } })
+        };
+        host.serve_catalog(&[
+            ("ps5", serde_json::json!([topic("PS5", 1, "PPSA01234")])),
+            ("ps4", serde_json::json!([topic("PS4", 2, "CUSA00000")])),
+        ]);
+        host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
+        host.settle();
+        host.dispatch(Command::OpenGame("release-catalog:emu-ps4/CUSA00000".parse().unwrap()));
+        host.settle();
+        let detail = host.core().view().detail.expect("its details");
+        assert!(detail.can.play, "{theme}: the installed game plays");
+        assert_eq!(detail.versions.len(), 2, "{theme}: a version on each console");
+        let release = format!("release-{}", detail.releases[0].id);
+        let says_play = |host: &Composed| host.values("hint").iter().any(|h| h == "Play");
+        assert!(says_play(&host), "{theme}: the keys start on Play: {:?}", host.values("hint"));
+
+        host.navigate(Key::DownArrow);
+        assert!(!says_play(&host), "{theme}: on a version, Enter picks it: {:?}", host.values("hint"));
+        host.navigate(Key::DownArrow);
+        assert!(host.lit(&release), "{theme}: the keys are on the first release");
+        assert!(!says_play(&host), "{theme}: on a release, Enter picks it: {:?}", host.values("hint"));
+
+        host.navigate(Key::UpArrow);
+        host.navigate(Key::UpArrow);
+        assert!(says_play(&host), "{theme}: back on the row, on Play: {:?}", host.values("hint"));
+    }
+}
+
 #[test]
 fn the_keys_move_through_the_settings_page_and_act_on_a_row_in_every_theme() {
     for theme in THEMES {

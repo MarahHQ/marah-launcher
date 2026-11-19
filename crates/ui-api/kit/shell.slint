@@ -70,13 +70,13 @@ export global ShellHints {
             { pad: "○", key: "Esc", label: "Not now" },
         ]
         : Vm.screen == "game-detail" && trailer-key ? [
-            { pad: "✕", key: "Enter", label: Hub.shots ? "View" : Vm.detail.can.play && Hub.focus == 0 ? "Play" : "Select" },
+            { pad: "✕", key: "Enter", label: Hub.shots ? "View" : Vm.detail.can.play && Hub.on-buttons && Hub.focus == 0 ? "Play" : "Select" },
             { pad: "○", key: "Esc", label: "Back" },
             { pad: "□", key: "T", label: "Trailer" },
             { pad: "☰", key: "Menu", label: "Options" },
         ]
         : Vm.screen == "game-detail" ? [
-            { pad: "✕", key: "Enter", label: Hub.shots ? "View" : Vm.detail.can.play && Hub.focus == 0 ? "Play" : "Select" },
+            { pad: "✕", key: "Enter", label: Hub.shots ? "View" : Vm.detail.can.play && Hub.on-buttons && Hub.focus == 0 ? "Play" : "Select" },
             { pad: "○", key: "Esc", label: "Back" },
             { pad: "☰", key: "Menu", label: "Options" },
         ]
