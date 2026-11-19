@@ -1,6 +1,7 @@
 import { Tokens } from "../tokens.slint";
 import { Look } from "look.slint";
 import { Icon } from "icon.slint";
+import { Card } from "motion.slint";
 
 // The kit's widgets, at the 1080p sizes, scaled by `Look.k`.
 
@@ -310,10 +311,12 @@ export component Cover inherits Rectangle {
     Rectangle {
         border-radius: root.radius;
         clip: true;
-        if !root.loaded : Rectangle {
+        if !root.loaded : Card {
             // Its own radius too: a renderer that clips square still draws it round.
             border-radius: root.radius;
-            background: Look.console-art(root.system-color);
+            top: Look.console-art-top(root.system-color);
+            bottom: Look.console-art-bottom(root.system-color);
+            edge: transparent;
             Shimmer { active: root.loading; accessible-role: text; accessible-label: root.loading ? "cover-loading" : ""; }
             if !root.loading : Text {
                 accessible-role: text;

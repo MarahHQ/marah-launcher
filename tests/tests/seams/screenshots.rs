@@ -1631,24 +1631,32 @@ fn library(home: &Path) -> Composed {
 
 /// Fails unless the card that holds the element labelled `inside` has round corners in the
 /// picture `name`: its top-left corner shows what is outside the card, not the card's fill. The
-/// card's edges are found from the element: left and up from it, the first dark pixel is outside.
+/// card's edges are found from the element: left from its middle and up from it, the first dark
+/// pixel is outside.
 fn round_corners(host: &Composed, out: &Path, name: &str, inside: &str) {
+    round_corners_of(host, out, name, inside, 0);
+}
+
+/// [`round_corners`] for the `nth` element labelled `inside`, counted from 0.
+fn round_corners_of(host: &Composed, out: &Path, name: &str, inside: &str, nth: usize) {
     let png = image::open(out.join(format!("{name}.png"))).unwrap().to_rgba8();
-    let found = i_slint_backend_testing::ElementHandle::find_by_accessible_label(host.instance(), inside).next();
-    let at = found.unwrap_or_else(|| panic!("{name}: no {inside}")).absolute_position();
-    let (x, y) = ((at.x as u32).saturating_sub(4), at.y as u32 + 4);
+    let found = i_slint_backend_testing::ElementHandle::find_by_accessible_label(host.instance(), inside).nth(nth);
+    let element = found.unwrap_or_else(|| panic!("{name}: no {inside} number {nth}"));
+    let (at, size) = (element.absolute_position(), element.size());
+    let (x, y) = ((at.x as u32).saturating_sub(4), (at.y + size.height / 2.0) as u32);
     let dark = |p: &image::Rgba<u8>| u32::from(p[0]) + u32::from(p[1]) + u32::from(p[2]) < 45;
     let left = (0..x).rev().find(|&i| dark(png.get_pixel(i, y))).expect("the card's left edge") + 1;
     let top = (0..y).rev().find(|&j| dark(png.get_pixel(x, j))).expect("the card's top edge") + 1;
     let fill = png.get_pixel(left + 8, y);
-    let corner = png.get_pixel(left + 2, top + 2);
+    // One pixel in: outside even a small card's curve, still in a square card's fill.
+    let corner = png.get_pixel(left + 1, top + 1);
     let outside = png.get_pixel(left.saturating_sub(3), top.saturating_sub(3));
     let near = |a: &image::Rgba<u8>, b: &image::Rgba<u8>| (0..3).all(|c| a[c].abs_diff(b[c]) <= 12);
     assert!(
         near(corner, outside) && !near(corner, fill),
         "{name}: the corner at ({}, {}) is {corner:?}, the card's fill {fill:?}, outside {outside:?}",
-        left + 2,
-        top + 2
+        left + 1,
+        top + 1
     );
 }
 
@@ -1699,6 +1707,25 @@ fn the_install_prompt_renders_in_each_theme() {
         shoot(&window, &out.join(format!("{theme}-install-prompt.png")));
         round_corners(&host, &out, &format!("{theme}-install-prompt"), "install-prompt");
         host.dispatch(Command::CancelInstall);
+    }
+}
+
+/// A game with no cover shows its system's art and its name: in each built-in theme's Catalog,
+/// as `<theme>-catalog-no-cover.png`.
+#[test]
+fn a_game_without_a_cover_shows_round_corners_in_each_theme() {
+    let (window, out) = offscreen();
+    let home = tempfile::tempdir().unwrap();
+    let mut host = library(home.path());
+    for theme in [theme_classic::ID, theme_default::ID] {
+        host.ui.switch(&id(theme)).unwrap();
+        host.dispatch(Command::Notice(launcher_core::NoticeCmd::DismissAll));
+        host.dispatch(Command::Navigate(Route::Catalog));
+        host.load_images();
+        follow(&mut host);
+        shoot(&window, &out.join(format!("{theme}-catalog-no-cover.png")));
+        // The second: the first has the focus, and its ring around it in Classic.
+        round_corners_of(&host, &out, &format!("{theme}-catalog-no-cover"), "cover-name", 1);
     }
 }
 
