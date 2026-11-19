@@ -65,6 +65,8 @@ pub struct FakeCatalog {
     sources: Arc<Mutex<Vec<HostPath>>>,
     install_note: Option<String>,
     in_folders: bool,
+    /// How many of the `games` folder's folders the games spread over.
+    roots: u32,
     keymap: Vec<(String, String)>,
     requires: Option<String>,
     /// Its system's art, in its assets: `system/icon.png` and `system/cover.png`.
@@ -96,6 +98,7 @@ impl FakeCatalog {
             sources: Arc::default(),
             install_note: None,
             in_folders: false,
+            roots: 1,
             keymap: Vec::new(),
             requires: None,
             icon: None,
@@ -239,6 +242,14 @@ impl FakeCatalog {
         self
     }
 
+    /// As [`FakeCatalog::in_folders`], with game `i` in the folder `i % roots` of the `games`
+    /// folder.
+    pub fn in_folders_over(mut self, roots: u32) -> Self {
+        self.in_folders = true;
+        self.roots = roots.max(1);
+        self
+    }
+
     /// It may read the packages folder, where a catalog's downloads go.
     pub fn reads_packages(mut self) -> Self {
         self.packages = true;
@@ -350,6 +361,7 @@ impl FakeCatalog {
                 details_fail: self.details_fail,
                 quiet: self.quiet,
                 in_folders: self.in_folders,
+                roots: self.roots,
             });
             let mut provided = Provided { catalog: Some(games.clone()), ..Provided::default() };
             if self.slots {
@@ -405,6 +417,8 @@ struct Games {
     quiet: bool,
     /// Each game's folder is `<title>` in the `games` folder.
     in_folders: bool,
+    /// Game `i` is in the folder `i % roots` of the `games` folder.
+    roots: u32,
 }
 
 #[async_trait]
@@ -443,9 +457,10 @@ impl Catalog for Games {
         let summary = self.list(PageRequest::ALL).await?.items.into_iter().find(|g| g.id == game);
         let summary = summary.ok_or_else(|| PluginError::NotFound(game.into()))?;
         let folder = self.in_folders.then(|| {
+            let at: u32 = game.trim_start_matches('G').parse().unwrap_or(0);
             launcher_api::HostPath::new(
                 "games",
-                0,
+                at % self.roots,
                 launcher_api::RelPath::new(summary.title.clone()).expect("a plain title"),
             )
         });

@@ -31,7 +31,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use futures::StreamExt;
 use launcher_core::{Command, Core, HostConfig, Kernel, TokioClock};
@@ -50,6 +50,7 @@ use theme_classic as _;
 use theme_default as _;
 
 fn main() {
+    let launched = Instant::now();
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
@@ -74,7 +75,7 @@ fn main() {
         }
     };
     update::apply_launcher_update(&args.data_dir);
-    if let Err(message) = run(args) {
+    if let Err(message) = run(args, launched) {
         tracing::error!("{message}");
         eprintln!("launcher: {message}");
         std::process::exit(1);
@@ -85,6 +86,8 @@ fn main() {
 const SHUTDOWN_LIMIT: Duration = Duration::from_secs(10);
 /// How long after the shutdown's limit the app ends anyway, whatever still runs.
 const EXIT_MARGIN: Duration = Duration::from_secs(5);
+/// How long after the start the app logs how its renders went.
+const STARTUP_WINDOW: Duration = Duration::from_secs(10);
 
 /// What the UI thread owns.
 struct App {
@@ -104,7 +107,7 @@ fn with_app(f: impl FnOnce(&mut App)) {
     });
 }
 
-fn run(args: args::Args) -> Result<(), String> {
+fn run(args: args::Args, launched: Instant) -> Result<(), String> {
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().map_err(|e| e.to_string())?;
     let mut host = HostConfig::new(&args.data_dir);
     host.home = args::home_dir();
@@ -132,7 +135,13 @@ fn run(args: args::Args) -> Result<(), String> {
             tracing::warn!(source = %rejected.source, error = %rejected.error, "plugin not loaded");
         }
         tracing::info!(plugins = ?report.order, "booted");
+        let booted = launched.elapsed();
         let core = Core::start(kernel).await;
+        tracing::info!(
+            boot_ms = booted.as_millis(),
+            core_ms = (launched.elapsed() - booted).as_millis(),
+            "core started"
+        );
         for (name, paths) in &args.folders {
             core.dispatch(Command::SetFolders { name: name.clone(), paths: paths.clone() })
                 .await
@@ -146,6 +155,7 @@ fn run(args: args::Args) -> Result<(), String> {
     let restart = Arc::new(AtomicBool::new(false));
     let system =
         platform::SystemPlatform { runtime: handle.clone(), player: audio::Player::start(), restart: restart.clone() };
+    core.mark_ui_thread();
     let thumbs = args.data_dir.join("cache/thumbs");
     let options = ShellOptions { dev: args.dev, monitor: args.monitor.clone(), thumbs: thumbs.clone() };
     let mut shell = runtime.block_on(AppShell::new(core.clone(), Rc::new(system), Arc::new(TokioClock), options));
@@ -156,10 +166,13 @@ fn run(args: args::Args) -> Result<(), String> {
     }
     #[cfg(target_os = "macos")]
     shell.ui.set_fullscreen_with(Box::new(platform::simple_fullscreen));
+    let theme_started = Instant::now();
     shell
         .ui
         .start_with(args.theme.clone())
         .map_err(|e| format!("no theme started, not even the fallback theme: {e}"))?;
+    tracing::info!(theme_ms = theme_started.elapsed().as_millis(), "theme shown");
+    on_first_frame(&shell, launched);
     handle.spawn_blocking(move || launcher_ui_host::sweep_thumbs(&thumbs));
     APP.with(|app| *app.borrow_mut() = Some(App { shell }));
 
@@ -192,7 +205,15 @@ fn run(args: args::Args) -> Result<(), String> {
     });
 
     let timer = slint::Timer::default();
-    timer.start(slint::TimerMode::Repeated, launcher_ui_host::TICK, || with_app(|app| app.shell.on_tick()));
+    let mut loaded = false;
+    let ticked = core.clone();
+    timer.start(slint::TimerMode::Repeated, launcher_ui_host::TICK, move || {
+        with_app(|app| app.shell.on_tick());
+        if !loaded && ticked.booted() {
+            loaded = true;
+            tracing::info!(after_ms = launched.elapsed().as_millis(), "the first library load is done");
+        }
+    });
 
     // The first scan of the game folders, in the background: the first frame doesn't wait.
     {
@@ -200,9 +221,16 @@ fn run(args: args::Args) -> Result<(), String> {
         core.scan_soon();
     }
     with_app(|app| {
+        let rendered = Instant::now();
         if let Err(error) = app.shell.render() {
             tracing::error!(%error, "render failed");
         }
+        tracing::info!(render_ms = rendered.elapsed().as_millis(), "the first render bound the view");
+    });
+    let window = slint::Timer::default();
+    let timed = core.clone();
+    window.start(slint::TimerMode::SingleShot, STARTUP_WINDOW, move || {
+        with_app(|app| log_timings(&timed, &app.shell, launched));
     });
 
     slint_interpreter::run_event_loop().map_err(|e| e.to_string())?;
@@ -216,6 +244,7 @@ fn run(args: args::Args) -> Result<(), String> {
         std::process::exit(0);
     });
     drop(timer);
+    drop(window);
     APP.with(|app| app.borrow_mut().take());
     tracing::info!("the UI is closed");
     // While the runtime runs: the torrents write down their pieces on its tasks. A shutdown
@@ -229,4 +258,49 @@ fn run(args: args::Args) -> Result<(), String> {
         update::restart();
     }
     Ok(())
+}
+
+/// Logs, once, how long after the start the window drew its first frame.
+fn on_first_frame(shell: &AppShell, launched: Instant) {
+    use slint_interpreter::ComponentHandle;
+    let Some(instance) = shell.ui.instance() else { return };
+    let mut drawn = false;
+    let notifier = instance.window().set_rendering_notifier(move |state, _| {
+        if !drawn && matches!(state, slint::RenderingState::AfterRendering) {
+            drawn = true;
+            tracing::info!(after_ms = launched.elapsed().as_millis(), "the first frame is drawn");
+        }
+    });
+    if let Err(error) = notifier {
+        tracing::debug!(%error, "the renderer doesn't say when it draws");
+    }
+}
+
+/// Logs how the renders went since the start: how many, how long, the part in the disk reads,
+/// and the UI thread's waits for the core's state lock.
+fn log_timings(core: &Core, shell: &AppShell, launched: Instant) {
+    let core = core.timings();
+    let ui = shell.timings();
+    let ms = |d: Duration| d.as_secs_f64() * 1000.0;
+    tracing::info!(
+        after_s = launched.elapsed().as_secs(),
+        renders = ui.renders.count,
+        render_mean_ms = ms(ui.renders.mean()),
+        render_worst_ms = ms(ui.renders.worst),
+        render_total_ms = ms(ui.renders.total),
+        image_renders = ui.images.count,
+        image_total_ms = ms(ui.images.total),
+        views = core.views.count,
+        view_mean_ms = ms(core.views.mean()),
+        snapshot_mean_ms = ms(core.snapshots.mean()),
+        snapshot_worst_ms = ms(core.snapshots.worst),
+        files_mean_ms = ms(core.files.mean()),
+        files_share = core.files.total.as_secs_f64() / ui.renders.total.as_secs_f64().max(f64::EPSILON),
+        poll_worst_ms = ms(ui.polls.worst),
+        tick_worst_ms = ms(ui.ticks.worst),
+        lock_waits = core.ui_lock_waits.count,
+        lock_wait_total_ms = ms(core.ui_lock_waits.total),
+        lock_wait_worst_ms = ms(core.ui_lock_waits.worst),
+        "the renders since the start"
+    );
 }

@@ -28,5 +28,7 @@ pub use host::{Requests, ThemeHost, TrailerRequest, TrailerStatus, UiRequest, vm
 pub use images::{Crop, ImageKey, ImageSize, MAX_HEIGHT, MAX_WIDTH, Prepared, StillWanted, prepare};
 pub use input::{PadAction, PadButton};
 pub use loader::sweep_thumbs;
-pub use shell::{AppShell, IMAGES_GAP, Platform, RENDER_GAP, RequestQueue, ShellOptions, TICK, TrailerPoll};
+pub use shell::{
+    AppShell, IMAGES_GAP, Platform, RENDER_GAP, RequestQueue, ShellOptions, ShellTimings, TICK, TrailerPoll,
+};
 pub use themes::{InstalledTheme, ResolvedTheme, ThemeSet};

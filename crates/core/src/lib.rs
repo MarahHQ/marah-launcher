@@ -66,6 +66,7 @@ mod startup;
 mod storage;
 pub mod system;
 mod themes;
+mod timings;
 mod torrents;
 mod typed_text;
 mod uninstall;
@@ -104,6 +105,7 @@ pub use ratings::RatingsCmd;
 pub use sessions::SessionCmd;
 pub use storage::DirStorage;
 pub use themes::{DataTheme, DirFiles};
+pub use timings::{CoreTimings, Timed};
 pub use torrents::{TorrentAction, TorrentCmd};
 /// The path checks every unpacker runs before it writes.
 pub use unpack::{inside, link_stays_inside, stays_inside};

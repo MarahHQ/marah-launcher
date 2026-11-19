@@ -17,7 +17,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
 use futures::future::BoxFuture;
-use launcher_core::{Clock, Core};
+use launcher_core::{Clock, Core, Timed};
 use launcher_ui_api::ThemeError;
 use slint_interpreter::ComponentHandle;
 
@@ -121,6 +121,8 @@ pub struct AppShell {
     monitors: Monitors,
     /// How many times the shell rendered.
     rendered: u64,
+    /// How long the shell's work on the UI thread took.
+    timings: ShellTimings,
     /// Where Log out is: `Closing` while the core closes what runs, `Left` once the shell told
     /// the session and quit.
     log_out: LogOutStep,
@@ -166,6 +168,7 @@ impl AppShell {
             dev: options.dev,
             monitors: Monitors { flag, ..Monitors::default() },
             rendered: 0,
+            timings: ShellTimings::default(),
             log_out: LogOutStep::NotAsked,
         }
     }
@@ -180,9 +183,20 @@ impl AppShell {
         self.rendered
     }
 
+    /// How long the shell's work on the UI thread took so far.
+    pub fn timings(&self) -> ShellTimings {
+        self.timings
+    }
+
     /// Does what waits on the UI thread: the theme's requests, the images that came in, and a
     /// render whose time came.
     pub fn poll(&mut self) {
+        let started = Instant::now();
+        self.poll_untimed();
+        add(&mut self.timings.polls, started.elapsed());
+    }
+
+    fn poll_untimed(&mut self) {
         let requests = std::mem::take(&mut *self.requests.borrow_mut());
         for request in requests {
             if let Err(error) = self.on_request(request) {
@@ -286,6 +300,12 @@ impl AppShell {
     /// the window's size, the clock's minute or the trailer changed, while the boot screen
     /// waits for Home's art, and every 15 s while a game runs.
     pub fn on_tick(&mut self) {
+        let started = Instant::now();
+        self.tick_untimed();
+        add(&mut self.timings.ticks, started.elapsed());
+    }
+
+    fn tick_untimed(&mut self) {
         if self.dev {
             match self.ui.reload_if_changed() {
                 Ok(true) => tracing::info!("theme reloaded"),
@@ -341,10 +361,13 @@ impl AppShell {
 
     /// Shows the current state now, and starts loading the images it needs.
     pub fn render(&mut self) -> Result<(), ThemeError> {
+        let _span = tracing::debug_span!("render", n = self.rendered + 1).entered();
+        let started = Instant::now();
         self.renders.rendered(self.clock.now());
         self.rendered += 1;
         let shown = self.ui.render();
         self.load_wanted();
+        add(&mut self.timings.renders, started.elapsed());
         shown
     }
 
@@ -373,10 +396,12 @@ impl AppShell {
 
     /// Shows the images that came in, with the view already bound: nothing in the core changed.
     fn show_images(&mut self) -> Result<(), ThemeError> {
+        let started = Instant::now();
         self.renders.rendered(self.clock.now());
         self.rendered += 1;
         let shown = self.ui.render_images();
         self.load_wanted();
+        add(&mut self.timings.images, started.elapsed());
         shown
     }
 
@@ -446,6 +471,26 @@ impl AppShell {
             self.ui.set_monitors(names);
         }
     }
+}
+
+/// How long the shell's work on the UI thread took: each a count, a total and the longest.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ShellTimings {
+    /// The renders that asked the core for a new view. Images shown with the view already
+    /// bound aren't counted.
+    pub renders: Timed,
+    /// The images shown with the view already bound.
+    pub images: Timed,
+    /// [`AppShell::poll`], whole: the requests, the images and the renders due.
+    pub polls: Timed,
+    /// [`AppShell::on_tick`], whole.
+    pub ticks: Timed,
+}
+
+fn add(timed: &mut Timed, took: Duration) {
+    timed.count += 1;
+    timed.total += took;
+    timed.worst = timed.worst.max(took);
 }
 
 /// Where the window is, and what Settings lists.

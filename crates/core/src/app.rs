@@ -271,6 +271,8 @@ pub(crate) struct Inner {
     pub reading_catalogs: tokio::sync::Mutex<()>,
     /// The library's scans: one at a time (`library_reads::refresh_library`).
     pub scans: crate::library_reads::Scans,
+    /// How long the reads for a render take, and the UI thread's waits for the state lock.
+    pub timings: crate::timings::Timings,
 }
 
 /// The app. Cheap to clone; every clone is the same app.
@@ -418,6 +420,7 @@ impl Core {
                 vpn,
                 reading_catalogs: tokio::sync::Mutex::new(()),
                 scans: Default::default(),
+                timings: Default::default(),
             }
         });
         let core = Core { inner };
@@ -525,7 +528,30 @@ impl Core {
     }
 
     pub(crate) fn state(&self) -> MutexGuard<'_, AppState> {
-        self.inner.state.lock().unwrap_or_else(|p| p.into_inner())
+        match self.inner.state.try_lock() {
+            Ok(state) => state,
+            Err(std::sync::TryLockError::Poisoned(p)) => p.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                let started = std::time::Instant::now();
+                let state = self.inner.state.lock().unwrap_or_else(|p| p.into_inner());
+                if self.inner.timings.on_ui_thread() {
+                    self.inner.timings.ui_lock_waits.add(started.elapsed());
+                }
+                state
+            }
+        }
+    }
+
+    /// Marks the calling thread as the UI's: its waits for the state lock are counted in
+    /// [`Core::timings`].
+    pub fn mark_ui_thread(&self) {
+        let _ = self.inner.timings.ui_thread.set(std::thread::current().id());
+    }
+
+    /// How long the reads for a render took since the core started, and how long the UI thread
+    /// waited for the state lock.
+    pub fn timings(&self) -> crate::CoreTimings {
+        self.inner.timings.read()
     }
 
     /// Each change of the state, by its area, from now on. The app renders on
@@ -551,13 +577,20 @@ impl Core {
     /// subsystems are read before that state, as the core never holds its lock while it takes a
     /// subsystem's.
     pub(crate) fn snapshot(&self) -> Snapshot<'_> {
+        self.inner.timings.snapshots.time(|| self.read_snapshot())
+    }
+
+    fn read_snapshot(&self) -> Snapshot<'_> {
         let kernel = self.kernel();
         let library = self.library().snapshot();
         let torrents = self.torrents().snapshot();
         let builds = self.builds().snapshot();
         let state = self.state().clone();
         let detail_game = crate::snapshot::detail_game(&state);
-        let files = crate::snapshot::files(kernel, &library, &torrents, detail_game.as_ref());
+        let files = self.inner.timings.files.time(|| {
+            let _span = tracing::debug_span!("snapshot_files").entered();
+            crate::snapshot::files(kernel, &library, &torrents, detail_game.as_ref())
+        });
         Snapshot {
             plugins: crate::snapshot::Plugins::new(kernel),
             installs: self.installs().snapshot(),
@@ -589,7 +622,8 @@ impl Core {
     /// The view models for the current state. A read: it changes nothing. Off the Catalog, its
     /// grid stands as [`Core::keep_catalog_grid`] kept it.
     pub fn view(&self) -> AppView {
-        view::build(&self.snapshot())
+        let _span = tracing::debug_span!("view_build").entered();
+        self.inner.timings.views.time(|| view::build(&self.snapshot()))
     }
 
     /// Keeps the Catalog's grid as it is built now, to stand on the other screens: the Catalog
