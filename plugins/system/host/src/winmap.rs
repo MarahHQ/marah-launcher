@@ -77,7 +77,7 @@ pub fn wifi(seen: Vec<Seen>) -> Vec<WifiNetwork> {
             }),
         }
     }
-    networks.sort_by(|a, b| b.signal.cmp(&a.signal));
+    networks.sort_by_key(|n| std::cmp::Reverse(n.signal));
     networks
 }
 
@@ -238,7 +238,8 @@ mod tests {
 
     #[test]
     fn each_network_shows_once_with_what_its_entries_say_strongest_first() {
-        let seen = |ssid: &[u8], signal, saved, active| Seen { ssid: ssid.to_vec(), signal, secured: true, saved, active };
+        let seen =
+            |ssid: &[u8], signal, saved, active| Seen { ssid: ssid.to_vec(), signal, secured: true, saved, active };
         let list = wifi(vec![
             seen(b"Cafe", 40, false, false),
             seen(b"Home", 70, true, true),
@@ -317,7 +318,10 @@ mod tests {
         assert_eq!(disk_name(2), r"\\.\PhysicalDrive2");
         assert_eq!(disk_number(&disk_name(12)), Some(12));
         assert_eq!(disk_number("E:\\"), None);
-        assert_eq!(volume_id(r"\\?\Volume{6B29FC40-CA47-1067-B31D-00DD010662DA}\"), "6b29fc40-ca47-1067-b31d-00dd010662da");
+        assert_eq!(
+            volume_id(r"\\?\Volume{6B29FC40-CA47-1067-B31D-00DD010662DA}\"),
+            "6b29fc40-ca47-1067-b31d-00dd010662da"
+        );
         assert_eq!(volume_id("E:\\"), "");
     }
 }
