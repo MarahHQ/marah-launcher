@@ -430,7 +430,9 @@ fn a_work_folder_out_of_reach_at_the_start_goes_at_a_later_start() {
     s.installs.clean_up(|p| (p == &plugin()).then(|| s.folders()));
 
     let kept = s.config.get(&["app", "game_installs"]);
-    assert_eq!(kept.as_object().map(|r| r.values().collect::<Vec<_>>()), Some(vec![&left]), "kept: {kept}");
+    // The kept record names its games folder by path too.
+    let named = serde_json::json!({ "plugin": "emu-g", "work": at("games", "astro.part"), "games": drive });
+    assert_eq!(kept.as_object().map(|r| r.values().collect::<Vec<_>>()), Some(vec![&named]), "kept: {kept}");
     // This run's install 1 comes and goes, and leaves the last run's record as it was.
     s.installs.inner.records.save(JobId(1), &plugin(), &at("games", "quest.part"));
     s.installs.inner.records.forget(JobId(1));
@@ -442,4 +444,103 @@ fn a_work_folder_out_of_reach_at_the_start_goes_at_a_later_start() {
 
     assert!(!drive.join("astro.part").exists());
     assert_eq!(s.config.get(&["app", "game_installs"]), serde_json::json!({}));
+}
+
+/// Sets the player's games folders.
+fn games_folders(s: &Setup, folders: &[&Path]) {
+    let list: Vec<String> = folders.iter().map(|f| f.display().to_string()).collect();
+    s.config.set(&["app", "folders", "games"], serde_json::json!(list)).unwrap();
+}
+
+/// Saves what the last run left: an install of `astro` at games root `root`.
+fn left_at(s: &Setup, root: u32) {
+    let work = HostPath::new("games", root, RelPath::new("astro.part").unwrap());
+    let left = serde_json::json!({ "plugin": "emu-g", "work": work });
+    s.config.set(&["app", "game_installs"], serde_json::json!({ "1": left })).unwrap();
+}
+
+fn clean_up(s: &Setup) {
+    s.installs.clean_up(|p| (p == &plugin()).then(|| s.folders()));
+}
+
+fn records(s: &Setup) -> serde_json::Value {
+    s.config.get(&["app", "game_installs"])
+}
+
+#[test]
+fn a_kept_record_finds_its_games_folder_by_path_when_the_list_changes() {
+    let s = setup();
+    let (a, b) = (s.games.path().join("a"), s.games.path().join("b"));
+    std::fs::create_dir_all(b.join("other")).unwrap();
+    // Drive `a` isn't plugged in.
+    games_folders(&s, &[&a, &b]);
+    left_at(&s, 0);
+    clean_up(&s);
+
+    // The player puts `b` first, and drive `a` is back.
+    games_folders(&s, &[&b, &a]);
+    std::fs::create_dir_all(a.join("astro.part")).unwrap();
+    std::fs::create_dir_all(b.join("astro.part")).unwrap();
+    clean_up(&s);
+
+    assert!(!a.join("astro.part").exists(), "the work folder on `a` goes");
+    assert!(b.join("astro.part").is_dir(), "the folder of the same name on `b` stays");
+    assert_eq!(records(&s), serde_json::json!({}));
+}
+
+#[test]
+fn a_kept_record_whose_games_folder_left_the_settings_is_dropped() {
+    let s = setup();
+    let (a, b) = (s.games.path().join("a"), s.games.path().join("b"));
+    std::fs::create_dir_all(b.join("astro.part")).unwrap();
+    games_folders(&s, &[&a, &b]);
+    left_at(&s, 0);
+    clean_up(&s);
+
+    // The player removes `a` from Settings: index 0 is `b` now.
+    games_folders(&s, &[&b]);
+    clean_up(&s);
+
+    assert!(b.join("astro.part").is_dir(), "nothing on `b` goes");
+    assert_eq!(records(&s), serde_json::json!({}), "the record is dropped");
+}
+
+#[test]
+fn a_record_whose_games_root_is_gone_from_the_list_is_dropped() {
+    let s = setup();
+    games_folders(&s, &[s.games.path()]);
+    left_at(&s, 3);
+    clean_up(&s);
+
+    assert_eq!(records(&s), serde_json::json!({}));
+}
+
+#[test]
+fn an_empty_games_folder_is_a_drive_not_mounted_and_its_record_waits() {
+    let s = setup();
+    // A mount point stays as an empty folder while its drive is away.
+    let mount = s.games.path().join("mnt");
+    std::fs::create_dir_all(&mount).unwrap();
+    games_folders(&s, &[&mount]);
+    left_at(&s, 0);
+    clean_up(&s);
+
+    assert_eq!(records(&s).as_object().map(serde_json::Map::len), Some(1), "kept: {}", records(&s));
+
+    // The drive is mounted again.
+    std::fs::create_dir_all(mount.join("astro.part")).unwrap();
+    clean_up(&s);
+
+    assert!(!mount.join("astro.part").exists());
+    assert_eq!(records(&s), serde_json::json!({}));
+}
+
+#[test]
+fn a_games_folder_with_files_but_no_work_folder_drops_the_record() {
+    let s = setup();
+    std::fs::create_dir_all(s.games.path().join("quest")).unwrap();
+    left_at(&s, 0);
+    clean_up(&s);
+
+    assert_eq!(records(&s), serde_json::json!({}));
 }

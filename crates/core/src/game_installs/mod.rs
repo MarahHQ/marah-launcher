@@ -39,6 +39,7 @@ use futures::future::BoxFuture;
 use launcher_api::{GameInstaller, HostPath, InstallJob, InstalledGame, JobId, PluginError, PluginId, PluginResult};
 use serde::{Deserialize, Serialize};
 
+use self::records::Left;
 pub(crate) use self::records::Records;
 use crate::archives::UnpackPhase;
 use crate::changes::{Area, Notifier};
@@ -587,37 +588,81 @@ impl GameInstallsSubsystem {
 
     /// Removes the work folders of installs that were running when the app last stopped.
     /// `folders` gives a plugin's folders, to find them on disk. A work folder out of reach (its
-    /// plugin isn't loaded, or its games folder isn't there, as a drive not plugged in) keeps its
-    /// record for the next start.
+    /// plugin isn't loaded, or its games folder isn't there or is empty, as a drive not plugged
+    /// in) keeps its record for the next start. A record whose games folder the player removed from Settings
+    /// goes.
     pub fn clean_up(&self, folders: impl Fn(&PluginId) -> Option<HostFolders>) {
         let mut kept = Vec::new();
-        for (plugin, work) in self.inner.records.take_all() {
-            let Some(folders) = folders(&plugin) else {
-                tracing::info!(%plugin, "an interrupted install's plugin isn't loaded: its folder waits");
-                kept.push((plugin, work));
+        for left in self.inner.records.take_all() {
+            let Some(folders) = folders(&left.plugin) else {
+                tracing::warn!(plugin = %left.plugin, "an interrupted install's plugin isn't loaded: its folder waits");
+                kept.push(left);
                 continue;
             };
-            let games = HostPath::new(work.folder.clone(), work.root, launcher_api::RelPath::root());
-            match (folders.resolve(&games), folders.resolve(&work)) {
-                (Ok(games), Ok(path)) if games.is_dir() => {
-                    if path.exists() {
-                        tracing::info!(path = %path.display(), "removing an install the app stopped in the middle of");
-                        if let Err(e) = std::fs::remove_dir_all(&path) {
-                            tracing::warn!(error = %e, "could not remove it");
-                        }
+            let (work, games) = match games_folder(&folders, &left) {
+                Ok(Some(found)) => found,
+                Ok(None) => {
+                    tracing::warn!(
+                        plugin = %left.plugin,
+                        work = %left.work.path,
+                        "an interrupted install's games folder is no longer in Settings: its record goes"
+                    );
+                    continue;
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "an interrupted install's folder is out of reach: it waits");
+                    kept.push(left);
+                    continue;
+                }
+            };
+            // A drive that isn't mounted can leave its mount point as an empty folder, so an
+            // empty games folder counts as not there. The work folder is in it, so a games
+            // folder with nothing in it holds no work folder to remove either.
+            match folders.resolve(&work) {
+                Ok(path) if path.exists() => {
+                    tracing::info!(path = %path.display(), "removing an install the app stopped in the middle of");
+                    if let Err(e) = std::fs::remove_dir_all(&path) {
+                        tracing::warn!(error = %e, "could not remove it");
                     }
                 }
-                (Ok(games), Ok(_)) => {
-                    tracing::info!(folder = %games.display(), "an interrupted install's games folder isn't there: it waits");
-                    kept.push((plugin, work));
+                Ok(_) if holds_something(&games) => {}
+                Ok(_) => {
+                    tracing::warn!(folder = %games.display(), "an interrupted install's games folder isn't there or is empty: it waits");
+                    kept.push(Left { work, games: Some(games), ..left });
                 }
-                (Err(e), _) | (_, Err(e)) => {
+                Err(e) => {
                     tracing::warn!(error = %e, "an interrupted install's folder is out of reach: it waits");
-                    kept.push((plugin, work));
+                    kept.push(Left { work, games: Some(games), ..left });
                 }
             }
         }
         self.inner.records.keep(&kept);
+    }
+}
+
+/// `folder` is a folder with at least one entry.
+fn holds_something(folder: &std::path::Path) -> bool {
+    std::fs::read_dir(folder).is_ok_and(|mut entries| entries.next().is_some())
+}
+
+/// The work folder of `left` at its games folder's place in the list now, and that folder.
+/// A kept record finds its games folder by path; a record a crash left, by its place.
+/// `None` when the folder is no longer in the player's list. A list the player didn't save
+/// leaves out a default folder that isn't there now, so then the record waits: an error.
+fn games_folder(folders: &HostFolders, left: &Left) -> PluginResult<Option<(HostPath, PathBuf)>> {
+    let (roots, saved) = folders.roots_of(&left.work.folder)?;
+    let found = match &left.games {
+        Some(games) => roots.iter().position(|r| r == games),
+        None => Some(left.work.root as usize).filter(|&i| i < roots.len()),
+    };
+    match found {
+        Some(i) => {
+            let root = u32::try_from(i).map_err(|e| PluginError::Other(e.to_string()))?;
+            let work = HostPath::new(left.work.folder.clone(), root, left.work.path.clone());
+            Ok(Some((work, roots[i].clone())))
+        }
+        None if saved => Ok(None),
+        None => Err(PluginError::NotFound(format!("folder {:?} isn't listed now", left.work.folder))),
     }
 }
 
