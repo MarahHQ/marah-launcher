@@ -266,7 +266,11 @@ The demo also runs the launcher with no network through `unshare` (util-linux).
   `scripts/check.sh fmt` when Rust files change.
 - Before each push: `scripts/check.sh clippy` and `scripts/check.sh test`.
 
-The cargo hooks run `scripts/check.sh`, the same check as `make check` and CI.
+The cargo hooks run `scripts/check.sh`, the same check as `make check` and CI. CI also runs
+clippy on Windows and macOS, so code for those systems must compile there too. To check the
+system plugin for Windows from Linux, run `rustup target add x86_64-pc-windows-gnu`, then
+`cargo clippy -p system-host --all-targets --target x86_64-pc-windows-gnu -- -D warnings`. The
+whole workspace also needs the MinGW C compiler (`x86_64-w64-mingw32-gcc`) for its C libraries.
 `make hooks-install` installs both stages. `make hooks-run` runs the hooks on every file.
 
 ## The product's names
