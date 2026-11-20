@@ -239,9 +239,12 @@ Three tools make pictures of the app:
   window. The PNG files go to `target/tmp/screenshots/`, at 1280 × 760. Look at them after a
   theme change: the pull request template asks for it.
 - **`scripts/record_demo.sh`** records the README demo, `docs/demo/demo-loop.webp`. It runs
-  the release build on a hidden display (Xvfb) at 1920 × 1080, with a temporary home folder,
-  five sample PC games and no network, and drives it with key presses. It keeps the WebP under
-  2000 KB, below the git hook's limit. Linux only.
+  the release build on a hidden display (Xvfb) at 1920 × 1080, with a temporary home folder
+  and no network, and drives it with key presses. It shows five sample PC games, or your own
+  games with `--library ~/.local/share/marah-launcher`: the launcher then starts on a copy of
+  that data folder and never writes to it. It also has no system bus, so your Wi-Fi networks,
+  Bluetooth devices and drives stay out of the recording. Look at each screen before you
+  commit it. It keeps the WebP under 2000 KB, below the git hook's limit. Linux only.
 - **`scripts/screenshots.sh`** takes the player docs' screenshots (`docs/screenshots/*.jpg`)
   from the running app, with your real library. Linux only, on X11 or XWayland.
 

@@ -4,9 +4,9 @@ Marah Launcher is a game launcher for a TV and a controller. It puts your games 
 emulators, PC folders and Steam in one library, so you can find and play all of them from the
 couch, without a keyboard or a mouse.
 
-![A short loop of the launcher in the Default theme with five sample PC games: Home, the Library, a game's Game Hub, back to Home, then down the one-page Settings from Launcher to Updates, and back to Home](docs/demo/demo-loop.webp)
+![A short loop of the launcher in the Default theme with a real game library: down Home's systems as the art changes, the Library's covers, the PC and Switch chips, a search for mario, the Game Hub of Mario Kart World, and back to Home](docs/demo/demo-loop.webp)
 
-The demo shows the Default theme with five sample games. `scripts/record_demo.sh` records a
+The demo shows the Default theme with a real game library. `scripts/record_demo.sh` records a
 new one.
 
 ## What it does
