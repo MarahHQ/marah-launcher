@@ -56,6 +56,7 @@ component RoundButton inherits Rectangle {
     background: root.focused ? #ffffff : root.current ? #ffffff24 : ta.has-hover ? #ffffff14 : transparent;
     accessible-role: button;
     accessible-label: root.label;
+    accessible-item-selected: root.focused;
     accessible-action-default => { root.clicked(); }
     animate background { duration: Tokens.motion-fast; }
     Icon {
@@ -92,6 +93,8 @@ component PillButton inherits Rectangle {
 export component TopBar inherits Rectangle {
     // The keys are on the top bar (home only).
     in property <bool> keys;
+    // The keys' mark on the bar: none while the tray is open, which has the keys and its own.
+    property <bool> marks: root.keys && Nav.zone == "tabs" && !Tray.open;
     height: 104 * Look.px;
 
     property <int> download: Vm.downloads.length > 0 ? 0 : -1;
@@ -212,7 +215,7 @@ export component TopBar inherits Rectangle {
             icon: "search";
             label: "Search";
             current: Vm.screen == "catalog";
-            focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs;
+            focused: root.marks && Nav.tab == Nav.tabs;
             clicked => { Commands.navigate("catalog"); }
         }
         // The kit's status bar (the tray items in the bar now, the same in every theme) and
@@ -222,21 +225,21 @@ export component TopBar inherits Rectangle {
         HorizontalLayout {
             spacing: 0;
             StatusBar {
-                focused: root.keys && Nav.zone == "tabs" ? Nav.tab - Nav.tabs - 1 : -1;
+                focused: root.marks ? Nav.tab - Nav.tabs - 1 : -1;
             }
             // Settings, after the bar's items.
             RoundButton {
                 icon: "gear";
                 label: "Settings";
                 current: Vm.screen == "settings";
-                focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 1 + Nav.statuses;
+                focused: root.marks && Nav.tab == Nav.tabs + 1 + Nav.statuses;
                 clicked => { Commands.navigate("settings"); }
             }
             // The ⌃ that opens the tray, right after Settings, in the same group: the keys reach
             // it last, and the tray opens under it. The clock, after it, takes no focus.
             Rectangle { width: 22 * Look.px; }
             TrayButton {
-                focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 2 + Nav.statuses;
+                focused: root.marks && Nav.tab == Nav.tabs + 2 + Nav.statuses;
             }
         }
         // The clock, at the end of the bar.

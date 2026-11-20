@@ -234,6 +234,7 @@ export component TrayButton inherits Rectangle {
     animate background { duration: Motion.press; }
     accessible-role: button;
     accessible-label: "tray";
+    accessible-item-selected: root.focused;
     accessible-value: Tray.open ? "open" : "closed";
     accessible-action-default => { Tray.toggle(); }
     // The tray opens under it, wherever the theme puts it.

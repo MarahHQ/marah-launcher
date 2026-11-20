@@ -1,4 +1,4 @@
-import { Vm } from "../types.slint";
+import { Vm, TrayItem } from "../types.slint";
 import { Tokens } from "../tokens.slint";
 import { Look } from "look.slint";
 import { StatusSlot, StatusState } from "loading.slint";
@@ -37,6 +37,7 @@ export component StatusButton inherits Rectangle {
         : ta.has-hover && !status.disabled ? Tokens.color-tint.with-alpha(0.078) : transparent;
     accessible-role: button;
     accessible-label: root.label;
+    accessible-item-selected: root.focused;
     accessible-value: status.loading ? "loading" : status.disabled ? "disabled" : root.value;
     accessible-enabled: !status.disabled;
     accessible-description: status.disabled ? root.reason : "";
@@ -63,14 +64,18 @@ export component StatusBar inherits HorizontalLayout {
     spacing: 0;
     // The focused item, by its place in `Vm.tray`.
     property <int> focused-item: root.focused >= 0 && root.focused < Tray.bar ? Vm.tray-bar[root.focused] : -1;
+    // An item's width: the battery's level is wider than an icon.
+    pure function item-width(item: TrayItem) -> length {
+        item.icon == "battery" ? 104 * Look.px : root.size
+    }
     // Each item is in place from the first frame, in its loading look until its area is read.
     for item[i] in Vm.tray : place := StatusSlot {
         open: item.in-bar;
-        // The battery's level is wider than an icon.
-        item-width: item.icon == "battery" ? 104 * Look.px : root.size;
+        item-width: root.item-width(item);
         gap: root.gap;
+        // As wide as the item, not its place: the place holds the gap after it too.
         if place.shown : button := StatusButton {
-            width: parent.width;
+            width: root.item-width(item);
             height: root.size;
             label: "status:" + item.id;
             value: item.value;
