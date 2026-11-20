@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.1](https://github.com/MarahHQ/marah-launcher/compare/v0.17.0...v0.17.1) (2026-11-20)
+
+
+### Bug Fixes
+
+* each pad press counts once while Steam runs, and the top bar's focus marks are right ([5f3f911](https://github.com/MarahHQ/marah-launcher/commit/5f3f911bee652f60b16af5ace3c8fcc66943aa56))
+
 ## [0.17.0](https://github.com/MarahHQ/marah-launcher/compare/v0.16.1...v0.17.0) (2026-11-20)
 
 
