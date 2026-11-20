@@ -26,14 +26,16 @@ import { NetIcon, SoundIcon, BluetoothIcon } from "system-panel.slint";
 //   4   THIS PC: processor, memory, graphics, then one verdict per emulator. It only
 //       shows: it has no rows to focus, so Up and Down pass it by. The rail, L1 or R1 read it:
 //       Up and Down scroll the page, and the key away from the rows goes back to the rail
-//   5   SYSTEM, when Marah Launcher is the whole screen: Internet, Sound, Bluetooth (each opens its
-//       panel), Marah OS updates (on Marah OS), "Install Marah OS on this PC" (on its USB stick)
-//   5/6 BACKUP (6 after SYSTEM): "Back up now", "Include large items", the backup folder,
+//   5   SYSTEM, wherever Marah Launcher runs: Internet, Sound, Bluetooth (each opens its panel, or
+//       says why it can't), Marah OS updates (on Marah OS), "Install Marah OS on this PC" (on its
+//       USB stick)
+//   6   BACKUP: "Back up now", "Include large items", the backup folder,
 //       "Restart Marah Launcher" after a restore, then one row per backup, which restores it
-//   6/7 POWER, the last tab (7 after SYSTEM): "Quit Marah Launcher" ("Restart Marah Launcher" when Marah Launcher is the
-//       whole screen: the session starts it again), then Log out (the Marah Launcher session on a
-//       desktop), Restart and Shut down, which ask again before they act. Under its rows, the
-//       last thing on the page: the About card and Made with Slint
+//   7   POWER, the last tab: "Quit Marah Launcher" ("Restart Marah Launcher" when Marah Launcher is
+//       the whole screen: the session starts it again), then Log out (the Marah Launcher session on
+//       a desktop), Restart and Shut down where the power area allows them. They ask before they
+//       act: in a dialog on a desktop (`PowerAsk`), by a second press as the whole screen. Under
+//       its rows, the last thing on the page: the About card and Made with Slint
 // On a theme's page:
 //   0   "Use this theme"
 //   1   its options, when it is the one in use
@@ -97,13 +99,22 @@ export global Prefs {
     out property <bool> folders-tab: root.panels == 0 && Vm.plugin-page.folders.length > 0;
     // The old name of `rail`, for themes that read it.
     out property <bool> tabbed: root.rail;
-    // The tab a section's rows are in, and a tab's first section. Settings shows its sections in
-    // four groups, not in their numbers' order: the app (Launcher, Updates, Backup), play (Games,
-    // Downloads), the machine (System, when Marah Launcher is the whole screen, then This PC), and
-    // Power last. It opens on Launcher. The rail, the page, L1 and R1, and Up and Down all go in
-    // this order. `order` is the sections by tab; `place` is the tab of each section.
-    property <[int]> order: Vm.system.whole-screen ? [0, 2, 6, 1, 3, 5, 4, 7] : [0, 2, 5, 1, 3, 4, 6];
-    property <[int]> place: Vm.system.whole-screen ? [0, 3, 1, 4, 6, 5, 2, 7] : [0, 3, 1, 4, 5, 2, 6];
+    // Settings' tabs, one list, the same wherever Marah Launcher runs and in every theme: each
+    // tab's section, name and icon, in the order the rail, the page, L1 and R1, and Up and Down go.
+    // Four groups: the app (Launcher, Updates, Backup), play (Games, Downloads), the machine
+    // (System, This PC), and Power last, with the About card and Made with Slint under its rows.
+    // It opens on Launcher. `place` is the tab of each section, the list read the other way.
+    out property <[{ section: int, name: string, icon: string }]> settings-tabs: [
+        { section: 0, name: "Launcher", icon: "gear" },
+        { section: 2, name: "Updates", icon: "refresh" },
+        { section: 6, name: "Backup", icon: "archive" },
+        { section: 1, name: "Games", icon: "gamepad" },
+        { section: 3, name: "Downloads", icon: "download" },
+        { section: 5, name: "System", icon: "sliders" },
+        { section: 4, name: "This PC", icon: "desktop" },
+        { section: 7, name: "Power", icon: "power" },
+    ];
+    out property <[int]> place: [0, 3, 1, 4, 6, 5, 2, 7];
     public pure function tab-of(section: int) -> int {
         root.page && !root.theme-page ? (section <= 1 ? 0 : section - 1)
             : Vm.screen != "settings" ? section
@@ -112,7 +123,7 @@ export global Prefs {
     public pure function first-section(tab: int) -> int {
         root.page && !root.theme-page ? (tab == 0 ? 0 : tab + 1)
             : Vm.screen != "settings" ? tab
-            : root.order[tab]
+            : root.settings-tabs[tab].section
     }
 
     out property <int> current-tab: root.tab-of(root.section);
@@ -121,10 +132,10 @@ export global Prefs {
     out property <int> sections: root.game-page ? 1
         : root.theme-page ? (Vm.plugin-page.current && Vm.theme-options.length > 0 ? 2 : 1)
         : root.page ? (root.on ? 2 + root.panels + (root.folders-tab ? 1 : 0) + (root.about ? 1 : 0) : 1)
-        : 7 + (Vm.system.whole-screen ? 1 : 0);
-    // Backup, then Power, the last tab: after System when Marah Launcher is the whole screen.
-    out property <int> backup-section: Vm.system.whole-screen ? 6 : 5;
-    out property <int> power-section: root.backup-section + 1;
+        : root.settings-tabs.length;
+    // Backup's and Power's sections, by number.
+    out property <int> backup-section: 6;
+    out property <int> power-section: 7;
     // The page's build rows: the build, then "Uninstall" when it is installed.
     out property <int> builds: !root.page || root.theme-page || !root.on || !Vm.plugin-page.has-emulator || !Vm.plugin-page.emulator.has-builds ? 0
         : Vm.plugin-page.emulator.installed.length > 0 ? 2 : 1;
@@ -383,13 +394,23 @@ export component Header inherits Text {
 }
 
 // One row of a section card in Settings: rows between two headers share one card, and the
-// A System row's icon, the same component as the top bar's, in the row's text colour.
+// A System row's icon, in the row's text colour: for network, sound and bluetooth the same
+// component as the top bar's, else the kit `Icon` of that name.
 component MachineIcon inherits VerticalLayout {
     in property <string> kind;
     alignment: center;
+    accessible-role: image;
+    accessible-label: "row-icon";
+    accessible-value: root.kind;
     if root.kind == "network" : NetIcon { width: 22 * Look.px; height: 22 * Look.px; tint: Tokens.color-text; }
     if root.kind == "sound" : SoundIcon { width: 22 * Look.px; height: 22 * Look.px; color: Tokens.color-text; }
     if root.kind == "bluetooth" : BluetoothIcon { width: 22 * Look.px; height: 22 * Look.px; color: Tokens.color-text; }
+    if root.kind != "network" && root.kind != "sound" && root.kind != "bluetooth" : Icon {
+        name: root.kind;
+        width: 22 * Look.px;
+        height: 22 * Look.px;
+        color: Tokens.color-text;
+    }
 }
 
 // focused row gets a white edge.
@@ -408,8 +429,8 @@ export component Row inherits Rectangle {
     in property <bool> inert;
     // From 0 to 1: a bar under the label and hint, for work that runs. -1 for none.
     in property <float> progress: -1;
-    // A System row's icon before its label, the same as the top bar's: network | sound |
-    // bluetooth; "" for none.
+    // A System row's icon before its label: network | sound | bluetooth, the same as the top
+    // bar's, or the name of a kit `Icon`; "" for none.
     in property <string> machine;
     // How far the hint under the label moves in, to line up after the icon.
     property <length> indent: root.machine != "" ? 22 * Look.px + 12 * Look.px : 0;

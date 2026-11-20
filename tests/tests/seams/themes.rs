@@ -184,11 +184,33 @@ fn a_theme_built_for_0_5_is_refused_for_its_version_and_not_compiled() {
     assert_eq!(host.ui.current(), Some(&id("classic")), "the theme on screen stays");
 }
 
-/// A theme built for 0.6.0 loads on this host.
+/// Version 0.7.0 of the contract put every system area in one list, `Vm.system.areas`, in
+/// place of each area's `*-loading` and `*-reason`. A theme built for 0.6 may read
+/// `Vm.system.network-loading`: it is refused for its version, and never gets as far as a
+/// compile error.
 #[test]
-fn a_theme_built_for_0_6_0_loads() {
+fn a_theme_built_for_0_6_is_refused_for_its_version_and_not_compiled() {
     let dir = tempfile::tempdir().unwrap();
-    write_theme(dir.path(), "current", "ui_api = \"^0.6.0\"", &[]);
+    let old_shell = "import { Vm } from \"types.slint\";\n\
+                     export component Shell inherits Window { property <bool> l: Vm.system.network-loading; }";
+    write_theme(dir.path(), "old", "ui_api = \"^0.6\"", &[("shell.slint", old_shell)]);
+    let mut host = composed(|h| h.discover(dir.path()));
+    host.ui.start().unwrap();
+
+    let error = host.ui.switch(&id("old")).unwrap_err();
+    assert!(matches!(&error, ThemeError::UiApi { .. }), "{error}");
+    assert_eq!(
+        error.to_string(),
+        format!("theme old needs UI API ^0.6, this host has {}", launcher_ui_api::UI_API_VERSION)
+    );
+    assert_eq!(host.ui.current(), Some(&id("classic")), "the theme on screen stays");
+}
+
+/// A theme built for 0.7.0 loads on this host.
+#[test]
+fn a_theme_built_for_0_7_0_loads() {
+    let dir = tempfile::tempdir().unwrap();
+    write_theme(dir.path(), "current", "ui_api = \"^0.7\"", &[]);
     let mut host = composed(|h| h.discover(dir.path()));
     host.ui.start().unwrap();
 
@@ -252,7 +274,7 @@ fn a_screen_that_exports_the_wrong_name_is_refused_with_the_file_named() {
 #[test]
 fn the_default_settings_screen_maps_a_folder_through_the_host() {
     let plugin = launcher_testkit::StubPlugin::from_toml(
-        "id = \"pc\"\nkind = \"emulator\"\nname = \"PC games\"\nversion = \"1.0.0\"\nhost_api = \"^0.3\"\n\
+        "id = \"pc\"\nkind = \"emulator\"\nname = \"PC games\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
          [[permissions.filesystem]]\nfolder = \"games\"",
     );
     let mut host = composed(|h| h.plugin(plugin));
@@ -327,7 +349,7 @@ export component HomeScreen inherits Rectangle {
 fn the_default_settings_screen_edits_a_folder_with_the_keys() {
     use slint::platform::{Key, WindowEvent};
     let plugin = launcher_testkit::StubPlugin::from_toml(
-        "id = \"pc\"\nkind = \"emulator\"\nname = \"PC games\"\nversion = \"1.0.0\"\nhost_api = \"^0.3\"\n\
+        "id = \"pc\"\nkind = \"emulator\"\nname = \"PC games\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
          [[permissions.filesystem]]\nfolder = \"games\"",
     );
     let mut host = composed(|h| h.plugin(plugin));

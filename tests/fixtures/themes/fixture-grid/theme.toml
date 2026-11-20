@@ -2,14 +2,14 @@ id = "fixture-grid"
 kind = "theme"
 name = "Fixture grid"
 version = "0.1.0"
-host_api = "^0.3"
+host_api = "^0.4"
 capabilities = ["theme"]
 
 [runtime]
 type = "data"
 
 [theme]
-ui_api = "^0.6"
+ui_api = "^0.7"
 input = ["pointer"]
 navigation = "pointer"
 

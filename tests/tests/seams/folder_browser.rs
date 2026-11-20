@@ -12,7 +12,7 @@ use launcher_testkit::{FakeHost, FakeSystem, StubPlugin, TestCore};
 /// A plugin that asks for the game folders.
 fn games_plugin() -> StubPlugin {
     StubPlugin::from_toml(
-        "id = \"pc\"\nkind = \"emulator\"\nname = \"PC games\"\nversion = \"1.0.0\"\nhost_api = \"^0.3\"\n\
+        "id = \"pc\"\nkind = \"emulator\"\nname = \"PC games\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
          [[permissions.filesystem]]\nfolder = \"games\"",
     )
 }

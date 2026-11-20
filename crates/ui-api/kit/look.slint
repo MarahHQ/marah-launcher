@@ -111,10 +111,13 @@ export global Look {
     pure function deep(system: color, value: float) -> color {
         hsv(system.to-hsv().hue, Math.min(1, system.to-hsv().saturation + 0.3), value)
     }
-    // The art a game without a cover shows: its system's color, deep.
-    public pure function console-art(system: color) -> brush {
-        system.alpha == 0 ? @linear-gradient(160deg, Tokens.color-surface-raised 0%, Tokens.color-panel 100%)
-            : @linear-gradient(160deg, deep(system, 0.3) 0%, deep(system, 0.12) 100%)
+    // The art a game without a cover shows: its system's color, deep, from the top to the
+    // bottom (a `Card`'s two ends).
+    public pure function console-art-top(system: color) -> color {
+        system.alpha == 0 ? Tokens.color-surface-raised : deep(system, 0.3)
+    }
+    public pure function console-art-bottom(system: color) -> color {
+        system.alpha == 0 ? Tokens.color-panel : deep(system, 0.12)
     }
     // A card's system badge, big enough to tell systems apart at a glance: a dark fill, an edge
     // and text in the system's color.

@@ -18,7 +18,7 @@ export component SettingsScreen inherits SheetFrame {
     changed nudged => {
         flick.viewport-y = Math.min(0, Math.max(flick.height - flick.viewport-height, flick.viewport-y - Prefs.scroll-by * 160 * Look.px));
     }
-    // The System tab goes when Marah Launcher is no longer the whole screen: back to the last tab.
+    // A tab goes: back to the last tab.
     property <int> count: Prefs.tab-count;
     changed count => { if (Prefs.current-tab >= self.count) { Prefs.show(self.count - 1); } }
 
@@ -47,7 +47,7 @@ export component SettingsScreen inherits SheetFrame {
                 property <int> at: Look.rtl ? Prefs.tab-count - 1 - i : i;
                 section: self.at;
                 text: self.at == 0 ? "Launcher" : self.at == 1 ? "Games" : self.at == 2 ? "Updates"
-                    : self.at == 3 ? "Downloads" : self.at == 4 ? "This PC" : self.at == 5 && Vm.system.whole-screen ? "System"
+                    : self.at == 3 ? "Downloads" : self.at == 4 ? "This PC" : self.at == 5 ? "System"
                     : self.at == Prefs.backup-section ? "Backup" : "Power";
             }
         }
@@ -68,7 +68,7 @@ export component SettingsScreen inherits SheetFrame {
             if Prefs.section == 0 : LauncherSection { reveal(y, h) => { root.reveal(y, h); } }
             if Prefs.section == 3 : DownloadsSection { reveal(y, h) => { root.reveal(y, h); } }
             if Prefs.section == 4 : PcSection { reveal(y, h) => { root.reveal(y, h); } }
-            if Prefs.section == 5 && Vm.system.whole-screen : SystemSection { reveal(y, h) => { root.reveal(y, h); } }
+            if Prefs.section == 5 : SystemSection { reveal(y, h) => { root.reveal(y, h); } }
             if Prefs.section == Prefs.backup-section : BackupSection { reveal(y, h) => { root.reveal(y, h); } }
             if Prefs.section == Prefs.power-section : PowerSection { reveal(y, h) => { root.reveal(y, h); } }
             }

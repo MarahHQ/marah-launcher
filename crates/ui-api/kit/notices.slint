@@ -59,7 +59,7 @@ component NoticeCard inherits Rectangle {
     // opens (Notice Open).
     function open() {
         if (root.notice.drive != "") {
-            Sys.show(3);
+            Sys.show-status(3);
             Commands.dismiss-notice(root.notice.id);
         } else {
             Commands.open-notice(root.notice.id);

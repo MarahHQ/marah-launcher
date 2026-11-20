@@ -1,0 +1,85 @@
+import { Host } from "../types.slint";
+import { Commands } from "commands.slint";
+import { Look } from "look.slint";
+import { Sheet } from "motion.slint";
+import { Ask, AskKeys } from "ask.slint";
+import { Brand } from "../brand.slint";
+
+// On a desktop, Restart and Shut down act on the whole PC, not only on the launcher: they ask
+// first, in a dialog over everything. Settings → Power and the power menu open it
+// (`PowerAsk.ask`). It is an `Ask`: Cancel and the action side by side, the focus on Cancel, the
+// safe choice. Left and Right (and Up and Down, Tab) move between them; Enter (the pad's ✕/A)
+// picks; Escape (○/B) and a click outside cancel. As the whole screen nothing else runs on the
+// PC: there the rows ask by a second press instead, and this dialog doesn't open. `ShellKeys`
+// sends it its keys.
+export global PowerAsk {
+    // What is asked about: "restart" or "shut-down"; "" for nothing.
+    in-out property <string> asking;
+    // What was asked last: the dialog's words while it fades out.
+    in-out property <string> last;
+    // The choice the keys are on: 0 is Cancel, 1 the action.
+    in-out property <int> focus;
+
+    public function ask(what: string) {
+        root.asking = what;
+        root.last = what;
+        root.focus = 0;
+        Host.play-sound("select");
+    }
+    public function cancel() {
+        if (root.asking == "") { return; }
+        root.asking = "";
+        Host.play-sound("back");
+    }
+    // Picks a choice: Cancel (0) closes the dialog; the action (1) closes it and acts.
+    public function pick(choice: int) {
+        let what = root.asking;
+        root.focus = choice;
+        if (choice == 0) { root.cancel(); return; }
+        root.asking = "";
+        Host.play-sound("select");
+        if (what == "restart") { Commands.restart-pc(); }
+        if (what == "shut-down") { Commands.shut-down-pc(); }
+    }
+    // Handles a key while the dialog is up. It takes every key: the dialog is modal.
+    public function key(text: string) {
+        let next = AskKeys.moved(text, root.focus);
+        if (next != root.focus) {
+            root.focus = next;
+            Host.play-sound("move");
+        } else if (text == Key.Return || text == " ") {
+            root.pick(root.focus);
+        } else if (text == Key.Escape || text == Key.Backspace) {
+            root.cancel();
+        }
+    }
+}
+
+// The dialog. Put it over everything, the size of the window, while `PowerAsk.asking` is set or
+// it fades out (`Leaving`); `open` is false while it fades out.
+export component PowerAskSheet inherits Rectangle {
+    in property <bool> open: true;
+    property <bool> restart: PowerAsk.last == "restart";
+    accessible-role: groupbox;
+    // Only while it is up: a fading dialog is gone for screen readers and tests.
+    accessible-label: root.open ? "power-confirm" : "";
+    accessible-value: PowerAsk.last;
+    Sheet {
+        width: parent.width;
+        height: parent.height;
+        open: root.open;
+        card-width: Math.min(root.width - 96 * Look.px, 480 * Look.tpx);
+        card-height: body.preferred-height;
+        outside => { PowerAsk.cancel(); }
+        body := Ask {
+            title: root.restart ? "Restart this PC?" : "Shut down this PC?";
+            details: "Every app on this PC closes, not only " + Brand.name + ". Save your work first.";
+            action: root.restart ? "Restart" : "Shut down";
+            at: PowerAsk.focus;
+            name: "power-confirm";
+            cancel-name: "power-confirm-choice";
+            action-name: "power-confirm-choice";
+            picked(choice) => { PowerAsk.pick(choice); }
+        }
+    }
+}

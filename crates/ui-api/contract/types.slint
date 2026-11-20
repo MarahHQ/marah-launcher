@@ -500,35 +500,56 @@ export struct LauncherUpdate { state: string, current: string, version: string, 
 // none does.
 export struct DriveItem { drive: string, name: string, detail: string, path: string, kind: string, used: float, actions: [string], busy: string }
 
-// The machine's settings, from the system plugins (see `SystemVm` in launcher-ui-api). A part
-// whose `*-available` is false shows its `*-reason` instead of its controls. whole-screen:
-// Marah Launcher is the whole screen (the Marah Launcher session, Marah OS): show the network, sound and
-// Bluetooth controls and Settings → System then. connection: none | wired | wifi. bars: 0-4.
+// One system area (see `AreaVm` in launcher-ui-api), as its status icon and its rows show it.
+// name: network | vpn | bluetooth | audio | power | os_updates | os_install | drives. state:
+// loading (its first read isn't over: show its icon in its loading look, and its panel a loading
+// row) | absent (nothing here manages it) | unsupported (it can't be used here) | ready. Show the
+// icon of an absent or unsupported area disabled: in place, dimmed, doing nothing, and still
+// focusable, with its reason on hover and focus (`kit/loading.slint`'s `StatusState`). reason:
+// why an absent or unsupported area can't be used, for the player; a ready area's reason says
+// which of its actions it refuses (power: restart and shut down). busy: long work runs in it now.
+export struct AreaItem { name: string, state: string, reason: string, busy: bool }
+
+// The machine's settings, from the system plugins (see `SystemVm` in launcher-ui-api). areas:
+// every system area, always all of them, in the order of `Areas` below. whole-screen: Marah
+// Launcher is the whole session, with no desktop behind it (the Marah Launcher session, Marah
+// OS): Quit restarts it, the game menu opens nothing outside it, and Restart and Shut down ask by
+// a second press, not in a dialog. It is a fact of the session only: the machine's controls show
+// wherever the launcher runs, each by its area's state. connection: none | wired | wifi. bars: 0-4.
 // os-update: "" (not Marah OS) | current | checking | staged | failed. A job's kind: join |
 // scan | pair | install | mount | unmount | eject; state: running | done | failed; percent:
-// 0-100, or -1 when unknown. drives: the Drives panel's drives (see `DriveItem`).
-// drives-available: drives can be mounted here, else drives-reason says why: show the drives'
-// icon while they can, on the whole screen and on a desktop. Loading: a part whose
-// `*-loading` is true isn't read yet (network, audio, bluetooth, power, drives): it is neither
-// available nor unavailable and its reason is empty: show its icon in its loading look, and its
-// panel a loading row. drives-listing: the drives' first read isn't over: the Drives panel shows
-// a loading row, not "No drives".
+// 0-100, or -1 when unknown. drives: the Drives panel's drives (see `DriveItem`). Whether an
+// area works here is its `state` in `areas` (ready); restart and shut down work when the power
+// area is ready and its `reason` is empty. drives-listing: the drives' first read isn't over: the
+// Drives panel shows a loading row, not "No drives".
 export struct WifiItem { ssid: string, bars: int, secured: bool, saved: bool, active: bool }
 export struct AudioOutputItem { name: string, description: string, current: bool }
 export struct BluetoothItem { address: string, name: string, paired: bool, connected: bool }
 export struct DiskItem { path: string, size: string, windows: bool, usb: bool, model: string }
 export struct SystemJobItem { id: int, kind: string, target: string, state: string, percent: int, text: string, mok: bool, nvidia-later: bool }
 export struct System {
-    whole-screen: bool, own-os: bool, stick: bool,
-    network-available: bool, network-loading: bool, network-reason: string, connection: string, network-name: string, signal-bars: int,
+    whole-screen: bool, own-os: bool, stick: bool, areas: [AreaItem],
+    connection: string, network-name: string, signal-bars: int,
     wifi: [WifiItem],
-    audio-available: bool, audio-loading: bool, audio-reason: string, volume: int, muted: bool, outputs: [AudioOutputItem],
-    bluetooth-available: bool, bluetooth-loading: bool, bluetooth-reason: string, bluetooth-on: bool, connected-devices: int,
+    volume: int, muted: bool, outputs: [AudioOutputItem],
+    bluetooth-on: bool, connected-devices: int,
     devices: [BluetoothItem],
-    power-available: bool, power-loading: bool, power-reason: string, battery-shown: bool, battery-percent: int, battery-charging: bool,
+    battery-shown: bool, battery-percent: int, battery-charging: bool,
     os-update: string, os-update-text: string,
     disks: [DiskItem], jobs: [SystemJobItem],
-    drives-available: bool, drives-loading: bool, drives-listing: bool, drives-reason: string, drives: [DriveItem],
+    drives-listing: bool, drives: [DriveItem],
+}
+
+// The place of each system area in `Vm.system.areas`, which lists every area in this order.
+export global Areas {
+    out property <int> network: 0;
+    out property <int> vpn: 1;
+    out property <int> bluetooth: 2;
+    out property <int> audio: 3;
+    out property <int> power: 4;
+    out property <int> os-updates: 5;
+    out property <int> os-install: 6;
+    out property <int> drives: 7;
 }
 
 // The trailer playing in the window: `position` and `duration` in seconds.

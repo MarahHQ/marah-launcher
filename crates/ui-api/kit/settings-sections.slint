@@ -6,6 +6,7 @@ import { Prefs, Row, Value, Editor, FolderRow } from "settings-rows.slint";
 import { FolderList } from "folder-list.slint";
 import { LauncherRows, DownloadsRows, SystemRows, BackupRows, PowerRows } from "settings-layout.slint";
 import { Sys } from "system-panel.slint";
+import { PowerAsk } from "power-ask.slint";
 import { Setup } from "install-os.slint";
 import { Brand } from "../brand.slint";
 import { AboutSlint, Palette } from "std-widgets.slint";
@@ -459,84 +460,56 @@ export component PcSection inherits VerticalLayout {
 
 }
 
-// When Marah Launcher is the whole screen: the machine's settings. Internet, Sound and Bluetooth open their panels, as their icons in the top bar do.
+// The machine's settings, wherever Marah Launcher runs. Internet, Sound and Bluetooth open their
+// panels, as their icons in the top bar do; one whose area can't be used here says why.
 export component SystemSection inherits VerticalLayout {
     callback reveal(length, length);
+    // What a panel's row shows: "Wi-Fi · Home", "40%", "1 connected"; "Checking…" while its area
+    // is read for the first time, not a state.
+    pure function text(panel: int) -> string {
+        Sys.loading(panel) ? "Checking…"
+            : panel == 0 ? (Vm.system.connection == "wifi" ? "Wi-Fi · " + Vm.system.network-name
+                : Vm.system.connection == "wired" ? "Cable" : "Not connected")
+            : panel == 1 ? (Vm.system.muted ? "Muted" : Vm.system.volume + "%")
+            : !Vm.system.bluetooth-on ? "Off" : Vm.system.connected-devices + " connected"
+    }
+    // Its value for screen readers and tests: "wired", "40", "on".
+    pure function value(panel: int) -> string {
+        Sys.loading(panel) ? "loading"
+            : panel == 0 ? Vm.system.connection
+            : panel == 1 ? (Vm.system.muted ? "muted" : Vm.system.volume)
+            : Vm.system.bluetooth-on ? "on" : "off"
+    }
 
-        // When Marah Launcher is the whole screen: the machine's settings. Internet, Sound and
-        // Bluetooth open their panels, as their icons in the top bar do.
-        Row {
-            label: "Internet";
-            machine: "network";
-            hint: Vm.system.network-available ? "" : Vm.system.network-reason;
-            focused: Prefs.is(5, 0);
-            first: true;
+        // One row per panel, from one list, in the top bar's order.
+        for row[i] in [
+            { panel: 0, label: "Internet", machine: "network", name: "system-internet", hint: "" },
+            { panel: 1, label: "Sound", machine: "sound", name: "system-sound", hint: "" },
+            { panel: 2, label: "Bluetooth", machine: "bluetooth", name: "system-bluetooth", hint: "Controllers and headsets" },
+        ] : Row {
+            label: row.label;
+            machine: row.machine;
+            hint: Sys.disabled(row.panel) || Sys.loading(row.panel) ? Sys.reason(row.panel) : row.hint;
+            focused: Prefs.is(5, i);
+            first: i == 0;
+            last: i == 2 && SystemRows.count == 3;
             accessible-role: button;
-            accessible-label: "system-internet";
-            accessible-value: Vm.system.network-loading ? "loading" : Vm.system.connection;
+            accessible-label: row.name;
+            accessible-value: root.value(row.panel);
             accessible-action-default => { self.open-panel(); }
             reveal(y, h) => { root.reveal(y, h); }
-            clicked => { Prefs.section = 5; Prefs.row = 0; self.open-panel(); }
+            clicked => { Prefs.section = 5; Prefs.row = i; self.open-panel(); }
             // The panel opens next to this row, and closes when the page scrolls under it.
-            function open-panel() { Sys.show-from(0, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
+            function open-panel() { Sys.show-from(row.panel, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
             property <length> place: self.absolute-position.y;
-            changed place => { if (Sys.anchored && Sys.open == 0) { Sys.close(); } }
+            changed place => { if (Sys.anchored && Sys.open == row.panel) { Sys.close(); } }
             property <int> seen: Prefs.serial;
             changed seen => { if (self.focused && Prefs.pending == 0) { self.open-panel(); } }
-            Value {
-                kind: "choice";
-                focused: parent.focused;
-                // While the network is read for the first time: "Checking…", not a state.
-                text: Vm.system.network-loading ? "Checking…"
-                    : Vm.system.connection == "wifi" ? "Wi-Fi · " + Vm.system.network-name
-                    : Vm.system.connection == "wired" ? "Cable" : "Not connected";
-            }
-        }
-        Row {
-            label: "Sound";
-            machine: "sound";
-            hint: Vm.system.audio-available ? "" : Vm.system.audio-reason;
-            focused: Prefs.is(5, 1);
-            accessible-role: button;
-            accessible-label: "system-sound";
-            accessible-value: Vm.system.audio-loading ? "loading" : Vm.system.muted ? "muted" : Vm.system.volume;
-            accessible-action-default => { self.open-panel(); }
-            reveal(y, h) => { root.reveal(y, h); }
-            clicked => { Prefs.section = 5; Prefs.row = 1; self.open-panel(); }
-            // The panel opens next to this row, and closes when the page scrolls under it.
-            function open-panel() { Sys.show-from(1, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
-            property <length> place: self.absolute-position.y;
-            changed place => { if (Sys.anchored && Sys.open == 1) { Sys.close(); } }
-            property <int> seen: Prefs.serial;
-            changed seen => { if (self.focused && Prefs.pending == 0) { self.open-panel(); } }
-            Value { kind: "choice"; focused: parent.focused; text: Vm.system.audio-loading ? "Checking…" : Vm.system.muted ? "Muted" : Vm.system.volume + "%"; }
-        }
-        Row {
-            label: "Bluetooth";
-            machine: "bluetooth";
-            hint: Vm.system.bluetooth-available ? "Controllers and headsets" : Vm.system.bluetooth-reason;
-            focused: Prefs.is(5, 2);
-            last: SystemRows.count == 3;
-            accessible-role: button;
-            accessible-label: "system-bluetooth";
-            accessible-value: Vm.system.bluetooth-loading ? "loading" : Vm.system.bluetooth-on ? "on" : "off";
-            accessible-action-default => { self.open-panel(); }
-            reveal(y, h) => { root.reveal(y, h); }
-            clicked => { Prefs.section = 5; Prefs.row = 2; self.open-panel(); }
-            // The panel opens next to this row, and closes when the page scrolls under it.
-            function open-panel() { Sys.show-from(2, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
-            property <length> place: self.absolute-position.y;
-            changed place => { if (Sys.anchored && Sys.open == 2) { Sys.close(); } }
-            property <int> seen: Prefs.serial;
-            changed seen => { if (self.focused && Prefs.pending == 0) { self.open-panel(); } }
-            Value {
-                kind: "choice";
-                focused: parent.focused;
-                text: Vm.system.bluetooth-loading ? "Checking…" : !Vm.system.bluetooth-on ? "Off" : Vm.system.connected-devices + " connected";
-            }
+            Value { kind: "choice"; focused: parent.focused; text: root.text(row.panel); }
         }
         if SystemRows.os >= 0 : Row {
             label: Brand.os-name + " updates";
+            machine: "refresh";
         last: SystemRows.install < 0;
             hint: Vm.system.os-update-text;
             focused: Prefs.is(5, SystemRows.os);
@@ -559,6 +532,7 @@ export component SystemSection inherits VerticalLayout {
         }
         if SystemRows.install >= 0 : Row {
             label: "Install " + Brand.os-name + " on this PC";
+            machine: "usb";
             hint: "From this USB stick";
             focused: Prefs.is(5, SystemRows.install);
             last: true;
@@ -768,7 +742,10 @@ export component AboutCard inherits VerticalLayout {
         }
 }
 
-// Leaving Marah Launcher, and the machine's power. Log out, Restart and Shut down ask again: the first press arms them, the second acts.
+// Leaving Marah Launcher, and the machine's power. Log out asks again: the first press arms it, the
+// second acts. Restart and Shut down show wherever the power area allows them. As the whole screen
+// they ask the same way; on a desktop, where they close every app on the PC, they ask in a dialog
+// with the focus on Cancel (`PowerAsk`).
 export component PowerSection inherits VerticalLayout {
     callback reveal(length, length);
 
@@ -814,10 +791,10 @@ export component PowerSection inherits VerticalLayout {
             }
             Value { text: parent.armed ? "Press again to log out" : ""; tone: 2; }
         }
-        for power[i] in Vm.system.whole-screen && Vm.system.power-available ? ["Restart", "Shut down"] : [] : Row {
+        for power[i] in Sys.power-on ? ["Restart", "Shut down"] : [] : Row {
             property <bool> armed;
             label: power;
-            hint: "Press twice";
+            hint: Vm.system.whole-screen ? "Press twice" : "Closes every app on this PC";
             focused: Prefs.is(Prefs.power-section, PowerRows.restart + i);
             last: i == 1;
             danger: self.armed;
@@ -831,6 +808,7 @@ export component PowerSection inherits VerticalLayout {
             property <int> seen: Prefs.serial;
             changed seen => { if (self.focused && Prefs.pending == 0) { self.act(); } }
             function act() {
+                if (!Vm.system.whole-screen) { PowerAsk.ask(i == 0 ? "restart" : "shut-down"); return; }
                 if (!self.armed) { self.armed = true; return; }
                 self.armed = false;
                 if (i == 0) { Commands.restart-pc(); } else { Commands.shut-down-pc(); }

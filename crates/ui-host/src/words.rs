@@ -137,6 +137,9 @@ fn rows() -> Vec<Row> {
         doc(("LauncherUpdateVm", "method"), ("LauncherUpdate", "method")),
         doc(("SystemVm", "connection"), ("System", "connection")),
         doc(("SystemVm", "os_update"), ("System", "os-update")),
+        doc(("AreaVm", "name"), ("AreaItem", "name"))
+            .core(launcher_api::SystemArea::ALL.iter().map(|a| a.name().to_owned()).collect()),
+        doc(("AreaVm", "state"), ("AreaItem", "state")),
         doc(("SystemJobVm", "kind"), ("SystemJobItem", "kind")),
         doc(("SystemJobVm", "state"), ("SystemJobItem", "state")),
         doc(("DriveItemVm", "kind"), ("DriveItem", "kind")),

@@ -8,9 +8,9 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use launcher_api::{
-    AudioLevel, AudioOutput, AudioSettings, Battery, BluetoothDevice, BluetoothSettings, DriveSettings, InstallDisk,
-    Installed, NetworkSettings, NetworkStatus, OsInstall, OsUpdate, OsUpdates, PluginError, PluginResult,
-    PowerSettings, Provided, SystemDrive, SystemJob, Vpn, VpnSettings, WifiNetwork,
+    AreaAction, AreaData, AreaSettings, AreaState, AudioLevel, AudioOutput, Battery, BluetoothDevice, InstallDisk,
+    Installed, NetworkStatus, OsUpdate, PluginError, PluginResult, Provided, SystemArea, SystemDrive, SystemJob, Vpn,
+    WifiNetwork,
 };
 
 use crate::StubPlugin;
@@ -57,7 +57,8 @@ pub struct FakeMachine {
     pub drive_actions: Vec<String>,
     /// How many times the core asked why drives can't be managed here.
     pub drive_reason_reads: usize,
-    /// Why a capability is unavailable, by its name ("network", "bluetooth", "audio", "power").
+    /// Why an area is unavailable, by its name ("network", "vpn", "bluetooth", "audio", "power",
+    /// "os_install", "drives").
     pub unavailable: Vec<(&'static str, String)>,
     /// Calls that never answer, by method name ("status", "devices", …).
     pub hangs: Vec<&'static str>,
@@ -71,6 +72,8 @@ pub struct FakeMachine {
     /// Long work held until the test calls [`FakeSystem::finish_jobs`].
     pub hold_jobs: bool,
     held: Vec<(Arc<dyn SystemJob>, Result<String, String>)>,
+    /// A rescan ran: a plain read lists what it found, as NetworkManager's list does.
+    scanned: bool,
 }
 
 /// A system plugin over a [`FakeMachine`]. Clones share the machine.
@@ -122,18 +125,11 @@ impl FakeSystem {
         let system = self.clone();
         StubPlugin::from_toml(&manifest).provides(move |_| {
             let has = |name: &str| names.iter().any(|n| n == name);
-            let me = Arc::new(system.clone());
-            Ok(Provided {
-                network: has("network").then(|| me.clone() as Arc<dyn NetworkSettings>),
-                vpn: has("vpn").then(|| me.clone() as Arc<dyn VpnSettings>),
-                bluetooth: has("bluetooth").then(|| me.clone() as Arc<dyn BluetoothSettings>),
-                audio: has("audio").then(|| me.clone() as Arc<dyn AudioSettings>),
-                power: has("power").then(|| me.clone() as Arc<dyn PowerSettings>),
-                os_updates: has("os_updates").then(|| me.clone() as Arc<dyn OsUpdates>),
-                os_install: has("os_install").then(|| me.clone() as Arc<dyn OsInstall>),
-                drives: has("drives").then(|| me.clone() as Arc<dyn DriveSettings>),
-                ..Provided::default()
-            })
+            let me = system.clone();
+            let areas = SystemArea::ALL.into_iter().filter(|area| has(area.name()));
+            let areas =
+                areas.map(|area| (area, Arc::new(FakeArea { area, system: me.clone() }) as Arc<dyn AreaSettings>));
+            Ok(Provided { areas: areas.collect(), ..Provided::default() })
         })
     }
 
@@ -175,21 +171,23 @@ impl FakeSystem {
     }
 }
 
-#[async_trait]
-impl NetworkSettings for FakeSystem {
-    async fn unavailable(&self) -> Option<String> {
+impl FakeSystem {
+    async fn network_unavailable(&self) -> Option<String> {
         self.call("network.unavailable").await;
-        FakeSystem::unavailable(self, "network")
+        self.unavailable("network")
     }
 
-    async fn status(&self) -> PluginResult<NetworkStatus> {
+    async fn network_status(&self) -> PluginResult<NetworkStatus> {
         self.call("status").await;
         Ok(self.read(|m| m.network.clone()))
     }
 
     async fn wifi(&self, rescan: bool) -> PluginResult<Vec<WifiNetwork>> {
         self.call("wifi").await;
-        Ok(self.read(|m| if rescan { m.wifi_scanned.clone() } else { m.wifi.clone() }))
+        if rescan {
+            self.with(|m| m.scanned = true);
+        }
+        Ok(self.read(|m| if m.scanned { m.wifi_scanned.clone() } else { m.wifi.clone() }))
     }
 
     async fn join(&self, ssid: &str, password: Option<&str>, job: Arc<dyn SystemJob>) -> PluginResult<()> {
@@ -221,18 +219,16 @@ impl NetworkSettings for FakeSystem {
     }
 }
 
-#[async_trait]
-impl VpnSettings for FakeSystem {
+impl FakeSystem {
     async fn vpns(&self) -> Vec<Vpn> {
         self.read(|m| m.vpns.clone())
     }
 }
 
-#[async_trait]
-impl BluetoothSettings for FakeSystem {
-    async fn unavailable(&self) -> Option<String> {
+impl FakeSystem {
+    async fn bluetooth_unavailable(&self) -> Option<String> {
         self.call("bluetooth.unavailable").await;
-        FakeSystem::unavailable(self, "bluetooth")
+        self.unavailable("bluetooth")
     }
 
     async fn powered(&self) -> PluginResult<bool> {
@@ -250,7 +246,7 @@ impl BluetoothSettings for FakeSystem {
         Ok(self.read(|m| m.devices.clone()))
     }
 
-    async fn scan(&self, _seconds: u32, job: Arc<dyn SystemJob>) -> PluginResult<()> {
+    async fn scan_bluetooth(&self, _seconds: u32, job: Arc<dyn SystemJob>) -> PluginResult<()> {
         job.progress(None, "Looking for devices");
         self.with(|m| {
             let found = m.found.clone();
@@ -279,27 +275,26 @@ impl BluetoothSettings for FakeSystem {
         Ok(())
     }
 
-    async fn connect(&self, address: &str) -> PluginResult<()> {
+    async fn connect_device(&self, address: &str) -> PluginResult<()> {
         self.with(|m| m.devices.iter_mut().filter(|d| d.address == address).for_each(|d| d.connected = true));
         Ok(())
     }
 
-    async fn disconnect(&self, address: &str) -> PluginResult<()> {
+    async fn disconnect_device(&self, address: &str) -> PluginResult<()> {
         self.with(|m| m.devices.iter_mut().filter(|d| d.address == address).for_each(|d| d.connected = false));
         Ok(())
     }
 
-    async fn remove(&self, address: &str) -> PluginResult<()> {
+    async fn remove_device(&self, address: &str) -> PluginResult<()> {
         self.with(|m| m.devices.retain(|d| d.address != address));
         Ok(())
     }
 }
 
-#[async_trait]
-impl AudioSettings for FakeSystem {
-    async fn unavailable(&self) -> Option<String> {
+impl FakeSystem {
+    async fn audio_unavailable(&self) -> Option<String> {
         self.call("audio.unavailable").await;
-        FakeSystem::unavailable(self, "audio")
+        self.unavailable("audio")
     }
 
     async fn outputs(&self) -> PluginResult<Vec<AudioOutput>> {
@@ -331,11 +326,10 @@ impl AudioSettings for FakeSystem {
     }
 }
 
-#[async_trait]
-impl PowerSettings for FakeSystem {
-    async fn unavailable(&self) -> Option<String> {
+impl FakeSystem {
+    async fn power_unavailable(&self) -> Option<String> {
         self.call("power.unavailable").await;
-        FakeSystem::unavailable(self, "power")
+        self.unavailable("power")
     }
 
     async fn restart(&self) -> PluginResult<()> {
@@ -356,9 +350,8 @@ impl PowerSettings for FakeSystem {
     }
 }
 
-#[async_trait]
-impl OsUpdates for FakeSystem {
-    async fn status(&self) -> PluginResult<OsUpdate> {
+impl FakeSystem {
+    async fn os_update(&self) -> PluginResult<OsUpdate> {
         Ok(self.read(|m| m.os_update.clone()))
     }
 
@@ -368,8 +361,7 @@ impl OsUpdates for FakeSystem {
     }
 }
 
-#[async_trait]
-impl OsInstall for FakeSystem {
+impl FakeSystem {
     async fn disks(&self) -> PluginResult<Vec<InstallDisk>> {
         Ok(self.read(|m| m.disks.clone()))
     }
@@ -392,12 +384,11 @@ impl OsInstall for FakeSystem {
     }
 }
 
-#[async_trait]
-impl DriveSettings for FakeSystem {
-    async fn unavailable(&self) -> Option<String> {
+impl FakeSystem {
+    async fn drives_unavailable(&self) -> Option<String> {
         self.with(|m| m.drive_reason_reads += 1);
         self.call("drives.unavailable").await;
-        FakeSystem::unavailable(self, "drives")
+        self.unavailable("drives")
     }
 
     async fn drives(&self) -> PluginResult<Vec<SystemDrive>> {
@@ -450,5 +441,97 @@ impl DriveSettings for FakeSystem {
         });
         self.end(job, Ok("You can take it out now".into()));
         Ok(())
+    }
+}
+
+/// One area of the fake machine, through the interface every system plugin gives. Its reads are
+/// the fake's named reads ("status", "wifi", "battery", "drives.unavailable"…), each that doesn't
+/// need another begun at once, so a test can hang, slow or panic one of them.
+struct FakeArea {
+    area: SystemArea,
+    system: FakeSystem,
+}
+
+#[async_trait]
+impl AreaSettings for FakeArea {
+    async fn state(&self) -> PluginResult<AreaState> {
+        let system = &self.system;
+        let unsupported = AreaState::Unsupported;
+        Ok(match self.area {
+            SystemArea::Network => match system.network_unavailable().await {
+                Some(why) => unsupported(why),
+                None => {
+                    let (status, wifi) = futures::join!(system.network_status(), system.wifi(false));
+                    AreaState::Ready(AreaData::Network { status: status.ok(), wifi: wifi.unwrap_or_default() })
+                }
+            },
+            SystemArea::Vpn => match system.unavailable("vpn") {
+                Some(why) => unsupported(why),
+                None => {
+                    let vpns = system.vpns().await;
+                    AreaState::Ready(AreaData::Vpn { finds_vpns: true, can_import: false, vpns })
+                }
+            },
+            SystemArea::Bluetooth => match system.bluetooth_unavailable().await {
+                Some(why) => unsupported(why),
+                None => {
+                    let (powered, devices) = futures::join!(system.powered(), system.devices());
+                    AreaState::Ready(AreaData::Bluetooth {
+                        powered: powered.unwrap_or(false),
+                        devices: devices.unwrap_or_default(),
+                    })
+                }
+            },
+            SystemArea::Audio => match system.audio_unavailable().await {
+                Some(why) => unsupported(why),
+                None => {
+                    let (outputs, level) = futures::join!(system.outputs(), system.level());
+                    AreaState::Ready(AreaData::Audio { outputs: outputs.unwrap_or_default(), level: level.ok() })
+                }
+            },
+            SystemArea::Power => {
+                let (refused, battery) = futures::join!(system.power_unavailable(), system.battery());
+                AreaState::Ready(AreaData::Power { battery: battery.ok().flatten(), refused })
+            }
+            SystemArea::OsUpdates => AreaState::Ready(AreaData::OsUpdates { update: system.os_update().await.ok() }),
+            SystemArea::OsInstall => match system.unavailable("os_install") {
+                Some(why) => unsupported(why),
+                None => AreaState::Ready(AreaData::OsInstall { disks: system.disks().await? }),
+            },
+            SystemArea::Drives => match system.drives_unavailable().await {
+                Some(why) => unsupported(why),
+                None => AreaState::Ready(AreaData::Drives { drives: system.drives().await? }),
+            },
+        })
+    }
+
+    async fn act(&self, action: AreaAction, job: Arc<dyn SystemJob>) -> PluginResult<()> {
+        use AreaAction as A;
+        let system = &self.system;
+        match action {
+            A::ScanWifi => system.wifi(true).await.map(|_| ()),
+            A::JoinWifi { ssid, password } => system.join(&ssid, password.as_deref(), job).await,
+            A::ForgetWifi { ssid } => system.forget(&ssid).await,
+            A::ImportVpn { .. } | A::ConnectVpn { .. } | A::DisconnectVpn { .. } => {
+                Err(PluginError::Unsupported("the fake can't change a VPN".into()))
+            }
+            A::SetBluetooth { on } => system.set_powered(on).await,
+            A::ScanBluetooth { seconds } => system.scan_bluetooth(seconds, job).await,
+            A::Pair { address } => system.pair(&address, job).await,
+            A::ConnectDevice { address } => system.connect_device(&address).await,
+            A::DisconnectDevice { address } => system.disconnect_device(&address).await,
+            A::RemoveDevice { address } => system.remove_device(&address).await,
+            A::SetOutput { name } => system.set_output(&name).await,
+            A::SetVolume { volume } => system.set_volume(volume).await,
+            A::SetMuted { muted } => system.set_muted(muted).await,
+            A::Restart => system.restart().await,
+            A::ShutDown => system.shut_down().await,
+            A::CheckOsUpdate => system.check_now().await,
+            A::InstallOs { disk } => system.install(&disk, job).await,
+            A::ChoosePartitions => system.choose_partitions().await,
+            A::Mount { device } => system.mount(&device, job).await,
+            A::Unmount { device } => system.unmount(&device, job).await,
+            A::Eject { disk } => system.eject(&disk, job).await,
+        }
     }
 }

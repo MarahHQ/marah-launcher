@@ -1303,9 +1303,9 @@ macro_rules! shots {
 
 /// Settings → Backup with a backup and its menu open, as `classic-backup-menu.png`; and the
 /// browser of "Restore from another folder" in each built-in theme: a folder, a backup in it, and
-/// the dialog before a restore, as `<theme>-backup-browser[-backup|-confirm].png`. Over the
-/// library the other screens show: the real KytyPS5 plugin names its saves; the home folder is a
-/// temporary one.
+/// the dialog before a restore, as `<theme>-backup-browser[-backup|-confirm].png`, and with a
+/// keyboard's hints as `<theme>-backup-browser-confirm-keys.png`. Over the library the other screens
+/// show: the real KytyPS5 plugin names its saves; the home folder is a temporary one.
 fn shoot_backup(window: &MinimalSoftwareWindow, out: &Path) {
     use slint::platform::Key;
     window.set_size(slint::PhysicalSize::new(WIDTH, HEIGHT));
@@ -1341,6 +1341,7 @@ fn shoot_backup(window: &MinimalSoftwareWindow, out: &Path) {
         follow(&mut host);
         shoot_strip(window, out, &format!("{theme}-backup-browser-open"));
         shoot(window, &out.join(format!("{theme}-backup-browser.png")));
+        round_corners(&host, out, &format!("{theme}-backup-browser"), "browser-title");
         key(&mut host, Key::Return);
         follow(&mut host);
         shoot(window, &out.join(format!("{theme}-backup-browser-backup.png")));
@@ -1350,6 +1351,13 @@ fn shoot_backup(window: &MinimalSoftwareWindow, out: &Path) {
         host.instance().window().dispatch_event(slint::platform::WindowEvent::KeyReleased { text: triangle });
         follow(&mut host);
         shoot(window, &out.join(format!("{theme}-backup-browser-confirm.png")));
+        round_corners(&host, out, &format!("{theme}-backup-browser-confirm"), "browser-confirm-title");
+        // The same with a mouse and keyboard: the hints show the keys.
+        let mode = host.ui.input_mode().unwrap();
+        host.ui.set_input_mode("pointer");
+        follow(&mut host);
+        shoot(window, &out.join(format!("{theme}-backup-browser-confirm-keys.png")));
+        host.ui.set_input_mode(&mode);
         key(&mut host, Key::Escape);
         host.dispatch(Command::Backup(launcher_core::BackupCmd::CloseBrowser));
     }
@@ -1372,8 +1380,158 @@ shots! {
     the_pad_hints => shoot_pad_hints,
     the_system_controls => shoot_system,
     the_os_install_s_cancel => shoot_install_cancel,
+    the_status_areas => shoot_status_areas,
+    the_system_controls_on_a_desktop => shoot_desktop_system,
+    the_stick_s_disks_with_none_offered => shoot_disks_reason,
     a_game_s_own_settings => shoot_game_settings,
     send_ratings => shoot_send_ratings,
+}
+
+/// The stick's disks step with no disk offered, in each built-in theme: the installer couldn't
+/// list the disks and said why, as `<theme>-disks-reason-failed.png`, and it listed none, as
+/// `<theme>-disks-reason-none.png`.
+fn shoot_disks_reason(window: &MinimalSoftwareWindow, out: &Path) {
+    use launcher_core::system::{Place, SystemCommand};
+    use slint::platform::Key;
+    window.set_size(slint::PhysicalSize::new(WIDTH, HEIGHT));
+    let why = "The USB stick Marah OS started from wasn't found, so no disk is offered.";
+    for theme in [theme_classic::ID, theme_default::ID] {
+        for (case, unavailable) in [("failed", Some(why)), ("none", None)] {
+            let system = launcher_testkit::FakeSystem::new();
+            if let Some(why) = unavailable {
+                system.with(|m| m.unavailable = vec![("os_install", why.into())]);
+            }
+            let place = Place { whole_screen: true, own_os: true, stick: true };
+            let plugin = system.plugin();
+            let mut host = composed_on_current_platform(|h| h.place(place).plugin(plugin));
+            host.ui.start_with(Some(id(theme))).unwrap();
+            host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
+            host.dispatch(Command::System(SystemCommand::Refresh));
+            host.dispatch(Command::Notice(launcher_core::NoticeCmd::DismissAll));
+            follow(&mut host);
+            for k in [Key::DownArrow, Key::Return] {
+                key(&mut host, k);
+                follow(&mut host);
+            }
+            let state = host.core().view().system.area("os_install").state.clone();
+            assert_eq!(state, if unavailable.is_some() { "unsupported" } else { "ready" }, "{theme}");
+            shoot(window, &out.join(format!("{theme}-disks-reason-{case}.png")));
+        }
+    }
+    not_blank(out, &["classic-disks-reason-failed", "default-disks-reason-failed"]);
+}
+
+/// On a desktop, in each built-in theme: the top bar with every machine icon, as
+/// `<theme>-desktop-status-bar.png`; Settings on its System tab, with the whole tab list, as
+/// `<theme>-desktop-settings-tabs.png`; and Restart's dialog, with the focus on Cancel, as
+/// `<theme>-desktop-restart-confirm.png`.
+fn shoot_desktop_system(window: &MinimalSoftwareWindow, out: &Path) {
+    use i_slint_backend_testing::ElementHandle;
+    window.set_size(slint::PhysicalSize::new(WIDTH, HEIGHT));
+    let press = |host: &mut Composed, label: &str| {
+        let found = ElementHandle::find_by_accessible_label(host.instance(), label).next();
+        found.unwrap_or_else(|| panic!("no {label}")).invoke_accessible_default_action();
+        host.pump();
+        follow(host);
+    };
+    for theme in [theme_classic::ID, theme_default::ID] {
+        let system = launcher_testkit::FakeSystem::new();
+        system.with(|m| {
+            m.network = launcher_api::NetworkStatus {
+                connection: launcher_api::Connection::Wifi,
+                name: "Home".into(),
+                signal: Some(80),
+            };
+            m.bluetooth_on = true;
+            m.devices = vec![launcher_api::BluetoothDevice {
+                address: "AA".into(),
+                name: "DualSense".into(),
+                paired: true,
+                connected: true,
+            }];
+            m.level = launcher_api::AudioLevel { volume: 65, muted: false };
+            m.battery = Some(launcher_api::Battery { percent: 64, charging: false });
+        });
+        let plugin = system.plugin();
+        let mut host = composed_on_current_platform(|h| {
+            h.place(launcher_core::system::Place::default())
+                .plugin(plugin)
+                .plugin(FakeCatalog::new("emu-a").system("PS5").games(["Astro Drift"]).build())
+        });
+        host.ui.start_with(Some(id(theme))).unwrap();
+        host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
+        host.dispatch(Command::System(launcher_core::system::SystemCommand::Refresh));
+        follow(&mut host);
+        follow(&mut host);
+        shoot(window, &out.join(format!("{theme}-desktop-status-bar.png")));
+        host.dispatch(Command::Navigate(Route::Settings));
+        follow(&mut host);
+        press(&mut host, "settings-tab:System");
+        shoot(window, &out.join(format!("{theme}-desktop-settings-tabs.png")));
+        press(&mut host, "settings-tab:Power");
+        press(&mut host, "system-restart");
+        shoot(window, &out.join(format!("{theme}-desktop-restart-confirm.png")));
+        round_corners(&host, out, &format!("{theme}-desktop-restart-confirm"), "power-confirm-title");
+    }
+}
+
+/// The top bar's status icons in each built-in theme, one area in each state: the network is
+/// ready, the sound still reads, and Bluetooth and the drives are disabled (no adapter, a long
+/// reason), as `<theme>-status-areas.png`; then with the keys on Bluetooth's icon, which shows
+/// why, as `<theme>-status-disabled-focused.png`; then on the drives' icon, last but one in the
+/// bar, whose long reason moves in from the window's edge, as `<theme>-status-disabled-edge.png`.
+fn shoot_status_areas(window: &MinimalSoftwareWindow, out: &Path) {
+    use launcher_core::system::Place;
+    use slint::platform::Key;
+    window.set_size(slint::PhysicalSize::new(WIDTH, HEIGHT));
+    for theme in [theme_classic::ID, theme_default::ID] {
+        let system = launcher_testkit::FakeSystem::new();
+        system.with(|m| {
+            m.network = launcher_api::NetworkStatus {
+                connection: launcher_api::Connection::Wifi,
+                name: "Home".into(),
+                signal: Some(80),
+            };
+            m.unavailable = vec![
+                ("bluetooth", "This PC has no Bluetooth adapter".into()),
+                ("drives", "Drives can't be managed here: this system has no udisks service running".into()),
+            ];
+            // The sound's read doesn't end while the shots are taken.
+            m.slow = vec![("audio.unavailable", Duration::from_secs(600))];
+        });
+        let place = Place { whole_screen: true, own_os: true, stick: false };
+        let plugin = system.plugin();
+        let mut host = composed_on_current_platform(|h| {
+            h.place(place)
+                .call_timeout(Duration::from_secs(900))
+                .plugin(plugin)
+                .plugin(FakeCatalog::new("emu-a").system("PS5").games(["Astro Drift"]).build())
+        });
+        host.ui.start_with(Some(id(theme))).unwrap();
+        host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
+        // The machine's own tick reads it: a Refresh would wait for the sound's read.
+        follow(&mut host);
+        follow(&mut host);
+        // The drives are read on their own tick.
+        host.advance(Duration::from_secs(31));
+        follow(&mut host);
+        let vm = host.core().view().system;
+        assert_eq!(
+            [&vm.area("network").state, &vm.area("audio").state, &vm.area("bluetooth").state, &vm.area("drives").state],
+            ["ready", "loading", "unsupported", "unsupported"],
+            "{theme}"
+        );
+        shoot(window, &out.join(format!("{theme}-status-areas.png")));
+        // From Settings, back past the drives' icon to Bluetooth's.
+        for _ in 0..3 {
+            key(&mut host, Key::Backtab);
+        }
+        follow(&mut host);
+        shoot(window, &out.join(format!("{theme}-status-disabled-focused.png")));
+        key(&mut host, Key::Tab);
+        follow(&mut host);
+        shoot(window, &out.join(format!("{theme}-status-disabled-edge.png")));
+    }
 }
 
 /// The stick's install of Marah OS in each built-in theme: while it runs, with the keys on
@@ -1548,6 +1706,37 @@ fn library(home: &Path) -> Composed {
     host
 }
 
+/// Fails unless the card that holds the element labelled `inside` has round corners in the
+/// picture `name`: its top-left corner shows what is outside the card, not the card's fill. The
+/// card's edges are found from the element: left from its middle and up from it, the first dark
+/// pixel is outside.
+fn round_corners(host: &Composed, out: &Path, name: &str, inside: &str) {
+    round_corners_of(host, out, name, inside, 0);
+}
+
+/// [`round_corners`] for the `nth` element labelled `inside`, counted from 0.
+fn round_corners_of(host: &Composed, out: &Path, name: &str, inside: &str, nth: usize) {
+    let png = image::open(out.join(format!("{name}.png"))).unwrap().to_rgba8();
+    let found = i_slint_backend_testing::ElementHandle::find_by_accessible_label(host.instance(), inside).nth(nth);
+    let element = found.unwrap_or_else(|| panic!("{name}: no {inside} number {nth}"));
+    let (at, size) = (element.absolute_position(), element.size());
+    let (x, y) = ((at.x as u32).saturating_sub(4), (at.y + size.height / 2.0) as u32);
+    let dark = |p: &image::Rgba<u8>| u32::from(p[0]) + u32::from(p[1]) + u32::from(p[2]) < 45;
+    let left = (0..x).rev().find(|&i| dark(png.get_pixel(i, y))).expect("the card's left edge") + 1;
+    let top = (0..y).rev().find(|&j| dark(png.get_pixel(x, j))).expect("the card's top edge") + 1;
+    let fill = png.get_pixel(left + 8, y);
+    // One pixel in: outside even a small card's curve, still in a square card's fill.
+    let corner = png.get_pixel(left + 1, top + 1);
+    let outside = png.get_pixel(left.saturating_sub(3), top.saturating_sub(3));
+    let near = |a: &image::Rgba<u8>, b: &image::Rgba<u8>| (0..3).all(|c| a[c].abs_diff(b[c]) <= 12);
+    assert!(
+        near(corner, outside) && !near(corner, fill),
+        "{name}: the corner at ({}, {}) is {corner:?}, the card's fill {fill:?}, outside {outside:?}",
+        left + 1,
+        top + 1
+    );
+}
+
 /// Fails unless each named picture in `out` has more than one colour.
 fn not_blank(out: &Path, names: &[&str]) {
     for name in names {
@@ -1565,10 +1754,6 @@ fn every_classic_screen_renders_the_library() {
     shoot_classic(&mut host, &window, &out, "classic");
     shoot_sizes(&mut host, &window, &out);
     shoot_steam_offers(&mut host, &window, &out);
-    // A first play asks before the emulator downloads.
-    host.dispatch(Command::Session(SessionCmd::Launch("emu-x:G0".parse().unwrap())));
-    shoot(&window, &out.join("classic-install-prompt.png"));
-    host.dispatch(Command::CancelInstall);
     // A game runs; the PS button brought the launcher back in front of it.
     host.dispatch(Command::Session(SessionCmd::Launch("emu-p:G0".parse().unwrap())));
     // The game watcher's rounds bring the game to the front.
@@ -1583,6 +1768,42 @@ fn every_classic_screen_renders_the_library() {
     assert_served(&host, &[]);
     println!("screenshots in {}", out.display());
     not_blank(&out, &["classic-home", "classic-library", "classic-detail", "classic-settings", "classic-running"]);
+}
+
+/// A first play asks before the emulator downloads: the prompt in each built-in theme, as
+/// `<theme>-install-prompt.png`.
+#[test]
+fn the_install_prompt_renders_in_each_theme() {
+    let (window, out) = offscreen();
+    let home = tempfile::tempdir().unwrap();
+    let mut host = library(home.path());
+    for theme in [theme_classic::ID, theme_default::ID] {
+        host.ui.switch(&id(theme)).unwrap();
+        host.dispatch(Command::Session(SessionCmd::Launch("emu-x:G0".parse().unwrap())));
+        follow(&mut host);
+        shoot(&window, &out.join(format!("{theme}-install-prompt.png")));
+        round_corners(&host, &out, &format!("{theme}-install-prompt"), "install-prompt");
+        host.dispatch(Command::CancelInstall);
+    }
+}
+
+/// A game with no cover shows its system's art and its name: in each built-in theme's Catalog,
+/// as `<theme>-catalog-no-cover.png`.
+#[test]
+fn a_game_without_a_cover_shows_round_corners_in_each_theme() {
+    let (window, out) = offscreen();
+    let home = tempfile::tempdir().unwrap();
+    let mut host = library(home.path());
+    for theme in [theme_classic::ID, theme_default::ID] {
+        host.ui.switch(&id(theme)).unwrap();
+        host.dispatch(Command::Notice(launcher_core::NoticeCmd::DismissAll));
+        host.dispatch(Command::Navigate(Route::Catalog));
+        host.load_images();
+        follow(&mut host);
+        shoot(&window, &out.join(format!("{theme}-catalog-no-cover.png")));
+        // The second: the first has the focus, and its ring around it in Classic.
+        round_corners_of(&host, &out, &format!("{theme}-catalog-no-cover"), "cover-name", 1);
+    }
 }
 
 #[test]
@@ -1839,7 +2060,7 @@ fn the_boot_screen_renders_a_plugin_s_question() {
             h.plugin(
                 launcher_testkit::StubPlugin::from_toml(
                     "id = \"asker\"\nkind = \"service\"\nname = \"Asker\"\nversion = \"1.0.0\"\n\
-                     host_api = \"^0.3.2\"\ncapabilities = [\"startup\"]",
+                     host_api = \"^0.4\"\ncapabilities = [\"startup\"]",
                 )
                 .provides(|_| {
                     Ok(launcher_api::Provided {
@@ -1859,6 +2080,7 @@ fn the_boot_screen_renders_a_plugin_s_question() {
         host.load_images();
         assert_eq!(host.values("question"), ["Install Switch firmware 22.5.0?"], "{theme}");
         shoot(&window, &out.join(format!("{theme}-boot-question.png")));
+        round_corners(&host, &out, &format!("{theme}-boot-question"), "question");
     }
     not_blank(&out, &["classic-boot-question", "default-boot-question"]);
 }

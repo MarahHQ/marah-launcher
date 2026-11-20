@@ -101,7 +101,7 @@ the player can take out is `usb`.
 _Avoid_: disk (`Disks` is the download folders' room), volume, storage (a plugin's data folder)
 
 **Drive adapter** (`drives::Adapter`): where the drives' list and actions come from: the mount
-folders (`MountFolders`) on every system, or a system plugin's `drives` capability
+folders (`MountFolders`) on every system, or a system plugin's drives area
 (`PluginDrives`, UDisks on Linux).
 
 **Drive space** (`DriveSpace`): the port of the drives' quick system calls on a path: the free
@@ -414,6 +414,13 @@ _Avoid_: history, nav
 sends it commands, reads its snapshot and turns its events into work. The torrents, the game
 installs, the library, the preferences, the running games, the emulators' builds, the notices,
 the VPN setting and the launcher's update and the backups are subsystems.
+
+**System area** (`SystemArea`, launcher-api): one part of the machine a system plugin manages:
+the network, VPNs, Bluetooth, sound, power, the OS's updates, its installer, or the drives. Every
+area has the same interface (`AreaSettings`): its state is absent, unsupported with a reason, or
+ready with its data, and it runs actions. The core's reader shows an area as loading until its
+first read ends. Not an **Area**, which is a part of the core's state that a change names.
+_Avoid_: system capability, system setting, part
 
 **System choice** (`SystemChoice`): a press on a grid's system chip, as `LibrarySystem` and
 `CatalogSystem` carry it: a system, such as `PS5`, or a grid filter. It reads as the chip's id.

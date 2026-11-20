@@ -90,7 +90,9 @@ It has three panes:
 With a mouse, one click opens a place or a folder, and one click on a backup asks to restore it.
 The path at the top is clickable too: click a folder in it to go there. The mouse wheel scrolls.
 
-A restore asks once, in a dialog: "Restore the backup of <date> from <computer>?".
+A restore asks once, in a dialog: "Restore the backup of <date> from <computer>?". The dialog
+starts on **Cancel**. Left and Right move between Cancel and **Restore**. Esc, B (○) or a click
+outside the dialog cancels.
 
 The browser lists a backup that a newer version of the launcher made, as "Newer Marah Launcher",
 but it doesn't restore it. Update the launcher first.

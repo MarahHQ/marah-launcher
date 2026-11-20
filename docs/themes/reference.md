@@ -6,7 +6,7 @@ for theme authors who already have a theme running; start with
 [writing-a-theme.md](writing-a-theme.md). Terms follow [the glossary](../../GLOSSARY.md).
 
 The contract is the crate `launcher-ui-api` (`crates/ui-api`). Its version is
-`UI_API_VERSION`, now `0.6.0` (`crates/ui-api/src/lib.rs`). A theme's `ui_api` range must
+`UI_API_VERSION`, now `0.7.0` (`crates/ui-api/src/lib.rs`). A theme's `ui_api` range must
 include it.
 
 ## Contents
@@ -304,12 +304,13 @@ Tests in `contract.rs` hold every kit file to three rules:
 
 | File | Exports | What it gives |
 | --- | --- | --- |
+| `ask.slint` | `Hint`, `Ask`, `AskKeys` | A question before something that can't be taken back, for a `Sheet`'s card: the question, what happens, and Cancel and the action as pills side by side. Cancel comes first in reading order and has the focus first; the action is red. `AskKeys.moved` moves the focus for a key, and `AskKeys.hints` are the key hints while it is up: Choose, Select and Cancel. The dialogs before Restart, Shut down and a restore use it. |
 | `button.slint` | `Button` | A small round button. Primary and the current choice are white; others light up on hover and focus. |
 | `closing.slint` | `Closing`, `ClosingScreen` | Covers the screen while Log out, Restart or Shut down closes what runs. It takes every key: hide your key hints while `Closing.shows`. |
 | `commands.slint` | `Commands` | One function for each thing the player asks of the core. |
 | `cover-wall.slint` | `CoverWall` | A slowly drifting wall of the library's covers, dimmed, as the boot and closing screens show it. |
 | `downloads.slint` | `Dl`, `DownloadsPage` | The Downloads screen, its keys, the download sheet, and the install and remove sheets. |
-| `folder-browser.slint` | `Browser`, `FolderBrowser` | The folder browser, for a restore or to pick a folder: places (a drive that isn't mounted mounts from here), folders and backups, details, its own keys, "Use this folder" when it picks, and one dialog before a restore. |
+| `folder-browser.slint` | `Browser`, `FolderBrowser` | The folder browser, for a restore or to pick a folder: places (a drive that isn't mounted mounts from here), folders and backups, details, its own keys, "Use this folder" when it picks, and one dialog before a restore (an `Ask`). While the dialog is up, its hint line shows the dialog's hints (`AskKeys.hints`). Accessible labels: `hint` (each hint's label), `browser-confirm`, `browser-confirm-title`, `browser-confirm-cancel` and `browser-confirm-restore`. |
 | `folder-list.slint` | `FolderList`, `FolderListSheet` | A named folder's list, which a `FolderRow` opens: each folder with the free space on its drive and Remove, then Add folder (the folder browser) and Type a path. With `FolderList.show-backup()`, the backup folder's: Choose a folder, Type a path, Use the default folder. |
 | `game-detail.slint` | `Hub`, `GameDetailPage` | The Game Hub: buttons, releases, fact cards, technical details and screenshots. |
 | `game-menu.slint` | `GameMenu`, `MenuRow`, `GameMenuSheet` | A game's menu, with Uninstall asking first. |
@@ -322,14 +323,15 @@ Tests in `contract.rs` hold every kit file to three rules:
 | `keyboard.slint` | `Osk`, `TextField`, `OnScreenKeyboard` | A text field, and the on-screen keyboard it opens for a controller. A field with `picking` shows a row of picks over the keys, such as a search's matches or recent searches. |
 | `lingering.slint` | `Lingering` | Keeps a screen or a sheet on screen while it goes out. |
 | `list-item.slint` | `ListItem` | A row: a label, a line under it, a value at the end. |
-| `loading.slint` | `LoadingLine`, `LoadingSpinner`, `LoadingRow`, `StatusSlot`, `StatusLoading` | What shows while a part of the machine is read for the first time: a status icon's thin line and its "Checking…" label, a panel's loading row, and the place that keeps a status icon in the top bar and closes, with its gap, when the icon goes. |
+| `loading.slint` | `LoadingLine`, `LoadingSpinner`, `LoadingRow`, `StatusSlot`, `StatusLoading`, `StatusState` | What shows while a system area is read for the first time: a status icon's thin line and its "Checking…" label, a panel's loading row, and the place that keeps a status icon in the top bar and closes, with its gap, when the icon goes. `StatusState` shows an area's state over its status icon: loading, or disabled with its reason. |
 | `look.slint` | `Look` | Shared sizes (`k`, `px`, `t`, `tpx`), `rtl`, colors made from tokens, `timed`, `motion-on`, `clock`, the kinds of motion, and words and colors for ratings, results, sorts and states. |
-| `motion.slint` | `Motion`, `Leaving`, `Popover`, `Sheet`, `Tooltip` | The kit's shared motion: its times, a part kept on screen while it fades out, a popover that grows from its anchor, a sheet whose card slides up over a fading wash, and a label that fades in on key focus or after a short hover. |
+| `motion.slint` | `Motion`, `Leaving`, `Popover`, `Card`, `Sheet`, `Tooltip` | The kit's shared motion: its times, a part kept on screen while it fades out, a popover that grows from its anchor, a card's fill with round corners (top to bottom, the software renderer draws a gradient square past them), a sheet whose card slides up over a fading wash, and a label that fades in on key focus or after a short hover. The install prompt, a plugin's question and the art of a game with no cover use `Card` too. |
 | `notices.slint` | `Notices`, `NoticeStack` | The notices on screen. Delete closes the newest. |
 | `origin.slint` | `Origin` | The card the Game Hub opens from, for its cover to grow out of it. |
 | `plugin-list.slint` | `PluginList`, `PluginListSheet` | The Emulators or Themes list as a side sheet, and its keys. |
 | `plugin.slint` | `PluginPage` | One plugin's page, on `SettingsFrame`. For a theme, "Use this theme" and its options. |
 | `pop.slint` | `Pop` | A pop-up: a wash over the screen and a card in its middle. |
+| `power-ask.slint` | `PowerAsk`, `PowerAskSheet` | On a desktop, the dialog before Restart or Shut down, an `Ask`: the focus starts on Cancel. Esc, the pad's ○ and a click outside cancel. `Overlays` shows it and `ShellKeys` sends it its keys. Its key hints read Choose, Select and Cancel, whichever choice has the focus. Accessible labels: `power-confirm` (value `restart` or `shut-down`), `power-confirm-title` and `power-confirm-choice` (value `Cancel`, `Restart` or `Shut down`). |
 | `power-menu.slint` | `PowerMenu`, `PowerMenuSheet` | The power menu: Log out, restart the launcher, Restart, Shut down, or quit. |
 | `progress-bar.slint` | `ProgressBar` | A thin progress bar. |
 | `question-prompt.slint` | `Question`, `QuestionPrompt` | A plugin's question at the start, with its two buttons. |
@@ -347,7 +349,8 @@ Tests in `contract.rs` hold every kit file to three rules:
 | `slot-actions.slint` | `SlotActions` | Plugin actions as round buttons. |
 | `slot-badges.slint` | `SlotBadges` | Plugin badges as small tags with a dot in their tone. |
 | `slot-sections.slint` | `SlotSections` | Plugin sections as fact cards. |
-| `system-panel.slint` | `Sys`, `NetIcon`, `SoundIcon`, `BluetoothIcon`, `StorageIcon`, `BatteryIcon`, `SystemSheet` | The network, sound and Bluetooth icons and panels for when the launcher is the whole screen, the drives' icon and the Drives panel (`Sys.show(3)`) wherever drives can be managed (`Vm.system.drives-available`), on a desktop too, and the battery. A notice with a `drive` opens the Drives panel. |
+| `status-bar.slint` | `StatusBar`, `StatusButton` | The machine's status icons in one row, the same in every theme: the network, sound, Bluetooth and drives icons, then the battery. Put it in your top bar before Settings, and give it `focused`, the icon the keys are on (0 to `Sys.statuses` - 1, or -1). |
+| `system-panel.slint` | `Sys`, `NetIcon`, `SoundIcon`, `BluetoothIcon`, `StorageIcon`, `BatteryIcon`, `SystemSheet` | The network, sound, Bluetooth and drives icons and their panels, wherever the launcher runs, and the battery. `Sys.statuses` is how many status icons there are (4). `Sys.toggle` and `Sys.show-status` open a status icon's panel, and open nothing for a disabled area. `Sys.loading`, `Sys.disabled` and `Sys.reason` read a panel's area. A notice with a `drive` opens the Drives panel. |
 | `trailer-player.slint` | `Trailers`, `TrailerPlayer` | A trailer in the window, with its keys. |
 | `widgets.slint` | `FocusRing`, `KeyCap`, `BackButton`, `Stars`, `Chip`, `Pill`, `Kicker`, `Switch`, `Shimmer`, `Cover` | Small widgets. |
 
@@ -359,7 +362,8 @@ theme: put your screens inside it and give it the focus (`forward-focus`).
 
 `ShellKeys` answers the keys in this order and stops at the first that takes the key:
 
-1. Before any element sees the key: the closing screen takes every key. Then the folder browser
+1. Before any element sees the key: the closing screen takes every key. Then the dialog before
+   Restart or Shut down on a desktop (`PowerAsk.key`) takes every key but a held Enter. Then the folder browser
    (`Browser.key`), a folder's list (`FolderList.key`), Send ratings (`Sending.key`) and the
    on-screen keyboard (`Osk.key`), while each is open. Ctrl+P, for the power menu, still gets
    past the first three.
@@ -445,40 +449,76 @@ Version 0.6.0 moved the backup browser out of Settings → Backup: it is the fol
 - `FolderBrowser` has `title`. `Backup` has `free`, the free space on the backup folder's drive.
 - `Folder` has `list`, each a `FolderPath`. `FolderRow` takes `at` and `on-page`, and opens the
   folder's list (`kit/folder-list.slint`) instead of a text box.
-- `System` has `drives-available`, `drives-reason` and `drives` (each a `DriveItem`, one per
+- `System` has `drives-available` and `drives` (each a `DriveItem`, one per
   drive, with its `actions` as buttons and the `busy` one). `Notice`
   has `drive`. A job's kind can be `mount`, `unmount` or `eject`.
-- A theme with its own top bar shows the drives' icon while `Vm.system.drives-available` or
-  `Vm.system.drives-loading`, on the whole screen and on a desktop, and counts it among its
-  machine icons so the keys reach it. Both built-in themes' `Nav.statuses` is 3 for the network,
-  sound and Bluetooth icons on the whole screen, plus 1 for the drives' icon. On a desktop the
-  drives' icon is the only one.
-- Each part of `System` has a loading state: `network-loading`, `audio-loading`,
-  `bluetooth-loading`, `power-loading` and `drives-loading` are true until the part's first read
-  ends. While a part loads it is neither available nor unavailable: its `*-available` is false
-  and its `*-reason` is empty, so a theme never shows "unavailable" before the read.
-  `drives-listing` is true until the drives' first list read ends. `FolderBrowser` has
+- A theme with its own top bar shows the drives' icon, and counts it among its machine icons
+  so the keys reach it.
+- `drives-listing` is true until the drives' first list read ends. `FolderBrowser` has
   `places-loading`, true while the browser reads the drives for its places.
-
-#### Loading
-
-Every status icon that can show is in place from the first frame, so the top bar never shifts:
-
-- **The icon:** while its part loads, it dims, and a 2 px line (`LoadingLine`) sweeps under it.
-  With Animations off the line is dotted and stands still. Its accessible value is `loading`, and
-  "Checking…" shows under it on hover or key focus (`StatusLoading`). The battery shows an empty,
-  dim battery with "--%" and the same line.
-- **Input:** a loading icon can be focused and clicked. Its panel opens at once on a loading row
-  (`LoadingRow`, accessible label `loading`: "Reading drives…", "Reading the network…") that
-  the rows replace when the read ends. The folder browser's places show "Reading drives…" under
-  them while `places-loading`.
-- **An icon that goes:** a part that turns out unavailable (the drives, a PC with no battery)
-  fades its icon out, and its place (`StatusSlot`) closes with its gap, in the motion times. Put
-  each icon in a `StatusSlot` with the gap after it, and keep the slot while it fades out with
-  `Leaving`.
 
 A theme built for 0.5 that reads `Vm.backup.browser` or imports `kit/backup-browser.slint`
 changes those names, then sets `ui_api = "^0.6"`.
+
+Version 0.7.0 put every system area in one list
+([ADR-0004](../adr/0004-every-system-area-has-one-interface.md)):
+
+- `System` has `areas`, each an `AreaItem`: its `name`, its `state` (`loading`, `absent`,
+  `unsupported` or `ready`), its `reason` and whether it is `busy`. The list always holds every
+  area, in the order of the `Areas` global in `types.slint`: read one as
+  `Vm.system.areas[Areas.bluetooth]`.
+- `network-loading`, `audio-loading`, `bluetooth-loading`, `power-loading`, `drives-loading`
+  and their `*-reason` are gone: read the area's `state` and `reason`. `network-available`,
+  `audio-available`, `bluetooth-available`, `drives-available` and `power-available` are gone
+  too: an area works here when its `state` is `ready`. Restart and shut down work when the
+  power area is ready and its `reason` is empty.
+- An area that can't be used here (absent or unsupported) no longer hides its icon: the icon
+  shows disabled (see [Status icons](#status-icons)).
+- The machine's controls show wherever the launcher runs, on a desktop too: the network, sound,
+  Bluetooth and drives icons, Settings → System, and Restart and Shut down. Whether a control
+  works comes from its area's state only. `whole-screen` is a fact of the session now: Quit
+  restarts the launcher, the game menu opens nothing outside it, and Restart and Shut down ask
+  by a second press. On a desktop they ask in a dialog (`kit/power-ask.slint`).
+- That dialog and the one before a restore are an `Ask` (`kit/ask.slint`): Cancel and the
+  action side by side, with the focus on Cancel. `Browser.choice` is 0 for Cancel and 1 for
+  Restore, the reverse of before.
+- The kit draws the status icons: `StatusBar` in `kit/status-bar.slint`. Both built-in themes
+  use it, and their `Nav.statuses` is `Sys.statuses`, 4.
+- Settings' tabs come from one list, `Prefs.settings-tabs`, the same in every place. System is
+  always section 5, Backup 6 and Power 7 (`Prefs.backup-section`, `Prefs.power-section`).
+  `Prefs.sections` is 8 in Settings.
+
+A theme built for 0.6 that reads `Vm.system.*-loading`, `*-reason` or `*-available` reads
+`Vm.system.areas` instead, then sets `ui_api = "^0.7"`.
+
+#### Status icons
+
+The kit's `StatusBar` (`kit/status-bar.slint`) draws every status icon in the same order in every
+theme, wherever the launcher runs. A theme with a top bar of its own puts it before its Settings
+button. Every status icon is in place from the first frame, so the top bar never shifts.
+The kit's `StatusState` (`kit/loading.slint`) shows an area's state over its icon. Put it in the
+icon's button with the area's place, and read its `dim`, `cursor`, `disabled` and `lit`:
+
+- **Loading:** while its area loads, the icon dims, and a 2 px line (`LoadingLine`) sweeps under
+  it. With Animations off the line is dotted and stands still. Its accessible value is `loading`,
+  and "Checking…" shows under it on hover or key focus (`StatusLoading`). The battery shows an
+  empty, dim battery with "--%" and the same line. A loading icon can be focused and clicked. Its
+  panel opens at once on a loading row (`LoadingRow`, accessible label `loading`: "Reading
+  drives…", "Reading the network…") that the rows replace when the read ends. The folder
+  browser's places show "Reading drives…" under them while `places-loading`.
+- **Disabled:** an area that is absent or unsupported keeps its icon in place, dimmer, with the
+  plain pointer (`cursor`) in place of the hand and no hover fill. A click, Enter or the pad's ✕
+  opens nothing. The icon still takes the keys' and the pad's focus and the pointer's hover, and
+  then its reason shows under it on one line, on a chip that stays inside the window (`TipChip`
+  in `kit/motion.slint`, accessible label `status-reason`). Its focus is a ring that `StatusState`
+  draws round the dim icon: give the solid focus fill, and the glyph's colour on it, only while
+  `lit` (focused and not disabled). The built-in themes give it the accessible
+  value `disabled`, `accessible-enabled: false`, and the reason as its description. Left and
+  right in an open panel go past a disabled one.
+- **An icon that goes:** only what isn't there at all closes its place: a PC with no battery
+  fades the battery out, and its place (`StatusSlot`) closes with its gap, in the motion times.
+  Put each icon in a `StatusSlot` with the gap after it, and keep the slot while it fades out
+  with `Leaving`.
 
 ### Motion
 
@@ -489,11 +529,11 @@ place at its first frame.
 | Piece | Used by | Motion | Time (`Motion`) |
 | --- | --- | --- | --- |
 | `Popover` | the system panels and the Drives panel | grows from 0.96 at its anchor's side and fades in; fades out | `popover-in` 120 ms, `popover-out` 90 ms |
-| `Sheet` | the folder browser, a folder's list | the wash fades in, the card slides up 16 px and fades in; both fade out | `sheet-in` 150 ms, `sheet-out` 110 ms |
+| `Sheet` | the folder browser, a folder's list, the dialogs before Restart, Shut down and a restore | the wash fades in, the card slides up 16 px and fades in; both fade out | `sheet-in` 150 ms, `sheet-out` 110 ms |
 | `Leaving` | the shells and `Overlays` | keeps a part on screen while it fades out | the part's out time |
 | `Tooltip` | the Drives panel's buttons | fades in at once on key focus, after `tip-wait` under the pointer | `tip-in` 80 ms, `tip-wait` 250 ms, `tip-out` 60 ms |
 | Settings' rail | the lit square and the focus ring | one square moves to the section | `focus` 90 ms |
-| Rows and buttons | the browser, a folder's list, the Drives panel | the focus and hover tint ease; a press gives to 0.97 | `focus` 90 ms, `press` 70 ms |
+| Rows and buttons | the browser, a folder's list, the Drives panel, an `Ask`'s pills | the focus and hover tint ease; a press gives to 0.97 | `focus` 90 ms, `press` 70 ms |
 | Bars | the Drives panel's usage bars, the volume | the width eases | `bar` 120 ms |
 | Lists | the browser's folders, the drives | each row comes in a `Look.stagger` after the one before, at most `stagger-cap` (6) steps | `Look` |
 

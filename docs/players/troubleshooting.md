@@ -42,6 +42,19 @@ launcher's package lets a member of the `wheel` or `sudo` group mount it at the 
 screen. For other players, the message says "Not authorized"; mount the drive another way, or
 add the player to that group.
 
+**On Windows, the Wi-Fi list is empty.** Windows 11 shows the Wi-Fi networks to a program only
+when you allow it your location. Choose Scan to see the message. Then allow location in
+Settings → Privacy & security → Location, for desktop apps too.
+
+**On macOS, the Wi-Fi network shows as "Wi-Fi", or Scan says it can't look.** macOS 14 and
+later hide the network's name from a program without Location Services, and macOS has no
+built-in tool that looks for networks. The list shows your saved networks. Look for new ones in
+the Wi-Fi menu.
+
+**On macOS, Restart or Shut down says to allow the launcher.** macOS asked whether the launcher
+may control System Events, and the answer was "Don't Allow". Allow it in System Settings →
+Privacy & Security → Automation.
+
 **A drive doesn't eject.** The message says why: close the game that runs from it, or wait for
 the download or the install that writes to it.
 

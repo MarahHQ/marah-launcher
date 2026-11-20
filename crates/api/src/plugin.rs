@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -92,14 +92,9 @@ pub struct Provided {
     pub releases: Option<Arc<dyn crate::Releases>>,
     pub backup: Option<Arc<dyn crate::Backup>>,
     pub startup: Option<Arc<dyn crate::StartupWork>>,
-    pub network: Option<Arc<dyn crate::NetworkSettings>>,
-    pub vpn: Option<Arc<dyn crate::VpnSettings>>,
-    pub bluetooth: Option<Arc<dyn crate::BluetoothSettings>>,
-    pub audio: Option<Arc<dyn crate::AudioSettings>>,
-    pub power: Option<Arc<dyn crate::PowerSettings>>,
-    pub os_updates: Option<Arc<dyn crate::OsUpdates>>,
-    pub os_install: Option<Arc<dyn crate::OsInstall>>,
-    pub drives: Option<Arc<dyn crate::DriveSettings>>,
+    /// The system areas the plugin manages, each through the same interface. System plugins
+    /// only; each key's capability ([`crate::SystemArea::capability`]) is in the manifest.
+    pub areas: BTreeMap<crate::SystemArea, Arc<dyn crate::AreaSettings>>,
     /// Images that slot data and catalog entries refer to as [`crate::ImageSource::Asset`].
     /// Plugins loaded from a folder can use the manifest's `assets` folder instead.
     pub assets: Option<Arc<dyn Files>>,
@@ -126,16 +121,9 @@ impl Provided {
             (Capability::Releases, self.releases.is_some()),
             (Capability::Backup, self.backup.is_some()),
             (Capability::Startup, self.startup.is_some()),
-            (Capability::Network, self.network.is_some()),
-            (Capability::Vpn, self.vpn.is_some()),
-            (Capability::Bluetooth, self.bluetooth.is_some()),
-            (Capability::Audio, self.audio.is_some()),
-            (Capability::Power, self.power.is_some()),
-            (Capability::OsUpdates, self.os_updates.is_some()),
-            (Capability::OsInstall, self.os_install.is_some()),
-            (Capability::Drives, self.drives.is_some()),
         ];
-        present.into_iter().filter_map(|(c, yes)| yes.then_some(c)).collect()
+        let areas = self.areas.keys().map(|area| area.capability());
+        present.into_iter().filter_map(|(c, yes)| yes.then_some(c)).chain(areas).collect()
     }
 }
 

@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Bootable</key>
+	<false/>
+	<key>BusProtocol</key>
+	<string>USB</string>
+	<key>CanBeMadeBootable</key>
+	<false/>
+	<key>Content</key>
+	<string></string>
+	<key>DeviceBlockSize</key>
+	<integer>512</integer>
+	<key>DeviceIdentifier</key>
+	<string>disk4</string>
+	<key>DeviceNode</key>
+	<string>/dev/disk4</string>
+	<key>DeviceTreePath</key>
+	<string>IODeviceTree:/PCI0@0/XHC1@14</string>
+	<key>Ejectable</key>
+	<true/>
+	<key>EjectableOnly</key>
+	<true/>
+	<key>FilesystemName</key>
+	<string>MS-DOS FAT32</string>
+	<key>FilesystemType</key>
+	<string>msdos</string>
+	<key>FilesystemUserVisibleName</key>
+	<string>MS-DOS (FAT32)</string>
+	<key>FreeSpace</key>
+	<integer>9662678016</integer>
+	<key>IOKitSize</key>
+	<integer>15682240512</integer>
+	<key>IORegistryEntryName</key>
+	<string>Example Flash Media</string>
+	<key>Internal</key>
+	<false/>
+	<key>MediaName</key>
+	<string>Example Flash</string>
+	<key>MediaType</key>
+	<string>Generic</string>
+	<key>MountPoint</key>
+	<string>/Volumes/GAMES &amp; SAVES</string>
+	<key>OSInternalMedia</key>
+	<false/>
+	<key>ParentWholeDisk</key>
+	<string>disk4</string>
+	<key>PartitionMapPartition</key>
+	<false/>
+	<key>Removable</key>
+	<true/>
+	<key>RemovableMedia</key>
+	<true/>
+	<key>RemovableMediaOrExternalDevice</key>
+	<true/>
+	<key>SMARTDeviceSpecificKeysMayVaryNotGuaranteed</key>
+	<dict/>
+	<key>SMARTStatus</key>
+	<string>Not Supported</string>
+	<key>Size</key>
+	<integer>15682240512</integer>
+	<key>SystemImage</key>
+	<false/>
+	<key>TotalSize</key>
+	<integer>15665463296</integer>
+	<key>VirtualOrPhysical</key>
+	<string>Physical</string>
+	<key>VolumeAllocationBlockSize</key>
+	<integer>8192</integer>
+	<key>VolumeName</key>
+	<string>GAMES &amp; SAVES</string>
+	<key>VolumeSize</key>
+	<integer>15665463296</integer>
+	<key>VolumeUUID</key>
+	<string>22222222-3333-3444-8555-666666666661</string>
+	<key>WholeDisk</key>
+	<true/>
+	<key>Writable</key>
+	<true/>
+</dict>
+</plist>

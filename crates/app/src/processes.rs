@@ -212,10 +212,14 @@ mod system {
 
 #[cfg(test)]
 mod tests {
+    // The tests that run real programs are Unix's only; so are what they use.
+    #[cfg(unix)]
     use std::time::{Duration, Instant};
 
+    #[cfg(unix)]
     use launcher_core::ProcessTree;
 
+    #[cfg(unix)]
     use super::SystemProcesses;
 
     /// A handed-over game is found by an environment entry it carries, matched whole.
@@ -283,6 +287,7 @@ mod tests {
         assert!(seen, "sleep {words} ({id}) wasn't found");
     }
 
+    #[cfg(unix)]
     fn until(what: &str, done: impl Fn() -> bool) {
         let start = Instant::now();
         while !done() {

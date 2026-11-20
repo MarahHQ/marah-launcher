@@ -379,8 +379,8 @@ mod tests {
 
     fn manifest(id: &str, theme: &str) -> ThemeManifest {
         let text = format!(
-            "id = \"{id}\"\nkind = \"theme\"\nname = \"{id}\"\nversion = \"1.0.0\"\nhost_api = \"^0.3\"\n\
-             capabilities = [\"theme\"]\n[theme]\nui_api = \"^0.6\"\n{theme}"
+            "id = \"{id}\"\nkind = \"theme\"\nname = \"{id}\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
+             capabilities = [\"theme\"]\n[theme]\nui_api = \"^0.7\"\n{theme}"
         );
         ThemeManifest::from_plugin(&PluginManifest::from_toml(&text).unwrap()).unwrap()
     }
@@ -406,8 +406,8 @@ mod tests {
             ("components", "components = [\"card\"]"),
         ] {
             let text = format!(
-                "id = \"refused\"\nkind = \"theme\"\nname = \"refused\"\nversion = \"1.0.0\"\nhost_api = \"^0.3\"\n\
-                 capabilities = [\"theme\"]\n[theme]\nui_api = \"^0.6\"\n{line}"
+                "id = \"refused\"\nkind = \"theme\"\nname = \"refused\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
+                 capabilities = [\"theme\"]\n[theme]\nui_api = \"^0.7\"\n{line}"
             );
             let err = ThemeManifest::from_plugin(&PluginManifest::from_toml(&text).unwrap()).unwrap_err();
             assert!(matches!(&err, ThemeError::Manifest { message, .. } if message.contains(key)), "{err}");

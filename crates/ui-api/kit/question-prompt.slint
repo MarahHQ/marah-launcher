@@ -3,6 +3,7 @@ import { Commands } from "commands.slint";
 import { Tokens } from "../tokens.slint";
 import { Look } from "look.slint";
 import { Reveal } from "reveal.slint";
+import { Card } from "motion.slint";
 import { Pill } from "widgets.slint";
 
 // Which button of a plugin's question the keys are on: 0 is its yes, 1 its no.
@@ -37,16 +38,16 @@ export component QuestionPrompt inherits Rectangle {
     animate background { duration: Tokens.motion-normal; }
     TouchArea {}
 
-    Rectangle {
+    Card {
         width: Math.min(root.width - 80 * Look.px, 820 * Look.px);
         height: box.preferred-height;
         x: (root.width - self.width) / 2;
         y: (root.height - self.height) / 2 + (1 - reveal.move) * 30 * Look.px;
         opacity: reveal.fade;
         border-radius: 24 * Look.px;
-        background: @linear-gradient(130deg, Tokens.color-surface.mix(Tokens.color-accent, 0.9), Tokens.color-surface);
-        border-width: 1px;
-        border-color: Tokens.color-tint.with-alpha(0.141);
+        top: Tokens.color-surface.mix(Tokens.color-accent, 0.9);
+        bottom: Tokens.color-surface;
+        edge: Tokens.color-tint.with-alpha(0.141);
         drop-shadow-blur: 36 * Look.px;
         drop-shadow-color: Tokens.color-shade.with-alpha(0.533);
 

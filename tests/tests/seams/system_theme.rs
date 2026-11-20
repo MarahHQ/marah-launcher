@@ -1,7 +1,8 @@
-//! Seam 3: the Classic theme's machine settings, over a fake system plugin. The top bar's
-//! network, sound and Bluetooth icons and their panels show when Marah Launcher is the whole screen;
-//! the battery wherever the PC has one; Settings → System; and on Marah OS's USB stick, the
-//! Welcome and Install screens.
+//! Seam 3: the themes' machine settings, over a fake system plugin. The top bar's network, sound,
+//! Bluetooth and drives icons and their panels, and Settings → System, show wherever Marah Launcher
+//! runs, on a desktop too: each by its area's state. The battery shows wherever the PC has one. On
+//! a desktop Restart and Shut down ask in a dialog; as the whole screen they ask by a second press.
+//! On Marah OS's USB stick, the Welcome and Install screens.
 
 use std::path::PathBuf;
 
@@ -54,12 +55,26 @@ fn refreshed(host: &mut Composed) {
     host.settle();
 }
 
+/// On a desktop the top bar has every machine icon, each by its area's state, and Settings has
+/// its System section: the player manages the machine wherever the launcher runs.
 #[test]
-fn on_a_desktop_only_the_battery_shows_in_the_top_bar() {
-    let host = shown(&machine(), Place::default());
-    assert_eq!(host.count("status:network") + host.count("status:sound") + host.count("status:bluetooth"), 0);
-    assert_eq!(host.value("battery"), "18");
-    assert_eq!(host.count("system-internet"), 0, "no SYSTEM section in Settings");
+fn on_a_desktop_the_top_bar_shows_every_machine_icon_and_settings_has_system() {
+    for theme in ["classic", "default"] {
+        let mut host = shown(&machine(), Place::default());
+        host.ui.switch(&id(theme)).unwrap();
+        host.settle();
+        assert_eq!(host.value("status:network"), "wired", "{theme}");
+        assert_eq!(host.value("status:sound"), "40", "{theme}");
+        assert_eq!(host.value("status:bluetooth"), "on 1", "{theme}");
+        assert_eq!(host.count("status:drives"), 1, "{theme}");
+        assert_eq!(host.value("battery"), "18", "{theme}");
+        host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+        host.settle();
+        host.settings_tab("System");
+        assert_eq!(host.value("system-internet"), "wired", "{theme}: Settings has System");
+        let icons = ["network", "sound", "bluetooth", "refresh"];
+        assert_eq!(host.values("row-icon"), icons, "{theme}: each System row has its icon");
+    }
 }
 
 #[test]
@@ -156,10 +171,18 @@ fn the_bluetooth_panel_turns_it_off_and_a_missing_adapter_says_why() {
     assert!(!system.read(|m| m.bluetooth_on));
     assert_eq!(host.value("status:bluetooth"), "off");
 
+    // Without an adapter the icon is disabled and says why; Settings → System opens the panel,
+    // which says it too.
     let system = machine();
     system.with(|m| m.unavailable = vec![("bluetooth", "This PC has no Bluetooth adapter".into())]);
     let mut host = shown(&system, WHOLE_SCREEN);
     host.press_first("status:bluetooth");
+    assert_eq!(host.count("system-panel"), 0, "the disabled icon opens nothing");
+    assert_eq!(host.description("status:bluetooth"), "This PC has no Bluetooth adapter");
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    host.settings_tab("System");
+    host.press_first("system-bluetooth");
     assert_eq!(host.value("system-reason"), "This PC has no Bluetooth adapter");
 }
 
@@ -280,16 +303,150 @@ fn ctrl_p_opens_the_power_menu_and_shut_down_asks_again_first() {
 }
 
 #[test]
-fn on_a_desktop_the_power_menu_only_quits_and_escape_closes_it() {
+fn on_a_desktop_the_power_menu_quits_restarts_and_shuts_down_and_escape_closes_it() {
     let system = machine();
     let mut host = shown(&system, Place::default());
     ctrl_p(&mut host);
-    assert_eq!(power_items(&host), ["Quit Marah Launcher"]);
+    assert_eq!(power_items(&host), ["Quit Marah Launcher", "Restart", "Shut down"], "a desktop: no Log out");
     host.navigate(slint::platform::Key::Escape);
     assert!(power_items(&host).is_empty(), "closed");
     ctrl_p(&mut host);
     power_item(&mut host, "Quit Marah Launcher");
     assert!(host.requests.borrow().contains(&launcher_ui_host::UiRequest::Quit));
+}
+
+/// The confirmation dialog's state: what it asks about ("restart" or "shut-down"), or nothing.
+fn asking(host: &Composed) -> Option<String> {
+    (host.count("power-confirm") > 0).then(|| host.value("power-confirm"))
+}
+
+/// On a desktop, Restart and Shut down act on the whole PC: they ask in a dialog with the focus
+/// on Cancel. Enter on Cancel, Esc, the pad's Back and a click outside cancel; the other choice
+/// acts. In every theme.
+#[test]
+fn on_a_desktop_restart_asks_in_a_dialog_with_the_focus_on_cancel() {
+    use slint::platform::Key;
+    for theme in ["classic", "default"] {
+        let system = machine();
+        let mut host = shown(&system, Place::default());
+        host.ui.switch(&id(theme)).unwrap();
+        // The pointer reaches the screens once the boot screen is gone.
+        host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
+        host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+        host.settle();
+        host.settings_tab("Power");
+
+        host.press_first("system-restart");
+        assert_eq!(asking(&host).as_deref(), Some("restart"), "{theme}: the first press asks in a dialog");
+        assert_eq!(host.focused("power-confirm-choice"), ["Cancel"], "{theme}: the focus starts on Cancel");
+        let hints = ["Choose", "Select", "Cancel"];
+        assert_eq!(host.values("hint"), hints, "{theme}: ✕ selects the focused choice, whichever it is");
+        host.navigate(Key::Return);
+        assert_eq!(asking(&host), None, "{theme}: Enter on Cancel closes it");
+        assert_eq!(system.read(|m| m.restarts), 0, "{theme}");
+
+        host.press_first("system-restart");
+        host.navigate(Key::Escape);
+        assert_eq!(asking(&host), None, "{theme}: Esc cancels");
+        host.press_first("system-restart");
+        host.pad(launcher_ui_host::PadButton::East);
+        assert_eq!(asking(&host), None, "{theme}: the pad's Back cancels");
+
+        host.press_first("system-restart");
+        host.click("power-confirm-title");
+        assert_eq!(asking(&host).as_deref(), Some("restart"), "{theme}: a click inside keeps it");
+        host.click_at(4.0, 4.0);
+        assert_eq!(asking(&host), None, "{theme}: a click outside cancels");
+        assert_eq!(system.read(|m| m.restarts), 0, "{theme}: nothing restarted");
+
+        // The choices sit side by side, Cancel on the left: Right and Tab go to Restart, Left
+        // and Shift+Tab back.
+        host.press_first("system-restart");
+        host.navigate(Key::RightArrow);
+        assert_eq!(host.focused("power-confirm-choice"), ["Restart"], "{theme}: Right goes to Restart");
+        host.navigate(Key::LeftArrow);
+        assert_eq!(host.focused("power-confirm-choice"), ["Cancel"], "{theme}: Left goes back");
+        host.navigate(Key::Tab);
+        assert_eq!(host.focused("power-confirm-choice"), ["Restart"], "{theme}: Tab goes to Restart");
+        host.navigate(Key::Backtab);
+        assert_eq!(host.focused("power-confirm-choice"), ["Cancel"], "{theme}: Shift+Tab goes back");
+        let choice = |label: &str| {
+            i_slint_backend_testing::ElementHandle::find_by_accessible_label(host.instance(), "power-confirm-choice")
+                .find(|e| e.accessible_value().is_some_and(|v| v == label))
+                .unwrap_or_else(|| panic!("{label} in the dialog"))
+                .absolute_position()
+        };
+        let (left, right) = (choice("Cancel"), choice("Restart"));
+        assert!(left.x < right.x && left.y == right.y, "{theme}: Cancel is left of Restart, on one line");
+        host.navigate(Key::Escape);
+
+        host.press_first("system-restart");
+        host.navigate(Key::DownArrow);
+        assert_eq!(host.focused("power-confirm-choice"), ["Restart"], "{theme}");
+        assert_eq!(host.values("hint"), hints, "{theme}: the same hints on Restart");
+        host.navigate(Key::UpArrow);
+        assert_eq!(host.focused("power-confirm-choice"), ["Cancel"], "{theme}: Up goes back");
+        host.navigate(Key::DownArrow);
+        host.pad(launcher_ui_host::PadButton::South);
+        host.pump();
+        host.settle();
+        assert_eq!(system.read(|m| m.restarts), 1, "{theme}: the pad's ✕ on the other choice restarts");
+    }
+}
+
+/// The keys reach Restart in Settings → Power on a desktop, and its dialog, as a player gets
+/// there: Down to the row, Enter opens the dialog on Cancel, and a held Enter doesn't pick.
+#[test]
+fn on_a_desktop_the_keys_open_restart_s_dialog_and_a_held_enter_picks_nothing() {
+    use slint::platform::{Key, WindowEvent};
+    let system = machine();
+    let mut host = shown(&system, Place::default());
+    host.dispatch(Command::Navigate(launcher_core::Route::Settings));
+    host.settle();
+    host.settings_tab("Power");
+    host.navigate(Key::RightArrow);
+    // Quit, then Restart.
+    host.navigate(Key::DownArrow);
+    assert!(host.lit("system-restart"), "the keys are on Restart");
+    host.navigate(Key::Return);
+    assert_eq!(asking(&host).as_deref(), Some("restart"));
+    assert_eq!(host.focused("power-confirm-choice"), ["Cancel"]);
+    // Enter held down repeats: the dialog takes no repeat.
+    let enter: slint::SharedString = Key::Return.into();
+    host.instance().window().dispatch_event(WindowEvent::KeyPressRepeated { text: enter.clone() });
+    host.settle();
+    assert_eq!(asking(&host).as_deref(), Some("restart"), "a held Enter picks nothing");
+    host.navigate(Key::DownArrow);
+    host.instance().window().dispatch_event(WindowEvent::KeyPressRepeated { text: enter });
+    host.settle();
+    assert_eq!(system.read(|m| m.restarts), 0, "nor on the action");
+    host.navigate(Key::Escape);
+    assert_eq!(asking(&host), None);
+    assert!(host.lit("system-restart"), "the keys are back on Restart");
+}
+
+/// From the power menu on a desktop, Shut down asks in the same dialog; a click on its choice acts.
+#[test]
+fn on_a_desktop_shut_down_from_the_power_menu_asks_in_the_dialog() {
+    let system = machine();
+    let mut host = shown(&system, Place::default());
+    // The pointer reaches the screens once the boot screen is gone.
+    host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
+    host.settle();
+    ctrl_p(&mut host);
+    power_item(&mut host, "Shut down");
+    assert!(power_items(&host).is_empty(), "the power menu gives way to the dialog");
+    assert_eq!(asking(&host).as_deref(), Some("shut-down"));
+    assert_eq!(host.focused("power-confirm-choice"), ["Cancel"]);
+    assert_eq!(system.read(|m| m.shutdowns), 0, "the first press only asks");
+    let yes = i_slint_backend_testing::ElementHandle::find_by_accessible_label(host.instance(), "power-confirm-choice")
+        .find(|e| e.accessible_value().is_some_and(|v| v == "Shut down"))
+        .expect("Shut down in the dialog");
+    let (at, size) = (yes.absolute_position(), yes.size());
+    host.click_at(at.x + size.width / 2.0, at.y + size.height / 2.0);
+    host.pump();
+    host.settle();
+    assert_eq!(system.read(|m| m.shutdowns), 1);
 }
 
 #[test]
@@ -456,11 +613,42 @@ fn on_the_stick_try_it_leaves_the_launcher_and_choose_partitions_starts_that_ins
     host.dispatch(Command::Navigate(launcher_core::Route::Settings));
     host.settle();
     host.settings_tab("System");
+    let icons = ["network", "sound", "bluetooth", "refresh", "usb"];
+    assert_eq!(host.values("row-icon"), icons, "each System row has its icon, Install too");
     host.press_first("system-install");
     assert_eq!(host.value("install-os"), "disks");
     // No disk: "Choose partitions instead" is first.
     host.navigate(Key::Return);
     assert_eq!(system.read(|m| m.partition_choices), 1);
+}
+
+/// On the stick, in every theme, the disks' step says why when the installer couldn't list the
+/// disks, and "No disk of 40 GB or more…" when it listed none. The step still opens, and its
+/// choices still work.
+#[test]
+fn on_the_stick_the_disks_step_says_why_the_installer_offers_no_disk() {
+    use slint::platform::Key;
+    const WHY: &str = "The USB stick Marah OS started from wasn't found, so no disk is offered.";
+    const NONE: &str = "No disk of 40 GB or more is free to install on.";
+    for theme in ["classic", "default"] {
+        for (unavailable, said) in [(Some(WHY), WHY), (None, NONE)] {
+            let system = machine();
+            if let Some(why) = unavailable {
+                system.with(|m| m.unavailable.push(("os_install", why.into())));
+            }
+            let mut host = shown(&system, Place { whole_screen: true, own_os: true, stick: true });
+            host.ui.switch(&id(theme)).unwrap();
+            host.settle();
+            host.navigate(Key::DownArrow);
+            host.navigate(Key::Return);
+            assert_eq!(host.value("install-os"), "disks", "{theme}");
+            assert_eq!(host.values("install-no-disk"), [said], "{theme}");
+
+            // "Choose partitions instead" is first.
+            host.navigate(Key::Return);
+            assert_eq!(system.read(|m| m.partition_choices), 1, "{theme}");
+        }
+    }
 }
 
 #[test]
@@ -663,7 +851,8 @@ fn the_drives_icon_and_its_panel_list_every_drive_in_every_theme() {
     assert_eq!(host.values("drive"), ["Games disk"]);
 }
 
-/// On a desktop the drives' icon is the only machine icon: the keys reach it, and its panel opens.
+/// On a desktop the drives' icon is there with the others: the keys reach it, its panel opens, and
+/// left goes to the panel beside it, Bluetooth's.
 #[test]
 fn on_a_desktop_the_drives_icon_is_there_and_opens_its_panel() {
     use slint::platform::Key;
@@ -678,14 +867,14 @@ fn on_a_desktop_the_drives_icon_is_there_and_opens_its_panel() {
         host.dispatch(Command::Navigate(launcher_core::Route::Home));
         host.settle();
         assert_eq!(host.count("status:drives"), 1, "{theme}");
-        assert_eq!(host.count("status:network") + host.count("status:bluetooth"), 0, "{theme}");
+        assert_eq!(host.count("status:network") + host.count("status:bluetooth"), 2, "{theme}: the others too");
         host.navigate(Key::Backtab);
         host.navigate(Key::Backtab);
         host.navigate(Key::Return);
         host.settle();
         assert_eq!(host.value("system-panel"), "drives", "{theme}: the keys reach it");
         host.navigate(Key::LeftArrow);
-        assert_eq!(host.value("system-panel"), "drives", "{theme}: no other panel beside it");
+        assert_eq!(host.value("system-panel"), "bluetooth", "{theme}: the panel beside it");
         host.navigate(Key::Escape);
     }
 }
@@ -743,6 +932,26 @@ fn reading(system: &FakeSystem, place: Place, theme: &str) -> Composed {
     host
 }
 
+/// On a desktop the machine's own tick reads every area, with no Refresh asked: each icon loads,
+/// then shows its state.
+#[test]
+fn on_a_desktop_the_tick_reads_every_icon() {
+    for theme in ["classic", "default"] {
+        let system = machine();
+        let mut host = reading(&system, Place::default(), theme);
+        for label in ["status:network", "status:sound", "status:bluetooth", "status:drives", "battery"] {
+            assert_eq!(host.value(label), "loading", "{theme}: {label}");
+        }
+        host.pump();
+        host.advance(std::time::Duration::from_secs(31));
+        host.settle();
+        assert_eq!(host.value("status:network"), "wired", "{theme}");
+        assert_eq!(host.value("status:sound"), "40", "{theme}");
+        assert_eq!(host.value("status:bluetooth"), "on 1", "{theme}");
+        assert_eq!(host.value("battery"), "18", "{theme}");
+    }
+}
+
 /// Before its first read each part is loading: no reason shows, every icon is in place with
 /// "loading" as its value, and it opens its panel on a loading row. When the reads end each
 /// shows its state, and the bar hasn't moved.
@@ -758,9 +967,11 @@ fn loading_until_read(theme: &str) {
     let system = machine();
     let mut host = reading(&system, WHOLE_SCREEN, theme);
     let vm = host.core().view().system;
-    assert!(vm.network_loading && vm.audio_loading && vm.bluetooth_loading && vm.power_loading, "{vm:?}");
-    assert!(vm.drives_loading && vm.drives_listing, "{vm:?}");
-    assert!(vm.network_reason.is_empty() && vm.drives_reason.is_empty(), "no reason before the read");
+    for area in ["network", "audio", "bluetooth", "power", "drives"] {
+        assert_eq!(vm.area(area).state, "loading", "{vm:?}");
+    }
+    assert!(vm.drives_listing, "{vm:?}");
+    assert!(vm.area("network").reason.is_empty() && vm.area("drives").reason.is_empty(), "no reason before the read");
     for label in ["status:network", "status:sound", "status:bluetooth", "status:drives", "battery"] {
         assert_eq!(host.value(label), "loading", "{label}");
     }
@@ -790,7 +1001,8 @@ fn loading_until_read(theme: &str) {
     host.advance(std::time::Duration::from_secs(31));
     host.settle();
     let vm = host.core().view().system;
-    assert!(!vm.network_loading && !vm.drives_loading && !vm.drives_listing && vm.drives_available, "{vm:?}");
+    let read = |area: &str| vm.area(area).state != "loading";
+    assert!(read("network") && read("drives") && !vm.drives_listing && vm.area("drives").ready(), "{vm:?}");
     assert_eq!(host.count("loading"), 0, "the panel fills in");
     assert_eq!(host.values("drive").len(), 0, "no drive here");
     assert_eq!(host.value("status:network"), "wired");
@@ -816,18 +1028,107 @@ fn a_slow_network_read_leaves_the_drives_icon_ready() {
     assert_ne!(host.value("status:sound"), "loading");
 }
 
-/// Drives that turn out not to be managed here: the drives' icon loads, then fades out and its
-/// place closes.
+/// Drives that turn out not to be managed here: the drives' icon loads, then stays in its place,
+/// disabled, and the bar doesn't move. The mouse reaches it: a click opens nothing, and the
+/// pointer over it shows why.
 #[test]
-fn the_drives_icon_goes_when_drives_turn_out_unavailable() {
+fn the_drives_icon_shows_disabled_when_drives_turn_out_unavailable() {
     for theme in ["classic", "default"] {
         let system = machine();
         system.with(|m| m.unavailable.push(("drives", "No udisks here".into())));
         let mut host = reading(&system, WHOLE_SCREEN, theme);
         assert_eq!(host.value("status:drives"), "loading", "{theme}");
+        let settings = host.first("Settings").absolute_position().x;
         host.advance(std::time::Duration::from_secs(31));
         host.settle();
-        assert_eq!(host.count("status:drives"), 0, "{theme}: it went");
+        assert_eq!(host.count("status:drives"), 1, "{theme}: it stays");
+        assert_eq!(host.value("status:drives"), "disabled", "{theme}");
+        assert_eq!(host.description("status:drives"), "No udisks here", "{theme}");
+        assert_eq!(host.first("Settings").absolute_position().x, settings, "{theme}: the bar didn't move");
+        assert_eq!(host.count("status-reason"), 0, "{theme}: no reason before hover or focus");
+
+        // The pointer reaches the bar once the boot screen is gone.
+        host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
+        host.settle();
+        host.click("status:drives");
+        assert_eq!(host.count("system-panel"), 0, "{theme}: a click opens nothing");
+        assert_eq!(host.values("status-reason"), ["No udisks here"], "{theme}: the hover shows why");
+        host.first("status:drives").invoke_accessible_default_action();
+        host.settle();
+        assert_eq!(host.count("system-panel"), 0, "{theme}: nor does its default action");
+    }
+}
+
+/// A disabled icon's reason is on one line, on a chip that stays inside the window: a long reason
+/// under the drives' icon, near the window's edge, moves in, and is as tall as a short one.
+#[test]
+fn a_disabled_icon_s_reason_is_one_line_inside_the_window() {
+    use slint::platform::Key;
+    const LONG: &str = "Drives can't be managed here: this system has no udisks service running";
+    for theme in ["classic", "default"] {
+        let system = machine();
+        system.with(|m| {
+            m.unavailable.push(("bluetooth", "No adapter".into()));
+            m.unavailable.push(("drives", LONG.into()));
+        });
+        let mut host = shown(&system, WHOLE_SCREEN);
+        host.ui.switch(&id(theme)).unwrap();
+        // The drives are read on their own tick.
+        host.advance(std::time::Duration::from_secs(31));
+        host.settle();
+        assert_eq!([host.value("status:bluetooth"), host.value("status:drives")], ["disabled", "disabled"], "{theme}");
+        let window = host.shown().window();
+        let right = window.size().width as f32 / window.scale_factor();
+        let chip = |host: &Composed| {
+            let chip = host.first("status-reason");
+            (chip.absolute_position().x, chip.size().width, chip.size().height)
+        };
+
+        // From Settings, back to the drives' icon, then past it to Bluetooth's.
+        host.send_key(Key::Backtab);
+        host.send_key(Key::Backtab);
+        host.settle();
+        assert_eq!(host.values("status-reason"), [LONG], "{theme}");
+        let (x, width, long_height) = chip(&host);
+        assert!(x >= 0.0 && x + width <= right, "{theme}: the chip is inside the window: {x} + {width} > {right}");
+        host.send_key(Key::Backtab);
+        host.settle();
+        assert_eq!(host.values("status-reason"), ["No adapter"], "{theme}");
+        let (_, short_width, short_height) = chip(&host);
+        assert!(short_width < width, "{theme}: the chip is as wide as its reason");
+        assert_eq!(long_height, short_height, "{theme}: the long reason is on one line");
+    }
+}
+
+/// An unsupported area's icon takes the keys' and the pad's focus, says why, and its ✕ and Enter
+/// open nothing. Left and right from the panel beside it go past it.
+#[test]
+fn a_disabled_icon_takes_the_focus_and_says_why_but_opens_nothing() {
+    use slint::platform::Key;
+    for theme in ["classic", "default"] {
+        let system = machine();
+        system.with(|m| m.unavailable.push(("bluetooth", "This PC has no Bluetooth adapter".into())));
+        let mut host = shown(&system, WHOLE_SCREEN);
+        host.ui.switch(&id(theme)).unwrap();
+        host.settle();
+        assert_eq!(host.value("status:bluetooth"), "disabled", "{theme}");
+        // From Settings, back past the drives' icon to Bluetooth's.
+        host.send_key(Key::Backtab);
+        host.send_key(Key::Backtab);
+        host.send_key(Key::Backtab);
+        host.settle();
+        assert_eq!(host.values("status-reason"), ["This PC has no Bluetooth adapter"], "{theme}: the focus shows why");
+        host.pad(launcher_ui_host::PadButton::South);
+        assert_eq!(host.count("system-panel"), 0, "{theme}: ✕ opens nothing");
+        host.navigate(Key::Return);
+        assert_eq!(host.count("system-panel"), 0, "{theme}: nor does Enter");
+
+        // The sound's panel, off its volume row: right goes past Bluetooth to the drives.
+        host.press_first("status:sound");
+        assert_eq!(host.value("system-panel"), "sound", "{theme}");
+        host.navigate(Key::DownArrow);
+        host.navigate(Key::RightArrow);
+        assert_eq!(host.value("system-panel"), "drives", "{theme}: past the disabled one");
     }
 }
 

@@ -1,21 +1,48 @@
-//! The built-in system plugin: the machine's own settings through the system's own tools.
+//! The built-in system plugin: the machine's own settings through the system's own tools. Each
+//! area it manages ([`SystemArea`]) is one adapter over the same interface ([`AreaSettings`]).
 //!
-//! - Linux ([`linux`]): network and Wi-Fi, VPNs, Bluetooth, sound, restart and shut down, the
+//! Every tool runs through one runner ([`tools`]), with a time limit on each call. Each OS has
+//! one module, chosen here and nowhere else, with no `#[cfg]` for an OS inside it. Its `AREAS`
+//! table lists the areas it manages and the tools each runs: `init` and the manifest read it.
+//!
+//! - Linux (`linux.rs`): network and Wi-Fi, VPNs, Bluetooth, sound, restart and shut down, the
 //!   battery, drives (UDisks), and on Marah OS its updates and its USB stick's installer.
-//! - macOS: VPNs (every network with an address) and the battery (`pmset`).
-//! - Windows: the battery isn't read yet; VPNs say why they can't work there.
+//! - macOS (`macos.rs`): the tools macOS ships for the network and its saved Wi-Fi networks,
+//!   VPNs, the paired Bluetooth devices, the volume, restart and shut down, the battery, and
+//!   the external drives (`diskutil`). What they print becomes the areas' data in `macmap.rs`.
+//! - Windows (`windows.rs`): Windows' own calls for the network and Wi-Fi, Bluetooth, sound, the
+//!   battery and the drives, and `shutdown` for restart and shut down. VPNs say why they can't
+//!   work there. What the calls return becomes the areas' data in `winmap.rs`.
 
-#[cfg(target_os = "linux")]
-mod linux;
-// Mostly the Linux tools' output; macOS reads only pmset's. The tests run everywhere.
+#[cfg_attr(target_os = "linux", path = "linux.rs")]
+#[cfg_attr(target_os = "macos", path = "macos.rs")]
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos")), path = "windows.rs")]
+mod os;
+#[cfg(unix)]
+mod unix;
+
+// Mostly the Linux tools' output; macOS reads pmset's and its error lines. The tests run everywhere.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod parse;
+// Windows runs only shutdown, and nothing outside Linux runs as the administrator. The tests run everywhere.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+mod tools;
+// Linux reads the VPN interfaces. The tests run everywhere.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod vpn;
+// macOS's tools' output as the areas' data. The tests run everywhere.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod macmap;
+// Windows' values as the areas' data. The tests run everywhere.
+#[cfg_attr(not(windows), allow(dead_code))]
+mod winmap;
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use launcher_api::{
-    Capability, CodePlugin, Plugin, PluginContext, PluginFactory, PluginManifest, PluginResult, Provided, inventory,
+    AreaSettings, CodePlugin, Plugin, PluginContext, PluginFactory, PluginManifest, PluginResult, Provided, SystemArea,
+    inventory,
 };
 
 const MANIFEST: &str = include_str!("../plugin.toml");
@@ -25,9 +52,7 @@ pub struct HostSystem;
 impl Plugin for HostSystem {
     fn manifest(&self) -> PluginManifest {
         let mut manifest = PluginManifest::from_toml(MANIFEST).expect("the bundled manifest is valid");
-        if !cfg!(target_os = "linux") {
-            manifest.capabilities.retain(|c| matches!(c, Capability::Vpn | Capability::Power));
-        }
+        manifest.capabilities.retain(|c| os::AREAS.iter().any(|(area, _)| area.capability() == *c));
         manifest
     }
 }
@@ -35,62 +60,29 @@ impl Plugin for HostSystem {
 #[launcher_api::async_trait]
 impl CodePlugin for HostSystem {
     async fn init(&self, ctx: PluginContext) -> PluginResult<Provided> {
-        let vpn = Some(Arc::new(vpn::Vpns::new(ctx.programs().clone())) as Arc<dyn launcher_api::VpnSettings>);
-        #[cfg(target_os = "linux")]
-        {
-            let linux = Arc::new(linux::Linux::new(ctx.programs().clone()));
-            Ok(Provided {
-                network: Some(linux.clone()),
-                vpn,
-                bluetooth: Some(linux.clone()),
-                audio: Some(linux.clone()),
-                power: Some(linux.clone()),
-                os_updates: Some(linux.clone()),
-                os_install: Some(linux.clone()),
-                drives: Some(linux),
-                ..Provided::default()
-            })
-        }
-        #[cfg(not(target_os = "linux"))]
-        {
-            Ok(Provided { vpn, power: Some(Arc::new(other::Power(ctx.programs().clone()))), ..Provided::default() })
-        }
+        let runner = Arc::new(tools::Runner::new(ctx.programs().clone()));
+        let areas: BTreeMap<SystemArea, Arc<dyn AreaSettings>> =
+            os::AREAS.iter().map(|(area, _)| (*area, os::adapter(*area, runner.clone()))).collect();
+        Ok(Provided { areas, ..Provided::default() })
     }
 }
 
 inventory::submit! { PluginFactory::code(|| Box::new(HostSystem)) }
 
-/// macOS and Windows: the battery, and no restart or shut down (the system's own menu does
-/// that, and Marah Launcher isn't the whole screen there).
-#[cfg(not(target_os = "linux"))]
-mod other {
-    use std::sync::Arc;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    use launcher_api::{Battery, Location, PluginError, PluginResult, PowerSettings, Programs};
-
-    pub struct Power(pub Arc<dyn Programs>);
-
-    #[launcher_api::async_trait]
-    impl PowerSettings for Power {
-        async fn unavailable(&self) -> Option<String> {
-            Some("Restart or shut down from the system's own menu".into())
-        }
-
-        async fn restart(&self) -> PluginResult<()> {
-            Err(PluginError::Other("restart from the system's own menu".into()))
-        }
-
-        async fn shut_down(&self) -> PluginResult<()> {
-            Err(PluginError::Other("shut down from the system's own menu".into()))
-        }
-
-        async fn battery(&self) -> PluginResult<Option<Battery>> {
-            if !cfg!(target_os = "macos") {
-                return Ok(None);
+    #[test]
+    fn the_manifest_lets_every_tool_in_this_os_s_table_run() {
+        let manifest = HostSystem.manifest();
+        for (area, tools) in os::AREAS {
+            assert!(manifest.capabilities.contains(&area.capability()), "{area:?} isn't a capability");
+            for tool in *tools {
+                let entry = format!("system:{}", tool.program);
+                assert!(manifest.permissions.process.contains(&entry), "{entry} isn't in permissions.process");
             }
-            let args = ["-g".to_owned(), "batt".to_owned()];
-            let out = self.0.output(&Location::System("pmset".into()), &args, launcher_api::MAX_PROGRAM_TIME).await?;
-            Ok(crate::parse::pmset(&String::from_utf8_lossy(&out)))
         }
+        assert_eq!(manifest.capabilities.len(), os::AREAS.len());
     }
 }

@@ -9,6 +9,7 @@ import { PluginList } from "plugin-list.slint";
 import { Closing, ClosingScreen } from "closing.slint";
 import { GameMenu, GameMenuSheet } from "game-menu.slint";
 import { PowerMenu, PowerMenuSheet } from "power-menu.slint";
+import { PowerAsk, PowerAskSheet } from "power-ask.slint";
 import { Browser, FolderBrowser } from "folder-browser.slint";
 import { FolderList, FolderListSheet } from "folder-list.slint";
 import { Leaving, Motion } from "motion.slint";
@@ -22,19 +23,22 @@ import { Prompt, InstallPrompt } from "install-prompt.slint";
 import { Question } from "question-prompt.slint";
 import { Ask, ResultPrompt } from "result-prompt.slint";
 import { Sending, SendRatings } from "send-ratings.slint";
+import { AskKeys, Hint } from "ask.slint";
 
-// A key the hints at the bottom show: the pad's button, the keyboard's key and what it does.
-export struct Hint { pad: string, key: string, label: string }
+// A key the hints at the bottom show, for the themes.
+export { Hint } from "ask.slint";
 
 // The hints for what is up, in the order the keys answer: an overlay's, then the screen's.
 export global ShellHints {
-    // No key does anything: hide the hints. The OS install, once Cancel can't be pressed.
-    out property <bool> hidden: Setup.shown && Setup.step == "installing" && !Setup.can-cancel;
+    // No key does anything: hide the hints. The OS install, once Cancel can't be pressed, with
+    // no dialog over it.
+    out property <bool> hidden: PowerAsk.asking == "" && Setup.shown && Setup.step == "installing" && !Setup.can-cancel;
     // `sort-open`: a sort menu of the theme's is open. `grid-header`: the focus is on a grid's
     // header rows (search, filters). `home`: the theme's own hints for Home, empty elsewhere.
     // `trailer-key`: the shown game has a trailer, and its key opens it.
     public pure function pick(sort-open: bool, grid-header: bool, home: [Hint], trailer-key: bool) -> [Hint] {
-        Osk.open ? [
+        PowerAsk.asking != "" ? AskKeys.hints
+        : Osk.open ? [
             { pad: "✕", key: "Enter", label: "Type" },
             { pad: "□", key: "⌫", label: "Delete" },
             { pad: "△", key: "Space", label: "Space" },
@@ -196,6 +200,12 @@ export component ShellKeys inherits FocusScope {
         Osk.pad = Vm.pad-key;
         // The launcher is going: nothing more to do.
         if (Closing.shows) { return accept; }
+        // Restart or Shut down asks on a desktop: over everything, the folder sheets too.
+        // A held Enter doesn't repeat: it would pick before the player sees the dialog.
+        if (PowerAsk.asking != "") {
+            if (!(event.repeat && event.text == Key.Return)) { PowerAsk.key(event.text); }
+            return accept;
+        }
         // The folder browser: a sheet over everything, with keys of its own,
         // whichever screen behind has the focus. The power menu still opens over it.
         if (Browser.open && !PowerMenu.open && !(event.modifiers.control && (event.text == "p" || event.text == "P"))) {
@@ -307,7 +317,8 @@ export component ShellKeys inherits FocusScope {
 
 // What opens over the screens, each while it is open, the later over the earlier: the install
 // prompt, the screenshot viewer, a trailer, the game menu, the result prompt, Send ratings, the
-// folder browser, Install OS, the power menu, and the closing screen over everything. Put it over
+// folder browser, Install OS, the power menu, the dialog before Restart or Shut down on a desktop,
+// and the closing screen over everything. Put it over
 // your screens, the size of the window. `ShellKeys` sends each one its keys.
 export component Overlays inherits Rectangle {
     // The theme's emblem, for the closing screen's steps about no game.
@@ -325,6 +336,8 @@ export component Overlays inherits Rectangle {
     if browsing.shown : FolderBrowser { width: parent.width; height: parent.height; open: Browser.open; }
     if Setup.shown : InstallOs { width: parent.width; height: parent.height; }
     if PowerMenu.open : PowerMenuSheet { width: parent.width; height: parent.height; }
+    asking := Leaving { open: PowerAsk.asking != ""; time: Motion.sheet-out; }
+    if asking.shown : PowerAskSheet { width: parent.width; height: parent.height; open: PowerAsk.asking != ""; }
     // Log out, Restart or Shut down closing what runs: over everything.
     if Closing.shows : ClosingScreen { width: parent.width; height: parent.height; logo: root.logo; }
 }

@@ -62,7 +62,7 @@ kind = "emulator"
 name = "PS5"
 emulator = "KytyPS5"
 version = "0.1.0"
-host_api = "^0.3.5"
+host_api = "^0.4"
 platforms = ["linux", "macos", "windows"]
 console = "PS5"
 capabilities = ["catalog", "downloader", "installer", "configurator", "launcher", "compatibility", "slots", "game_installer", "backup"]
@@ -114,7 +114,7 @@ cover = "cover.jpg"
 | `name` | yes | What the player sees: in the plugin lists, on the plugin page, and where a sentence means the console. An emulator names its console: `PS5`. |
 | `emulator` | no | For an emulator, the name of the program it installs and runs, such as `KytyPS5`. Sentences about the program use it. Leave it out when the program has no name of its own: `name` is used. |
 | `version` | yes | The plugin's semver version. |
-| `host_api` | yes | A semver range of the API versions the plugin works with, such as `^0.3`. The host refuses the plugin when the range doesn't include `API_VERSION`, now `0.3.5`. |
+| `host_api` | yes | A semver range of the API versions the plugin works with, such as `^0.4`. The host refuses the plugin when the range doesn't include `API_VERSION`, now `0.4.0`. |
 | `platforms` | no | `linux`, `macos`, `windows`. Empty means every system. |
 | `console` | no | For an emulator, the console it plays: ASCII letters, digits and `-`, kept in uppercase (`ps5` and `PS5` are one console). The host gives the emulator that console's releases. Not the systems the plugin runs on. |
 | `capabilities` | no | The capabilities `init` provides, in snake case. See [Capabilities](#capabilities). |
@@ -226,11 +226,13 @@ folder is: see [the architecture](../contributors/architecture.md#data-folder).
 - `Programs::find` returns a program's real path, or `None`.
 - `Programs::output` runs a program with arguments and no input, and returns its standard output:
   at most `MAX_PROGRAM_OUTPUT` (64 KiB). The caller gives a timeout, at most `MAX_PROGRAM_TIME`
-  (10 seconds). A program past its time fails with `PluginError::Timeout`. Use it to see whether
-  a build is there and to read its version.
+  (10 seconds). A program past its time is killed, and the call fails with
+  `PluginError::Timeout`. Use it to see whether a build is there and to read its version.
 - `Programs::stream` runs a program with no time limit and passes each line it writes to a
-  callback. It is for system plugins only. The program must be in `permissions.long_running`,
-  and in `permissions.polkit` to run as the administrator.
+  callback. When the `cancelled` callback says so, the host kills the program. A plugin that
+  wants a time limit says it is cancelled at the limit. It is for system plugins only. The
+  program must be in `permissions.long_running`, and in `permissions.polkit` to run as the
+  administrator.
 
 A program is a `Location` (`plans.rs`): `Location::Data(RelPath)` in the data folder,
 `Location::Folder(HostPath)` in a host folder, or `Location::System(name)` on the system's
@@ -373,7 +375,7 @@ for each one in `Provided`.
 | `backup` | `backup` | `Backup` | `backup.rs` |
 | `startup` | `startup` | `StartupWork` | `startup.rs` |
 | `theme` | none | `ThemePlugin` | `plugin.rs` |
-| `network`, `vpn`, `bluetooth`, `audio`, `power`, `os_updates`, `os_install`, `drives` | the same names | `NetworkSettings`, `VpnSettings`, `BluetoothSettings`, `AudioSettings`, `PowerSettings`, `OsUpdates`, `OsInstall`, `DriveSettings` | `system.rs` |
+| `network`, `vpn`, `bluetooth`, `audio`, `power`, `os_updates`, `os_install`, `drives` | `areas`, keyed by `SystemArea` | `AreaSettings`, one for each area | `system.rs` |
 
 ### Catalog
 
@@ -577,33 +579,64 @@ its releases. The host shows them in Downloads. Default: none.
 ### System capabilities
 
 `network`, `vpn`, `bluetooth`, `audio`, `power`, `os_updates`, `os_install` and `drives` are
-for system plugins only. The host uses the first active system plugin that provides each one, and shows a
-capability that no plugin provides as unavailable. Quick calls answer within the call timeout.
-Long work, such as joining a network, a Bluetooth scan, pairing or installing the OS, starts in
-the background and reports through the `SystemJob` the host passes in: `progress`, `done`,
-`failed` and `cancelled`.
+for system plugins only. Each is a system area, a `SystemArea`, and every area has the same
+interface ([ADR-0004](../adr/0004-every-system-area-has-one-interface.md)):
 
-`DriveSettings` (`drives`, API 0.3.5) lists the drives and mounts, unmounts and ejects them. The
-capability is `drives`, not `storage`: storage is a plugin's own data folder.
+```rust
+#[async_trait]
+pub trait AreaSettings: Send + Sync {
+    async fn state(&self) -> PluginResult<AreaState>;
+    async fn act(&self, action: AreaAction, job: Arc<dyn SystemJob>) -> PluginResult<()>;
+}
 
-- `drives()` returns each drive with a file system as a `SystemDrive`: its device
+pub enum AreaState {
+    Absent,              // this machine has nothing to manage here
+    Unsupported(String), // it can't be used here, and why: "No Bluetooth adapter"
+    Ready(AreaData),     // it works, with the area's data
+}
+```
+
+A plugin puts one `AreaSettings` per area it manages in `Provided::areas`, keyed by the
+`SystemArea`. Each key's capability must be in the manifest.
+
+- `state()` reads the area. The host calls it on its tick, every 5 seconds, and after each
+  action. `AreaData` has one kind of data per area: `Network { status, wifi }`,
+  `Vpn { finds_vpns, can_import, vpns }`, `Bluetooth { powered, devices }`,
+  `Audio { outputs, level }`, `Power { battery, refused }`, `OsUpdates { update }`,
+  `OsInstall { disks }` and `Drives { drives }`.
+- `act()` runs one `AreaAction`, which belongs to one area (`AreaAction::area`). An adapter
+  returns `PluginError::Unsupported` for an action it can't run on this system.
+- Quick actions answer within the call timeout and leave the job alone. Long actions
+  (`AreaAction::long`: joining a network, a Bluetooth scan, pairing, installing the OS,
+  mounting, unmounting, ejecting) start in the background, return at once, and report through
+  the `SystemJob` the host passes in: `progress`, `done`, `failed` and `cancelled`.
+
+The host uses the first active system plugin that provides each area. It shows an area that no
+plugin provides as absent. Until an area's first read ends, the host shows it as loading: a
+plugin never reports that. A read that fails changes nothing; when it is the area's first, the
+host shows the area as unsupported, with the error.
+
+The drives area is `drives`, not `storage`: storage is a plugin's own data folder.
+
+- `Drives { drives }` lists each drive with a file system as a `SystemDrive`: its device
   (`/dev/sdb1`), its whole disk (`/dev/sdb`), its UUID, label, model, size, file system, whether
   the player can take it out (`usb`), where it is mounted, its free space, and `system` for a
   drive the system mounted for itself (`/`, `/home`, swap). The host never offers to unmount a
   `system` drive, and lists only the others.
-- `mount`, `unmount` and `eject` start in the background and end through the job. A mount's
-  `done` text is the folder the drive is mounted at. `eject` takes the whole disk: it unmounts
-  each part, then powers the disk off.
-- `unavailable()` says why drives can't be mounted here. While it says something, the host lists
-  the drives in the folders the system mounts them in, and can't mount one.
+- `Mount`, `Unmount` and `Eject` are long. A mount's `done` text is the folder the drive is
+  mounted at. `Eject` takes the whole disk: it unmounts each part, then powers the disk off.
+- While the area is unsupported, the host lists the drives in the folders the system mounts
+  them in, and can't mount one.
 
 The built-in This PC plugin provides it on Linux with UDisks: `lsblk --json --list -b` for the
 list, `udisksctl mount|unmount|power-off -b <device> --no-user-interaction` for the actions.
 `udisksctl` runs as the player, not through `polkit`: the UDisks service asks polkit itself.
 
-`VpnSettings` has three plain functions with default bodies that say what this system can do:
-`problem`, `finds_vpns` and `can_import`. Its errors are `PluginError`s. The host shows their
-text as it is.
+The power area's `refused` says why restart and shut down can't be used here, while the battery
+still shows. The VPN area is unsupported where downloads can't be bound to a VPN ("Not available
+on Windows"). Before its first read the host knows nothing of it, so "Download only through a
+VPN" still holds and the downloads wait. Errors are `PluginError`s. The host shows their text as
+it is.
 
 ## Backup
 
@@ -887,7 +920,57 @@ Notes on each:
 - **PlayStation Store.** It describes PS4 and PS5 games by title id from Sony's public catalog
   API.
 - **This PC.** It runs the system's own tools. On Linux it provides every system capability. On
-  macOS and Windows it provides only `vpn` and `power`.
+  macOS it runs only the tools macOS ships (`src/macos.rs`; their output is read in
+  `src/macmap.rs`) and provides:
+  - `network`: how the Mac is online (`scutil --nwi`, with the ports of `networksetup
+    -listallhardwareports`), the saved Wi-Fi networks (`-listpreferredwirelessnetworks`), and
+    joining one (`-setairportnetwork`). macOS has no built-in tool that scans since 14.4
+    (`airport` does nothing), so Scan is refused and the list holds the saved networks, with no
+    signal. Since macOS 14 it hides the joined network's name from a program without Location
+    Services: the network then shows as "Wi-Fi". Forgetting a network needs an administrator,
+    so it is refused.
+  - `vpn`: every network with an address, and the player picks the one the VPN uses. The VPN's
+    own app connects it. `scutil --nc start` and `stop` could switch the VPNs System Settings
+    knows, but those have no interface to pick, and while the system can't tell VPNs apart a
+    row's only action is the pick, so they aren't listed. Adding, connecting and disconnecting a
+    VPN are refused.
+  - `bluetooth`: whether it is on, and the paired devices (`system_profiler SPBluetoothDataType
+    -json`, macOS 12 and later). macOS has no built-in tool that turns Bluetooth on or off,
+    pairs, connects or forgets a device, so those are refused.
+  - `audio`: the volume and mute (`osascript`, `get volume settings`). macOS has no built-in
+    tool that lists or chooses the outputs (`SwitchAudioSource` isn't built in), so the list is
+    empty and choosing one is refused.
+  - `power`: the battery (`pmset -g batt`), and restart and shut down through System Events
+    (`osascript`). `shutdown` needs root. macOS asks once whether the launcher may control
+    System Events; after "Don't Allow" the message says where to allow it.
+  - `drives`: the volumes on the external disks (`diskutil list -plist external`, then
+    `diskutil info -plist` for each), with label, size, free space and mount state, and mount,
+    unmount and eject (`diskutil mount`, `unmount`, `eject`). An APFS volume ejects with the
+    physical disk that holds its container. The Mac's own disks aren't listed. No plist crate is
+    in the workspace, so `macmap.rs` reads the XML that `diskutil` prints.
+  - OS updates and the OS install are absent.
+
+  On Windows it uses Windows' own calls
+  (`src/windows.rs`, through the `windows` crate) and provides:
+  - `network`: how the PC is online, the Wi-Fi networks in reach, and joining and forgetting
+    one, through the WLAN API. Not `netsh`: it prints in the language Windows is set to. Since
+    its fall 2024 release, Windows 11 lists the networks to a program only with the player's
+    consent to location; without it the list is empty and Scan says why. A network that signs in with an account (802.1X) is joined in Windows'
+    own settings.
+  - `bluetooth`: the radio on and off, the paired devices, a scan, pairing and forgetting,
+    through WinRT, for classic and Bluetooth LE devices. Pairing accepts only a device that asks
+    nothing; one that asks for a PIN or a code is paired in Windows' own settings. WinRT has no
+    call to connect or disconnect a paired device: Windows connects it when it is on.
+  - `audio`: the outputs and the default output's volume and mute, through Core Audio. Windows
+    has no public call to change the default output, so choosing one is refused.
+  - `power`: the battery (`GetSystemPowerStatus`), and restart and shut down
+    (`shutdown /r /t 0`, `shutdown /s /t 0`).
+  - `drives`: each volume with a letter, named "Games (E:)", with its free space, and the eject
+    of a USB drive (Configuration Manager's `CM_Request_Device_EjectW` on the first device
+    Windows marks removable, as "Safely remove" does). Windows mounts drives by itself, so
+    mount and unmount are refused. A network drive is listed by its letter only.
+  - `vpn`: unsupported, as librqbit can't bind a download to an interface there. OS updates and
+    the OS install are absent.
 
 The two themes, Default and Classic (`plugins/themes/default`, `plugins/themes/classic`), are in
 [Writing a theme](../themes/writing-a-theme.md).

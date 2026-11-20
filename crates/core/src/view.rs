@@ -1264,16 +1264,55 @@ fn drive_items(s: &Snapshot, can_act: bool) -> Vec<launcher_ui_api::DriveItemVm>
     items
 }
 
+/// One area for the view: its state, why it can't be used, and whether long work runs in it.
+fn area_vm(system: &crate::system::SystemState, area: launcher_api::SystemArea) -> launcher_ui_api::AreaVm {
+    use launcher_api::{AreaData, AreaState};
+    let (state, reason) = match system.area(area) {
+        None => ("loading", String::new()),
+        Some(AreaState::Absent) => ("absent", crate::system::absent(area)),
+        Some(AreaState::Unsupported(why)) => ("unsupported", why.clone()),
+        // A refusal always says why: an empty reason means restart and shut down work.
+        Some(AreaState::Ready(AreaData::Power { refused: Some(why), .. })) if why.is_empty() => {
+            ("ready", crate::system::absent(area))
+        }
+        Some(AreaState::Ready(AreaData::Power { refused, .. })) => ("ready", refused.clone().unwrap_or_default()),
+        Some(AreaState::Ready(_)) => ("ready", String::new()),
+    };
+    let busy = system.jobs.iter().any(|j| j.phase == crate::system::JobPhase::Running && j.kind.area() == area);
+    launcher_ui_api::AreaVm { name: area.name().into(), state: state.into(), reason, busy }
+}
+
 fn system_vm(s: &Snapshot) -> launcher_ui_api::SystemVm {
-    use launcher_api::{Capability, Connection, OsUpdate};
+    use launcher_api::{AreaData, Connection, OsUpdate, SystemArea};
     use launcher_ui_api::{AudioOutputVm, BluetoothDeviceVm, InstallDiskVm, SystemJobVm, WifiVm};
     let system = &s.state.system;
     let place = s.plugins.host().place;
-    // Not read yet: neither available nor unavailable, with no reason.
-    let loading = |c: Capability| !system.read.contains(&c);
-    let reason = |c: Capability| if loading(c) { Some(String::new()) } else { system.unavailable(c) };
-    let network = system.network.clone().unwrap_or_default();
-    let (os_update, os_update_text) = match &system.os_update {
+    let available = |a: SystemArea| system.data(a).is_some();
+    let (network, wifi) = match system.data(SystemArea::Network) {
+        Some(AreaData::Network { status, wifi }) => (status.clone().unwrap_or_default(), wifi.as_slice()),
+        _ => (Default::default(), &[][..]),
+    };
+    let (bluetooth_on, devices) = match system.data(SystemArea::Bluetooth) {
+        Some(AreaData::Bluetooth { powered, devices }) => (*powered, devices.as_slice()),
+        _ => (false, &[][..]),
+    };
+    let (outputs, level) = match system.data(SystemArea::Audio) {
+        Some(AreaData::Audio { outputs, level }) => (outputs.as_slice(), level.unwrap_or_default()),
+        _ => (&[][..], Default::default()),
+    };
+    let battery = match system.data(SystemArea::Power) {
+        Some(AreaData::Power { battery, .. }) => *battery,
+        _ => None,
+    };
+    let update = match system.data(SystemArea::OsUpdates) {
+        Some(AreaData::OsUpdates { update }) => update.as_ref(),
+        _ => None,
+    };
+    let disks = match system.data(SystemArea::OsInstall) {
+        Some(AreaData::OsInstall { disks }) => disks.as_slice(),
+        _ => &[][..],
+    };
+    let (os_update, os_update_text) = match update {
         None => (String::new(), String::new()),
         Some(OsUpdate::Current) => {
             ("current".into(), format!("{} is up to date", launcher_api::brand::PRODUCT_OS_NAME))
@@ -1282,14 +1321,11 @@ fn system_vm(s: &Snapshot) -> launcher_ui_api::SystemVm {
         Some(OsUpdate::Staged { version }) => ("staged".into(), format!("Restart to update to {version}")),
         Some(OsUpdate::Failed { reason }) => ("failed".into(), format!("Couldn't look for an update: {reason}")),
     };
-    let level = system.level.unwrap_or_default();
     launcher_ui_api::SystemVm {
         whole_screen: place.whole_screen,
         own_os: place.own_os,
         stick: place.stick,
-        network_available: reason(Capability::Network).is_none(),
-        network_loading: loading(Capability::Network),
-        network_reason: reason(Capability::Network).unwrap_or_default(),
+        areas: SystemArea::ALL.iter().map(|&area| area_vm(system, area)).collect(),
         connection: match network.connection {
             Connection::None => "none",
             Connection::Wired => "wired",
@@ -1298,8 +1334,7 @@ fn system_vm(s: &Snapshot) -> launcher_ui_api::SystemVm {
         .into(),
         network_name: network.name,
         signal_bars: if network.connection == Connection::Wifi { network.signal.map_or(0, bars) } else { 0 },
-        wifi: system
-            .wifi
+        wifi: wifi
             .iter()
             .map(|w| WifiVm {
                 ssid: w.ssid.clone(),
@@ -1309,23 +1344,15 @@ fn system_vm(s: &Snapshot) -> launcher_ui_api::SystemVm {
                 active: w.active,
             })
             .collect(),
-        audio_available: reason(Capability::Audio).is_none(),
-        audio_loading: loading(Capability::Audio),
-        audio_reason: reason(Capability::Audio).unwrap_or_default(),
         volume: level.volume as i32,
         muted: level.muted,
-        outputs: system
-            .outputs
+        outputs: outputs
             .iter()
             .map(|o| AudioOutputVm { name: o.name.clone(), description: o.description.clone(), current: o.current })
             .collect(),
-        bluetooth_available: reason(Capability::Bluetooth).is_none(),
-        bluetooth_loading: loading(Capability::Bluetooth),
-        bluetooth_reason: reason(Capability::Bluetooth).unwrap_or_default(),
-        bluetooth_on: system.bluetooth_on,
-        connected_devices: system.devices.iter().filter(|d| d.connected).count() as i32,
-        devices: system
-            .devices
+        bluetooth_on,
+        connected_devices: devices.iter().filter(|d| d.connected).count() as i32,
+        devices: devices
             .iter()
             .map(|d| BluetoothDeviceVm {
                 address: d.address.clone(),
@@ -1334,16 +1361,12 @@ fn system_vm(s: &Snapshot) -> launcher_ui_api::SystemVm {
                 connected: d.connected,
             })
             .collect(),
-        power_available: reason(Capability::Power).is_none(),
-        power_loading: loading(Capability::Power),
-        power_reason: reason(Capability::Power).unwrap_or_default(),
-        battery_shown: system.battery.is_some(),
-        battery_percent: system.battery.map_or(0, |b| b.percent as i32),
-        battery_charging: system.battery.is_some_and(|b| b.charging),
+        battery_shown: battery.is_some(),
+        battery_percent: battery.map_or(0, |b| b.percent as i32),
+        battery_charging: battery.is_some_and(|b| b.charging),
         os_update,
         os_update_text,
-        disks: system
-            .disks
+        disks: disks
             .iter()
             .map(|d| InstallDiskVm {
                 path: d.path.display().to_string(),
@@ -1353,15 +1376,8 @@ fn system_vm(s: &Snapshot) -> launcher_ui_api::SystemVm {
                 model: d.model.clone(),
             })
             .collect(),
-        drives_available: reason(Capability::Drives).is_none(),
-        drives_loading: loading(Capability::Drives),
         drives_listing: !s.drives_listed,
-        drives_reason: match system.capabilities.get(&Capability::Drives) {
-            _ if loading(Capability::Drives) => String::new(),
-            Some(why) => why.clone().unwrap_or_default(),
-            None => crate::drives::CANT_ACT.into(),
-        },
-        drives: drive_items(s, reason(Capability::Drives).is_none()),
+        drives: drive_items(s, available(SystemArea::Drives)),
         jobs: system
             .jobs
             .iter()

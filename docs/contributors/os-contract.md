@@ -38,11 +38,14 @@ in the `[os]` section of `brand.toml`.
 | `whole_screen` | `MARAH_SESSION=1`, or `own_os`, or `stick` | `MARAH_SESSION=1` |
 
 The view carries them as `Vm.system.whole-screen`, `Vm.system.own-os` and `Vm.system.stick`.
-The kit reads them:
+They are facts of the session only. They don't decide which of the machine's controls show: the
+network, sound, Bluetooth and drives icons, Settings → System, and Restart and Shut down show
+wherever the launcher runs, on a desktop too. Whether each works comes from its system area's
+state ([ADR-0004](../adr/0004-every-system-area-has-one-interface.md)). The kit reads the facts:
 
 | Field | What changes |
 | --- | --- |
-| `whole-screen` | The top bar shows the network, sound and Bluetooth buttons. Settings has the System section, with Restart and Shut down when the plugin allows power. "Quit" becomes "Restart" for the launcher. The power menu has Log out. |
+| `whole-screen` | "Quit" becomes "Restart" for the launcher. The power menu and Settings have Log out (not on Marah OS). Restart and Shut down ask by a second press, not in a dialog. The game menu opens nothing outside the launcher. A drive that comes is mounted by the launcher. |
 | `own-os` | Log out goes away (`kit/power-menu.slint`, `kit/settings-layout.slint`): greetd would log the player in again at once. |
 | `stick` | "Welcome to Marah OS" and the install screens show (`kit/install-os.slint`). Settings has the install row. |
 
@@ -135,8 +138,13 @@ works. Under gamescope, the launcher tags its windows with `xprop`, as
 ## Settings → System
 
 The built-in system plugin (`plugins/system/host/`) does the work. It declares `network`,
-`vpn`, `bluetooth`, `audio`, `power`, `os_updates` and `os_install`. On macOS and Windows it
-provides only `vpn` and `power`. The programs it may run are `permissions.process` in
+`vpn`, `bluetooth`, `audio`, `power`, `os_updates`, `os_install` and `drives`, each a system
+area behind the same interface (`AreaSettings`, see
+[ADR-0004](../adr/0004-every-system-area-has-one-interface.md)). On macOS it provides
+`network`, `vpn`, `bluetooth`, `audio`, `power` and `drives` through the tools macOS ships. On
+Windows it provides `network`, `vpn`, `bluetooth`, `audio`, `power` and `drives` through
+Windows' own calls. The [plugin reference](../plugins/reference.md#the-built-in-plugins) says
+what works on each. The programs it may run are `permissions.process` in
 `plugins/system/host/plugin.toml`.
 
 | Feature | The launcher runs | The image gives |
@@ -149,8 +157,17 @@ provides only `vpn` and `power`. The programs it may run are `permissions.proces
 | System update, "check now" | `systemctl start --no-block marah-os-update.service` | The update service, and a polkit rule |
 | The install from the stick | `marah-os-install` | The stick's installer |
 
-A missing tool shows as unavailable with its name, such as "NetworkManager (nmcli) isn't
-installed" (`plugins/system/host/src/linux.rs`).
+A missing tool makes its area unsupported, with the tool's name, such as "NetworkManager (nmcli)
+isn't installed". The area's status icon then shows disabled, with that reason on hover and
+focus. The table `AREAS` in `plugins/system/host/src/linux.rs` lists each area's tools.
+
+Every tool runs through the plugin's tool runner (`plugins/system/host/src/tools.rs`), with a
+time limit on each call. At the limit the launcher kills the tool, and the call fails with "lsblk
+took too long", so a tool that hangs, such as `lsblk` on a dead drive, doesn't keep running. A
+read and a quick change have 10 seconds. A call that takes longer has its own limit: joining a
+Wi-Fi network, pairing, and UDisks writing what is left to a slow drive before it unmounts it.
+The install from the stick and "Choose partitions instead" have none: they wait on the player,
+who can cancel the install.
 
 ### polkit rules
 
@@ -183,8 +200,8 @@ restarts the PC, because a game may be running. For the same reason the image ma
 `bootc-fetch-apply-updates.timer`, which restarts the PC by itself. The script also picks the
 edition by the graphics card.
 
-The launcher reads the state with `rpm-ostree status --json` (`OsUpdates::status`). Settings
-shows:
+The launcher reads the state with `rpm-ostree status --json`, as the OS updates area's state
+(`SystemArea::OsUpdates`). Settings shows:
 
 | State | Settings shows |
 | --- | --- |
@@ -192,7 +209,7 @@ shows:
 | None is staged | "Marah OS is up to date" |
 | The output can't be read | "Couldn't look for an update: rpm-ostree's status couldn't be read" |
 
-Without the release file, `OsUpdates::status` fails with "this isn't Marah OS", and the update
+Without the release file, the OS updates area is absent (`AreaState::Absent`), and the update
 row doesn't show.
 
 `crates/core/src/view.rs` has the text "Looking for an update…" for `OsUpdate::Checking`, but
@@ -237,9 +254,13 @@ disk PATH SIZE_BYTES WINDOWS(0/1) USB(0/1) MODEL…
 - `WINDOWS` is 1 when the disk has an NTFS or BitLocker partition.
 - `USB` is 1 when the disk's transport is USB.
 - `MODEL` is the rest of the line and may hold spaces. It is `Disk` when the disk names none.
+- When it can't find the USB stick it started from, it may list no disk, print why on stderr and
+  exit non-zero. The launcher shows that reason.
 
 The plugin reads the lines with `parse::disks` (`plugins/system/host/src/parse.rs`). Without
-the installer, it lists no disks.
+the installer, it lists no disks. When the installer exits non-zero, the install screen shows its
+last line that isn't a `disk` line (`parse::disks_error`) in place of "No disk of 40 GB or more is
+free to install on". When that line is missing, it shows "The installer couldn't list the disks".
 
 ### `marah-os-install DISK`
 
@@ -262,11 +283,12 @@ The installer also copies the Wi-Fi connections saved on the stick into the new 
 
 #### A cancel
 
-The job of the install takes `CancelJob`. The job always ends from the installer's last line,
-never from the cancel. A cancel goes in two steps (`crates/core/src/process.rs`):
+The job of the install takes `CancelJob`, and has no time limit. The job ends from the
+installer's last line, never from the cancel, with one exception in step 1. A cancel goes in two
+steps (`crates/core/src/process.rs`):
 
 1. The launcher kills pkexec. At the password prompt pkexec still runs as the player, so the kill
-   works. The killed installer prints no last line, and the job fails with "Cancelled".
+   works. The installer printed no last line, and the job fails with "Cancelled".
 2. After the password, pkexec's program runs as root, and the kill fails. The launcher then
    writes one line, `cancel`, to the installer's standard input, and closes it. It writes
    nothing else. It reads the installer to its end, as before.

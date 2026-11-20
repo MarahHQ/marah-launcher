@@ -223,7 +223,7 @@ fn shown_with_system() -> (Composed, launcher_testkit::FakeSystem) {
     });
     host.ui.start().unwrap();
     host.dispatch(Command::Library(LibraryCmd::Refresh));
-    host.until(Area::System, |core| core.view().system.audio_available);
+    host.until(Area::System, |core| core.view().system.area("audio").ready());
     // The work of the start ends: the details, the files, the machine's reads.
     host.run_until_idle();
     host.run_work();

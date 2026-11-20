@@ -2,14 +2,14 @@ id = "classic"
 kind = "theme"
 name = "Classic"
 version = "0.3.0"
-host_api = "^0.3"
+host_api = "^0.4"
 capabilities = ["theme"]
 activation = "eager"
 
 # The built-in Classic theme: a hero and a row of game tiles on Home, on the theme contract.
 # Every value is laid out on a 1920×1080 canvas and scaled to the window.
 [theme]
-ui_api = "^0.6"
+ui_api = "^0.7"
 input = ["gamepad", "pointer"]
 navigation = "focus"
 

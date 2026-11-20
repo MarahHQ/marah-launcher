@@ -45,6 +45,7 @@ pub const KIT_DIR: &str = "kit";
 /// `kit/<name>.slint`. A theme that ships a file at the same path replaces the kit's. Kit files
 /// import the host's files as `../types.slint` and each other by bare name.
 pub const KIT: &[(&str, &str)] = &[
+    ("ask.slint", include_str!("../kit/ask.slint")),
     ("button.slint", include_str!("../kit/button.slint")),
     ("closing.slint", include_str!("../kit/closing.slint")),
     ("commands.slint", include_str!("../kit/commands.slint")),
@@ -71,6 +72,7 @@ pub const KIT: &[(&str, &str)] = &[
     ("plugin-list.slint", include_str!("../kit/plugin-list.slint")),
     ("plugin.slint", include_str!("../kit/plugin.slint")),
     ("pop.slint", include_str!("../kit/pop.slint")),
+    ("power-ask.slint", include_str!("../kit/power-ask.slint")),
     ("power-menu.slint", include_str!("../kit/power-menu.slint")),
     ("progress-bar.slint", include_str!("../kit/progress-bar.slint")),
     ("question-prompt.slint", include_str!("../kit/question-prompt.slint")),
@@ -88,6 +90,7 @@ pub const KIT: &[(&str, &str)] = &[
     ("slot-actions.slint", include_str!("../kit/slot-actions.slint")),
     ("slot-badges.slint", include_str!("../kit/slot-badges.slint")),
     ("slot-sections.slint", include_str!("../kit/slot-sections.slint")),
+    ("status-bar.slint", include_str!("../kit/status-bar.slint")),
     ("system-panel.slint", include_str!("../kit/system-panel.slint")),
     ("trailer-player.slint", include_str!("../kit/trailer-player.slint")),
     ("widgets.slint", include_str!("../kit/widgets.slint")),
@@ -309,6 +312,23 @@ mod tests {
                 assert!(host_file || kit_file || slint_file, "kit/{name} imports {target:?}, which is a theme's file");
             }
         }
+    }
+
+    #[test]
+    fn the_areas_global_places_each_area_where_the_view_lists_it() {
+        let block = TYPES_SLINT.split("export global Areas {").nth(1).expect("types.slint has Areas");
+        let block = &block[..block.find('}').expect("Areas ends")];
+        let places: Vec<(String, usize)> = block
+            .lines()
+            .filter_map(|line| line.trim().strip_prefix("out property <int> "))
+            .map(|line| {
+                let (name, place) = line.trim_end_matches(';').split_once(": ").expect("name: place");
+                (name.replace('-', "_"), place.parse().expect("a number"))
+            })
+            .collect();
+        let expected: Vec<(String, usize)> =
+            crate::AREAS.iter().enumerate().map(|(i, name)| ((*name).to_owned(), i)).collect();
+        assert_eq!(places, expected);
     }
 
     #[test]

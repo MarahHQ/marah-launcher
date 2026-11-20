@@ -1,4 +1,5 @@
 import { Vm } from "../types.slint";
+import { Sys } from "system-panel.slint";
 
 // Where the rows of each of Settings' tabs are. A row that isn't always there (Start at login,
 // Screen, a VPN, the System rows) moves the rows after it, so each tab counts its rows here, with
@@ -42,10 +43,10 @@ export global BackupRows {
 }
 
 // POWER: "Quit Marah Launcher" ("Restart Marah Launcher" when Marah Launcher is the whole screen: the session starts it
-// again), then Log out only on a desktop (on Marah OS the session would just start again), then
-// Restart and Shut down.
+// again), then Log out only in the Marah Launcher session on a desktop (on Marah OS the session
+// would just start again), then Restart and Shut down wherever the power area allows them.
 export global PowerRows {
     out property <int> logout: Vm.system.whole-screen && !Vm.system.own-os ? 1 : -1;
     out property <int> restart: 1 + (root.logout >= 0 ? 1 : 0);
-    out property <int> count: Vm.system.whole-screen && Vm.system.power-available ? root.restart + 2 : root.restart;
+    out property <int> count: Sys.power-on ? root.restart + 2 : root.restart;
 }

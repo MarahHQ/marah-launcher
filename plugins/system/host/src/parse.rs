@@ -245,6 +245,13 @@ pub fn disks(text: &str) -> Vec<InstallDisk> {
         .collect()
 }
 
+/// Why the installer's `--disks` failed: its last line that isn't blank and isn't a disk,
+/// trimmed. Its errors and its disks come mixed, so the last line can be a disk.
+pub fn disks_error(text: &str) -> Option<String> {
+    let said = text.lines().map(str::trim).rfind(|l| !l.is_empty() && l.split(' ').next() != Some("disk"));
+    said.map(str::to_owned)
+}
+
 /// One line the installer printed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InstallLine {

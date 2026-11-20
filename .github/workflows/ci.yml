@@ -1,8 +1,9 @@
 name: CI
 
-# Format, lint, test and dependency checks on every pull request and every push to main. Linux
-# only: the macOS and Windows builds run in package.yml, by hand or for a release. Slow checks
-# that need the network or real windows run in weekly.yml.
+# Format, lint, test and dependency checks on every pull request and every push to main. Clippy
+# runs on Linux, Windows and macOS, so each OS's code compiles on every change. The rest runs on
+# Linux only: the macOS and Windows packages are built in package.yml, by hand or for a release.
+# Slow checks that need the network or real windows run in weekly.yml.
 #
 # Runs only when something that can change the build changed: not for docs or the other
 # workflows. It skips Release Please's pull requests and the commits
@@ -69,22 +70,33 @@ jobs:
           components: rustfmt
       - run: scripts/check.sh fmt
 
+  # Each OS on its own runner: the code for one OS only compiles there. Linux keeps the name
+  # "Clippy", which the branch rules may ask for.
   clippy:
-    name: Clippy
+    name: ${{ matrix.name }}
     if: >-
       !startsWith(github.head_ref, 'release-please--')
       && !startsWith(github.event.head_commit.message, 'chore(main): release')
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Clippy, runner: ubuntu-24.04, cache-key: clippy }
+          - { name: Clippy (Windows), runner: windows-2022, cache-key: clippy-windows }
+          - { name: Clippy (macOS), runner: macos-15, cache-key: clippy-macos }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup
         with:
-          cache-key: clippy
+          cache-key: ${{ matrix.cache-key }}
           save-cache: true
+      # Git's bash on Windows.
       - run: scripts/check.sh clippy
+        shell: bash
 
   test:
     name: Test

@@ -68,7 +68,7 @@ impl ProcessSpawner for TokioSpawner {
             Some(Ok(out)) => Ok(Some(out)),
             Some(Err(e)) => Err(launcher_api::PluginError::Other(format!("{:?}: {e}", command.program))),
             None => {
-                let _ = child.kill().await;
+                stop(&mut child).await;
                 Ok(None)
             }
         }
@@ -132,7 +132,8 @@ async fn stream_with(
     // written: the program gets one request, then the end of its input.
     let mut request: Option<futures::future::BoxFuture<'static, Option<std::io::Result<()>>>> = None;
     let mut tick = TokioClock.interval(Duration::from_millis(250));
-    while out_open || err_open {
+    // A program can close its output and run on: the cancel still stops it then.
+    loop {
         tokio::select! {
             read = out.next_line(), if out_open => match read.map_err(failed)? {
                 Some(text) => line(&text),
@@ -154,9 +155,16 @@ async fn stream_with(
                     tracing::warn!(program = ?command.program, %error, "could not ask the program to stop: it runs to its end");
                 }
             },
+            status = child.wait(), if !out_open && !err_open => {
+                return Ok(status.map_err(failed)?.code().unwrap_or(-1));
+            },
             _ = tick.next(), if !unstoppable => if cancelled() {
                 match kill(&mut child) {
-                    Ok(()) => break,
+                    Ok(()) => {
+                        wait_for_stop(&mut child).await;
+                        // On Unix a killed program has no exit code.
+                        return Ok(-1);
+                    }
                     // pkexec's program runs as root after the password, and the launcher may
                     // not kill it. A program that stopped reading would block on its full pipe.
                     Err(e) => {
@@ -174,11 +182,33 @@ async fn stream_with(
                 }
             },
         }
+        if !out_open && !err_open {
+            // The end of its input, for a program that reads it to its end before it ends.
+            (input, request) = (None, None);
+        }
     }
-    // The end of its input, for a program that reads it to its end before it ends.
-    drop((input, request));
-    // On Unix a killed program has no exit code: -1. One that ran to its end has its own.
-    Ok(child.wait().await.map_err(failed)?.code().unwrap_or(-1))
+}
+
+/// How long a stopped program has to end before its caller stops waiting for it.
+const STOP_WAIT: Duration = Duration::from_secs(1);
+
+/// Kills `child`, and waits at most [`STOP_WAIT`] for it to end. For a program that isn't
+/// elevated, a failed kill means it has ended.
+async fn stop(child: &mut tokio::process::Child) {
+    if let Err(e) = child.start_kill() {
+        tracing::debug!(error = %e, "the program wasn't killed: it has ended");
+    }
+    wait_for_stop(child).await;
+}
+
+/// Waits at most [`STOP_WAIT`] for a killed `child` to end. A program stuck in the kernel, such
+/// as `lsblk` on a dead drive, ends only when the kernel lets it go: the caller doesn't wait for
+/// that, and tokio reaps the program later.
+async fn wait_for_stop(child: &mut tokio::process::Child) {
+    let clock: &dyn Clock = &TokioClock;
+    if clock.timeout(STOP_WAIT, child.wait()).await.is_none() {
+        tracing::debug!("a killed program hasn't ended yet: it is left to end");
+    }
 }
 
 /// Sends `signal` to the process group `group` with the system's `kill`: this crate has no
@@ -362,6 +392,72 @@ mod tests {
         let status =
             tokio::process::Command::new("kill").args(["-0", pid]).stderr(std::process::Stdio::null()).status();
         status.await.unwrap().success()
+    }
+
+    /// A program that writes its process id to `pidfile`, then sleeps as that process.
+    fn sleeper(pidfile: &Path) -> SpawnCommand {
+        sh(&format!("echo $$ > {}; exec sleep 30", pidfile.display()))
+    }
+
+    /// The id `pidfile` holds, once it is written: `None` before then.
+    fn written(pidfile: &Path) -> Option<String> {
+        std::fs::read_to_string(pidfile).ok().filter(|pid| pid.ends_with('\n')).map(|pid| pid.trim().to_owned())
+    }
+
+    /// The id `pidfile` holds. Fails when it isn't written within 5 seconds.
+    async fn pid_in(pidfile: &Path) -> String {
+        let wait = async {
+            loop {
+                match written(pidfile) {
+                    Some(pid) => break pid,
+                    None => TokioClock.sleep(Duration::from_millis(20)).await,
+                }
+            }
+        };
+        REAL.timeout(Duration::from_secs(5), wait).await.expect("the program wrote its id")
+    }
+
+    #[tokio::test]
+    async fn output_kills_the_program_it_stops_at_the_timeout() {
+        let dir = tempfile::tempdir().unwrap();
+        let pidfile = dir.path().join("pid");
+
+        // Long enough for the shell to start and write its id.
+        let out = TokioSpawner.output(sleeper(&pidfile), Duration::from_secs(1), 1024).await.unwrap();
+
+        assert_eq!(out, None);
+        let pid = pid_in(&pidfile).await;
+        assert!(!alive(&pid).await, "the program still runs after the timeout");
+    }
+
+    #[tokio::test]
+    async fn stream_kills_the_program_when_it_is_cancelled() {
+        let dir = tempfile::tempdir().unwrap();
+        let pidfile = dir.path().join("pid");
+        // Once the program runs as itself.
+        let cancelled = || written(&pidfile).is_some();
+
+        let code = TokioSpawner.stream(sleeper(&pidfile), false, &|_| {}, &cancelled).await.unwrap();
+
+        assert_eq!(code, -1);
+        let pid = pid_in(&pidfile).await;
+        assert!(!alive(&pid).await, "the program still runs after the cancel");
+    }
+
+    #[tokio::test]
+    async fn stream_kills_a_program_that_closed_its_output_when_it_is_cancelled() {
+        let dir = tempfile::tempdir().unwrap();
+        let pidfile = dir.path().join("pid");
+        let quiet = sh(&format!("exec >/dev/null 2>&1; echo $$ > {}; exec sleep 30", pidfile.display()));
+        // Once the program runs as itself.
+        let cancelled = || written(&pidfile).is_some();
+
+        let run = TokioSpawner.stream(quiet, false, &|_| {}, &cancelled);
+        let code = REAL.timeout(Duration::from_secs(5), run).await.expect("the cancel stopped it").unwrap();
+
+        assert_eq!(code, -1);
+        let pid = pid_in(&pidfile).await;
+        assert!(!alive(&pid).await, "the program still runs after the cancel");
     }
 
     #[tokio::test]

@@ -14,6 +14,36 @@ tokio.workspace = true
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+# Windows' own calls for the areas there (src/windows.rs): only the parts it calls.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Devices_Bluetooth",
+    "Devices_Enumeration",
+    "Devices_Radios",
+    "Foundation",
+    "Networking_Connectivity",
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_Devices_FunctionDiscovery",
+    "Win32_Devices_Properties",
+    "Win32_Foundation",
+    "Win32_Media_Audio",
+    "Win32_Media_Audio_Endpoints",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_NetworkManagement_WiFi",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_IO",
+    "Win32_System_Ioctl",
+    "Win32_System_Power",
+    "Win32_System_SystemInformation",
+    "Win32_System_Variant",
+    "Win32_System_WindowsProgramming",
+    "Win32_UI_Shell_PropertiesSystem",
+] }
+
 [dev-dependencies]
 tempfile.workspace = true
 

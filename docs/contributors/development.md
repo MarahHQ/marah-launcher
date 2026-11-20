@@ -129,11 +129,12 @@ desktop. Each counts only when its value is `1` (`Place::detect` in `crates/core
 
 | Variable | What shows |
 | --- | --- |
-| `MARAH_SESSION=1` | The launcher as the whole screen: the network, sound and Bluetooth buttons in the top bar, Settings → System, Log out, Restart and Shut down |
+| `MARAH_SESSION=1` | The launcher as the whole screen: "Restart Marah Launcher" in place of Quit, Log out, and Restart and Shut down that ask by a second press, not in a dialog |
 | `MARAH_OS=1` | Also Marah OS: Log out goes away |
 | `MARAH_USB=1` | Also the Marah OS USB stick: the welcome and install screens |
 
-The controls act on this computer through `nmcli`, `bluetoothctl`, `pactl` and `systemctl`.
+The network, sound, Bluetooth and drives controls, Settings → System, and Restart and Shut down
+show without these variables too, in a window on the desktop. The controls act on this computer through `nmcli`, `bluetoothctl`, `pactl` and `systemctl`.
 Joining a Wi-Fi network, pairing, the volume, Restart and Shut down are real. System updates
 and the install need Marah OS: elsewhere they fail and show their error. See
 [The OS contract](os-contract.md).
@@ -265,7 +266,11 @@ The demo also runs the launcher with no network through `unshare` (util-linux).
   `scripts/check.sh fmt` when Rust files change.
 - Before each push: `scripts/check.sh clippy` and `scripts/check.sh test`.
 
-The cargo hooks run `scripts/check.sh`, the same check as `make check` and CI.
+The cargo hooks run `scripts/check.sh`, the same check as `make check` and CI. CI also runs
+clippy on Windows and macOS, so code for those systems must compile there too. To check the
+system plugin for Windows from Linux, run `rustup target add x86_64-pc-windows-gnu`, then
+`cargo clippy -p system-host --all-targets --target x86_64-pc-windows-gnu -- -D warnings`. The
+whole workspace also needs the MinGW C compiler (`x86_64-w64-mingw32-gcc`) for its C libraries.
 `make hooks-install` installs both stages. `make hooks-run` runs the hooks on every file.
 
 ## The product's names

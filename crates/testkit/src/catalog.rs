@@ -308,7 +308,7 @@ impl FakeCatalog {
         if let Some(emulator) = &self.emulator {
             toml += &format!("emulator = \"{emulator}\"\n");
         }
-        toml += "version = \"1.0.0\"\nhost_api = \"^0.3\"\n";
+        toml += "version = \"1.0.0\"\nhost_api = \"^0.4\"\n";
         if let Some(console) = &self.console {
             toml += &format!("console = \"{console}\"\n");
         }
@@ -728,7 +728,7 @@ impl FakeStore {
     /// The plugin.
     pub fn build(self) -> StubPlugin {
         StubPlugin::from_toml(&format!(
-            "id = \"{}\"\nkind = \"service\"\nname = \"{}\"\nversion = \"1.0.0\"\nhost_api = \"^0.3\"\n\
+            "id = \"{}\"\nkind = \"service\"\nname = \"{}\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
              capabilities = [\"metadata\"]\n[permissions]\nnetwork = [\"art.example\"]",
             self.id, self.id
         ))
@@ -805,7 +805,7 @@ impl FakeService {
     /// The plugin.
     pub fn build(self) -> StubPlugin {
         StubPlugin::from_toml(&format!(
-            "id = \"{}\"\nkind = \"service\"\nname = \"{}\"\nversion = \"1.0.0\"\nhost_api = \"^0.3\"\n\
+            "id = \"{}\"\nkind = \"service\"\nname = \"{}\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
              capabilities = [\"slots\"]",
             self.id, self.name
         ))

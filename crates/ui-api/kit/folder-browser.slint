@@ -8,6 +8,7 @@ import { Icon } from "icon.slint";
 import { Osk } from "keyboard.slint";
 import { Brand } from "../brand.slint";
 import { LoadingRow } from "loading.slint";
+import { Ask, AskKeys } from "ask.slint";
 
 // The folder browser: a sheet over everything while `Vm.browser.open`. The places on one side,
 // the folder's folders (and for a restore its backups) in the middle, and what the focused one
@@ -33,7 +34,9 @@ export global Browser {
     in-out property <int> at-entry;
     // The backup the dialog asks about, by its index in the files; -1 while no dialog shows.
     in-out property <int> confirm: -1;
-    // In the dialog: 0 Restore, 1 Cancel.
+    // The dialog shows: it takes the keys, and the hints are its own.
+    out property <bool> asking: root.confirm >= 0 && root.confirm < root.entries;
+    // In the dialog (an `Ask`): 0 Cancel, where the focus starts, 1 Restore.
     in-out property <int> choice;
     // The text typed to filter the files. The sheet keeps it, so keys typed faster than the
     // core answers each add to it; the core gets all of it each time.
@@ -147,15 +150,15 @@ export global Browser {
             && text != Key.PageDown && text != Key.Backspace) {
             return true;
         }
-        if (root.confirm >= 0) {
-            if (text == Key.Return) {
-                root.answer(root.choice == 0);
+        if (root.asking) {
+            let next = AskKeys.moved(text, root.choice);
+            if (next != root.choice) {
+                root.choice = next;
+                Host.play-sound("move");
+            } else if (text == Key.Return) {
+                root.answer(root.choice == 1);
             } else if (text == Key.Escape || text == Key.Backspace) {
                 root.answer(false);
-            } else if (text == Key.LeftArrow || text == Key.RightArrow || text == Key.UpArrow || text == Key.DownArrow
-                || text == Key.Tab || text == Key.Backtab) {
-                root.choice = 1 - root.choice;
-                Host.play-sound("move");
             }
             return true;
         }
@@ -288,6 +291,9 @@ component KeyHint inherits HorizontalLayout {
         font-size: 16 * Look.tpx;
         color: Tokens.color-text-muted;
         vertical-alignment: center;
+        accessible-role: text;
+        accessible-label: "hint";
+        accessible-value: self.text;
     }
 }
 
@@ -306,17 +312,16 @@ component Fact inherits VerticalLayout {
     }
 }
 
-// A button of the sheet: Close, Restore, the dialog's two.
+// A button of the sheet: Show hidden, Use this folder, Close, Restore.
 component SheetButton inherits Rectangle {
     in property <string> text;
     in property <bool> lit;
-    in property <bool> danger;
     in property <string> name;
     callback clicked();
     height: 44 * Look.px;
     width: Math.max(120 * Look.px, label.preferred-width + 36 * Look.px);
     border-radius: 22 * Look.px;
-    background: root.lit ? (root.danger ? Tokens.color-danger : Tokens.color-focus) : touch.has-hover ? Look.fill-lit : Look.fill;
+    background: root.lit ? Tokens.color-focus : touch.has-hover ? Look.fill-lit : Look.fill;
     animate background { duration: Motion.press; }
     transform-scale: touch.pressed ? 0.97 : 1;
     animate transform-scale { duration: Motion.press; }
@@ -621,19 +626,21 @@ export component FolderBrowser inherits Rectangle {
                     overflow: elide;
                     horizontal-stretch: 1;
                 }
+                // While the dialog is up, its keys; the browser's come back when it closes.
+                for h in Browser.asking ? AskKeys.hints : [] : KeyHint { pad: h.pad; key: h.key; label: h.label; }
                 // ✕ does nothing in an empty folder: no hint for it there.
-                if Browser.pane == 0 || Browser.entries > 0 : KeyHint {
+                if !Browser.asking && (Browser.pane == 0 || Browser.entries > 0) : KeyHint {
                     pad: "✕";
                     key: "Enter";
                     label: Browser.pane == 0 ? (Vm.browser.places[Browser.at-place].mounted ? "Go" : "Mount")
                         : root.entry.folder ? "Open" : root.entry.newer ? "Can't restore" : "Restore";
                 }
-                if Browser.picking : KeyHint { pad: "△"; key: "/"; label: "Use this folder"; }
-                KeyHint { pad: "○"; key: "Esc"; label: Browser.typed != "" ? "Clear" : Browser.pane == 0 || Vm.browser.parent == "" ? "Close" : "Up a folder"; }
-                KeyHint { pad: "L1  R1"; key: "← →"; label: "Places / Files"; }
-                KeyHint { pad: "□"; key: "Ctrl+H"; label: Vm.browser.hidden ? "Hide hidden" : "Show hidden"; }
+                if !Browser.asking && Browser.picking : KeyHint { pad: "△"; key: "/"; label: "Use this folder"; }
+                if !Browser.asking : KeyHint { pad: "○"; key: "Esc"; label: Browser.typed != "" ? "Clear" : Browser.pane == 0 || Vm.browser.parent == "" ? "Close" : "Up a folder"; }
+                if !Browser.asking : KeyHint { pad: "L1  R1"; key: "← →"; label: "Places / Files"; }
+                if !Browser.asking : KeyHint { pad: "□"; key: "Ctrl+H"; label: Vm.browser.hidden ? "Hide hidden" : "Show hidden"; }
                 Rectangle { horizontal-stretch: 1; }
-                if Vm.input-mode != "gamepad" : Text {
+                if !Browser.asking && Vm.input-mode != "gamepad" : Text {
                     text: "Type to find";
                     font-size: 16 * Look.tpx;
                     color: Look.text3;
@@ -643,59 +650,28 @@ export component FolderBrowser inherits Rectangle {
         }
     }
 
-    // The dialog before a restore.
-    if Browser.confirm >= 0 && Browser.confirm < Browser.entries : dialog := Rectangle {
-        background: Tokens.color-overlay.with-alpha(0.6);
-        TouchArea { clicked => { Browser.answer(false); } }
+    // The dialog before a restore: a click outside it says no.
+    if Browser.asking : dialog := Rectangle {
         property <BrowseEntry> asked: Vm.browser.entries[Browser.confirm];
-        Rectangle {
-            width: Math.min(root.width - 96 * Look.px, 640 * Look.px);
-            height: ask.preferred-height;
-            x: (parent.width - self.width) / 2;
-            y: (parent.height - self.height) / 2;
-            border-radius: 22 * Look.px;
-            background: Tokens.color-surface;
-            border-width: 1px;
-            border-color: Look.line;
-            drop-shadow-blur: 40 * Look.px;
-            drop-shadow-color: Tokens.color-shade.with-alpha(0.6);
-            accessible-role: groupbox;
-            accessible-label: "browser-confirm";
-            accessible-value: dialog.asked.name;
-            TouchArea {}
-            ask := VerticalLayout {
-                padding: 28 * Look.px;
-                spacing: 22 * Look.px;
-                Text {
-                    text: "Restore the backup of " + dialog.asked.date
-                        + (dialog.asked.computer != "" ? " from " + dialog.asked.computer : "") + "?";
-                    font-size: 22 * Look.tpx;
-                    font-weight: 600;
-                    color: Tokens.color-text;
-                    wrap: word-wrap;
-                }
-                Text {
-                    text: "What's here now is backed up first. Then restart " + Brand.name + " to finish.";
-                    font-size: 17 * Look.tpx;
-                    color: Tokens.color-text-muted;
-                    wrap: word-wrap;
-                }
-                HorizontalLayout {
-                    spacing: 12 * Look.px;
-                    alignment: end;
-                    SheetButton {
-                        text: "Restore";
-                        name: "browser-confirm-restore";
-                        lit: Browser.choice == 0;
-                        clicked => { Browser.answer(true); }
-                    }
-                    SheetButton {
-                        text: "Cancel";
-                        name: "browser-confirm-cancel";
-                        lit: Browser.choice == 1;
-                        clicked => { Browser.answer(false); }
-                    }
-                }
+        accessible-role: groupbox;
+        accessible-label: "browser-confirm";
+        accessible-value: dialog.asked.name;
+        Sheet {
+            width: parent.width;
+            height: parent.height;
+            card-width: Math.min(root.width - 96 * Look.px, 640 * Look.px);
+            card-height: ask.preferred-height;
+            outside => { Browser.answer(false); }
+            ask := Ask {
+                title: "Restore the backup of " + dialog.asked.date
+                    + (dialog.asked.computer != "" ? " from " + dialog.asked.computer : "") + "?";
+                details: "What's here now is backed up first. Then restart " + Brand.name + " to finish.";
+                action: "Restore";
+                at: Browser.choice;
+                name: "browser-confirm";
+                cancel-name: "browser-confirm-cancel";
+                action-name: "browser-confirm-restore";
+                picked(choice) => { Browser.answer(choice == 1); }
             }
         }
     }

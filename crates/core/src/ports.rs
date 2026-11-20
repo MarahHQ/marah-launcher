@@ -596,8 +596,8 @@ pub trait Network: Send + Sync {
         false
     }
     /// Adds a VPN from a provider's file (WireGuard `.conf`, OpenVPN `.ovpn`) and connects
-    /// it. Returns its name.
-    fn import(&self, _file: &Path) -> Result<String, String> {
+    /// it.
+    fn import(&self, _file: &Path) -> Result<(), String> {
         Err("this system can't add a VPN: connect it with the VPN's own app".into())
     }
     fn connect(&self, _name: &str) -> Result<(), String> {
@@ -755,11 +755,63 @@ impl Archives for NoArchives {
     }
 }
 
-/// A system plugin's VPNs ([`launcher_api::VpnSettings`]) as the core's [`Network`] port: once one
-/// provides them, the core reads and switches its VPNs through it. The port's calls block, and
-/// the core makes them in `spawn_blocking` only (`vpn.rs`), so the plugin's async calls are waited
-/// for there, off the runtime's own threads.
-pub(crate) struct PluginVpn(pub Arc<dyn launcher_api::VpnSettings>);
+/// A system plugin's VPN area as the core's [`Network`] port: once one provides it, the core
+/// reads and switches its VPNs through it. The port's calls block, and the core makes the slow
+/// ones in `spawn_blocking` only (`vpn.rs`), so the plugin's async calls are waited for there, off
+/// the runtime's own threads.
+///
+/// The port answers `problem`, `finds_vpns` and `can_import` at once, from the area's last read.
+/// Before the first read nothing is known: no problem, so "Download only through a VPN" holds
+/// and the downloads wait for the read of the VPNs, never pass without one.
+pub(crate) struct PluginVpn {
+    area: Arc<dyn launcher_api::AreaSettings>,
+    facts: std::sync::Mutex<VpnFacts>,
+}
+
+/// What the VPN area's last read said of the system.
+#[derive(Clone)]
+struct VpnFacts {
+    problem: Option<String>,
+    finds: bool,
+    can_import: bool,
+}
+
+impl VpnFacts {
+    const UNREAD: VpnFacts = VpnFacts { problem: None, finds: true, can_import: false };
+
+    fn of(state: &launcher_api::AreaState) -> VpnFacts {
+        use launcher_api::{AreaData, AreaState};
+        match state {
+            AreaState::Ready(AreaData::Vpn { finds_vpns, can_import, .. }) => {
+                VpnFacts { problem: None, finds: *finds_vpns, can_import: *can_import }
+            }
+            AreaState::Unsupported(why) => VpnFacts { problem: Some(why.clone()), ..VpnFacts::UNREAD },
+            _ => VpnFacts {
+                problem: Some(format!(
+                    "This system can't bind {}'s downloads to a VPN",
+                    launcher_api::brand::PRODUCT_NAME
+                )),
+                ..VpnFacts::UNREAD
+            },
+        }
+    }
+}
+
+impl PluginVpn {
+    /// The port over `area`, knowing what its last read said, if one did.
+    pub(crate) fn new(area: Arc<dyn launcher_api::AreaSettings>, read: Option<&launcher_api::AreaState>) -> Self {
+        let facts = read.map_or(VpnFacts::UNREAD, VpnFacts::of);
+        Self { area, facts: std::sync::Mutex::new(facts) }
+    }
+
+    fn facts(&self) -> VpnFacts {
+        self.facts.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+
+    fn act(&self, action: launcher_api::AreaAction) -> Result<(), String> {
+        wait_for(self.area.act(action, Arc::new(crate::system::QuietJob))).map_err(|e| e.to_string())
+    }
+}
 
 /// Waits for `call` on a `spawn_blocking` thread.
 fn wait_for<F: std::future::Future>(call: F) -> F::Output {
@@ -768,31 +820,37 @@ fn wait_for<F: std::future::Future>(call: F) -> F::Output {
 
 impl Network for PluginVpn {
     fn problem(&self) -> Option<String> {
-        self.0.problem()
+        self.facts().problem
     }
 
     fn finds_vpns(&self) -> bool {
-        self.0.finds_vpns()
+        self.facts().finds
     }
 
+    /// Reads the area, and keeps what it says of the system for the quick answers.
     fn vpns(&self) -> Vec<Vpn> {
-        wait_for(self.0.vpns())
+        let Ok(state) = wait_for(self.area.state()) else { return Vec::new() };
+        *self.facts.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = VpnFacts::of(&state);
+        match state {
+            launcher_api::AreaState::Ready(launcher_api::AreaData::Vpn { vpns, .. }) => vpns,
+            _ => Vec::new(),
+        }
     }
 
     fn can_import(&self) -> bool {
-        self.0.can_import()
+        self.facts().can_import
     }
 
-    fn import(&self, file: &Path) -> Result<String, String> {
-        wait_for(self.0.import(file)).map_err(|e| e.to_string())
+    fn import(&self, file: &Path) -> Result<(), String> {
+        self.act(launcher_api::AreaAction::ImportVpn { file: file.to_owned() })
     }
 
     fn connect(&self, name: &str) -> Result<(), String> {
-        wait_for(self.0.connect(name)).map_err(|e| e.to_string())
+        self.act(launcher_api::AreaAction::ConnectVpn { name: name.to_owned() })
     }
 
     fn disconnect(&self, name: &str) -> Result<(), String> {
-        wait_for(self.0.disconnect(name)).map_err(|e| e.to_string())
+        self.act(launcher_api::AreaAction::DisconnectVpn { name: name.to_owned() })
     }
 }
 
