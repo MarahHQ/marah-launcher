@@ -517,6 +517,23 @@ fn full_view() -> AppView {
             drives: vec![DriveItemVm { actions: vec![s()], ..DriveItemVm::default() }],
             ..SystemVm::default()
         },
+        tray: vec![TrayItemVm {
+            id: s(),
+            icon: s(),
+            name: s(),
+            text: s(),
+            group: s(),
+            show: s(),
+            in_bar: true,
+            state: s(),
+            reason: s(),
+            busy: true,
+            opens: s(),
+            target: s(),
+            value: s(),
+        }],
+        tray_bar: vec![1],
+        tray_rows: vec![1],
     }
 }
 

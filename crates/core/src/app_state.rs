@@ -75,6 +75,10 @@ pub(crate) struct AppState {
     pub folders_read: u64,
     /// The game folders a scan runs for now: added or back, their games not read yet.
     pub scanning: std::collections::BTreeSet<std::path::PathBuf>,
+    /// The finished downloads and installs the player has seen, by id
+    /// ([`crate::tray::Downloads::finished`]): those finished before this start, and those
+    /// finished before the player last left Downloads.
+    pub downloads_seen: std::collections::BTreeSet<String>,
 }
 
 impl AppState {
@@ -103,6 +107,7 @@ impl AppState {
             files_read: 0,
             folders_read: 0,
             scanning: Default::default(),
+            downloads_seen: Default::default(),
         }
     }
 

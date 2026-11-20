@@ -227,6 +227,12 @@ pub enum Command {
     CancelInstall,
     /// The answer to the question a plugin asks at the start: `true` for its yes button.
     AnswerQuestion(bool),
+    /// Where the top bar's tray item `item` shows: `always` in the bar, when `needed`, or only
+    /// in the `tray`. The choice is saved by the item's id.
+    Tray {
+        item: String,
+        show: crate::TrayShow,
+    },
 }
 
 pub use launcher_api::HOST_INSTALL_GAME;
@@ -455,6 +461,8 @@ impl Core {
         core.installs().clean_up(|plugin| core.kernel().host_folders(plugin));
         crate::system::adopt_vpn(&core).await;
         core.torrents().restore();
+        // What finished before this start isn't news: the tray's Downloads waits for new ones.
+        crate::tray::seen_now(&core);
         crate::release_downloads::resume_installs_after(&core);
         crate::emulator_builds::resume_installs(&core).await;
         crate::plugin_downloads::resume_downloads(&core);
@@ -482,6 +490,11 @@ impl Core {
 
     pub fn events(&self) -> BoxStream<'static, Event> {
         self.inner.kernel.events().stream()
+    }
+
+    /// The emulator downloads, as they are now.
+    pub(crate) fn download_jobs(&self) -> Vec<crate::Job> {
+        self.inner.downloads.jobs()
     }
 
     /// The catalogs' downloads.
@@ -634,6 +647,7 @@ impl Core {
             theme_options: state.theme.as_ref().map(|theme| self.theme_options(theme)).unwrap_or(Value::Null),
             hidden_filter: crate::navigation::hidden_filter_on(kernel),
             can_start_at_login: self.ports().login_session.can_start_at_login(),
+            tray: crate::tray::load(kernel.config()),
             now: self.ports().clock.now(),
             now_secs: crate::sessions::now_secs(),
             library,
@@ -682,14 +696,20 @@ impl Core {
     /// Catalog off the top. The stack moves first, so a catalog read that ends meanwhile sees the
     /// Catalog off the top and keeps its grid too.
     pub(crate) fn move_stack(&self, change: impl FnOnce(&mut crate::stack::Stack)) {
-        let left = {
+        let (left, downloads) = {
             let mut state = self.state();
             let was_on_top = state.stack.route() == &Route::Catalog;
+            let was_downloads = state.stack.route() == &Route::Downloads;
             change(&mut state.stack);
-            was_on_top && state.stack.route() != &Route::Catalog
+            let downloads = was_downloads || state.stack.route() == &Route::Downloads;
+            (was_on_top && state.stack.route() != &Route::Catalog, downloads)
         };
         if left {
             self.keep_catalog_grid();
+        }
+        // Downloads opened or closed: the player saw what finished.
+        if downloads {
+            crate::tray::seen_now(self);
         }
     }
 
@@ -760,6 +780,7 @@ impl Core {
             }
             Command::ConfirmInstall => emulator_builds::confirm_install(self).await,
             Command::AnswerQuestion(yes) => crate::startup::answer(self, yes).await,
+            Command::Tray { item, show } => crate::tray::choose(self, &item, show),
             Command::CancelInstall => emulator_builds::cancel_install(self),
             Command::Session(command) => crate::launch::session(self, command).await,
             Command::AskResult(game) => crate::launch::ask_result(self, game),

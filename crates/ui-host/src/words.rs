@@ -11,7 +11,7 @@
 //! empty text, which most fields can hold.
 
 use launcher_api::{ActionStyle, Tone};
-use launcher_core::{JobPhase, Sort, TorrentButton};
+use launcher_core::{JobPhase, Sort, TorrentButton, TrayShow};
 use launcher_ui_api::{FieldKind, NoticeKind, ScreenId, SlotKind, contract};
 use serde::Serialize;
 
@@ -140,6 +140,11 @@ fn rows() -> Vec<Row> {
         doc(("AreaVm", "name"), ("AreaItem", "name"))
             .core(launcher_api::SystemArea::ALL.iter().map(|a| a.name().to_owned()).collect()),
         doc(("AreaVm", "state"), ("AreaItem", "state")),
+        doc(("TrayItemVm", "id"), ("TrayItem", "id")).core(launcher_core::TRAY_IDS.map(str::to_owned).to_vec()),
+        doc(("TrayItemVm", "group"), ("TrayItem", "group")),
+        doc(("TrayItemVm", "show"), ("TrayItem", "show")).core(serde_words(every!(TrayShow: Always, Needed, Tray))),
+        doc(("TrayItemVm", "state"), ("TrayItem", "state")),
+        doc(("TrayItemVm", "opens"), ("TrayItem", "opens")),
         doc(("SystemJobVm", "kind"), ("SystemJobItem", "kind")),
         doc(("SystemJobVm", "state"), ("SystemJobItem", "state")),
         doc(("DriveItemVm", "kind"), ("DriveItem", "kind")),

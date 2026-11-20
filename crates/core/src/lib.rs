@@ -68,6 +68,7 @@ pub mod system;
 mod themes;
 mod timings;
 mod torrents;
+mod tray;
 mod typed_text;
 mod uninstall;
 mod unpack;
@@ -108,6 +109,7 @@ pub use storage::DirStorage;
 pub use themes::{DataTheme, DirFiles};
 pub use timings::{CoreTimings, Timed};
 pub use torrents::{TorrentAction, TorrentCmd};
+pub use tray::{IDS as TRAY_IDS, Show as TrayShow};
 /// The path checks every unpacker runs before it writes.
 pub use unpack::{inside, link_stays_inside, stays_inside};
 pub use view::TorrentButton;

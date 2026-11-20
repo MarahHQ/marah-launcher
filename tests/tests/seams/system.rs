@@ -615,3 +615,34 @@ async fn the_view_lists_every_area_in_the_contract_s_order() {
     assert_eq!(state("bluetooth"), Some(("absent".into(), false)), "an absent area says why");
     assert!(areas.iter().all(|a| !a.busy));
 }
+
+/// The ids of the tray items in the bar, in order.
+fn bar(core: &launcher_core::Core) -> Vec<String> {
+    let view = core.view();
+    view.tray_bar.iter().map(|&i| view.tray[i as usize].id.clone()).collect()
+}
+
+/// The player's choice for one tray item is saved by its id, the others keep theirs, an id the
+/// tray doesn't have is refused, and the choices come back at the next start.
+#[tokio::test]
+async fn the_tray_s_choices_are_saved_by_id_and_kept_after_a_restart() {
+    let t = FakeHost::new().plugin(machine().plugin()).boot_core().await;
+    ask(SystemCommand::Refresh, &t).await;
+    assert_eq!(bar(&t.core), ["network", "bluetooth", "power"], "the internet, the connected controller, the battery");
+
+    let choose = |item: &str, show| Command::Tray { item: item.into(), show };
+    t.core.dispatch(choose("audio", launcher_core::TrayShow::Always)).await.unwrap();
+    t.core.dispatch(choose("network", launcher_core::TrayShow::Tray)).await.unwrap();
+    assert_eq!(bar(&t.core), ["audio", "bluetooth", "power"]);
+    assert_eq!(
+        t.core.kernel().config().get(&["app", "tray"]),
+        serde_json::json!({"audio": "always", "network": "tray"}),
+        "one key per item the player chose"
+    );
+    assert!(t.core.dispatch(choose("clock", launcher_core::TrayShow::Always)).await.is_err(), "no such item");
+
+    let again = launcher_core::Core::start(t.kernel.clone()).await;
+    again.dispatch(Command::System(SystemCommand::Refresh)).await.unwrap();
+    assert_eq!(bar(&again), ["audio", "bluetooth", "power"], "the choices are kept");
+    assert_eq!(again.view().tray_item("network").show, "tray");
+}

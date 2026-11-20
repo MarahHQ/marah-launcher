@@ -552,6 +552,22 @@ export global Areas {
     out property <int> drives: 7;
 }
 
+// One item of the top bar's tray (see `TrayItemVm` in launcher-ui-api): the core builds the list
+// and says where each item shows; the kit draws it. id: network | audio | bluetooth | drives | vpn |
+// os-updates | power | downloads | emulators | themes, the name the player's choice is saved by.
+// icon: the kit's icon for it now (`battery` draws the battery). text: its state in a few words,
+// or why it can't be used. group: status | shortcuts. show: always | needed | tray, the player's
+// choice or the item's default. in-bar: the bar shows it now. state: loading | absent |
+// unsupported | ready (an item with no area is ready); an absent or unsupported item is never in
+// the bar, and the tray lists it dimmed with its `reason`. busy: long work runs in it. opens:
+// panel | screen | settings | power, with its `target`: the panel (network, sound, bluetooth,
+// drives), the screen as Navigate names it, or the Settings section. value: its state for screen
+// readers and tests.
+export struct TrayItem {
+    id: string, icon: string, name: string, text: string, group: string, show: string, in-bar: bool,
+    state: string, reason: string, busy: bool, opens: string, target: string, value: string,
+}
+
 // The trailer playing in the window: `position` and `duration` in seconds.
 // A short message for the player. kind: info | success | error. art: the art of the game it
 // is about, or empty. opens: what clicking it opens (the command Notice Open), for example
@@ -636,6 +652,12 @@ export global Vm {
     in-out property <LauncherUpdate> launcher-update;
     // The machine's settings: network, sound, Bluetooth, battery, power, Marah OS.
     in-out property <System> system;
+    // The top bar's tray: every item it can show, Status first, then Shortcuts. `tray-bar` is the
+    // items in the bar now and `tray-rows` the items the tray lists, in order, by their place in
+    // `tray`. A battery the PC doesn't have stays in `tray`, out of both, so its place closes.
+    in-out property <[TrayItem]> tray;
+    in-out property <[int]> tray-bar;
+    in-out property <[int]> tray-rows;
     // The app plays trailers in the window (Host.play-trailer); without it, open them in the
     // browser (Host.open-url).
     in-out property <bool> can-play-trailers;

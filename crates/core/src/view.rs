@@ -405,7 +405,7 @@ impl GameLists {
 /// only the machine's settings, the notices, the launcher's update, the backups and the folder
 /// browser, so a change there builds the rest of the view and keeps the lists as they were.
 pub(crate) fn moves_game_lists(area: Area) -> bool {
-    !matches!(area, Area::System | Area::Notices | Area::LauncherUpdate | Area::Backup | Area::Browser)
+    !matches!(area, Area::System | Area::Notices | Area::LauncherUpdate | Area::Backup | Area::Browser | Area::Tray)
 }
 
 /// The view models for the snapshot `s`.
@@ -444,6 +444,7 @@ pub(crate) fn build_with(s: &Snapshot, lists: Option<GameLists>) -> AppView {
         }
     });
     let notices = &s.notices;
+    let (tray, tray_bar, tray_rows) = crate::tray::view(s);
     let mut view = AppView {
         screen,
         game: game.map(|g| g.to_string()),
@@ -484,6 +485,9 @@ pub(crate) fn build_with(s: &Snapshot, lists: Option<GameLists>) -> AppView {
         boot: boot_vm(s),
         task: s.library.task.clone(),
         system: system_vm(s),
+        tray,
+        tray_bar,
+        tray_rows,
         result_prompt: state.result_prompt.as_ref().map(|(key, _)| s.library.title(key)),
         ratings: crate::ratings::view(state.ratings.as_ref(), |key| s.library.title(key)),
         closing: state.closing.as_ref().map(|step| step.text.clone()),
@@ -1170,7 +1174,7 @@ fn torrent_vm(library: &LibrarySnapshot, installs: &InstallsSnapshot, owned: &Ow
 }
 
 /// Wi-Fi signal (0 to 100) in bars, 0 to 4.
-fn bars(signal: u8) -> i32 {
+pub(crate) fn bars(signal: u8) -> i32 {
     match signal {
         0..=19 => 1,
         20..=44 => 2,
