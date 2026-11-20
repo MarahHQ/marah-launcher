@@ -6,9 +6,9 @@ name = "Switch"
 emulator = "Lichii"
 version = "0.1.0"
 host_api = "^0.4"
-# The official build this plugin installs: the Linux AppImage. Lichii's Windows and macOS
-# builds are not wired yet.
-platforms = ["linux"]
+# The official build this plugin installs: the Linux AppImage, or the macOS or Windows zip.
+# Lichii has no Intel Mac build: there Install says so, and your own build still runs.
+platforms = ["linux", "macos", "windows"]
 # The console it plays: it gets that console's catalog (switch.json).
 console = "Switch"
 capabilities = ["catalog", "downloader", "installer", "configurator", "launcher", "slots", "game_installer", "backup", "startup"]
@@ -20,12 +20,17 @@ install_note = "Installs a Switch game from its game files (.nsp, .nsz, .xci, .x
 network = ["api.github.com", "github.com", "*.githubusercontent.com", "files.prodkeys.net"]
 # The AppImage is unpacked once, so running it needs no FUSE.
 # The host runs the downloaded AppImage once, to unpack it.
+# On macOS, the programs in Lichii's app; on Windows, those at the zip's top.
 # Your own build: in the folder you map as lichii-build, or on your PATH.
 process = [
     "builds/*/squashfs-root/AppRun",
     # Games start in Lichii's command-line program, with Marah Launcher's settings file (-c).
     "builds/*/squashfs-root/usr/bin/eden-cli",
     "builds/*/*.AppImage",
+    "builds/*/lichii.app/Contents/MacOS/lichii",
+    "builds/*/lichii.app/Contents/MacOS/eden-cli",
+    "builds/*/lichii.exe",
+    "builds/*/eden-cli.exe",
     "folder:lichii-build",
     "system:lichii",
 ]
@@ -47,6 +52,7 @@ folder = "packages"
 [[permissions.filesystem]]
 folder = "lichii-config"
 default = "~/.config/lichii"
+default_on = { windows = "~/AppData/Roaming/lichii/config" }
 title = "Lichii settings"
 after = "own_build"
 
@@ -60,6 +66,7 @@ after = "own_build"
 folder = "lichii-data"
 write = true
 default = "~/.local/share/lichii"
+default_on = { windows = "~/AppData/Roaming/lichii" }
 title = "Lichii data"
 after = "own_build"
 

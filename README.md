@@ -27,9 +27,9 @@ Each source of games is a plugin built into the launcher:
 | --- | --- | --- |
 | PS5 | PS5 games, with [KytyPS5](https://github.com/KytyPS5/KytyPS5) | Linux, macOS, Windows |
 | PS4 | PS4 games, with [shadPS4](https://github.com/shadps4-emu/shadPS4) | Linux, macOS, Windows |
-| Switch | Switch and Switch 2 games, with [Lichii](https://github.com/zortos293/Lichii) | Linux |
+| Switch | Switch and Switch 2 games, with [Lichii](https://github.com/zortos293/Lichii) | Linux, macOS (Apple Silicon), Windows |
 | PC | Native games, and Windows games through umu-launcher (Proton) or Wine | Linux, macOS, Windows |
-| Steam | The games Steam installed, started through Steam | Linux |
+| Steam | The games Steam installed, started through Steam | Linux, macOS, Windows |
 
 Two service plugins add data. The **Game Catalog** lists the releases each console's catalog
 offers to download. The **PlayStation Store** adds official art and details to PS4 and PS5
@@ -112,7 +112,7 @@ make check     # the format check, clippy and every test, as CI runs them
 
 ## Limits
 
-- Switch games (Lichii) and Steam games run on Linux only.
+- Switch games (Lichii) don't run on an Intel Mac: Lichii has no build for it.
 - On Linux, only Windows games run in a sandbox. Linux games, scripts and AppImages run with
   your access to your files. Install only releases you trust.
 - On macOS, the launcher needs the Accessibility permission to bring a game to the front and

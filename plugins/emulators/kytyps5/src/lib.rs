@@ -39,10 +39,6 @@ const MANIFEST: &str = include_str!("../plugin.toml");
 /// KytyPS5's releases on GitHub: the default release repo.
 pub const RELEASES: &str = "https://api.github.com/repos/KytyPS5/KytyPS5/releases?per_page=10";
 const UPSTREAM_REPO: &str = "KytyPS5/KytyPS5";
-/// The macOS default until upstream PR #1469 (run on MoltenVK) is merged: its test builds,
-/// published as pre-releases. Without it every game stops at start on macOS. When the PR is
-/// merged, delete this and the macOS case in [`release_source`].
-const MACOS_TEST_REPO: &str = "MarahHQ/KytyPS5";
 /// The community list's page, for the player.
 pub const LIST_PAGE: &str = "https://kytyps5.github.io/";
 pub const COMPATIBILITY: &str = "https://kytyps5.github.io/data/compatibility.json";
@@ -158,11 +154,11 @@ pub struct Settings {
     #[serde(default)]
     #[schemars(title = "Use your own build")]
     pub own_build: bool,
-    /// Where official builds come from, as owner/repo. Empty: KytyPS5/KytyPS5, or on macOS its macOS test builds at MarahHQ/KytyPS5.
+    /// Where official builds come from, as owner/repo. Empty: KytyPS5/KytyPS5.
     #[serde(default)]
     #[schemars(title = "Release repo")]
     pub release_repo: String,
-    /// Also offer pre-releases from the release repo. On by default on macOS, where the test builds are pre-releases.
+    /// Also offer pre-releases from the release repo.
     #[serde(default)]
     #[schemars(title = "Pre-releases")]
     pub prereleases: bool,
@@ -204,16 +200,16 @@ pub struct GameSettings {
 impl emulator_kit::settings::Settings for Settings {
     type Game = GameSettings;
 
-    fn defaults(platform: Option<Platform>) -> Self {
-        default_settings(platform)
+    fn defaults(_platform: Option<Platform>) -> Self {
+        Self::default()
     }
 
     fn own_build(&self) -> bool {
         self.own_build
     }
 
-    fn check(&self, platform: Option<Platform>) -> PluginResult<()> {
-        release_source(self, platform).map(|_| ())
+    fn check(&self, _platform: Option<Platform>) -> PluginResult<()> {
+        release_source(self).map(|_| ())
     }
 }
 
@@ -315,17 +311,11 @@ pub fn asset_matches(name: &str, platform: Option<Platform>) -> bool {
     }
 }
 
-/// The settings before you change any: on macOS pre-releases are on, for the test builds.
-pub fn default_settings(platform: Option<Platform>) -> Settings {
-    Settings { prereleases: platform == Some(Platform::Macos), ..Settings::default() }
-}
-
-/// The release repo and whether its pre-releases count, from the settings and this system.
-pub fn release_source(settings: &Settings, platform: Option<Platform>) -> PluginResult<(String, bool)> {
+/// The release repo and whether its pre-releases count, from the settings.
+pub fn release_source(settings: &Settings) -> PluginResult<(String, bool)> {
     let repo = settings.release_repo.trim();
     if repo.is_empty() {
-        let repo = if platform == Some(Platform::Macos) { MACOS_TEST_REPO } else { UPSTREAM_REPO };
-        return Ok((repo.to_owned(), settings.prereleases));
+        return Ok((UPSTREAM_REPO.to_owned(), settings.prereleases));
     }
     let part = |p: &str| {
         !p.is_empty() && p != "." && p != ".." && p.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
@@ -399,7 +389,7 @@ impl Flavor for KytyFlavor {
     const OFFICIAL_STYLE: ActionStyle = ActionStyle::Primary;
 
     fn release_source(&self, settings: &Settings) -> PluginResult<ReleaseSource> {
-        let (repo, prereleases) = release_source(settings, self.platform)?;
+        let (repo, prereleases) = release_source(settings)?;
         Ok(ReleaseSource { url: releases_url(&repo), cache: releases_cache(&repo)?, prereleases })
     }
 
@@ -737,8 +727,7 @@ mod tests {
         assert!(asset_matches("KytyPS5-2026-10-12-dad900c-Linux-x86_64.tar.gz", Some(Platform::Linux)));
         assert!(!asset_matches("KytyPS5-2026-10-13-9e41d83-macOS-x86_64.zip", Some(Platform::Linux)));
         assert!(asset_matches("KytyPS5-2026-10-13-9e41d83-macOS-x86_64.zip", Some(Platform::Macos)));
-        // The macOS test builds don't carry the tag in their names.
-        assert!(asset_matches("KytyPS5-macOS-x86_64.zip", Some(Platform::Macos)));
+        assert!(asset_matches("KytyPS5-macOS-x86_64.zip", Some(Platform::Macos)), "a name without the tag");
         assert!(asset_matches("KytyPS5-2026-10-16-d7974dc-Windows-x64.zip", Some(Platform::Windows)));
         assert!(!asset_matches("KytyPS5-2026-10-16-d7974dc-Windows-x64.zip", Some(Platform::Macos)));
         assert_eq!(pretty("KytyPS5-2026-09-29-59a1760"), "2026-09-29 · 59a1760");

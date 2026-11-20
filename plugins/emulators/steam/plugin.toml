@@ -3,15 +3,19 @@ kind = "emulator"
 name = "Steam"
 version = "0.1.0"
 host_api = "^0.4"
-# Marah Launcher finds a game Steam started by its command line, which only Linux's process list has.
-platforms = ["linux"]
+# Marah Launcher finds a game Steam started in the process list: on Linux by Steam's reaper, on
+# macOS and Windows by its program, in the game's folder.
+platforms = ["linux", "macos", "windows"]
 # Steam's console: its Catalog list is the player's Steam library (releases), which Steam installs.
 console = "Steam"
 capabilities = ["catalog", "launcher", "slots", "releases", "metadata"]
 
 [permissions]
-# Steam starts the game: its own command, or the Flatpak's.
-process = ["system:steam", "system:flatpak"]
+# Steam starts the game: on Linux its own command, or the Flatpak's; on macOS the system's
+# `open`, with Steam's link; on Windows steam.exe, in Steam's folder. A rule can't name one file
+# in a folder, so `folder:steam` allows any program in the steam folders: the plugin runs only
+# steam.exe.
+process = ["system:steam", "system:flatpak", "system:open", "folder:steam"]
 # Steam's art for a game its cache doesn't have, and Steam's store's details of a game (its
 # words, screenshots, trailer), which need no key.
 network = ["*.steamstatic.com", "store.steampowered.com"]
@@ -27,6 +31,7 @@ folder = "steam"
 title = "Steam libraries"
 help = "Found by itself: Steam's folder and the libraries Steam lists. Set folders here only to read others. Separate folders with ;"
 default = ["~/.local/share/Steam", "~/.var/app/com.valvesoftware.Steam/.local/share/Steam", "~/.steam/steam"]
+default_on = { macos = "~/Library/Application Support/Steam", windows = "C:/Program Files (x86)/Steam" }
 listed_in = { file = "steamapps/libraryfolders.vdf", key = "path", holds = "steamapps" }
 
 # The system its games show under: what the Library and a card call it, and its color.

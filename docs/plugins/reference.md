@@ -428,8 +428,9 @@ allows `program`. It then watches the process and stops it.
   into a real path.
 - `cwd`: `None` means the program's folder. A system program needs one.
 - `game_process`: for a program that hands the game to another one and may exit at once, such as
-  Steam's client. Text in the command line of the game's own process. The host then follows that
-  process.
+  Steam's client. Text in the command line of the game's own process. On Windows the host
+  looks for the text in the path of each process's program, in any case and with `/` and `\`
+  alike. The host then follows that process.
 - `game_env`: with `game_process`, a `(key, value)` environment entry that every process of the
   game carries, such as `("SteamAppId", "570")`. Set it when the program that runs the game moves
   it out of the found process's tree, as Steam's runtime does. The host then counts each process
@@ -884,9 +885,9 @@ Each one is a working example. The capabilities are the ones in each `plugin.tom
 | --- | --- | --- | --- | --- |
 | PS5: KytyPS5 | `plugins/emulators/kytyps5` | `emu-kyty` | Linux, macOS, Windows | `catalog`, `downloader`, `installer`, `configurator`, `launcher`, `compatibility`, `slots`, `game_installer`, `backup` |
 | PS4: shadPS4 | `plugins/emulators/shadps4` | `emu-shadps4` | Linux, macOS, Windows | the same as KytyPS5, and `startup` |
-| Switch: Lichii | `plugins/emulators/lichii` | `emu-lichii` | Linux | `catalog`, `downloader`, `installer`, `configurator`, `launcher`, `slots`, `game_installer`, `backup`, `startup` |
+| Switch: Lichii | `plugins/emulators/lichii` | `emu-lichii` | Linux, macOS, Windows | `catalog`, `downloader`, `installer`, `configurator`, `launcher`, `slots`, `game_installer`, `backup`, `startup` |
 | PC | `plugins/emulators/pc` | `emu-pc` | Linux, macOS, Windows | `catalog`, `launcher`, `slots`, `game_installer`, `configurator`, `backup` |
-| Steam | `plugins/emulators/steam` | `emu-steam` | Linux | `catalog`, `launcher`, `slots`, `releases`, `metadata` |
+| Steam | `plugins/emulators/steam` | `emu-steam` | Linux, macOS, Windows | `catalog`, `launcher`, `slots`, `releases`, `metadata` |
 | Game Catalog | `plugins/services/release-catalog` | `release-catalog` | Linux, macOS, Windows | `releases`, `configurator`, `slots` |
 | PlayStation Store | `plugins/services/playstation-store` | `playstation-store` | Linux, macOS, Windows | `metadata` |
 | This PC | `plugins/system/host` | `system` | Linux, macOS, Windows | `network`, `vpn`, `bluetooth`, `audio`, `power`, `os_updates`, `os_install`, `drives` |
@@ -912,8 +913,8 @@ Notes on each:
   are in [Archives and PC games](../contributors/archives-and-pc-games.md).
 - **Steam.** Its library is the games Steam installed, read from the `steam` grant, which uses
   `listed_in` for Steam's libraries on other drives. Play hands the game to Steam and follows it
-  with `LaunchSpec::game_process`. Install and uninstall open `steam://` links that
-  `permissions.links` allows.
+  with `LaunchSpec::game_process`: on Linux by Steam's reaper, on macOS and Windows by the game's
+  folder. Install and uninstall open `steam://` links that `permissions.links` allows.
 - **Game Catalog.** One catalog file for each console (`ps5.json`, `ps4.json`, `pc.json`,
   `switch.json`), from a catalog address, a copy fetched before, or the copy bundled from
   `assets/catalog/`. How the files are made is in `scripts/catalog/README.md`.

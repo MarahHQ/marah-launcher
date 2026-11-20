@@ -1,16 +1,19 @@
-//! Steam games on Linux: the games Steam installed, from its app manifests, with Steam's art,
-//! played through Steam.
+//! Steam games: the games Steam installed, from its app manifests, with Steam's art, played
+//! through Steam.
 //!
 //! - Library: each folder of the `steam` grant (Steam's own, and its libraries on other drives)
 //!   has `steamapps/appmanifest_<id>.acf` for each game. A fully installed game shows; Steam's
 //!   tools (Proton, the Steam Linux Runtime) don't.
 //! - Art: from Steam's cache (`appcache/librarycache`), else from Steam's image server.
-//! - Play: `steam -silent steam://rungameid/<id>`, which hands the game to Steam's client. A
-//!   game in the Flatpak's folder, or any game when only a Flatpak Steam is there, starts with
-//!   `flatpak run com.valvesoftware.Steam …`. Steam starts it under
+//! - Play on Linux: `steam -silent steam://rungameid/<id>`, which hands the game to Steam's
+//!   client. A game in the Flatpak's folder, or any game when only a Flatpak Steam is there,
+//!   starts with `flatpak run com.valvesoftware.Steam …`. Steam starts it under
 //!   `reaper SteamLaunch AppId=<id> -- …`, and the host follows that process
 //!   (`LaunchSpec::game_process`). At a game's first start Steam runs its install scripts first,
 //!   each under `reaper SteamLaunch AppId=<id> Install=1 -- …`: those aren't the game.
+//! - Play on macOS: `open steam://rungameid/<id>`; on Windows: `steam.exe -silent …` from
+//!   Steam's folder. Steam has no reaper there: the host follows the first program in the
+//!   game's folder (`steamapps/common/<installdir>/`).
 
 mod appinfo;
 mod owned;
@@ -32,6 +35,8 @@ const STEAM: &str = "steam";
 /// Where a Flatpak Steam keeps its folder: a game there starts through the Flatpak.
 const FLATPAK_FOLDER: &str = "/.var/app/com.valvesoftware.Steam/";
 const FLATPAK_APP: &str = "com.valvesoftware.Steam";
+/// Steam's program on Windows, in Steam's folder.
+const STEAM_EXE: &str = "steam.exe";
 /// Steam's image server, for art its cache doesn't have.
 const ART: &str = "https://cdn.cloudflare.steamstatic.com/steam/apps";
 /// Steam's art files for a game: its cover, the Game Hub's background, its logo, and the store's
@@ -77,7 +82,9 @@ impl Plugin for SteamPlugin {
 #[async_trait]
 impl CodePlugin for SteamPlugin {
     async fn init(&self, ctx: PluginContext) -> PluginResult<Provided> {
-        let steam = std::sync::Arc::new(Steam { ctx, launched_through: Default::default() });
+        let host = ctx.services().get::<HostInfo>();
+        let platform = host.and_then(|h| h.platform).or_else(Platform::current).unwrap_or(Platform::Linux);
+        let steam = std::sync::Arc::new(Steam { ctx, platform, launched_through: Default::default() });
         Ok(Provided {
             catalog: Some(steam.clone()),
             launcher: Some(steam.clone()),
@@ -94,12 +101,13 @@ inventory::submit! { PluginFactory::code(|| Box::new(SteamPlugin)) }
 
 struct Steam {
     ctx: PluginContext,
+    platform: Platform,
     /// The Steams this run's launches went through, `true` for the Flatpak's: Log out shuts
     /// down those, and never runs another, which would start it.
     launched_through: std::sync::Mutex<std::collections::BTreeSet<bool>>,
 }
 
-/// Steam's command with `args`: Steam's own, or the Flatpak's when `flatpak`.
+/// Steam's command on Linux with `args`: Steam's own, or the Flatpak's when `flatpak`.
 fn steam_command(flatpak: bool, args: &[&str]) -> (Location, Vec<String>) {
     let args = args.iter().map(|a| (*a).to_owned());
     if flatpak {
@@ -120,12 +128,16 @@ struct Game {
     name: String,
     /// Its folder, `steamapps/common/<installdir>` in its library.
     dir: HostPath,
+    /// The real path of `dir`, ending in `/`: on macOS and Windows a program in it is the
+    /// game's.
+    path: String,
     size: Option<u64>,
     /// Its library is a Flatpak Steam's.
     flatpak: bool,
 }
 
 /// One folder of the `steam` grant.
+#[derive(Clone)]
 struct Library {
     root: u32,
     /// Its real path.
@@ -145,9 +157,9 @@ impl Steam {
     }
 
     /// Every app file of every library: its `AppState` keys, its library's `steamapps` folder,
-    /// and whether that library is a Flatpak Steam's. An app in two libraries (Steam's folder
-    /// both as itself and as `~/.steam/steam`) once.
-    async fn apps(&self) -> PluginResult<Vec<(vdf::Block, HostPath, bool)>> {
+    /// and that library. An app in two libraries (Steam's folder both as itself and as
+    /// `~/.steam/steam`) once.
+    async fn apps(&self) -> PluginResult<Vec<(vdf::Block, HostPath, Library)>> {
         let mut seen = BTreeSet::new();
         let mut out = Vec::new();
         for library in self.libraries().await? {
@@ -162,7 +174,7 @@ impl Steam {
                 if is_tool(id, name) || !seen.insert(id.to_owned()) {
                     continue;
                 }
-                out.push((app, apps.clone(), library.path.contains(FLATPAK_FOLDER)));
+                out.push((app, apps.clone(), library.clone()));
             }
         }
         Ok(out)
@@ -171,7 +183,7 @@ impl Steam {
     /// Every fully installed game, by name.
     async fn games(&self) -> PluginResult<Vec<Game>> {
         let mut out = Vec::new();
-        for (app, apps, flatpak) in self.apps().await? {
+        for (app, apps, library) in self.apps().await? {
             let (Some(id), Some(name), Some(dir)) = (app.text("appid"), app.text("name"), app.text("installdir"))
             else {
                 continue;
@@ -183,8 +195,9 @@ impl Steam {
                 id: id.to_owned(),
                 name: name.to_owned(),
                 dir: apps.join(&format!("common/{dir}"))?,
+                path: format!("{}/steamapps/common/{dir}/", library.path.trim_end_matches(['/', '\\'])),
                 size: app.text("SizeOnDisk").and_then(|s| s.parse().ok()).filter(|s| *s > 0),
-                flatpak,
+                flatpak: library.path.contains(FLATPAK_FOLDER),
             });
         }
         out.sort_by_cached_key(|g| g.name.to_lowercase());
@@ -377,51 +390,123 @@ impl Releases for Steam {
     }
 }
 
+/// The command that hands Steam a link.
+struct Client {
+    program: Location,
+    args: Vec<String>,
+    /// It goes through the Flatpak Steam.
+    flatpak: bool,
+    /// Where it starts: `None` for the game's folder.
+    cwd: Option<Location>,
+}
+
+impl Steam {
+    /// Whether `program` is there to run.
+    async fn has(&self, program: &Location) -> bool {
+        matches!(self.ctx.programs().find(program).await, Ok(Some(_)))
+    }
+
+    /// Steam's own folder on Windows: the first folder of the `steam` grant that has steam.exe.
+    async fn steam_folder(&self) -> PluginResult<Option<u32>> {
+        for library in self.libraries().await? {
+            if self.has(&steam_exe(library.root)?).await {
+                return Ok(Some(library.root));
+            }
+        }
+        Ok(None)
+    }
+
+    /// The command that hands Steam `link`, a `steam://` link, for `game`; `None` without Steam.
+    async fn client(&self, game: &Game, link: &str) -> PluginResult<Option<Client>> {
+        match self.platform {
+            Platform::Linux => {
+                // A Flatpak Steam's library on another drive isn't in the Flatpak's folder:
+                // without Steam's own command, a Flatpak Steam starts it.
+                let flatpak = game.flatpak || {
+                    let native = self.has(&Location::System("steam".into())).await;
+                    !native && self.libraries().await?.iter().any(|l| l.path.contains(FLATPAK_FOLDER))
+                };
+                // -silent: a Steam that wasn't running starts without its window.
+                let (program, args) =
+                    if flatpak { steam_command(true, &[link]) } else { steam_command(false, &["-silent", link]) };
+                Ok(self.has(&program).await.then_some(Client { program, args, flatpak, cwd: None }))
+            }
+            // The system opens Steam's link in Steam's app.
+            Platform::Macos => {
+                let open = Location::System("open".into());
+                let client = Client { program: open, args: vec![link.to_owned()], flatpak: false, cwd: None };
+                Ok(self.has(&client.program).await.then_some(client))
+            }
+            // steam.exe starts in Steam's folder: it may stay as Steam's client, and Windows
+            // can't delete a folder a program runs in, so not in the game's.
+            Platform::Windows => {
+                let Some(root) = self.steam_folder().await? else { return Ok(None) };
+                Ok(Some(Client {
+                    program: steam_exe(root)?,
+                    args: vec!["-silent".to_owned(), link.to_owned()],
+                    flatpak: false,
+                    cwd: Some(Location::Folder(HostPath::new(STEAM, root, RelPath::root()))),
+                }))
+            }
+        }
+    }
+}
+
+/// steam.exe in the `steam` grant's folder `root`.
+fn steam_exe(root: u32) -> PluginResult<Location> {
+    Ok(Location::Folder(HostPath::new(STEAM, root, RelPath::new(STEAM_EXE)?)))
+}
+
 #[async_trait]
 impl Launcher for Steam {
     async fn prepare(&self, id: &str, _config: &Value) -> PluginResult<LaunchSpec> {
         let game = self.game(id).await?;
         let url = format!("steam://rungameid/{}", game.id);
-        // A Flatpak Steam's library on another drive isn't in the Flatpak's folder: without
-        // Steam's own command, a Flatpak Steam starts it.
-        let flatpak = game.flatpak || {
-            let native = matches!(self.ctx.programs().find(&Location::System("steam".into())).await, Ok(Some(_)));
-            !native && self.libraries().await?.iter().any(|l| l.path.contains(FLATPAK_FOLDER))
-        };
-        // -silent: a Steam that wasn't running starts without its window.
-        let (program, args) =
-            if flatpak { steam_command(true, &[&url]) } else { steam_command(false, &["-silent", &url]) };
-        if !matches!(self.ctx.programs().find(&program).await, Ok(Some(_))) {
+        let Some(client) = self.client(&game, &url).await? else {
             return Err(PluginError::Precondition("Install Steam to play this game".into()));
-        }
-        self.launched_through.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(flatpak);
-        let args = args.into_iter().map(LaunchArg::from).collect();
-        Ok(LaunchSpec {
-            program,
-            args,
-            env: Default::default(),
-            cwd: Some(Location::Folder(game.dir)),
+        };
+        self.launched_through.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(client.flatpak);
+        let (game_process, game_env) = match self.platform {
             // Steam's reaper runs the game, and ends with it. ` --` right after the id: the
             // install scripts Steam runs first have a reaper of the same game, with `Install=1`.
-            game_process: Some(format!("SteamLaunch AppId={} -- ", game.id)),
             // Steam's runtime reparents the game out of the reaper's tree, so the process tree
             // can't reach it: its processes carry `SteamAppId=<id>`, which finds them wherever
             // Steam put them (needed under Gamescope to show and to stop the game).
-            game_env: Some(("SteamAppId".into(), game.id.clone())),
+            Platform::Linux => {
+                (format!("SteamLaunch AppId={} -- ", game.id), Some(("SteamAppId".to_owned(), game.id.clone())))
+            }
+            // No reaper: the game is the first program in its folder, and those below it.
+            Platform::Macos | Platform::Windows => (game.path.clone(), None),
+        };
+        Ok(LaunchSpec {
+            program: client.program,
+            args: client.args.into_iter().map(LaunchArg::from).collect(),
+            env: Default::default(),
+            cwd: Some(client.cwd.unwrap_or(Location::Folder(game.dir))),
+            game_process: Some(game_process),
+            game_env,
             relaunch: None,
             sandbox: None,
         })
     }
 
-    /// Steam's client, which a launch started when Steam wasn't running: `steam -shutdown`
-    /// asks it to quit, as its own Exit does, so it saves and syncs the cloud first. Through
-    /// the Steam the launches went through (Steam's own, or the Flatpak's): asking the other
-    /// would start it.
+    /// Steam's client, which a launch started when Steam wasn't running: `steam -shutdown` asks
+    /// it to quit, as its own Exit does, so it saves and syncs the cloud first. On Linux,
+    /// through the Steam the launches went through (Steam's own, or the Flatpak's): asking the
+    /// other would start it. On macOS a launch leaves nothing running: `open` hands the link to
+    /// Steam's app and ends.
     async fn close_left_running(&self) -> PluginResult<()> {
         let through: Vec<bool> =
             self.launched_through.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().copied().collect();
         for flatpak in through {
-            let (program, args) = steam_command(flatpak, &["-shutdown"]);
+            let (program, args) = match self.platform {
+                Platform::Linux => steam_command(flatpak, &["-shutdown"]),
+                Platform::Macos => continue,
+                Platform::Windows => {
+                    let Some(root) = self.steam_folder().await? else { continue };
+                    (steam_exe(root)?, vec!["-shutdown".to_owned()])
+                }
+            };
             self.ctx.programs().output(&program, &args, SHUTDOWN_ASK).await?;
         }
         Ok(())

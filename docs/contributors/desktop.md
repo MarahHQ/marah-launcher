@@ -159,7 +159,9 @@ A launch can set `LaunchSpec::game_process`, as the Steam plugin does for
 another one:
 
 1. Before the launch, `ProcessTree::find(text)` lists the processes that already have those
-   words in their command line.
+   words in their command line. Windows has no command lines there: `find` reads each
+   program's path (`QueryFullProcessImageNameW`) and compares it in any case and with either
+   slash.
 2. After the launch, the watch calls `find` on each look and takes the first new match. A
    process counts only when its parent doesn't match too (`topmost`), so Steam's first process
    of the game is taken, not one it started.

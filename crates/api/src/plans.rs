@@ -178,9 +178,11 @@ pub struct LaunchSpec {
     pub cwd: Option<Location>,
     /// For a program that hands the game to another one and may exit at once (a store's
     /// client, as `steam steam://rungameid/…`): text in the command line of the game's own
-    /// process. The game is then that process and every process below it, from when it shows
-    /// until it ends; the program started here is neither waited for nor stopped. `None`: the
-    /// game is the program started here.
+    /// process. Windows has no command lines here: there the text is looked for in the path
+    /// of the process's program, in any case and with `/` and `\` alike. The game is then
+    /// that process and every process below it, from when it shows until it ends; the program
+    /// started here is neither waited for nor stopped. `None`: the game is the program started
+    /// here.
     #[serde(default)]
     pub game_process: Option<String>,
     /// For a handed-over game whose real processes run detached from the one started here, so
