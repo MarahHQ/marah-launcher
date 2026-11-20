@@ -340,14 +340,17 @@ impl Linux {
         let me = self.clone();
         let disk = disk.display().to_string();
         let handle = job.clone();
-        tools::job(job, async move {
+        let work = async move {
             let end = std::sync::Mutex::new(None);
             let each = |line: &str| match parse::install_line(line) {
                 Some(parse::InstallLine::Progress(percent, text)) => handle.progress(Some(percent), &text),
                 Some(other) => *end.lock().expect("not poisoned") = Some(other),
                 None => {}
             };
-            // It takes as long as the disk does: the player can cancel it.
+            // It takes as long as the disk does: the player can cancel it. pkexec runs the
+            // installer as root, so after the password a cancel can't kill it: it reaches the
+            // installer as a request, which it may refuse once it erases the disk
+            // (docs/contributors/os-contract.md).
             let call = Call::job(&handle, Limit::Never).elevated();
             let code = me.tools.run(OS_INSTALL, &[&disk], call, each).await.map_err(tools::reason)?.code;
             match end.into_inner().expect("not poisoned") {
@@ -356,7 +359,18 @@ impl Linux {
                 }
                 Some(parse::InstallLine::Failed(reason)) => Err(reason),
                 _ if code == 126 || code == 127 => Err("The installer wasn't allowed to run".into()),
+                // Killed by the cancel with no last line: it was stopped before it ran as root, at
+                // pkexec's password prompt (a killed program has no exit code: -1).
+                _ if code == -1 && handle.cancelled() => Err("Cancelled".into()),
                 _ => Err("The installer stopped without finishing".into()),
+            }
+        };
+        // Not through `tools::job`: the job ends as the installer said, whatever the cancel flag
+        // says. A cancelled installer says "Cancelled" itself.
+        tokio::spawn(async move {
+            match work.await {
+                Ok(text) => job.done(&text),
+                Err(reason) => job.failed(&reason),
             }
         });
         Ok(())
@@ -731,5 +745,124 @@ mod tests {
         let found = vpn::list_in(Path::new("/sys/class/net"), &crate::unix::addressed());
         assert!(found.iter().all(|v| !v.name.is_empty()), "{found:?}");
         println!("{found:?}");
+    }
+
+    /// The installer of an install that runs: it prints `lines` and ends with code 0, and keeps
+    /// whether it was asked to stop. When `stops`, it stops at the request, as the installer
+    /// does before the erase: it prints `error Cancelled` and ends with code 1. When `killed`, a
+    /// cancel kills it before it prints anything, as at pkexec's password prompt: no last line,
+    /// and code -1.
+    struct Installing {
+        lines: Vec<&'static str>,
+        stops: bool,
+        killed: bool,
+        asked_to_stop: std::sync::atomic::AtomicBool,
+    }
+
+    #[launcher_api::async_trait]
+    impl Programs for Installing {
+        async fn find(&self, program: &Location) -> PluginResult<Option<String>> {
+            Ok(Some(format!("/usr/bin/{program}")))
+        }
+
+        async fn output(&self, program: &Location, _args: &[String], _timeout: Duration) -> PluginResult<Vec<u8>> {
+            Err(PluginError::NotFound(format!("{program} isn't there")))
+        }
+
+        async fn stream(
+            &self,
+            _program: &Location,
+            _args: &[String],
+            _elevated: bool,
+            line: &(dyn for<'a> Fn(&'a str) + Send + Sync),
+            cancelled: &(dyn Fn() -> bool + Send + Sync),
+        ) -> PluginResult<i32> {
+            if self.killed && cancelled() {
+                return Ok(-1);
+            }
+            for text in &self.lines {
+                if cancelled() {
+                    self.asked_to_stop.store(true, std::sync::atomic::Ordering::SeqCst);
+                    if self.stops {
+                        line("error Cancelled");
+                        return Ok(1);
+                    }
+                }
+                line(text);
+            }
+            Ok(0)
+        }
+    }
+
+    /// A job the player cancelled at the start, and how it ended: done or failed, and the text.
+    #[derive(Default)]
+    struct CancelledJob {
+        end: std::sync::Mutex<Option<(&'static str, String)>>,
+    }
+
+    impl SystemJob for CancelledJob {
+        fn progress(&self, _percent: Option<u8>, _text: &str) {}
+
+        fn done(&self, text: &str) {
+            *self.end.lock().unwrap() = Some(("done", text.to_owned()));
+        }
+
+        fn failed(&self, reason: &str) {
+            *self.end.lock().unwrap() = Some(("failed", reason.to_owned()));
+        }
+
+        fn cancelled(&self) -> bool {
+            true
+        }
+    }
+
+    /// Runs an install with an installer that prints `lines`, and `stops` at a request or not,
+    /// cancelled from the start. How the job ended, and whether the installer was asked to stop.
+    async fn cancelled_install(lines: Vec<&'static str>, stops: bool) -> ((&'static str, String), bool) {
+        ended_install(Installing { lines, stops, killed: false, asked_to_stop: Default::default() }).await
+    }
+
+    /// Runs an install with `installer`, cancelled from the start. How the job ended, and
+    /// whether the installer was asked to stop.
+    async fn ended_install(installer: Installing) -> ((&'static str, String), bool) {
+        let installer = Arc::new(installer);
+        let job = Arc::new(CancelledJob::default());
+        let linux = Linux::new(Arc::new(Runner::new(installer.clone())));
+        linux.install(Path::new("/dev/nvme0n1"), job.clone()).await.unwrap();
+        let ended = async {
+            loop {
+                if let Some(end) = job.end.lock().unwrap().clone() {
+                    return end;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        };
+        let end = tokio::time::timeout(Duration::from_secs(10), ended).await.expect("the job ended");
+        (end, installer.asked_to_stop.load(std::sync::atomic::Ordering::SeqCst))
+    }
+
+    /// The player's cancel reaches the installer, and the job ends as the installer says: its own
+    /// "Cancelled" before the erase, else its own end.
+    #[tokio::test]
+    async fn a_cancelled_install_ends_as_the_installer_says() {
+        let (end, asked) = cancelled_install(vec!["progress 2 Getting ready", "done minimal"], true).await;
+        assert_eq!(end, ("failed", "Cancelled".to_owned()));
+        assert!(asked, "the installer is asked to stop");
+
+        let lines = vec!["progress 50 Copying", "error The disk is too small"];
+        let (end, asked) = cancelled_install(lines, false).await;
+        assert_eq!((end, asked), (("failed", "The disk is too small".to_owned()), true));
+
+        let (end, _) = cancelled_install(vec!["progress 50 Copying", "done minimal"], false).await;
+        assert_eq!(end.0, "done", "an installer that goes on ends done, not cancelled");
+    }
+
+    /// A cancel at pkexec's password prompt kills it before the installer runs: the job says
+    /// "Cancelled", not that the installer stopped without finishing.
+    #[tokio::test]
+    async fn an_install_cancelled_at_the_password_prompt_ends_cancelled() {
+        let installer = Installing { lines: vec![], stops: false, killed: true, asked_to_stop: Default::default() };
+        let (end, _) = ended_install(installer).await;
+        assert_eq!(end, ("failed", "Cancelled".to_owned()));
     }
 }

@@ -84,7 +84,8 @@ impl<'a> Call<'a> {
 /// How a streamed tool ended.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Ran {
-    /// Its exit code: -1 when the player's cancel stopped it.
+    /// Its exit code: -1 when a kill stopped it at the player's cancel. A cancel that the host
+    /// can't do with a kill leaves the tool its own code (`Programs::stream`).
     pub code: i32,
     /// Every line it wrote, output and errors, up to [`MAX_PROGRAM_OUTPUT`] bytes.
     pub text: String,

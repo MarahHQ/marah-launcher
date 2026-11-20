@@ -323,6 +323,30 @@ async fn on_the_stick_the_disks_are_listed_and_installing_reports_its_progress()
     assert_eq!(system.read(|m| m.partition_choices), 1);
 }
 
+/// A cancel of the install is a request to the installer: the job runs on, and ends as the
+/// installer says. Here the installer had started the erase, so it went on to the end.
+#[tokio::test]
+async fn a_cancelled_os_install_ends_as_the_installer_says() {
+    let system = machine();
+    system.with(|m| {
+        m.install_steps = vec![(60, "Copying Marah OS".into())];
+        m.install_result = Some(Ok(Installed { edition: "minimal".into(), mok: false, nvidia_later: false }));
+        m.hold_jobs = true;
+    });
+    let place = Place { whole_screen: true, own_os: true, stick: true };
+    let t = FakeHost::new().place(place).plugin(system.plugin()).boot_core().await;
+    ask(SystemCommand::InstallOs(PathBuf::from("/dev/nvme0n1")), &t).await;
+    let job = t.core.view().system.jobs.last().cloned().unwrap();
+
+    t.core.dispatch(Command::System(SystemCommand::CancelJob(job.id as u64))).await.expect("accepted");
+    let job = t.core.view().system.jobs.last().cloned().unwrap();
+    assert_eq!((job.state.as_str(), job.text.as_str()), ("running", "Copying Marah OS"));
+
+    system.finish_jobs();
+    let job = t.core.view().system.jobs.last().cloned().unwrap();
+    assert_eq!((job.state.as_str(), job.text.as_str()), ("done", "Marah OS is installed"));
+}
+
 #[tokio::test]
 async fn away_from_the_stick_marah_os_isn_t_installed() {
     let system = machine();
