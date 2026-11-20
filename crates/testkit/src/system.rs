@@ -58,7 +58,7 @@ pub struct FakeMachine {
     /// How many times the core asked why drives can't be managed here.
     pub drive_reason_reads: usize,
     /// Why an area is unavailable, by its name ("network", "vpn", "bluetooth", "audio", "power",
-    /// "drives").
+    /// "os_install", "drives").
     pub unavailable: Vec<(&'static str, String)>,
     /// Calls that never answer, by method name ("status", "devices", …).
     pub hangs: Vec<&'static str>,
@@ -494,7 +494,10 @@ impl AreaSettings for FakeArea {
                 AreaState::Ready(AreaData::Power { battery: battery.ok().flatten(), refused })
             }
             SystemArea::OsUpdates => AreaState::Ready(AreaData::OsUpdates { update: system.os_update().await.ok() }),
-            SystemArea::OsInstall => AreaState::Ready(AreaData::OsInstall { disks: system.disks().await? }),
+            SystemArea::OsInstall => match system.unavailable("os_install") {
+                Some(why) => unsupported(why),
+                None => AreaState::Ready(AreaData::OsInstall { disks: system.disks().await? }),
+            },
             SystemArea::Drives => match system.drives_unavailable().await {
                 Some(why) => unsupported(why),
                 None => AreaState::Ready(AreaData::Drives { drives: system.drives().await? }),

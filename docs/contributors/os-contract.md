@@ -254,9 +254,13 @@ disk PATH SIZE_BYTES WINDOWS(0/1) USB(0/1) MODEL…
 - `WINDOWS` is 1 when the disk has an NTFS or BitLocker partition.
 - `USB` is 1 when the disk's transport is USB.
 - `MODEL` is the rest of the line and may hold spaces. It is `Disk` when the disk names none.
+- When it can't find the USB stick it started from, it may list no disk, print why on stderr and
+  exit non-zero. The launcher shows that reason.
 
 The plugin reads the lines with `parse::disks` (`plugins/system/host/src/parse.rs`). Without
-the installer, it lists no disks.
+the installer, it lists no disks. When the installer exits non-zero, the install screen shows its
+last line that isn't a `disk` line (`parse::disks_error`) in place of "No disk of 40 GB or more is
+free to install on". When that line is missing, it shows "The installer couldn't list the disks".
 
 ### `marah-os-install DISK`
 

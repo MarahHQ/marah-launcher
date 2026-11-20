@@ -1,4 +1,4 @@
-import { Vm, Host, DiskItem, SystemJobItem } from "../types.slint";
+import { Vm, Host, Areas, DiskItem, SystemJobItem } from "../types.slint";
 import { Commands } from "commands.slint";
 import { Tokens } from "../tokens.slint";
 import { Look } from "look.slint";
@@ -208,10 +208,17 @@ export component InstallOs inherits Rectangle {
                 focused: Setup.focus == i;
                 clicked => { Setup.focus = i; Setup.activate(); }
             }
+            // The installer couldn't list the disks: its reason, such as the stick not found.
             if Vm.system.disks.length == 0 : Text {
-                text: "No disk of 40 GB or more is free to install on.";
+                property <bool> failed: Vm.system.areas[Areas.os-install].state == "unsupported" && Vm.system.areas[Areas.os-install].reason != "";
+                text: self.failed ? Vm.system.areas[Areas.os-install].reason : "No disk of 40 GB or more is free to install on.";
+                width: parent.width;
+                wrap: word-wrap;
                 font-size: 18 * Look.tpx;
-                color: Look.text3;
+                color: self.failed ? Tokens.color-warning : Look.text3;
+                accessible-role: text;
+                accessible-label: "install-no-disk";
+                accessible-value: self.text;
             }
             Choice {
                 text: "Choose partitions instead";

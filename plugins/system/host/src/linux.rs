@@ -10,8 +10,7 @@ use std::time::Duration;
 
 use launcher_api::{
     AreaAction, AreaData, AreaSettings, AreaState, AudioLevel, AudioOutput, Battery, BluetoothDevice, Connection,
-    InstallDisk, NetworkStatus, OsUpdate, PluginError, PluginResult, SystemArea, SystemDrive, SystemJob, Vpn,
-    WifiNetwork,
+    NetworkStatus, OsUpdate, PluginError, PluginResult, SystemArea, SystemDrive, SystemJob, Vpn, WifiNetwork,
 };
 
 use crate::parse;
@@ -320,11 +319,20 @@ impl Linux {
 
 /// Marah OS's installer, on its USB stick.
 impl Linux {
-    async fn disks(&self) -> PluginResult<Vec<InstallDisk>> {
-        if !tokio::fs::try_exists(INSTALLER).await.unwrap_or(false) {
-            return Ok(Vec::new());
+    /// The disks the installer offers. When it fails, it offers none and says why on its errors
+    /// (docs/contributors/os-contract.md): the area is unsupported with that reason, not a read
+    /// that failed, which would keep the last list on screen. A run that didn't end, such as one
+    /// that took too long, offers no disk.
+    async fn os_install(&self) -> AreaState {
+        let ran = self.tools.run(OS_INSTALL, &["--disks"], Call::quick(), |_| {}).await;
+        match ran {
+            Ok(ran) if ran.code != 0 => AreaState::Unsupported(
+                parse::disks_error(&ran.text).unwrap_or_else(|| "The installer couldn't list the disks".into()),
+            ),
+            ran => AreaState::Ready(AreaData::OsInstall {
+                disks: ran.map(|ran| parse::disks(&ran.text)).unwrap_or_default(),
+            }),
         }
-        Ok(parse::disks(&self.tools.read(OS_INSTALL, &["--disks"]).await?))
     }
 
     async fn install(&self, disk: &Path, job: Arc<dyn SystemJob>) -> PluginResult<()> {
@@ -490,7 +498,7 @@ impl AreaSettings for LinuxArea {
             },
             SystemArea::OsInstall => match tokio::fs::try_exists(INSTALLER).await.unwrap_or(false) {
                 false => AreaState::Absent,
-                true => AreaState::Ready(AreaData::OsInstall { disks: linux.disks().await.unwrap_or_default() }),
+                true => linux.os_install().await,
             },
             SystemArea::Drives => match linux.missing(SystemArea::Drives).await {
                 Some(why) => AreaState::Unsupported(why),
@@ -649,6 +657,69 @@ mod tests {
             panic!("power is ready: the battery reads without the tools");
         };
         assert_eq!(refused.as_deref(), Some("systemd (systemctl) isn't installed"));
+    }
+
+    /// The USB stick's installer as a test sets it: `--disks` prints `out`, output and errors
+    /// mixed as the host streams them, and ends with `code`.
+    struct Installer {
+        out: &'static str,
+        code: i32,
+    }
+
+    #[launcher_api::async_trait]
+    impl Programs for Installer {
+        async fn find(&self, program: &Location) -> PluginResult<Option<String>> {
+            Ok(Some(format!("/usr/bin/{program}")))
+        }
+
+        async fn output(&self, _program: &Location, _args: &[String], _timeout: Duration) -> PluginResult<Vec<u8>> {
+            Ok(self.out.as_bytes().to_vec())
+        }
+
+        async fn stream(
+            &self,
+            _program: &Location,
+            _args: &[String],
+            _elevated: bool,
+            line: &(dyn for<'a> Fn(&'a str) + Send + Sync),
+            _cancelled: &(dyn Fn() -> bool + Send + Sync),
+        ) -> PluginResult<i32> {
+            self.out.lines().for_each(line);
+            Ok(self.code)
+        }
+    }
+
+    async fn os_install(out: &'static str, code: i32) -> AreaState {
+        Linux::new(Arc::new(Runner::new(Arc::new(Installer { out, code })))).os_install().await
+    }
+
+    #[tokio::test]
+    async fn the_installer_s_disks_are_the_area_s_data() {
+        let state = os_install("disk /dev/nvme0n1 512000000000 1 0 Samsung_970\n", 0).await;
+        let AreaState::Ready(AreaData::OsInstall { disks }) = state else { panic!("ready: {state:?}") };
+        assert_eq!(disks.iter().map(|d| d.path.display().to_string()).collect::<Vec<_>>(), ["/dev/nvme0n1"]);
+        assert_eq!(disks[0].model, "Samsung 970");
+    }
+
+    #[tokio::test]
+    async fn an_installer_that_lists_no_disk_leaves_the_area_ready_and_empty() {
+        assert_eq!(os_install("", 0).await, AreaState::Ready(AreaData::OsInstall { disks: Vec::new() }));
+    }
+
+    #[tokio::test]
+    async fn an_installer_that_fails_says_why_with_its_own_last_line() {
+        let why = "The USB stick Marah OS started from wasn't found, so no disk is offered.";
+        let out = "disk /dev/sda 64000000000 0 1 Stick\nLooking for the USB stick\n\
+                   The USB stick Marah OS started from wasn't found, so no disk is offered.\n\
+                   disk /dev/sdb 64000000000 0 1 Other\n\n";
+        assert_eq!(os_install(out, 1).await, AreaState::Unsupported(why.into()));
+    }
+
+    #[tokio::test]
+    async fn an_installer_that_fails_without_a_word_still_says_why() {
+        let why = "The installer couldn't list the disks";
+        assert_eq!(os_install("", 2).await, AreaState::Unsupported(why.into()));
+        assert_eq!(os_install("disk /dev/sda 64000000000 0 1 Stick\n", 2).await, AreaState::Unsupported(why.into()));
     }
 
     /// Opt-in, `MARAH_VPN_TESTS=1`: reads this computer's interfaces. It connects nothing.

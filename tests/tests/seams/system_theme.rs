@@ -513,6 +513,35 @@ fn on_the_stick_try_it_leaves_the_launcher_and_choose_partitions_starts_that_ins
     assert_eq!(system.read(|m| m.partition_choices), 1);
 }
 
+/// On the stick, in every theme, the disks' step says why when the installer couldn't list the
+/// disks, and "No disk of 40 GB or more…" when it listed none. The step still opens, and its
+/// choices still work.
+#[test]
+fn on_the_stick_the_disks_step_says_why_the_installer_offers_no_disk() {
+    use slint::platform::Key;
+    const WHY: &str = "The USB stick Marah OS started from wasn't found, so no disk is offered.";
+    const NONE: &str = "No disk of 40 GB or more is free to install on.";
+    for theme in ["classic", "default"] {
+        for (unavailable, said) in [(Some(WHY), WHY), (None, NONE)] {
+            let system = machine();
+            if let Some(why) = unavailable {
+                system.with(|m| m.unavailable.push(("os_install", why.into())));
+            }
+            let mut host = shown(&system, Place { whole_screen: true, own_os: true, stick: true });
+            host.ui.switch(&id(theme)).unwrap();
+            host.settle();
+            host.navigate(Key::DownArrow);
+            host.navigate(Key::Return);
+            assert_eq!(host.value("install-os"), "disks", "{theme}");
+            assert_eq!(host.values("install-no-disk"), [said], "{theme}");
+
+            // "Choose partitions instead" is first.
+            host.navigate(Key::Return);
+            assert_eq!(system.read(|m| m.partition_choices), 1, "{theme}");
+        }
+    }
+}
+
 #[test]
 fn the_keys_reach_the_icons_at_the_end_of_the_top_bar_and_move_between_panels() {
     let system = machine();

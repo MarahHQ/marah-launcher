@@ -1381,8 +1381,43 @@ shots! {
     the_system_controls => shoot_system,
     the_status_areas => shoot_status_areas,
     the_system_controls_on_a_desktop => shoot_desktop_system,
+    the_stick_s_disks_with_none_offered => shoot_disks_reason,
     a_game_s_own_settings => shoot_game_settings,
     send_ratings => shoot_send_ratings,
+}
+
+/// The stick's disks step with no disk offered, in each built-in theme: the installer couldn't
+/// list the disks and said why, as `<theme>-disks-reason-failed.png`, and it listed none, as
+/// `<theme>-disks-reason-none.png`.
+fn shoot_disks_reason(window: &MinimalSoftwareWindow, out: &Path) {
+    use launcher_core::system::{Place, SystemCommand};
+    use slint::platform::Key;
+    window.set_size(slint::PhysicalSize::new(WIDTH, HEIGHT));
+    let why = "The USB stick Marah OS started from wasn't found, so no disk is offered.";
+    for theme in [theme_classic::ID, theme_default::ID] {
+        for (case, unavailable) in [("failed", Some(why)), ("none", None)] {
+            let system = launcher_testkit::FakeSystem::new();
+            if let Some(why) = unavailable {
+                system.with(|m| m.unavailable = vec![("os_install", why.into())]);
+            }
+            let place = Place { whole_screen: true, own_os: true, stick: true };
+            let plugin = system.plugin();
+            let mut host = composed_on_current_platform(|h| h.place(place).plugin(plugin));
+            host.ui.start_with(Some(id(theme))).unwrap();
+            host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
+            host.dispatch(Command::System(SystemCommand::Refresh));
+            host.dispatch(Command::Notice(launcher_core::NoticeCmd::DismissAll));
+            follow(&mut host);
+            for k in [Key::DownArrow, Key::Return] {
+                key(&mut host, k);
+                follow(&mut host);
+            }
+            let state = host.core().view().system.area("os_install").state.clone();
+            assert_eq!(state, if unavailable.is_some() { "unsupported" } else { "ready" }, "{theme}");
+            shoot(window, &out.join(format!("{theme}-disks-reason-{case}.png")));
+        }
+    }
+    not_blank(out, &["classic-disks-reason-failed", "default-disks-reason-failed"]);
 }
 
 /// On a desktop, in each built-in theme: the top bar with every machine icon, as
