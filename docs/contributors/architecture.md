@@ -412,7 +412,19 @@ of the disk: the drive commands read them. `SystemCommand` maps each command to 
 model lists. The view model lists every area in `SystemVm::areas`, in the order of `AREAS`, each
 with its state, reason and whether a job runs in it. The theme reads an area by its place in
 that list (`Areas` in `types.slint`). The kit's `StatusState` shows an area's state over its
-status icon: loading, or disabled where the area is absent or unsupported.
+icon: loading, or disabled where the area is absent or unsupported.
+
+The top bar draws one list, the tray (`crates/core/src/tray.rs`,
+[ADR 0005](../adr/0005-the-top-bar-draws-one-tray-list.md)). Its sources (`tray::SOURCES`)
+describe each item once: the system areas, the downloads and the shortcuts. `tray::vm` sorts
+them (Status, then Shortcuts) and resolves each item's place in the bar from the player's
+choice (`app.tray`, by item id, set with `Command::Tray`) and the item's "needed now" rule. An
+area that can't be used is never in the bar. The view builds the tray from the snapshot, outside
+the game lists, so a change of the choices (`Area::Tray`) or of the machine rebuilds no game
+list. Downloads that finished count until the player sees them: `AppState::downloads_seen`
+holds those finished at the start and when Downloads last opened or closed
+(`tray::seen_now`, from `Core::move_stack`). The kit's `StatusBar` and `kit/tray.slint` draw
+`Vm.tray` and name no item.
 
 The built-in system plugin (`plugins/system/host`) runs every system tool through one tool
 runner (`tools.rs`) on the `Programs` port. Each call has a time limit, and at the limit the host
@@ -598,3 +610,4 @@ rules are tests in `crates/ui-api/src/contract.rs`.
 - [ADR 0002: The reads for a game's page stay as separate flows](../adr/0002-game-page-reads-stay-as-flows.md)
 - [ADR 0003: Themes stand alone, with a shared kit](../adr/0003-themes-stand-alone-with-a-shared-kit.md)
 - [ADR 0004: Every system area has one interface](../adr/0004-every-system-area-has-one-interface.md)
+- [ADR 0005: The top bar draws one tray list](../adr/0005-the-top-bar-draws-one-tray-list.md)

@@ -158,8 +158,8 @@ what works on each. The programs it may run are `permissions.process` in
 | The install from the stick | `marah-os-install` | The stick's installer |
 
 A missing tool makes its area unsupported, with the tool's name, such as "NetworkManager (nmcli)
-isn't installed". The area's status icon then shows disabled, with that reason on hover and
-focus. The table `AREAS` in `plugins/system/host/src/linux.rs` lists each area's tools.
+isn't installed". The area's tray item is then never in the top bar: the tray lists it dimmed,
+with that reason. The table `AREAS` in `plugins/system/host/src/linux.rs` lists each area's tools.
 
 Every tool runs through the plugin's tool runner (`plugins/system/host/src/tools.rs`), with a
 time limit on each call. At the limit the launcher kills the tool, and the call fails with "lsblk

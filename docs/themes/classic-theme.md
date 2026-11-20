@@ -71,7 +71,7 @@ From `theme.toml`:
 | `version` | `0.3.0` |
 | `host_api` | `^0.4` |
 | `activation` | `eager` |
-| `ui_api` | `^0.7` |
+| `ui_api` | `^0.8` |
 | `input` | `["gamepad", "pointer"]` |
 | `navigation` | `focus` |
 | breakpoints | `compact` (`max_width = 900`), then `regular` |
@@ -221,7 +221,7 @@ The keys act on one zone at a time:
 
 | Zone | What it is |
 | --- | --- |
-| `tabs` | The top bar: the "Home" and "Library" tabs, the screen buttons, the machine's icons, and Settings. |
+| `tabs` | The top bar: the "Home" and "Library" tabs, Search, the tray items in the bar, Settings, and the tray's ⌃. |
 | `row` | Home's tiles. |
 | `actions` | The buttons under the game on Home. |
 | `bar` | The grid's bar: search, sort, the card sizes, and in the Catalog the catalog plugin's button. |
@@ -297,9 +297,9 @@ game yet" or "No games here".
 ### Top bar (`components/top-bar.slint`)
 
 On the reading side: the "Home" and "Library" tabs. On the far side: the running game, the
-active download, the screen buttons (Search, Downloads, Emulators, Themes), the kit's status bar
-(`StatusBar`: the network, sound, Bluetooth and drives icons, wherever the launcher runs, then
-the battery when the PC has one), Settings, and the clock. Search shows only when there is a Catalog.
+active download, Search, the kit's status bar (`StatusBar`: the tray items in the bar now,
+wherever the launcher runs), Settings, the tray's ⌃ (`TrayButton`), and the clock. Search shows
+only when there is a Catalog. Downloads, Emulators and Themes are tray items.
 
 ## Accessible labels
 

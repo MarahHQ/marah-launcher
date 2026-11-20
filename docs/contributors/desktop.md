@@ -319,7 +319,7 @@ step. The script itself, its settings and what it does with each line are in
 [the OS contract](os-contract.md).
 
 The session changes how the launcher leaves, not what the player can manage. In a window on a
-desktop the top bar has the same network, sound, Bluetooth and drives icons, and Settings has the
+desktop the top bar and its tray have the same network, sound, Bluetooth and drives items, and Settings has the
 same System section. Restart and Shut down show there too, when the system plugin allows them:
 on Linux through `systemctl`, on Windows through `shutdown`, and on macOS through System Events
 (`osascript`), which macOS asks the player to allow once.
