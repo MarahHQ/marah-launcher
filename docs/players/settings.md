@@ -87,7 +87,9 @@ Marah Launcher session on the login screen, or on Marah OS.
 
 - **Internet**, **Sound** and **Bluetooth** open their panels.
 - On Marah OS, **Marah OS updates** shows the system's update.
-- On the Marah OS USB stick, **Install Marah OS on this PC** starts the install.
+- On the Marah OS USB stick, **Install Marah OS on this PC** starts the install. While it
+  installs, **Cancel** (B or Esc) stops it, until it starts to write the disk. After that it
+  can't stop, and the screen says so.
 
 ## This PC
 

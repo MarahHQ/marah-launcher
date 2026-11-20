@@ -260,6 +260,30 @@ to run".
 
 The installer also copies the Wi-Fi connections saved on the stick into the new system.
 
+#### A cancel
+
+The job of the install takes `CancelJob`. The job always ends from the installer's last line,
+never from the cancel. A cancel goes in two steps (`crates/core/src/process.rs`):
+
+1. The launcher kills pkexec. At the password prompt pkexec still runs as the player, so the kill
+   works. The killed installer prints no last line, and the job fails with "Cancelled".
+2. After the password, pkexec's program runs as root, and the kill fails. The launcher then
+   writes one line, `cancel`, to the installer's standard input, and closes it. It writes
+   nothing else. It reads the installer to its end, as before.
+
+The installer's standard input is a pipe from the launcher. An older launcher gives it
+`/dev/null`. The end of the input is not a cancel. The installer reads its input without
+blocking, at safe points:
+
+- Before the erase (before `progress 10 Preparing the disk`), on `cancel` it stops what it
+  started (the download of NVIDIA's driver, a Secure Boot key it queued), prints `error
+  Cancelled` and exits 1.
+- Once the erase starts, it doesn't stop. It prints `progress PERCENT Can't stop now: the disk
+  is being written` and goes on to `done` or `error`.
+
+The cancel uses the existing line types, so the launcher's parser doesn't change. An older
+installer ignores its input and runs to its end.
+
 ### `marah-os-install --choose-partitions`
 
 The launcher's "Choose partitions instead" runs it through `pkexec`. It switches the running
