@@ -241,7 +241,9 @@ export component Shell inherits Window {
         // Over the launch splash's keys, the keys are the game's.
         && !Splash.keys
         // The closing screen takes every key.
-        && !Closing.shows : Hints {
+        && !Closing.shows
+        // No key does anything, as once the OS install's Cancel is pressed.
+        && !ShellHints.hidden : Hints {
         // In Settings the sheet is on the far side, so the hints go on the near one.
         x: Look.rtl != root.sheet ? 76 * Look.px : root.width - self.width - 76 * Look.px;
         y: root.height - self.height - 30 * Look.px;

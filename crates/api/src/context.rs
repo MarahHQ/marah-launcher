@@ -128,11 +128,13 @@ pub trait Programs: Send + Sync {
     /// to its standard output: at most [`MAX_PROGRAM_OUTPUT`] bytes. After `timeout` (at most
     /// [`MAX_PROGRAM_TIME`]) the host stops it, and this fails with [`PluginError::Timeout`].
     async fn output(&self, program: &Location, args: &[String], timeout: Duration) -> PluginResult<Vec<u8>>;
-    /// Runs a program the manifest lets run long (`permissions.long_running`) with `args` and no
-    /// input, and hands each line it writes (output and errors) to `line`, until it ends. When
-    /// `cancelled` says so, the host stops it. `elevated` runs it as the administrator through
-    /// polkit (`pkexec`), which `permissions.polkit` must allow. Returns its exit code (pkexec's
-    /// 126 or 127 when the player dismissed the password prompt).
+    /// Runs a program the manifest lets run long (`permissions.long_running`) with `args`, and
+    /// hands each line it writes (output and errors) to `line`, until it ends. When `cancelled`
+    /// says so, the host stops it. `elevated` runs it as the administrator through polkit
+    /// (`pkexec`), which `permissions.polkit` must allow. After the password the host can't
+    /// kill an elevated program: it writes the line `cancel` to the program's input once, and
+    /// reads the program to its end. A program that isn't elevated has no input. Returns its
+    /// exit code (pkexec's 126 or 127 when the player dismissed the password prompt).
     async fn stream(
         &self,
         program: &Location,

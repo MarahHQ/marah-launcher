@@ -169,13 +169,17 @@ pub trait ProcessSpawner: Send + Sync {
     /// A program's real path, found by file name on the system's `PATH`.
     fn which(&self, name: &str) -> Option<PathBuf>;
 
-    /// Runs a program to its end with no input, handing each line of its output and errors to
-    /// `line`, and stops it when `cancelled` says so. Returns its exit code (-1 when a signal
-    /// ended it). By default it runs through [`ProcessSpawner::output`] and hands the lines
-    /// over at the end, which is enough for fakes.
+    /// Runs a program to its end, handing each line of its output and errors to `line`, and
+    /// stops it when `cancelled` says so. Returns its exit code (-1 when a signal ended it).
+    /// It has no input, unless `elevated`: the program runs as root through pkexec, so the
+    /// spawner may fail to kill it. Its input is then a pipe, and on a cancel the kill can't do,
+    /// the spawner writes the line `cancel` to it once (docs/contributors/os-contract.md). By
+    /// default it runs through [`ProcessSpawner::output`] and hands the lines over at the end,
+    /// which is enough for fakes.
     async fn stream(
         &self,
         command: SpawnCommand,
+        _elevated: bool,
         line: &(dyn for<'a> Fn(&'a str) + Send + Sync),
         _cancelled: &(dyn Fn() -> bool + Send + Sync),
     ) -> PluginResult<i32> {

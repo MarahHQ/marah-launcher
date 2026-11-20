@@ -113,6 +113,89 @@ impl Programs for HostPrograms {
             (path, args.to_vec())
         };
         let command = SpawnCommand { program, args, env: Default::default(), cwd, log: None, keep_running: false };
-        self.spawner.stream(command, line, cancelled).await
+        self.spawner.stream(command, elevated, line, cancelled).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use super::*;
+    use crate::ports::ProcessHandle;
+
+    /// Finds every program in /usr/bin and keeps each streamed command, with `elevated`.
+    #[derive(Default)]
+    struct Streams(Mutex<Vec<(SpawnCommand, bool)>>);
+
+    #[async_trait]
+    impl ProcessSpawner for Streams {
+        async fn spawn(&self, command: SpawnCommand) -> PluginResult<Box<dyn ProcessHandle>> {
+            Err(PluginError::Other(format!("{:?} isn't streamed", command.program)))
+        }
+
+        async fn output(
+            &self,
+            command: SpawnCommand,
+            _timeout: Duration,
+            _limit: usize,
+        ) -> PluginResult<Option<Vec<u8>>> {
+            Err(PluginError::Other(format!("{:?} isn't streamed", command.program)))
+        }
+
+        fn which(&self, name: &str) -> Option<PathBuf> {
+            Some(PathBuf::from("/usr/bin").join(name))
+        }
+
+        async fn stream(
+            &self,
+            command: SpawnCommand,
+            elevated: bool,
+            _line: &(dyn for<'a> Fn(&'a str) + Send + Sync),
+            _cancelled: &(dyn Fn() -> bool + Send + Sync),
+        ) -> PluginResult<i32> {
+            self.0.lock().unwrap().push((command, elevated));
+            Ok(0)
+        }
+    }
+
+    /// The spawner hears that the program is elevated: it gives that one alone an input, for a
+    /// cancel it can't do with a kill.
+    #[tokio::test]
+    async fn an_elevated_program_runs_through_pkexec_and_the_spawner_knows() {
+        let spawner = Arc::new(Streams::default());
+        let rules = |names: &[&str]| names.iter().map(|n| format!("system:{n}")).collect::<Vec<_>>();
+        let permissions = Permissions {
+            process: rules(&["installer", "udisksctl"]),
+            long_running: rules(&["installer", "udisksctl"]),
+            polkit: rules(&["installer"]),
+            ..Permissions::default()
+        };
+        let programs = HostPrograms {
+            plugin: PluginId::new("system").unwrap(),
+            permissions,
+            config: Arc::new(ConfigService::in_memory()),
+            home: None,
+            platform: None,
+            data_dir: std::env::temp_dir(),
+            spawner: spawner.clone(),
+        };
+        let run = |name: &str, elevated| {
+            let programs = programs.clone();
+            let program = Location::System(name.into());
+            async move { programs.stream(&program, &["/dev/vda".into()], elevated, &|_| {}, &|| false).await }
+        };
+        run("installer", true).await.unwrap();
+        run("udisksctl", false).await.unwrap();
+
+        let streamed: Vec<_> =
+            spawner.0.lock().unwrap().iter().map(|(c, e)| (c.program.clone(), c.args.clone(), *e)).collect();
+        assert_eq!(
+            streamed,
+            [
+                (PathBuf::from("/usr/bin/pkexec"), vec!["/usr/bin/installer".to_owned(), "/dev/vda".to_owned()], true),
+                (PathBuf::from("/usr/bin/udisksctl"), vec!["/dev/vda".to_owned()], false),
+            ]
+        );
     }
 }

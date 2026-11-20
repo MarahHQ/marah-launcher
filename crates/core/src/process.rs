@@ -77,43 +77,11 @@ impl ProcessSpawner for TokioSpawner {
     async fn stream(
         &self,
         command: SpawnCommand,
+        elevated: bool,
         line: &(dyn for<'a> Fn(&'a str) + Send + Sync),
         cancelled: &(dyn Fn() -> bool + Send + Sync),
     ) -> PluginResult<i32> {
-        use futures::StreamExt;
-        use tokio::io::{AsyncBufReadExt, BufReader};
-        let failed = |e: std::io::Error| launcher_api::PluginError::Other(format!("{:?}: {e}", command.program));
-        let mut child = tokio::process::Command::new(&command.program)
-            .args(&command.args)
-            .envs(&command.env)
-            .current_dir(&command.cwd)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|e| launcher_api::PluginError::Other(format!("could not start {:?}: {e}", command.program)))?;
-        let mut out = BufReader::new(child.stdout.take().expect("stdout is piped")).lines();
-        let mut err = BufReader::new(child.stderr.take().expect("stderr is piped")).lines();
-        let (mut out_open, mut err_open) = (true, true);
-        let mut tick = TokioClock.interval(Duration::from_millis(250));
-        while out_open || err_open {
-            tokio::select! {
-                read = out.next_line(), if out_open => match read.map_err(failed)? {
-                    Some(text) => line(&text),
-                    None => out_open = false,
-                },
-                read = err.next_line(), if err_open => match read.map_err(failed)? {
-                    Some(text) => line(&text),
-                    None => err_open = false,
-                },
-                _ = tick.next() => if cancelled() {
-                    let _ = child.kill().await;
-                    break;
-                },
-            }
-        }
-        Ok(child.wait().await.map_err(failed)?.code().unwrap_or(-1))
+        stream_with(command, elevated, line, cancelled, &tokio::process::Child::start_kill).await
     }
 
     fn which(&self, name: &str) -> Option<PathBuf> {
@@ -125,6 +93,92 @@ impl ProcessSpawner for TokioSpawner {
         let path = std::env::var_os("PATH")?;
         std::env::split_paths(&path).flat_map(|dir| names.iter().map(move |n| dir.join(n))).find(|p| p.is_file())
     }
+}
+
+/// What [`TokioSpawner::stream`] writes to an elevated program's input on a cancel it can't do
+/// with a kill (docs/contributors/os-contract.md).
+const CANCEL_REQUEST: &[u8] = b"cancel\n";
+
+/// [`TokioSpawner::stream`], with the step that kills the program on a cancel: a test makes it
+/// fail, as it fails on a program that runs as root.
+async fn stream_with(
+    command: SpawnCommand,
+    elevated: bool,
+    line: &(dyn for<'a> Fn(&'a str) + Send + Sync),
+    cancelled: &(dyn Fn() -> bool + Send + Sync),
+    kill: &(dyn Fn(&mut tokio::process::Child) -> std::io::Result<()> + Send + Sync),
+) -> PluginResult<i32> {
+    use futures::StreamExt;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let failed = |e: std::io::Error| launcher_api::PluginError::Other(format!("{:?}: {e}", command.program));
+    let input = if elevated { std::process::Stdio::piped() } else { std::process::Stdio::null() };
+    let mut child = tokio::process::Command::new(&command.program)
+        .args(&command.args)
+        .envs(&command.env)
+        .current_dir(&command.cwd)
+        .stdin(input)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|e| launcher_api::PluginError::Other(format!("could not start {:?}: {e}", command.program)))?;
+    let mut input = child.stdin.take();
+    let mut out = BufReader::new(child.stdout.take().expect("stdout is piped")).lines();
+    let mut err = BufReader::new(child.stderr.take().expect("stderr is piped")).lines();
+    let (mut out_open, mut err_open) = (true, true);
+    // Set when a kill failed: the program then runs to its end, and is read to its end.
+    let mut unstoppable = false;
+    // The cancel request on its way to the program's input. It owns the input and closes it once
+    // written: the program gets one request, then the end of its input.
+    let mut request: Option<futures::future::BoxFuture<'static, Option<std::io::Result<()>>>> = None;
+    let mut tick = TokioClock.interval(Duration::from_millis(250));
+    while out_open || err_open {
+        tokio::select! {
+            read = out.next_line(), if out_open => match read.map_err(failed)? {
+                Some(text) => line(&text),
+                None => out_open = false,
+            },
+            read = err.next_line(), if err_open => match read.map_err(failed)? {
+                Some(text) => line(&text),
+                None => err_open = false,
+            },
+            // Beside the reads: a program that doesn't read its input never holds them up.
+            sent = async { request.as_mut().expect("a request").await }, if request.is_some() => {
+                request = None;
+                let error = match sent {
+                    Some(Ok(())) => None,
+                    Some(Err(e)) => Some(e.to_string()),
+                    None => Some("its input stayed full".to_owned()),
+                };
+                if let Some(error) = error {
+                    tracing::warn!(program = ?command.program, %error, "could not ask the program to stop: it runs to its end");
+                }
+            },
+            _ = tick.next(), if !unstoppable => if cancelled() {
+                match kill(&mut child) {
+                    Ok(()) => break,
+                    // pkexec's program runs as root after the password, and the launcher may
+                    // not kill it. A program that stopped reading would block on its full pipe.
+                    Err(e) => {
+                        unstoppable = true;
+                        if let Some(mut input) = input.take() {
+                            tracing::warn!(program = ?command.program, error = %e, "could not stop the program on a cancel: asked it to stop on its input");
+                            request = Some(Box::pin(async move {
+                                let clock: &dyn Clock = &TokioClock;
+                                clock.timeout(Duration::from_secs(5), input.write_all(CANCEL_REQUEST)).await
+                            }));
+                        } else {
+                            tracing::warn!(program = ?command.program, error = %e, "could not stop the program on a cancel: it runs to its end");
+                        }
+                    }
+                }
+            },
+        }
+    }
+    // The end of its input, for a program that reads it to its end before it ends.
+    drop((input, request));
+    // On Unix a killed program has no exit code: -1. One that ran to its end has its own.
+    Ok(child.wait().await.map_err(failed)?.code().unwrap_or(-1))
 }
 
 /// Sends `signal` to the process group `group` with the system's `kill`: this crate has no
@@ -358,6 +412,142 @@ mod tests {
         process.wait().await.unwrap();
 
         assert_eq!(std::fs::read_to_string(log).unwrap(), "out\nerr\n");
+    }
+
+    /// Runs `script`, `elevated` or not; the player cancels once it prints `ready`. When
+    /// `killable` is false, the kill fails with EPERM, as on pkexec's program after the password.
+    /// Its exit code, every line it printed and how often the kill was tried, or `None` when it
+    /// didn't end within 20 seconds.
+    #[cfg(unix)]
+    async fn cancelled_run(script: &str, killable: bool, elevated: bool) -> Option<(i32, Vec<String>, usize)> {
+        use std::sync::Mutex;
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        let (lines, cancel, kills) = (Mutex::new(Vec::new()), AtomicBool::new(false), AtomicUsize::new(0));
+        let line = |text: &str| {
+            if text == "ready" {
+                cancel.store(true, Ordering::SeqCst);
+            }
+            lines.lock().unwrap().push(text.to_owned());
+        };
+        let cancelled = || cancel.load(Ordering::SeqCst);
+        let kill = |child: &mut tokio::process::Child| {
+            kills.fetch_add(1, Ordering::SeqCst);
+            if killable { child.start_kill() } else { Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied)) }
+        };
+        let run = stream_with(sh(script), elevated, &line, &cancelled, &kill);
+        let code = REAL.timeout(Duration::from_secs(20), run).await?.unwrap();
+        Some((code, lines.into_inner().unwrap(), kills.load(Ordering::SeqCst)))
+    }
+
+    /// The script waits past two of the cancel's checks before it goes on: the kill is tried
+    /// once, not at each check.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_program_that_can_t_be_killed_is_read_to_its_end_and_its_exit_code_returned() {
+        let ended = cancelled_run("echo ready; sleep 0.6; echo last; exit 7", false, false).await;
+        let (code, lines, kills) = ended.expect("the run ended");
+        assert_eq!((code, lines), (7, vec!["ready".to_owned(), "last".to_owned()]));
+        assert_eq!(kills, 1, "one try, one warning");
+    }
+
+    /// The installer's side of the request: it reads `cancel` and stops by itself, with its own
+    /// last line and exit code.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_elevated_program_that_can_t_be_killed_is_asked_to_stop_on_its_input() {
+        let script =
+            "echo ready; read -r request; echo \"read $request\"; [ \"$request\" = cancel ] && exit 42; exit 1";
+        let (code, lines, kills) = cancelled_run(script, false, true).await.expect("the run ended");
+        assert_eq!((code, lines, kills), (42, vec!["ready".to_owned(), "read cancel".to_owned()], 1));
+    }
+
+    /// A kill that works is enough: the program's input gets nothing. A program it started
+    /// outlives the kill and keeps what came on the input, until the input closes.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_elevated_program_that_can_be_killed_isn_t_asked_on_its_input() {
+        let dir = tempfile::tempdir().unwrap();
+        let seen = dir.path().join("input");
+        let script = format!("exec 3<&0; {{ cat <&3; echo end; }} > '{}' & echo ready; sleep 30", seen.display());
+        let (code, lines, kills) = cancelled_run(&script, true, true).await.expect("the run ended");
+        assert_eq!((code, lines, kills), (-1, vec!["ready".to_owned()], 1), "killed");
+        let read = async {
+            loop {
+                match std::fs::read_to_string(&seen) {
+                    Ok(text) if text.ends_with("end\n") => return text,
+                    _ => TokioClock.sleep(Duration::from_millis(20)).await,
+                }
+            }
+        };
+        let read = REAL.timeout(Duration::from_secs(10), read).await.expect("the input closed with the run");
+        assert_eq!(read, "end\n", "nothing written to the input");
+    }
+
+    /// A program that never reads its input, or closed it, still runs to its end and is read
+    /// to its end: the request never blocks the run.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_elevated_program_that_ignores_its_input_runs_to_its_end() {
+        let script = "echo ready; sleep 0.6; i=0; while [ $i -lt 4000 ]; do \
+                      echo \"line $i of what the program prints after the cancel\"; i=$((i+1)); done; exit 7";
+        let (code, lines, kills) = cancelled_run(script, false, true).await.expect("the run ended, without blocking");
+        assert_eq!((code, lines.len(), kills), (7, 4001, 1));
+
+        let closed = "exec 0<&-; echo ready; sleep 0.6; echo last; exit 7";
+        let (code, lines, _) = cancelled_run(closed, false, true).await.expect("the run ended");
+        assert_eq!((code, lines), (7, vec!["ready".to_owned(), "last".to_owned()]));
+    }
+
+    /// A program that isn't elevated has no input: one that reads it ends at once.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_program_that_isn_t_elevated_reads_no_input() {
+        let lines = std::sync::Mutex::new(Vec::new());
+        let line = |text: &str| lines.lock().unwrap().push(text.to_owned());
+        let run = stream_with(sh("cat; echo end"), false, &line, &|| false, &tokio::process::Child::start_kill);
+        let code = REAL.timeout(Duration::from_secs(10), run).await.expect("the run ended").unwrap();
+        assert_eq!((code, lines.into_inner().unwrap()), (0, vec!["end".to_owned()]));
+    }
+
+    /// An elevated program that closed its output and reads its input to its end gets the end
+    /// of its input: the run doesn't wait for a program that waits for it.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_elevated_program_that_closed_its_output_gets_the_end_of_its_input() {
+        let run = stream_with(
+            sh("exec >&- 2>&-; while read -r _; do :; done; exit 3"),
+            true,
+            &|_| {},
+            &|| false,
+            &|_| Ok(()),
+        );
+        let code = REAL.timeout(Duration::from_secs(10), run).await.expect("the run ended").unwrap();
+        assert_eq!(code, 3);
+    }
+
+    /// More than the pipe holds after the cancel: a run that stopped reading would wait forever.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_program_that_can_t_be_killed_and_prints_a_lot_after_the_cancel_doesn_t_block() {
+        let script = "echo ready; sleep 0.6; i=0; while [ $i -lt 4000 ]; do \
+                      echo \"line $i of what the program prints after the cancel\"; i=$((i+1)); done; \
+                      echo last >&2; exit 7";
+        let (code, lines, kills) = cancelled_run(script, false, false).await.expect("the run ended, without blocking");
+        assert_eq!((code, kills), (7, 1));
+        // Its output and its errors come through separate pipes, so their order may mix.
+        assert_eq!(lines.len(), 4002, "every line");
+        assert!(lines.iter().any(|l| l == "last"), "the last line, from its errors");
+    }
+
+    /// A program that can be killed stops at the cancel, as pkexec does at its password prompt.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_cancel_stops_a_program_that_can_be_killed() {
+        let started = REAL.now();
+        let ended = cancelled_run("echo ready; sleep 30; echo never", true, false).await;
+        let (code, lines, kills) = ended.expect("the run ended");
+        assert_eq!((code, lines, kills), (-1, vec!["ready".to_owned()], 1), "killed, so no exit code");
+        assert!(REAL.now() - started < Duration::from_secs(10));
     }
 
     #[test]
