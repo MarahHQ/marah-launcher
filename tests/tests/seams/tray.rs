@@ -89,6 +89,14 @@ fn the_bar_has_the_items_that_matter_then_settings_then_the_tray_then_the_clock(
             (host.first("tray").size().width - host.first("Settings").size().width).abs() < 0.5,
             "{theme}: the ⌃ is the size of Settings"
         );
+        for id in ["network", "bluetooth"] {
+            let icon = host.first(&format!("status:{id}")).size();
+            assert!(
+                (icon.width - host.first("Settings").size().width).abs() < 0.5
+                    && (icon.width - icon.height).abs() < 0.5,
+                "{theme}: {id}'s button is round, the size of Settings, not as wide as its place: {icon:?}"
+            );
+        }
     }
 }
 
@@ -125,6 +133,25 @@ fn the_mouse_the_keys_and_the_pad_open_the_tray_and_close_it() {
         assert_eq!(host.value("tray"), "open", "{theme}: ✕");
         host.pad(PadButton::East);
         assert_eq!(host.value("tray"), "closed", "{theme}: ○");
+    }
+}
+
+#[test]
+fn while_the_tray_is_open_the_bar_shows_no_focus_of_its_own() {
+    for theme in THEMES {
+        let mut host = shown(theme);
+        // L1 from Home: the keys on the ⌃, the bar's last stop.
+        host.pad(PadButton::LeftShoulder);
+        assert!(host.lit("tray"), "{theme}: the ⌃ shows the focus");
+        host.pad(PadButton::South);
+        assert_eq!(host.value("tray"), "open", "{theme}");
+        assert_eq!(host.focused("tray-item"), ["network"], "{theme}: the tray's first row has the focus");
+        for label in ["tray", "Settings", "Search", "status:network", "status:bluetooth", "status:power"] {
+            assert!(!host.lit(label), "{theme}: {label} shows no focus while the tray is open");
+        }
+        host.pad(PadButton::East);
+        assert_eq!(host.value("tray"), "closed", "{theme}");
+        assert!(host.lit("tray"), "{theme}: closed, the focus is back on the ⌃");
     }
 }
 

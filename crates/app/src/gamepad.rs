@@ -31,6 +31,23 @@ fn button(b: Button) -> Option<PadButton> {
     })
 }
 
+/// Steam's virtual controller: while Steam runs, it copies each controller it reads into one
+/// of these, and the copy sends every press again.
+const STEAM_COPY: (u16, u16) = (0x28de, 0x11ff);
+
+/// The pad with `ids` (vendor, product) is Steam's copy of another controller, and its presses
+/// are skipped: one of the `connected` pads is a controller of its own. With only Steam's pads,
+/// as on a Steam Deck in Game Mode or when Steam hides the controller itself, they are the
+/// controllers. A pad with no ids isn't taken for a controller of its own.
+pub fn copy_of_another(ids: Option<(u16, u16)>, connected: &[Option<(u16, u16)>]) -> bool {
+    ids == Some(STEAM_COPY) && connected.iter().any(|pad| pad.is_some_and(|pad| pad != STEAM_COPY))
+}
+
+/// A pad's vendor and product ids, when the system gives them.
+fn ids(pad: gilrs::Gamepad<'_>) -> Option<(u16, u16)> {
+    Some((pad.vendor_id()?, pad.product_id()?))
+}
+
 /// How long the PS or Xbox button is held to close the game or open the power menu.
 pub const GUIDE_HOLD: Duration = Duration::from_millis(600);
 
@@ -210,7 +227,14 @@ pub fn spawn(press: impl Fn(PadButton, bool) + Send + 'static, named: impl Fn(Op
         for (_, pad) in gilrs.gamepads() {
             tracing::info!(name = pad.name(), "controller connected");
         }
-        let first = |gilrs: &Gilrs| gilrs.gamepads().next().map(|(_, pad)| pad.name().to_owned());
+        // The first controller, not Steam's copy of one.
+        let first = |gilrs: &Gilrs| {
+            let connected: Vec<_> = gilrs.gamepads().map(|(_, pad)| ids(pad)).collect();
+            gilrs
+                .gamepads()
+                .find(|(_, pad)| !copy_of_another(ids(*pad), &connected))
+                .map(|(_, pad)| pad.name().to_owned())
+        };
         named(first(&gilrs));
         let mut stick = Stick::default();
         let mut held = Repeater::default();
@@ -219,7 +243,15 @@ pub fn spawn(press: impl Fn(PadButton, bool) + Send + 'static, named: impl Fn(Op
             let now = Instant::now();
             let wait = guide.wait(now).map_or(held.wait(now), |g| g.clamp(Duration::from_millis(1), held.wait(now)));
             if let Some(event) = gilrs.next_event_blocking(Some(wait)) {
+                let connected: Vec<_> = gilrs.gamepads().map(|(_, pad)| ids(pad)).collect();
+                let copy = copy_of_another(ids(gilrs.gamepad(event.id)), &connected);
                 let pressed = match event.event {
+                    // Steam's copy of a controller read here too: its presses are that one's again.
+                    EventType::ButtonPressed(..) | EventType::ButtonReleased(..) | EventType::AxisChanged(..)
+                        if copy =>
+                    {
+                        None
+                    }
                     EventType::ButtonPressed(Button::Mode, _) => {
                         guide.press(Instant::now());
                         None
@@ -328,6 +360,18 @@ mod tests {
         guide.press(at(5000));
         guide.clear();
         assert_eq!(guide.due(at(6000)), None, "a controller went: nothing is down");
+    }
+
+    #[test]
+    fn steam_s_virtual_copy_of_a_controller_is_skipped_while_a_controller_of_its_own_is_there() {
+        let (f710, copy) = (Some((0x046d, 0xc21f)), Some((0x28de, 0x11ff)));
+        let deck = Some((0x28de, 0x1205));
+        assert!(copy_of_another(copy, &[f710, copy]), "the F710 and Steam's copy: the copy is skipped");
+        assert!(!copy_of_another(f710, &[f710, copy]), "the F710 itself counts");
+        assert!(!copy_of_another(copy, &[copy, copy]), "only Steam's pads: they are the controllers");
+        assert!(!copy_of_another(f710, &[f710, f710]), "two controllers of their own: both count");
+        assert!(copy_of_another(copy, &[deck, copy]), "a Steam Deck's own controls count, its copy doesn't");
+        assert!(!copy_of_another(copy, &[None, copy]), "a pad with no ids isn't taken for a controller of its own");
     }
 
     #[test]
