@@ -1,14 +1,20 @@
 //! Lichii, the Switch and Switch 2 emulator (a fork of Eden and yuzu), as a plugin.
 //!
-//! - Builds: Lichii's GitHub releases, all of them pre-releases. On Linux, the bare AppImage
-//!   (`lichii-linux-<arch>.AppImage`, not the `-pgo` one): the host checks its SHA-256 and runs
-//!   its `--appimage-extract`, so `builds/<tag>/squashfs-root/AppRun`, the Lichii program, runs
-//!   without FUSE. The release's tar.gz needs FFmpeg libraries from the system, so it isn't used.
+//! - Builds: Lichii's GitHub releases, all of them pre-releases, none of them the `-pgo` files.
+//!   - Linux: the bare AppImage (`lichii-linux-<arch>.AppImage`): the host checks its SHA-256
+//!     and runs its `--appimage-extract`, so `builds/<tag>/squashfs-root/AppRun`, the Lichii
+//!     program, runs without FUSE. The release's tar.gz needs FFmpeg libraries from the system,
+//!     so it isn't used.
+//!   - macOS: `lichii-macos-arm64.zip`, Lichii's app: `lichii.app/Contents/MacOS/lichii`. Lichii
+//!     has no Intel Mac build.
+//!   - Windows: `lichii-windows-x86_64.zip`: `lichii.exe` at its top.
+//!
 //!   A new build gets no test run: Lichii's `--help` opens its window and never ends.
 //! - Games: Switch game files (`.nsp`, `.nsz`, `.xci`, `.xcz`, `.nup`) in the player's game
 //!   folders, named by their file names (see [`emulator_kit::games::switch_file`]).
-//! - Lichii keeps keys, firmware, saves and settings in its own folder (`~/.local/share/lichii`),
-//!   which every build shares. Builds before build-150 used Eden's (`~/.local/share/eden`).
+//! - Lichii keeps keys, firmware, saves and settings in its own folder (`~/.local/share/lichii`,
+//!   on Windows `%APPDATA%\lichii`), which every build shares. Builds before build-150 used
+//!   Eden's (`~/.local/share/eden`).
 //!   Marah Launcher updates firmware and configured keys when the player asks, in [`firmware`]; they
 //!   can also be installed by hand.
 //! - Installs: Switch game files from a download, in [`install`].
@@ -135,23 +141,40 @@ impl GpuSplit {
     }
 }
 
-/// The official build for this system and processor: the Linux AppImage, not the `-pgo` one.
+/// The official build for this system and processor (`arch`, as Rust names it), not the
+/// `-pgo` one: the Linux AppImage, or the macOS or Windows zip. Lichii names Apple Silicon
+/// `arm64`.
 pub fn asset_matches(name: &str, platform: Option<Platform>, arch: &str) -> bool {
     match platform {
         Some(Platform::Linux) | None => name == format!("lichii-linux-{arch}.AppImage"),
-        _ => false,
+        Some(Platform::Macos) => {
+            let arch = if arch == "aarch64" { "arm64" } else { arch };
+            name == format!("lichii-macos-{arch}.zip")
+        }
+        Some(Platform::Windows) => name == format!("lichii-windows-{arch}.zip"),
     }
 }
 
-/// The program a build starts: the AppImage's own program.
-fn program(tag: &str) -> PluginResult<RelPath> {
-    Ok(versions::folder(tag)?.join("squashfs-root")?.join("AppRun")?)
+/// Where a build keeps its programs, in its folder: the AppImage's program and eden-cli, the
+/// app's on macOS, the zip's top on Windows.
+fn programs(platform: Option<Platform>) -> (&'static str, &'static str) {
+    match platform {
+        Some(Platform::Linux) | None => ("squashfs-root/AppRun", "squashfs-root/usr/bin/eden-cli"),
+        Some(Platform::Macos) => ("lichii.app/Contents/MacOS/lichii", "lichii.app/Contents/MacOS/eden-cli"),
+        Some(Platform::Windows) => ("lichii.exe", "eden-cli.exe"),
+    }
+}
+
+/// The program a build starts: Lichii's window.
+fn program(tag: &str, platform: Option<Platform>) -> PluginResult<RelPath> {
+    Ok(versions::folder(tag)?.join(programs(platform).0)?)
 }
 
 /// The folder you map to your own Lichii build.
 pub const OWN_BUILD: &str = "lichii-build";
 /// What your own build's program may be called, in its folder.
-const OWN_PROGRAMS: [&str; 3] = ["lichii", "lichii.AppImage", "build/bin/lichii"];
+const OWN_PROGRAMS: [&str; 5] =
+    ["lichii", "lichii.AppImage", "build/bin/lichii", "lichii.exe", "lichii.app/Contents/MacOS/lichii"];
 
 /// Lichii's builds. Every build shares Lichii's data folder, so it needs no hooks.
 pub struct LichiiFlavor {
@@ -175,12 +198,12 @@ impl Flavor for LichiiFlavor {
         asset_matches(name, self.platform, std::env::consts::ARCH)
     }
 
-    fn archive_format(&self, _asset: &str) -> ArchiveFormat {
-        ArchiveFormat::AppImage
+    fn archive_format(&self, asset: &str) -> ArchiveFormat {
+        if asset.ends_with(".zip") { ArchiveFormat::Zip } else { ArchiveFormat::AppImage }
     }
 
     async fn program(&self, storage: &dyn Storage, tag: &str) -> PluginResult<RelPath> {
-        let program = program(tag)?;
+        let program = program(tag, self.platform)?;
         if !storage.exists(&program).await? {
             return Err(PluginError::Other(format!("Lichii {tag} has no {program}")));
         }
@@ -222,12 +245,11 @@ impl CodePlugin for LichiiPlugin {
             own_row: false,
         };
         let firmware = firmware::Firmware::new(host.clone(), ctx.events().clone());
-        let emu = ConsoleEmulator::start(LichiiFlavor { platform: host.platform }, spec, host)
-            .await?
-            .with_panel(firmware.clone());
+        let platform = host.platform;
+        let emu = ConsoleEmulator::start(LichiiFlavor { platform }, spec, host).await?.with_panel(firmware.clone());
         let emu = Arc::new(emu);
         let controllers = ctx.services().get::<Controllers>().map(|c| (*c).clone());
-        let lichii = Arc::new(Lichii { emu: emu.clone(), controllers });
+        let lichii = Arc::new(Lichii { emu: emu.clone(), controllers, platform });
         Ok(Provided {
             catalog: Some(emu.clone()),
             downloader: Some(emu.builds().clone()),
@@ -274,12 +296,13 @@ struct Lichii {
     emu: Arc<ConsoleEmulator<LichiiFlavor>>,
     /// The host's controllers; `None` on a host without them.
     controllers: Option<Controllers>,
+    platform: Option<Platform>,
 }
 
 impl Lichii {
     /// The command-line program of the official build `tag`, when it has one.
     async fn cli(&self, tag: &str) -> Option<RelPath> {
-        let cli = versions::folder(tag).ok()?.join("squashfs-root/usr/bin/eden-cli").ok()?;
+        let cli = versions::folder(tag).ok()?.join(programs(self.platform).1).ok()?;
         self.emu.host().storage.exists(&cli).await.ok()?.then_some(cli)
     }
 }
@@ -361,6 +384,18 @@ mod tests {
         assert!(!asset_matches("lichii-linux-x86_64.tar.gz", linux, "x86_64"));
         assert!(!asset_matches("lichii-linux-aarch64.AppImage", linux, "x86_64"));
         assert!(!asset_matches("eglantine-nx2-build-34-linux-x86_64.AppImage", linux, "x86_64"));
-        assert!(!asset_matches("lichii-windows-x86_64.zip", Some(Platform::Windows), "x86_64"));
+        assert!(!asset_matches("lichii-windows-x86_64.zip", linux, "x86_64"));
+    }
+
+    #[test]
+    fn the_macos_zip_for_apple_silicon_and_the_windows_zip_and_no_pgo_one() {
+        let (mac, windows) = (Some(Platform::Macos), Some(Platform::Windows));
+        assert!(asset_matches("lichii-macos-arm64.zip", mac, "aarch64"), "Lichii names Apple Silicon arm64");
+        assert!(!asset_matches("lichii-macos-arm64.dmg", mac, "aarch64"), "the zip, not the disk image");
+        assert!(!asset_matches("lichii-macos-arm64.zip", mac, "x86_64"), "no Intel Mac build");
+        assert!(!asset_matches("lichii-linux-aarch64.AppImage", mac, "aarch64"));
+        assert!(asset_matches("lichii-windows-x86_64.zip", windows, "x86_64"));
+        assert!(!asset_matches("lichii-windows-x86_64-pgo.zip", windows, "x86_64"));
+        assert!(!asset_matches("lichii-macos-arm64.zip", windows, "x86_64"));
     }
 }

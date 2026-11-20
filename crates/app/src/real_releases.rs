@@ -71,7 +71,7 @@ async fn the_newest_kytyps5_installs_and_prints_its_version() {
     if !wanted() {
         return;
     }
-    // This system's default release repo: on macOS, the macOS test builds.
+    // This system's default release repo: KytyPS5/KytyPS5.
     kytyps5_from(None, "kyty").await;
 }
 

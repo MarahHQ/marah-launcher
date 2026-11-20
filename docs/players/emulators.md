@@ -87,14 +87,18 @@ shadPS4 asks: **Copy** keeps the old saves as well, **Do nothing** leaves them w
 
 ## Switch: Lichii
 
-Lichii plays Switch and Switch 2 games. It runs on Linux only.
+Lichii plays Switch and Switch 2 games. It runs on Linux, on Windows, and on a Mac with Apple
+Silicon. Lichii has no build for an Intel Mac: there, only your own build runs.
 
 ### Lichii's data
 
-Lichii keeps its data in `~/.local/share/lichii` from build-150 on. If you played with an older
-build, open Lichii from its page once and import your Eden data (`~/.local/share/eden`). Until
-then, Lichii starts no game. An older build, or your own build from before build-150, still
-reads `~/.local/share/eden`: set **Lichii data** on Lichii's page to that folder.
+Lichii keeps its data in `~/.local/share/lichii` from build-150 on, on a Mac too. On Windows
+it keeps its data in `%APPDATA%\lichii`, and its settings in `%APPDATA%\lichii\config`.
+
+If you played with an older build, open Lichii from its page once and import your Eden data
+(`~/.local/share/eden`). Until then, Lichii starts no game. An older build, or your own build
+from before build-150, still reads `~/.local/share/eden`: set **Lichii data** on Lichii's page
+to that folder.
 
 ### Firmware and keys
 
@@ -160,7 +164,9 @@ network work as usual.
 
 ## Steam
 
-Steam runs on Linux only. The launcher reads Steam's folder and every library Steam lists. Set
-**Steam libraries** only to read other folders. In the Catalog, the Steam system lists the games
-in your Steam collections. Install and Uninstall ask Steam, in Steam's own dialogs. Play hands
-the game to Steam.
+Steam runs on Linux, macOS and Windows. The launcher reads Steam's folder and every library
+Steam lists. Steam's folder is `~/Library/Application Support/Steam` on a Mac, and
+`C:\Program Files (x86)\Steam` on Windows. Set **Steam libraries** only to read other folders.
+On Windows, one of them must be Steam's own folder, with `steam.exe`: Play starts Steam from
+there. In the Catalog, the Steam system lists the games in your Steam collections. Install and
+Uninstall ask Steam, in Steam's own dialogs. Play hands the game to Steam.

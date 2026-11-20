@@ -39,7 +39,7 @@ serves the tests only.
 | `crates/ui-host` (`launcher-ui-host`) | Shows themes with Slint: `ThemeSet` (finds the themes and the fallback theme, checks their files), `ThemeHost` (compiles a theme, binds the view, switches themes) and `AppShell` (carries out the theme's requests, renders, loads images, runs the tick). |
 | `crates/app` (`launcher-app`) | The binary: `main.rs`, the command line (`args.rs`), the launcher's own update (`update.rs`), controllers, sounds, trailers, and an adapter for each port. |
 | `crates/testkit` (`launcher-testkit`) | `FakeHost`, `FakeClock`, a fake for each port, `FakePlatform`, `StubPlugin`, `FakeBackup`, `FakeCatalog`, `FakeStore`, `FakeService`, `FakeEmulator`, `FakeSystem`, `ThemeDriver`, `MemStorage`, `SpanRecorder` and the contracts (`contract`). |
-| `plugins/emulators/*` | `emu-kyty` (PS5), `emu-shadps4` (PS4), `emu-lichii` (Switch and Switch 2, Linux only), `emu-pc` (PC games), `emu-steam` (Steam games, Linux only). |
+| `plugins/emulators/*` | `emu-kyty` (PS5), `emu-shadps4` (PS4), `emu-lichii` (Switch and Switch 2), `emu-pc` (PC games), `emu-steam` (Steam games). |
 | `plugins/services/*` | `playstation-store` (store art and details) and `release-catalog` (the Game Catalog). |
 | `plugins/system/host` | `system-host`: the system plugin, with the id `system`. |
 | `plugins/themes/default`, `plugins/themes/classic` | `theme-default` and `theme-classic`: the built-in themes. Each is a crate only so the binary embeds its files. |

@@ -7,7 +7,8 @@
 //! - Unix: `pgrep -g` lists the group, `ps -A -o pid=,ppid=` the parents; `kill` ends them. A
 //!   game another program started is found by its command line, from `ps`.
 //! - Windows: a ToolHelp snapshot lists the parents; `taskkill` ends them. It has no command
-//!   lines, so a game another program started isn't found there.
+//!   lines: a game another program started is found by its program's path, which
+//!   `QueryFullProcessImageNameW` gives, in any case and with either slash.
 
 use launcher_core::ProcessTree;
 
@@ -42,8 +43,13 @@ impl ProcessTree for SystemProcesses {
         }
         #[cfg(windows)]
         {
-            let _ = text;
-            Vec::new()
+            let programs: Vec<(u32, u32, String)> = system::parents()
+                .into_iter()
+                .filter_map(|(id, parent)| Some((id, parent, windows_path(&system::program(id)?))))
+                .collect();
+            let processes: Vec<(u32, u32, &str)> =
+                programs.iter().map(|(i, p, path)| (*i, *p, path.as_str())).collect();
+            topmost(&processes, &windows_path(text))
         }
     }
 
@@ -153,9 +159,14 @@ fn with_command_lines(ps: &str) -> Vec<(u32, u32, &str)> {
         .collect()
 }
 
+/// A Windows path as [`SystemProcesses::find`] compares it there: lower case, with `/` for `\`.
+#[cfg(any(windows, test))]
+fn windows_path(path: &str) -> String {
+    path.replace('\\', "/").to_lowercase()
+}
+
 /// Of the processes whose command line has `text`, those whose parent's hasn't: each game's
 /// first process, not one it started with the same words.
-#[cfg(any(unix, test))]
 fn topmost(processes: &[(u32, u32, &str)], text: &str) -> Vec<u32> {
     let matches: Vec<_> = processes.iter().filter(|(_, _, args)| args.contains(text)).collect();
     matches
@@ -188,6 +199,27 @@ mod system {
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
     };
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
+    };
+
+    /// The full path of process `id`'s program; `None` when the process is gone or not ours to
+    /// read.
+    pub fn program(id: u32) -> Option<String> {
+        let mut path = [0u16; 32 * 1024];
+        let mut len = path.len() as u32;
+        // SAFETY: the handle is checked and closed; the buffer's length is passed with it, and
+        // only the part the call wrote is read.
+        unsafe {
+            let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, id);
+            if process.is_null() {
+                return None;
+            }
+            let read = QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, path.as_mut_ptr(), &mut len) != 0;
+            CloseHandle(process);
+            read.then(|| String::from_utf16_lossy(&path[..len as usize]))
+        }
+    }
 
     /// Process id to parent process id, for every running process.
     pub fn parents() -> Vec<(u32, u32)> {
@@ -221,6 +253,20 @@ mod tests {
 
     #[cfg(unix)]
     use super::SystemProcesses;
+
+    /// On Windows a handed-over game is found by its program's path: Steam's library path has
+    /// `\`, the game's folder after it `/`, and the drive's case may differ.
+    #[test]
+    fn a_windows_program_is_found_by_its_folder_in_any_case_and_slash() {
+        let programs = [
+            r"C:\Program Files (x86)\Steam\steamapps\common\Portal 2\portal2.exe",
+            r"c:\program files (x86)\steam\steamapps\common\Portal\hl2.exe",
+        ]
+        .map(super::windows_path);
+        let processes = [(10, 1, programs[0].as_str()), (20, 1, programs[1].as_str())];
+        let folder = super::windows_path(r"C:\Program Files (x86)\Steam/steamapps/common/Portal/");
+        assert_eq!(super::topmost(&processes, &folder), [20], "Portal's folder, not Portal 2's");
+    }
 
     /// A handed-over game is found by an environment entry it carries, matched whole.
     #[test]

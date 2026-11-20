@@ -1329,3 +1329,139 @@ async fn the_firmware_block_shows_the_download_as_a_bar_without_update_now() {
     gate.release();
     assert_eq!(firmware_settles(&test).await, "Firmware 22.5.0");
 }
+
+/// Lichii's name for this processor in its macOS and Windows files: `arm64` for Apple Silicon.
+fn lichii_arch() -> &'static str {
+    match std::env::consts::ARCH {
+        "aarch64" => "arm64",
+        arch => arch,
+    }
+}
+
+/// A release of [`TAG`] with Lichii's files, where `zip` (`lichii-macos-…zip` or
+/// `lichii-windows-…zip`) holds `files` and its download redirects to GitHub's CDN.
+fn zip_release(http: &FakeHttp, zip: &str, files: &[(&str, &[u8])]) -> serde_json::Value {
+    let download = format!("https://github.com/zortos293/Lichii/releases/download/{TAG}/{zip}");
+    let cdn = format!("https://release-assets.githubusercontent.com/lichii/{TAG}/{zip}");
+    let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, bytes) in files {
+        // The programs keep their run bit, as in Lichii's zips.
+        let options = zip::write::SimpleFileOptions::default().unix_permissions(0o755);
+        archive.start_file(*name, options).unwrap();
+        std::io::Write::write_all(&mut archive, bytes).unwrap();
+    }
+    let sha = http.serve(&cdn, archive.finish().unwrap().into_inner());
+    http.redirect(&download, &cdn);
+    let other = |n: &str| serde_json::json!({ "name": n, "browser_download_url": "https://github.com/x", "size": 1 });
+    let arch = std::env::consts::ARCH;
+    serde_json::json!({ "tag_name": TAG, "prerelease": true, "published_at": "2026-11-06T21:04:53Z", "assets": [
+        other(&format!("lichii-linux-{arch}.AppImage")),
+        other(&format!("lichii-windows-{arch}-pgo.zip")),
+        other("lichii-macos-arm64.dmg"),
+        { "name": zip, "browser_download_url": download, "size": 0, "digest": format!("sha256:{sha}") },
+    ]})
+}
+
+/// A core on `platform` with Lichii's `zip` installed from a release, and Celeste.
+async fn installed_from_zip(platform: Platform, zip: &str, files: &[(&str, &[u8])]) -> (TestCore, tempfile::TempDir) {
+    let host = FakeHost::new().platform(Some(platform));
+    let releases = serde_json::json!([zip_release(host.http(), zip, files)]);
+    host.http().serve(RELEASES, serde_json::to_vec(&releases).unwrap());
+    let games = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(games.path().join("Switch")).unwrap();
+    std::fs::write(games.path().join("Switch/Celeste [01002B30028F6000][v0].nsp"), b"PFS0 game").unwrap();
+    let test = host.built_in(launcher_api::PluginBox::code(LichiiPlugin)).boot_core().await;
+    test.core.dispatch(Command::SetFolders { name: "games".into(), paths: vec![games.path().into()] }).await.unwrap();
+    test.core.dispatch(Command::InstallEmulator { plugin: lichii(), version: None }).await.unwrap();
+    test.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
+    (test, games)
+}
+
+/// Starts Celeste and returns the first process: a zip build has no unpacking to run first.
+async fn launch_celeste_first(test: &TestCore) -> launcher_testkit::SpawnedProcess {
+    test.core
+        .dispatch(Command::Session(SessionCmd::Launch("emu-lichii:01002B30028F6000".parse().unwrap())))
+        .await
+        .unwrap();
+    test.spawner.wait_for(1).await
+}
+
+/// On a Mac, Lichii's app comes in a zip: games start in the eden-cli inside the app, and
+/// Open Lichii starts the app's own program.
+#[tokio::test]
+async fn on_macos_the_app_from_the_zip_installs_and_games_start_in_its_eden_cli() {
+    let zip = format!("lichii-macos-{}.zip", lichii_arch());
+    let files: &[(&str, &[u8])] = &[
+        ("lichii.app/Contents/MacOS/lichii", b"\xcf\xfa\xed\xfe lichii"),
+        ("lichii.app/Contents/MacOS/eden-cli", b"\xcf\xfa\xed\xfe eden-cli"),
+    ];
+    let (test, games) = installed_from_zip(Platform::Macos, &zip, files).await;
+    let app = test.data_dir().join("plugins/emu-lichii/builds").join(TAG).join("lichii.app/Contents/MacOS");
+    assert!(app.join("lichii").is_file());
+
+    let process = launch_celeste_first(&test).await;
+    assert_eq!(process.command.program, app.join("eden-cli"));
+    let game = games.path().join("Switch/Celeste [01002B30028F6000][v0].nsp").display().to_string();
+    assert_eq!(process.command.args[0], "-c");
+    assert_eq!(process.command.args[2..], ["-f".to_owned(), "-g".to_owned(), game]);
+}
+
+/// On Windows, Lichii's zip holds lichii.exe and eden-cli.exe at its top.
+#[tokio::test]
+async fn on_windows_the_zip_installs_and_games_start_in_its_eden_cli() {
+    let zip = format!("lichii-windows-{}.zip", std::env::consts::ARCH);
+    let files: &[(&str, &[u8])] =
+        &[("lichii.exe", b"MZ lichii"), ("eden-cli.exe", b"MZ eden-cli"), ("qt.conf", b"[Paths]\n")];
+    let (test, games) = installed_from_zip(Platform::Windows, &zip, files).await;
+    let build = test.data_dir().join("plugins/emu-lichii/builds").join(TAG);
+    assert!(build.join("lichii.exe").is_file());
+
+    let process = launch_celeste_first(&test).await;
+    assert_eq!(process.command.program, build.join("eden-cli.exe"));
+    let game = games.path().join("Switch/Celeste [01002B30028F6000][v0].nsp").display().to_string();
+    assert_eq!(process.command.args[2..], ["-f".to_owned(), "-g".to_owned(), game]);
+}
+
+/// Open Lichii on Windows starts lichii.exe, Lichii's window.
+#[tokio::test]
+async fn on_windows_open_lichii_starts_lichii_exe() {
+    let zip = format!("lichii-windows-{}.zip", std::env::consts::ARCH);
+    let files: &[(&str, &[u8])] = &[("lichii.exe", b"MZ lichii"), ("eden-cli.exe", b"MZ eden-cli")];
+    let (test, _games) = installed_from_zip(Platform::Windows, &zip, files).await;
+    test.core.dispatch(Command::Navigate(launcher_core::Route::Emulators)).await.unwrap();
+    let button = open_button(&test).expect("an Open Lichii button");
+    let open =
+        Command::RunAction { plugin: lichii(), action: HOST_OPEN_EMULATOR.into(), game: None, args: button.args };
+    test.core.dispatch(open).await.unwrap();
+    let process = test.spawner.wait_for(1).await;
+    assert_eq!(process.command.program, test.data_dir().join("plugins/emu-lichii/builds").join(TAG).join("lichii.exe"));
+}
+
+/// On Windows, Lichii keeps its data in %APPDATA%\lichii, and its settings in a config folder
+/// inside it.
+#[tokio::test]
+async fn on_windows_lichii_s_folders_are_in_app_data() {
+    let home = tempfile::tempdir().unwrap();
+    let host = FakeHost::new().home(home.path()).platform(Some(Platform::Windows));
+    let test = host.built_in(launcher_api::PluginBox::code(LichiiPlugin)).boot_core().await;
+    test.core.dispatch(Command::Navigate(launcher_core::Route::Plugin(lichii()))).await.unwrap();
+    let folders = test.core.view().plugin_page.expect("Lichii's page").folders;
+    let default = |name: &str| folders.iter().find(|f| f.name == name).map(|f| f.default.clone());
+    let roaming = home.path().join("AppData/Roaming/lichii");
+    assert_eq!(default("lichii-data"), Some(roaming.display().to_string()));
+    assert_eq!(default("lichii-config"), Some(roaming.join("config").display().to_string()));
+}
+
+/// Lichii has no build for every processor (none for an Intel Mac): Install finds no version.
+#[tokio::test]
+async fn a_system_without_a_lichii_build_has_no_version_to_install() {
+    let host = FakeHost::new().platform(Some(Platform::Macos));
+    let other = |n: &str| serde_json::json!({ "name": n, "browser_download_url": "https://github.com/x", "size": 1 });
+    let releases = serde_json::json!([{ "tag_name": TAG, "prerelease": true, "assets": [
+        other("lichii-linux-x86_64.AppImage"), other("lichii-windows-x86_64.zip"),
+    ]}]);
+    host.http().serve(RELEASES, serde_json::to_vec(&releases).unwrap());
+    let test = host.built_in(launcher_api::PluginBox::code(LichiiPlugin)).boot_core().await;
+    let refused = test.core.dispatch(Command::InstallEmulator { plugin: lichii(), version: None }).await.unwrap_err();
+    assert!(refused.to_string().contains("has no version to install"), "{refused}");
+}

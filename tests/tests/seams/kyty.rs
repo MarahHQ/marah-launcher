@@ -729,15 +729,28 @@ async fn builds_come_from_the_release_repo_you_set_with_its_prereleases() {
     assert_eq!(emu.installed, ["KytyPS5-2026-10-13-c9013e6"], "not the cached upstream list");
 }
 
+/// KytyPS5 publishes macOS builds itself: a Mac gets them from KytyPS5/KytyPS5, as Linux and
+/// Windows do, and a newer release without a macOS file is passed over.
 #[tokio::test]
-async fn on_macos_builds_come_from_the_macos_test_builds_by_default() {
+async fn on_macos_builds_come_from_kytyps5_s_own_releases() {
     let host = FakeHost::new().platform(Some(Platform::Macos));
-    host.http().serve(FORK_RELEASES, b"[]".to_vec());
+    let file = |name: &str| serde_json::json!({ "name": name, "browser_download_url": format!("https://github.com/{name}"), "size": 1 });
+    let releases = serde_json::json!([
+        { "tag_name": "KytyPS5-2026-11-19-861b07b", "published_at": "2026-11-19T23:09:10Z",
+          "assets": [file("KytyPS5-2026-11-19-861b07b-Windows-x64.zip")] },
+        { "tag_name": "KytyPS5-2026-11-20-a1fc5ae", "published_at": "2026-11-20T01:02:14Z",
+          "assets": [file("KytyPS5-2026-11-20-a1fc5ae-Linux-x86_64.tar.gz"), file("KytyPS5-2026-11-20-a1fc5ae-macOS-x86_64.zip")] },
+    ]);
+    host.http().serve(RELEASES, serde_json::to_vec(&releases).unwrap());
     let test = host.built_in(launcher_api::PluginBox::code(KytyPlugin)).boot_core().await;
     test.core.dispatch(Command::Navigate(Route::Emulators)).await.unwrap();
     let sent = test.http.sent();
-    assert!(sent.iter().any(|u| u == FORK_RELEASES), "{sent:?}");
-    assert!(!sent.iter().any(|u| u == RELEASES), "{sent:?}");
+    assert!(sent.iter().any(|u| u == RELEASES), "{sent:?}");
+    assert!(!sent.iter().any(|u| u.contains("MarahHQ")), "{sent:?}");
+    let view = test.core.view();
+    let emu = view.emulators.emulators.iter().find(|e| e.plugin == kyty()).unwrap();
+    assert_eq!(emu.available.len(), 1, "only the release with a macOS file: {:?}", emu.available);
+    assert!(emu.available[0].contains("a1fc5ae"), "{:?}", emu.available);
 }
 
 #[tokio::test]
@@ -754,27 +767,22 @@ async fn a_release_repo_that_is_not_owner_slash_repo_is_never_asked() {
     assert_eq!(emu.installed, [V1], "still the upstream build");
 }
 
+/// Pre-releases are off by default on every system, a Mac too.
 #[tokio::test]
-async fn on_macos_pre_releases_are_on_by_default_and_turning_them_off_hides_the_test_builds() {
+async fn on_macos_pre_releases_are_off_by_default() {
     let host = FakeHost::new().platform(Some(Platform::Macos));
-    let test_build = serde_json::json!([{
+    let beta = serde_json::json!([{
         "tag_name": "KytyPS5-2026-10-13-c9013e6", "published_at": "2026-10-13T00:00:00Z", "prerelease": true,
         "assets": [{ "name": "KytyPS5-macOS-x86_64.zip", "browser_download_url": "https://github.com/x.zip", "size": 1 }],
     }]);
-    host.http().serve(FORK_RELEASES, serde_json::to_vec(&test_build).unwrap());
+    host.http().serve(RELEASES, serde_json::to_vec(&beta).unwrap());
     let test = host.built_in(launcher_api::PluginBox::code(KytyPlugin)).boot_core().await;
     let core = &test.core;
-    let shown = |key: &str| {
-        let view = core.view();
-        let panel = view.settings.panels.iter().find(|p| p.slot.plugin == kyty()).expect("the KytyPS5 panel");
-        panel.fields.iter().find(|f| f.key == key).map(|f| f.value.clone()).unwrap()
-    };
-    // The plugin writes its settings itself here, before anything is stored.
-    core.dispatch(action("use-own")).await.unwrap();
     core.dispatch(Command::Navigate(Route::Settings)).await.unwrap();
-    assert_eq!(shown("prereleases"), "true", "the form shows what the plugin does");
-
-    core.dispatch(set("prereleases", "false")).await.unwrap();
+    let view = core.view();
+    let panel = view.settings.panels.iter().find(|p| p.slot.plugin == kyty()).expect("the KytyPS5 panel");
+    let shown = panel.fields.iter().find(|f| f.key == "prereleases").map(|f| f.value.clone()).unwrap();
+    assert_eq!(shown, "false");
     let installed = core.dispatch(Command::InstallEmulator { plugin: kyty(), version: None }).await;
     assert!(installed.is_err(), "no build without pre-releases");
 }

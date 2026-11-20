@@ -1807,9 +1807,7 @@ fn library(home: &Path) -> Composed {
     }
     serve_steam_art(&host);
     // KytyPS5's builds: none yet, so its block shows no notice.
-    let platform = host.core().kernel().host().platform;
-    let (repo, _) = emu_kyty::release_source(&emu_kyty::default_settings(platform), platform).unwrap();
-    host.test.http.serve(&format!("https://api.github.com/repos/{repo}/releases?per_page=10"), "[]");
+    host.test.http.serve(emu_kyty::RELEASES, "[]");
     // Its community list, which the Catalog looks its PS5 offers up in: empty.
     host.test.http.serve(emu_kyty::COMPATIBILITY, "{}");
     host.dispatch(Command::SetConfig {

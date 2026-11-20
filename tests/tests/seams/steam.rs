@@ -39,7 +39,12 @@ struct Steam {
 /// Steam with Dota 2 (art in its cache) and Proton in its own folder, Portal 2 in a library on
 /// another drive, and a game still downloading.
 async fn boot() -> Steam {
-    let test = FakeHost::new().platform(Some(Platform::Linux)).built_in(PluginBox::code(SteamPlugin)).boot_core().await;
+    boot_on(Platform::Linux).await
+}
+
+/// [`boot`] on `platform`.
+async fn boot_on(platform: Platform) -> Steam {
+    let test = FakeHost::new().platform(Some(platform)).built_in(PluginBox::code(SteamPlugin)).boot_core().await;
     let (root, library) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let apps = root.path().join("steamapps");
     write(apps.join("appmanifest_570.acf"), acf(570, "Dota 2", 4, "dota 2 beta").as_bytes());
@@ -796,4 +801,139 @@ async fn a_steam_game_s_hub_has_steam_s_screenshots_words_and_trailer_kept_a_wee
     s.test.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
     s.test.core.dispatch(Command::OpenGame(dota)).await.unwrap();
     assert_eq!(s.test.http.sent().iter().filter(|u| *u == url).count(), asked, "{:?}", s.test.http.sent());
+}
+
+/// Starts Dota 2 and returns the command that asked Steam to.
+async fn play_dota(s: &Steam) -> launcher_testkit::SpawnedProcess {
+    s.test.core.dispatch(Command::Session(SessionCmd::Launch("emu-steam:570".parse().unwrap()))).await.unwrap();
+    s.test.spawner.wait_for(1).await
+}
+
+/// On a Mac, Play opens Steam's link with the system's `open`. Steam starts the game as a
+/// program in the game's folder, and the session follows that program, not one in a folder
+/// whose name only starts the same.
+#[tokio::test]
+async fn on_macos_play_opens_steam_s_link_and_follows_the_program_in_the_game_s_folder() {
+    let s = boot_on(Platform::Macos).await;
+    s.test.spawner.on_path("open", Path::new("/usr/bin/open"));
+    let open = play_dota(&s).await;
+    assert_eq!(open.command.program, Path::new("open"));
+    assert_eq!(open.command.args, ["steam://rungameid/570"]);
+    open.exit(0);
+
+    let common = s.root.path().join("steamapps/common");
+    s.test.processes.start(7000, &format!("{}/dota 2 beta tools/helper", common.display()));
+    s.test.clock.advance(Duration::from_millis(100)).await;
+    s.test.processes.exit(7000);
+    s.test.clock.advance(Duration::from_millis(100)).await;
+    assert!(s.test.core.view().running.is_some(), "a program of another folder isn't the game: its end isn't");
+
+    s.test.processes.start(7001, &format!("{}/dota 2 beta/game/dota.app/Contents/MacOS/dota", common.display()));
+    s.test.clock.advance(Duration::from_millis(700)).await;
+    assert!(s.test.core.view().running.is_some(), "Dota 2 runs");
+    s.test.processes.exit(7001);
+    s.test.until(Area::Sessions, |core| core.view().running.is_none()).await;
+}
+
+/// On Windows, Play runs steam.exe from Steam's folder, and the session follows the program
+/// in the game's folder.
+#[tokio::test]
+async fn on_windows_play_runs_steam_exe_and_follows_the_program_in_the_game_s_folder() {
+    let s = boot_on(Platform::Windows).await;
+    write(s.root.path().join("steam.exe"), b"MZ steam");
+    let steam_exe = play_dota(&s).await;
+    assert_eq!(steam_exe.command.program, s.root.path().join("steam.exe"));
+    assert_eq!(steam_exe.command.args, ["-silent", "steam://rungameid/570"]);
+    assert_eq!(
+        steam_exe.command.cwd,
+        s.root.path(),
+        "in Steam's folder, not the game's: it may stay as Steam's client"
+    );
+    steam_exe.exit(0);
+
+    let game = s.root.path().join("steamapps/common/dota 2 beta/game/bin/win64/dota2.exe");
+    s.test.processes.start(7001, &game.display().to_string());
+    s.test.clock.advance(Duration::from_millis(700)).await;
+    assert!(s.test.core.view().running.is_some(), "Dota 2 runs");
+    s.test.processes.exit(7001);
+    s.test.until(Area::Sessions, |core| core.view().running.is_none()).await;
+}
+
+#[tokio::test]
+async fn on_windows_without_steam_exe_play_says_to_install_steam() {
+    let s = boot_on(Platform::Windows).await;
+    let refused =
+        s.test.core.dispatch(Command::Session(SessionCmd::Launch("emu-steam:570".parse().unwrap()))).await.unwrap_err();
+    assert!(refused.to_string().contains("Install Steam"), "{refused}");
+}
+
+/// On Windows, steam.exe started by Play becomes Steam's client when Steam wasn't running: Log
+/// out asks it to shut down through steam.exe.
+#[tokio::test]
+async fn on_windows_log_out_shuts_down_the_steam_client_a_launch_started() {
+    let s = boot_on(Platform::Windows).await;
+    let steam_exe = s.root.path().join("steam.exe");
+    write(steam_exe.clone(), b"MZ steam");
+    s.test.spawner.prints(&steam_exe, b"");
+    let client = play_dota(&s).await;
+    let game = s.root.path().join("steamapps/common/dota 2 beta/dota2.exe");
+    s.test.processes.start(7001, &game.display().to_string());
+    s.test.clock.advance(Duration::from_millis(100)).await;
+    s.test.processes.exit(7001);
+    s.test.until(Area::Sessions, |core| core.view().running.is_none()).await;
+
+    let core = s.test.core.clone();
+    let out =
+        tokio::spawn(async move { core.dispatch(Command::System(launcher_core::system::SystemCommand::LogOut)).await });
+    let asked = |s: &Steam| s.test.spawner.ran().iter().any(|c| c.program == steam_exe && c.args == ["-shutdown"]);
+    for _ in 0..100 {
+        if asked(&s) {
+            break;
+        }
+        s.test.clock.advance(Duration::from_millis(20)).await;
+    }
+    assert!(asked(&s), "Steam was asked to shut down: {:?}", s.test.spawner.ran());
+    client.exit(0);
+    for _ in 0..100 {
+        if s.test.core.log_out_ready() {
+            break;
+        }
+        s.test.clock.advance(Duration::from_millis(20)).await;
+    }
+    out.await.unwrap().unwrap();
+}
+
+/// On a Mac, with nothing set, Steam's folder is in `~/Library/Application Support`, and the
+/// libraries Steam lists there are read too.
+#[tokio::test]
+async fn on_macos_steam_s_folder_and_its_libraries_are_read_with_nothing_set() {
+    let home = tempfile::tempdir().unwrap();
+    let drive = tempfile::tempdir().unwrap();
+    write(
+        drive.path().join("steamapps/appmanifest_440.acf"),
+        acf(440, "Team Fortress 2", 4, "Team Fortress 2").as_bytes(),
+    );
+    let root = home.path().join("Library/Application Support/Steam");
+    let list = format!(
+        "\"libraryfolders\"\n{{\n\t\"0\"\n\t{{\n\t\t\"path\"\t\t\"{}\"\n\t}}\n\t\"1\"\n\t{{\n\t\t\"path\"\t\t\"{}\"\n\t}}\n}}\n",
+        root.display(),
+        drive.path().display()
+    );
+    write(root.join("steamapps/libraryfolders.vdf"), list.as_bytes());
+    write(root.join("steamapps/appmanifest_570.acf"), acf(570, "Dota 2", 4, "dota 2 beta").as_bytes());
+    // Linux's Steam folder isn't read on a Mac.
+    write(
+        home.path().join(".local/share/Steam/steamapps/appmanifest_620.acf"),
+        acf(620, "Portal 2", 4, "Portal 2").as_bytes(),
+    );
+    let test = FakeHost::new()
+        .platform(Some(Platform::Macos))
+        .home(home.path())
+        .built_in(PluginBox::code(SteamPlugin))
+        .boot_core()
+        .await;
+    test.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
+
+    let titles: Vec<_> = test.core.view().home.games.into_iter().map(|g| g.title).collect();
+    assert_eq!(titles, ["Dota 2", "Team Fortress 2"], "Steam's Mac folder and the library it lists");
 }
