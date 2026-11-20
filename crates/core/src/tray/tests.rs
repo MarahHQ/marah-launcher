@@ -67,7 +67,8 @@ fn tray_of(
     unseen: usize,
     choices: &Choices,
 ) -> Tray {
-    let facts = Facts { system, drives, downloads, unseen, emulators: 2, theme: "Classic".into() };
+    let facts =
+        Facts { system, drives, downloads, unseen, emulators: 2, theme: "Classic".into(), vpn_chosen: String::new() };
     let (items, bar, rows) = vm(&facts, choices);
     Tray { items, bar, rows }
 }
@@ -344,4 +345,33 @@ fn bluetooth_turned_off_has_nothing_connected_and_leaves_the_bar() {
         (bluetooth.text.as_str(), bluetooth.value.as_str(), bluetooth.icon.as_str()),
         ("Off", "off", "bluetooth-off")
     );
+}
+
+#[test]
+fn where_the_system_can_t_tell_vpns_apart_only_the_picked_one_counts() {
+    let mut system = machine();
+    *data(&mut system, SystemArea::Vpn) = AreaData::Vpn {
+        finds_vpns: false,
+        can_import: false,
+        vpns: vec![Vpn { name: "Wi-Fi".into(), kind: "Network".into(), connected: true, ..Vpn::default() }],
+    };
+    let none = || Downloads::default();
+    let facts = |chosen: &str| Facts {
+        system: &system,
+        drives: &[],
+        downloads: none(),
+        unseen: 0,
+        emulators: 0,
+        theme: String::new(),
+        vpn_chosen: chosen.into(),
+    };
+    let in_bar = |facts: Facts| vm(&facts, &Choices::new()).0.into_iter().find(|i| i.id == "vpn").unwrap().in_bar;
+    assert!(!in_bar(facts("")), "a network with an address isn't a VPN");
+    assert!(!in_bar(facts("Proton")), "the picked one isn't connected");
+    assert!(in_bar(facts("Wi-Fi")), "the picked one is connected");
+}
+
+#[test]
+fn a_change_of_the_choices_moves_no_game_list() {
+    assert!(!crate::view::moves_game_lists(crate::changes::Area::Tray));
 }

@@ -168,6 +168,8 @@ pub(crate) struct Facts<'a> {
     /// How many emulators are on, and the theme in use.
     pub emulators: usize,
     pub theme: String,
+    /// The VPN the player picked for the downloads; "" for none.
+    pub vpn_chosen: String,
 }
 
 /// The sources of items, in the tray's order within a group.
@@ -274,6 +276,7 @@ pub(crate) fn view(s: &crate::snapshot::Snapshot) -> (Vec<launcher_ui_api::TrayI
         unseen,
         emulators: s.plugins.of_kind(launcher_api::PluginKind::Emulator).len(),
         theme,
+        vpn_chosen: s.vpn.chosen.clone(),
     };
     vm(&facts, &s.tray)
 }
@@ -415,8 +418,18 @@ fn areas(facts: &Facts) -> Vec<Item> {
         A::Vpn,
         Item::new("vpn", Status, Needed, "VPN", "shield").opens("settings", "Downloads"),
         |item, data| {
-            let D::Vpn { vpns, .. } = data else { return };
-            let on = vpns.iter().find(|v| v.connected);
+            let D::Vpn { finds_vpns, vpns, .. } = data else { return };
+            // As the downloads' VPN rule picks it: the player's VPN; else, where the system
+            // tells VPNs apart, the first connected one. Where it can't, every network with an
+            // address is listed, so only the picked one counts.
+            let connected = |v: &&launcher_api::Vpn| v.connected;
+            let on = if !facts.vpn_chosen.is_empty() {
+                vpns.iter().filter(connected).find(|v| v.name == facts.vpn_chosen)
+            } else if *finds_vpns {
+                vpns.iter().find(connected)
+            } else {
+                None
+            };
             item.needed = on.is_some();
             (item.text, item.value) = match on {
                 Some(vpn) => (format!("Connected · {}", vpn.name), "connected".into()),

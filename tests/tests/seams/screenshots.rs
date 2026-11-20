@@ -1485,11 +1485,11 @@ fn shoot_desktop_system(window: &MinimalSoftwareWindow, out: &Path) {
     }
 }
 
-/// The top bar's status icons in each built-in theme, one area in each state: the network is
-/// ready, the sound still reads, and Bluetooth and the drives are disabled (no adapter, a long
-/// reason), as `<theme>-status-areas.png`; then with the keys on Bluetooth's icon, which shows
-/// why, as `<theme>-status-disabled-focused.png`; then on the drives' icon, last but one in the
-/// bar, whose long reason moves in from the window's edge, as `<theme>-status-disabled-edge.png`.
+/// The top bar in each built-in theme, one area in each state: the network is ready, the sound
+/// still reads, and Bluetooth and the drives can't be used (no adapter, a long reason), as
+/// `<theme>-status-areas.png`: only the network is in the bar. Then the tray with the keys on
+/// Bluetooth's row, dimmed with why, and the drives' long reason on one line, as
+/// `<theme>-tray-unavailable.png`.
 fn shoot_status_areas(window: &MinimalSoftwareWindow, out: &Path) {
     use launcher_core::system::Place;
     use slint::platform::Key;

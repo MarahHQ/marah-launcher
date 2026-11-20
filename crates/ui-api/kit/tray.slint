@@ -13,9 +13,9 @@ import { Hint } from "ask.slint";
 
 // The top bar's tray, the same in every theme: like a desktop's system tray, the bar shows the
 // items that matter and the tray lists every one (`Vm.tray`, `Vm.tray-rows`). The core builds the
-// list and says where each item shows; nothing here names an item. The tray opens from the ⌃ at
-// right after the top bar's Settings button (`TrayButton`), under it, or in its Edit view from Settings → Launcher → Top
-// bar, next to that row.
+// list and says where each item shows; nothing here names an item. The tray opens from the ⌃
+// right after the top bar's Settings button (`TrayButton`), under it, or in its Edit view from
+// Settings → Launcher → Top bar, next to that row.
 //
 // Its rows are `Vm.tray-rows`, Status first, then Shortcuts. Row -1 is the header's button: Edit,
 // or Done in the Edit view. Each input works on its own:
@@ -170,7 +170,8 @@ export global Tray {
         // △ on a pad arrives as "/"; on a keyboard, / or the Menu key.
         if ((text == "/" || text == Key.Menu) && root.row >= 0) { root.cycle(root.row); return true; }
         if (root.editing && root.row >= 0 && (text == Key.LeftArrow || text == Key.RightArrow)) {
-            let step = (text == Key.RightArrow) != Look.rtl ? 1 : -1;
+            // The choices read left to right in every direction, as the keys do.
+            let step = text == Key.RightArrow ? 1 : -1;
             root.set-show(root.row, root.choice-at(Math.clamp(root.place-of(root.item(root.row).show) + step, 0, 2)));
             return true;
         }
@@ -452,7 +453,7 @@ component TrayRow inherits VerticalLayout {
     }
 }
 
-// The tray, under the ⌃ at the end of the top bar, or next to the Settings row that opened its
+// The tray, under the ⌃ after the top bar's Settings button, or next to the Settings row that opened its
 // Edit view. Put it over your screens, the size of the window: `Overlays` does.
 export component TraySheet inherits Rectangle {
     // Closed by a click outside it. While it fades out, the clicks go to the screen behind.
@@ -460,6 +461,10 @@ export component TraySheet inherits Rectangle {
     // A system panel opened: the tray gives way to it.
     property <int> panel: Sys.open;
     changed panel => { if (root.panel >= 0) { Tray.close(); } }
+    // A row went while the tray is open (the battery, once the power is read): the keys stay
+    // on a row there is.
+    property <int> count: Tray.rows;
+    changed count => { if (Tray.row >= root.count) { Tray.row = root.count - 1; } }
 
     property <length> margin: 16 * Look.px;
     property <length> gap: 8 * Look.px;

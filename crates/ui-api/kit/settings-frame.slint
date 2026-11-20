@@ -7,6 +7,7 @@ import { BackButton } from "widgets.slint";
 import { Icon } from "icon.slint";
 import { Motion } from "motion.slint";
 import { Prefs, RailTab } from "settings-rows.slint";
+import { Reveal } from "reveal.slint";
 
 // Each section's name and icon, by its number, on the sheet on screen (see `Prefs`).
 export global Sections {
@@ -96,6 +97,23 @@ export component PageSection inherits VerticalLayout {
         if (Prefs.current-tab == root.tab) {
             root.show(self.absolute-position.y);
             jumper.running = true;
+        }
+    }
+    // Settings opened on this section (`Prefs.open-at`): it scrolls into view a frame after the
+    // page is made, once the page is laid out.
+    property <bool> arriving;
+    init => {
+        if (Prefs.arrive == root.section) {
+            Prefs.arrive = -1;
+            root.arriving = true;
+        }
+    }
+    first-frame := Reveal { }
+    property <bool> laid-out: first-frame.in-view;
+    changed laid-out => {
+        if (root.laid-out && root.arriving) {
+            root.arriving = false;
+            root.show(root.absolute-position.y);
         }
     }
     jumper := Timer {

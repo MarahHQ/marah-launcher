@@ -300,3 +300,71 @@ fn the_keys_stay_on_the_tray_when_an_item_comes_into_the_bar() {
         host.settle();
     }
 }
+
+/// A row that opens a Settings section opens Settings on it, in sight; the battery opens the
+/// power menu.
+#[test]
+fn a_row_opens_its_settings_section_and_the_battery_the_power_menu() {
+    for theme in THEMES {
+        let mut host = shown(theme);
+        host.press_first("tray");
+        host.press("tray-item", "os-updates");
+        // The page scrolls to the section a frame after it is laid out.
+        host.settle();
+        assert_eq!(host.core().view().screen, launcher_ui_api::ScreenId::Settings, "{theme}");
+        let lit = host.all("settings-tab:System").iter().any(|e| e.accessible_checked() == Some(true));
+        assert!(lit, "{theme}: the rail lights System");
+        let row = host.first("system-internet");
+        let y = row.absolute_position().y;
+        assert!(y >= 0.0 && y + row.size().height <= 900.0, "{theme}: System's first row is in sight: {y}");
+        host.dispatch(Command::Navigate(launcher_core::Route::Home));
+        host.settle();
+
+        host.press_first("status:power");
+        assert!(host.count("power-menu") > 0, "{theme}: the battery opens the power menu");
+        host.navigate(Key::Escape);
+    }
+}
+
+/// The focused row stays in sight when the tray is taller than the window, in the list and in
+/// the Edit view.
+#[test]
+fn the_focused_row_stays_in_sight_when_the_tray_scrolls() {
+    for theme in THEMES {
+        let mut host = shown(theme);
+        host.dispatch(Command::Pref(launcher_core::Pref::Scale, serde_json::json!(1.4)));
+        host.resize(1280.0, 720.0);
+        host.settle();
+        let in_sight = |host: &Composed| {
+            let panel = host.first("tray-panel");
+            let (p, ph) = (panel.absolute_position().y, panel.size().height);
+            let row = host.all("tray-item").into_iter().find(|e| e.accessible_item_selected() == Some(true)).unwrap();
+            let (r, rh) = (row.absolute_position().y, row.size().height);
+            assert!(r >= p - 0.5 && r + rh <= p + ph + 0.5, "row {r}+{rh} in panel {p}+{ph}");
+        };
+        host.press_first("tray");
+        // The rows below the card's edge aren't drawn: count them in the view.
+        let rows = host.core().view().tray_rows.len();
+        for _ in 1..rows {
+            host.navigate(Key::DownArrow);
+        }
+        assert_eq!(host.focused("tray-item"), ["themes"], "{theme}");
+        in_sight(&host);
+        assert!(host.count("tray-item") < rows, "{theme}: the tray is taller than the window");
+        // Back up to Edit, into the Edit view, down to the last row again.
+        for _ in 0..rows {
+            host.navigate(Key::UpArrow);
+        }
+        host.navigate(Key::Return);
+        for _ in 0..rows {
+            host.navigate(Key::DownArrow);
+        }
+        assert_eq!(host.focused("tray-item"), ["themes"], "{theme}: the Edit view");
+        in_sight(&host);
+        host.navigate(Key::Escape);
+        host.navigate(Key::Escape);
+        host.dispatch(Command::Pref(launcher_core::Pref::Scale, serde_json::json!(1.0)));
+        host.resize(1600.0, 900.0);
+        host.settle();
+    }
+}

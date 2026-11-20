@@ -176,6 +176,8 @@ export global Prefs {
     }
     // The Settings tab Settings opens on next, by its name; "" for the first.
     in-out property <string> to-tab;
+    // The section a page that opens scrolls to once it is laid out (`PageSection`); -1 for none.
+    in-out property <int> arrive: -1;
     // The Settings tab called `name` (`settings-tabs`); the first for a name it doesn't have.
     public pure function tab-named(name: string) -> int {
         root.settings-tabs[1].name == name ? 1 : root.settings-tabs[2].name == name ? 2
@@ -189,6 +191,8 @@ export global Prefs {
             root.show(root.tab-named(name));
         } else {
             root.to-tab = name;
+            // The page isn't there yet: its section scrolls into view as it is laid out.
+            root.arrive = root.settings-tabs[root.tab-named(name)].section;
             Commands.navigate("settings");
         }
     }

@@ -24,6 +24,7 @@ and the clock. It works like a desktop's system tray: the bar shows only the imp
 and the tray lists every one.
 
 - While a game runs, the top bar shows the game with **Resume** and **Stop**.
+- While an emulator download runs, it shows the download's progress.
 - The internet, and the battery on a PC that has one, are always in the bar.
 - Other icons come into the bar while they matter, and leave when they don't:
   - Downloads, while a download or an install runs, and once one finishes, until you open
