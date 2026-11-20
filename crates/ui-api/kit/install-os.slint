@@ -3,6 +3,7 @@ import { Commands } from "commands.slint";
 import { Tokens } from "../tokens.slint";
 import { Look } from "look.slint";
 import { Icon } from "icon.slint";
+import { Button } from "button.slint";
 import { Brand } from "../brand.slint";
 
 // Marah OS's USB stick (`Vm.system.stick`): "Welcome to Marah OS" first, with Try it or Install
@@ -11,7 +12,7 @@ import { Brand } from "../brand.slint";
 //   welcome     Try it (0), Install on this PC (1)
 //   disks       one row per disk, then "Choose partitions instead", then Back
 //   confirm     Erase and install (0), Back (1)
-//   installing  no keys: it can't stop halfway
+//   installing  Cancel (0); Esc too. After the press it says "Stopping…" and takes no key.
 //   done        Restart (0)
 //   failed      Back (0)
 export global Setup {
@@ -20,17 +21,36 @@ export global Setup {
     in-out property <int> focus;
     // The disk picked, as an index into `Vm.system.disks`.
     in-out property <int> disk;
+    // The install job: the last system job, when it is an install.
+    out property <SystemJobItem> job: Vm.system.jobs.length > 0 && Vm.system.jobs[Vm.system.jobs.length - 1].kind == "install"
+        ? Vm.system.jobs[Vm.system.jobs.length - 1] : { id: -1 };
+    // The id of the install job a cancel went to, or -1. One cancel per job: a second press
+    // sends nothing.
+    in-out property <int> cancelled: -1;
+    // A cancel went to the running install. The installer stops if it hasn't started to write
+    // the disk; after that it goes on, and its progress text says it can't stop. The job says
+    // neither, so the screen shows the installer's text and never claims more.
+    out property <bool> stopping: root.job.id >= 0 && root.cancelled == root.job.id;
+    out property <bool> can-cancel: root.step == "installing" && root.job.id >= 0 && root.job.state == "running" && !root.stopping;
 
     out property <bool> shown: Vm.system.stick && root.step != "";
     out property <int> choices: root.step == "welcome" ? 2
         : root.step == "disks" ? Vm.system.disks.length + 2
         : root.step == "confirm" ? 2
+        : root.step == "installing" ? 1
         : root.step == "done" || root.step == "failed" ? 1 : 0;
 
     public function go(step: string) {
         root.step = step;
         root.focus = 0;
         if (step == "disks") { Commands.refresh-system(); }
+    }
+    // Asks the installer to stop, once, while it runs.
+    public function cancel() {
+        if (!root.can-cancel) { return; }
+        root.cancelled = root.job.id;
+        Commands.cancel-system-job(root.job.id);
+        Host.play-sound("back");
     }
     public function activate() {
         let f = root.focus;
@@ -54,6 +74,8 @@ export global Setup {
                 root.go("disks");
             }
             Host.play-sound("select");
+        } else if (root.step == "installing") {
+            root.cancel();
         } else if (root.step == "done") {
             Commands.restart-pc();
         } else if (root.step == "failed") {
@@ -71,6 +93,7 @@ export global Setup {
         } else if (text == Key.Escape || text == Key.Backspace) {
             if (root.step == "disks") { root.go("welcome"); }
             else if (root.step == "confirm" || root.step == "failed") { root.go("disks"); }
+            else if (root.step == "installing") { root.cancel(); }
         }
     }
 }
@@ -122,9 +145,7 @@ export component InstallOs inherits Rectangle {
     background: Tokens.color-overlay.with-alpha(0.949);
     TouchArea {}
     // The install job: its progress, and how it ended.
-    property <[SystemJobItem]> jobs: Vm.system.jobs;
-    property <SystemJobItem> job: root.jobs.length > 0 && root.jobs[root.jobs.length - 1].kind == "install"
-        ? root.jobs[root.jobs.length - 1] : { id: -1 };
+    property <SystemJobItem> job: Setup.job;
     property <string> job-state: root.job.state;
     changed job-state => {
         if (Setup.step == "installing" && root.job-state == "done") { Setup.go("done"); }
@@ -191,6 +212,18 @@ export component InstallOs inherits Rectangle {
             accessible-role: progress-indicator;
             accessible-label: "install-progress";
             accessible-value: Math.max(0, root.job.percent);
+        }
+        if Setup.step == "installing" : HorizontalLayout {
+            alignment: Look.rtl ? end : start;
+            Button {
+                text: Setup.stopping ? "Stopping…" : "Cancel";
+                enabled: Setup.can-cancel;
+                focused: Setup.focus == 0 && Setup.can-cancel;
+                accessible-label: "install-cancel";
+                accessible-value: self.text;
+                accessible-enabled: self.enabled;
+                clicked => { Setup.focus = 0; Setup.cancel(); }
+            }
         }
 
         if Setup.step == "welcome" : VerticalLayout {

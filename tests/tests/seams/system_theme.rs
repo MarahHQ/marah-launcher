@@ -493,6 +493,115 @@ fn on_the_stick_welcome_leads_to_a_disk_a_firm_question_and_the_install() {
     assert_eq!(system.read(|m| m.restarts), 1, "Restart");
 }
 
+/// The stick's install of Marah OS running in `theme`, held until the test ends it; the
+/// installer ends it as "Cancelled", as it does when it stops at a cancel.
+fn installing(theme: &str) -> (FakeSystem, Composed) {
+    use slint::platform::Key;
+    let system = machine();
+    system.with(|m| {
+        m.disks = vec![InstallDisk {
+            path: PathBuf::from("/dev/nvme0n1"),
+            bytes: 512_000_000_000,
+            windows: false,
+            usb: false,
+            model: "Samsung 970".into(),
+        }];
+        m.install_steps = vec![(5, "Getting the disk ready".into())];
+        m.install_result = Some(Err("Cancelled".into()));
+        m.hold_jobs = true;
+    });
+    let mut host = shown(&system, Place { whole_screen: true, own_os: true, stick: true });
+    host.ui.switch(&id(theme)).unwrap();
+    // The library is in and its art loaded: the boot screen is gone, and takes no click.
+    host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
+    host.load_images();
+    host.settle();
+    assert_eq!(host.count("boot"), 0, "{theme}");
+    // Install on this PC, the disk, Erase and install.
+    for key in [Key::DownArrow, Key::Return, Key::Return, Key::Return] {
+        host.navigate(key);
+    }
+    assert_eq!(host.value("install-os"), "installing", "{theme}");
+    (system, host)
+}
+
+/// The `CancelJob`s the theme asked for and the shell hasn't carried out yet.
+fn cancels(host: &Composed) -> Vec<u64> {
+    use launcher_ui_host::UiRequest;
+    let requests = host.requests.borrow();
+    let ids = requests.iter().filter_map(|r| match r {
+        UiRequest::Core(Command::System(SystemCommand::CancelJob(id))) => Some(*id),
+        _ => None,
+    });
+    ids.collect()
+}
+
+/// One press of the install's Cancel, `how`, with nothing carried out.
+fn press_cancel(host: &mut Composed, how: &str) {
+    use launcher_ui_host::PadButton;
+    use slint::platform::{Key, PointerEventButton, WindowEvent};
+    match how {
+        "click" => {
+            let target = host.first("install-cancel");
+            let (at, size) = (target.absolute_position(), target.size());
+            let position = slint::LogicalPosition::new(at.x + size.width / 2.0, at.y + size.height / 2.0);
+            let window = host.instance().window();
+            window.dispatch_event(WindowEvent::PointerMoved { position });
+            window.dispatch_event(WindowEvent::PointerPressed { position, button: PointerEventButton::Left });
+            window.dispatch_event(WindowEvent::PointerReleased { position, button: PointerEventButton::Left });
+        }
+        "Enter" => host.send_key(Key::Return),
+        "Esc" => host.send_key(Key::Escape),
+        "pad A" => host.shell.ui.pad(PadButton::South).unwrap(),
+        "pad B" => host.shell.ui.pad(PadButton::East).unwrap(),
+        _ => unreachable!("{how}"),
+    }
+}
+
+/// While Marah OS installs, Cancel shows with the keys' focus, and the hints show its key. A
+/// click, Enter or the pad's A on it, Esc and the pad's B each send one cancel for the install
+/// job. Then it says "Stopping…", takes no press, and sends nothing more; the hints go. The
+/// installer then decides: here it stopped, and the screen shows "Cancelled".
+#[test]
+fn while_it_installs_cancel_asks_the_installer_to_stop_once_in_every_theme() {
+    const WAYS: [&str; 5] = ["click", "Enter", "pad A", "Esc", "pad B"];
+    for theme in ["classic", "default"] {
+        for how in WAYS {
+            let (system, mut host) = installing(theme);
+            let job = host.core().view().system.jobs.last().map(|j| j.id as u64).expect("the install job");
+            assert_eq!(host.focused("install-cancel"), ["Cancel"], "{theme}: Cancel has the keys' focus");
+            assert_eq!(host.first("install-cancel").accessible_enabled(), Some(true), "{theme}");
+            assert!(host.values("hint").contains(&"Cancel".to_owned()), "{theme}: {:?}", host.values("hint"));
+            // The pad's ○, or Esc when the keyboard was used last.
+            let keys = host.values("hint-key");
+            assert!(keys == ["○"] || keys == ["Esc"], "{theme}: the Back key cancels: {keys:?}");
+
+            press_cancel(&mut host, how);
+            assert_eq!(cancels(&host), [job], "{theme} {how}: one cancel, for the install job");
+            host.pump();
+            host.settle();
+            assert_eq!(host.value("install-os"), "installing", "{theme} {how}: the installer decides");
+            assert_eq!(host.value("install-cancel"), "Stopping…", "{theme} {how}");
+            assert_eq!(host.first("install-cancel").accessible_enabled(), Some(false), "{theme} {how}");
+            assert!(host.focused("install-cancel").is_empty(), "{theme} {how}: no ring on what can't be pressed");
+            assert_eq!(host.count("hint"), 0, "{theme} {how}: no key does anything now");
+
+            for again in WAYS {
+                press_cancel(&mut host, again);
+                assert!(cancels(&host).is_empty(), "{theme} {how}, then {again}: sent a second cancel");
+                host.pump();
+                host.settle();
+            }
+            assert_eq!(host.value("install-text"), "Getting the disk ready", "{theme}: the installer's own words");
+
+            system.finish_jobs();
+            host.settle();
+            assert_eq!(host.value("install-os"), "failed", "{theme} {how}");
+            assert_eq!(host.value("install-text"), "Cancelled", "{theme} {how}");
+        }
+    }
+}
+
 #[test]
 fn on_the_stick_try_it_leaves_the_launcher_and_choose_partitions_starts_that_installer() {
     let system = machine();

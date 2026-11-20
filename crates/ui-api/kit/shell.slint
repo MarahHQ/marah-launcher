@@ -30,6 +30,9 @@ export { Hint } from "ask.slint";
 
 // The hints for what is up, in the order the keys answer: an overlay's, then the screen's.
 export global ShellHints {
+    // No key does anything: hide the hints. The OS install, once Cancel can't be pressed, with
+    // no dialog over it.
+    out property <bool> hidden: PowerAsk.asking == "" && Setup.shown && Setup.step == "installing" && !Setup.can-cancel;
     // `sort-open`: a sort menu of the theme's is open. `grid-header`: the focus is on a grid's
     // header rows (search, filters). `home`: the theme's own hints for Home, empty elsewhere.
     // `trailer-key`: the shown game has a trailer, and its key opens it.
@@ -42,6 +45,9 @@ export global ShellHints {
             { pad: "R2", key: "Enter", label: "Done" },
             { pad: "○", key: "Esc", label: "Close" },
         ]
+        : Setup.shown && Setup.step == "installing" ? (Setup.can-cancel ? [
+            { pad: "○", key: "Esc", label: "Cancel" },
+        ] : [])
         : Vm.has-install-prompt ? [
             { pad: "✕", key: "Enter", label: Prompt.focus == 0 ? "Install and play" : "Not now" },
             { pad: "○", key: "Esc", label: "Not now" },

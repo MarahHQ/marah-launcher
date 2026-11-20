@@ -1379,6 +1379,7 @@ shots! {
     the_keyboard => shoot_keyboard,
     the_pad_hints => shoot_pad_hints,
     the_system_controls => shoot_system,
+    the_os_install_s_cancel => shoot_install_cancel,
     the_status_areas => shoot_status_areas,
     the_system_controls_on_a_desktop => shoot_desktop_system,
     the_stick_s_disks_with_none_offered => shoot_disks_reason,
@@ -1531,6 +1532,47 @@ fn shoot_status_areas(window: &MinimalSoftwareWindow, out: &Path) {
         follow(&mut host);
         shoot(window, &out.join(format!("{theme}-status-disabled-edge.png")));
     }
+}
+
+/// The stick's install of Marah OS in each built-in theme: while it runs, with the keys on
+/// Cancel, as `<theme>-install-cancel-running.png`; after Esc, with "Stopping…" and the
+/// installer's text, as `<theme>-install-cancel-stopping.png`.
+fn shoot_install_cancel(window: &MinimalSoftwareWindow, out: &Path) {
+    use launcher_core::system::{Place, SystemCommand};
+    use slint::platform::Key;
+    window.set_size(slint::PhysicalSize::new(WIDTH, HEIGHT));
+    for theme in [theme_classic::ID, theme_default::ID] {
+        let system = launcher_testkit::FakeSystem::new();
+        system.with(|m| {
+            m.disks = vec![launcher_api::InstallDisk {
+                path: "/dev/nvme0n1".into(),
+                bytes: 512_000_000_000,
+                windows: false,
+                usb: false,
+                model: "Samsung 970".into(),
+            }];
+            m.install_steps = vec![(5, "Getting the disk ready".into())];
+            m.hold_jobs = true;
+        });
+        let place = Place { whole_screen: true, own_os: true, stick: true };
+        let plugin = system.plugin();
+        let mut host = composed_on_current_platform(|h| h.place(place).plugin(plugin));
+        host.ui.start_with(Some(id(theme))).unwrap();
+        host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
+        host.dispatch(Command::System(SystemCommand::Refresh));
+        host.dispatch(Command::Notice(launcher_core::NoticeCmd::DismissAll));
+        follow(&mut host);
+        // Install on this PC, the disk, Erase and install.
+        for k in [Key::DownArrow, Key::Return, Key::Return, Key::Return] {
+            key(&mut host, k);
+            follow(&mut host);
+        }
+        shoot(window, &out.join(format!("{theme}-install-cancel-running.png")));
+        key(&mut host, Key::Escape);
+        follow(&mut host);
+        shoot(window, &out.join(format!("{theme}-install-cancel-stopping.png")));
+    }
+    not_blank(out, &["classic-install-cancel-running", "default-install-cancel-stopping"]);
 }
 
 /// Settings → Send ratings in each built-in theme: the ratings to pick from, then a report in

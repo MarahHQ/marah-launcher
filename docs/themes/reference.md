@@ -318,7 +318,7 @@ Tests in `contract.rs` hold every kit file to three rules:
 | `game-stage.slint` | `GameStage` | A game on the whole screen, as its launch and its closing show it: its art, its cover, its title and a turning ring. |
 | `games.slint` | `Games` | The games on screen and the theme's own selection of one. `select` moves it at once, `ShellKeys` sends it to the core `Look.select-after` after the last move, and `select-now` selects at once, for a click. Also the search, filters, sort and next page of the grid on screen, and a card's eye (`hide`) and main action (`act`). |
 | `icon.slint` | `Icon` | The launcher's icons, drawn as paths. |
-| `install-os.slint` | `Setup`, `InstallOs` | The OS's USB stick: welcome, the disks, the question before erasing, progress. |
+| `install-os.slint` | `Setup`, `InstallOs` | The OS's USB stick: welcome, the disks, the question before erasing, progress, and how it ended. While it installs, Cancel (and Esc) asks the installer to stop, once; then the button says "Stopping…" and takes no press. The installer stops if it hasn't started to write the disk. After that it goes on, and its progress text says so. |
 | `install-prompt.slint` | `Prompt`, `InstallPrompt` | The prompt to install an emulator before a first play. |
 | `keyboard.slint` | `Osk`, `TextField`, `OnScreenKeyboard` | A text field, and the on-screen keyboard it opens for a controller. A field with `picking` shows a row of picks over the keys, such as a search's matches or recent searches. |
 | `lingering.slint` | `Lingering` | Keeps a screen or a sheet on screen while it goes out. |
@@ -344,7 +344,7 @@ Tests in `contract.rs` hold every kit file to three rules:
 | `settings-rows.slint` | `Prefs`, `Tab`, `RailTab`, `Header`, `Row`, `Value`, `Editor`, `FieldRow`, `FolderRow` | The rows of a settings sheet, and where the keys are in it. The kit's sheets use the rail (`RailTab`); `Tab` stays for themes that draw tabs. |
 | `settings-sections.slint` | `GamesSection`, `UpdatesSection`, `LauncherSection`, `DownloadsSection`, `PcSection`, `SystemSection`, `BackupSection`, `PowerSection` | The rows of each Settings section. |
 | `sheet-frame.slint` | `SheetFrame` | A side sheet: the wash behind and the panel that slides in. A click on the wash goes back. |
-| `shell.slint` | `Hint`, `ShellHints`, `Screens`, `ShellKeys`, `Overlays` | The shell's keys (`ShellKeys`), the key hints (`ShellHints.pick`), what opens over the screens (`Overlays`), which kind of screen is up (`Screens.home`, `.list`, `.sheet`), and the side a screen moves on (`Screens.side(leaving)`). |
+| `shell.slint` | `Hint`, `ShellHints`, `Screens`, `ShellKeys`, `Overlays` | The shell's keys (`ShellKeys`), the key hints (`ShellHints.pick`; hide them while `ShellHints.hidden`, when no key does anything), what opens over the screens (`Overlays`), which kind of screen is up (`Screens.home`, `.list`, `.sheet`), and the side a screen moves on (`Screens.side(leaving)`). |
 | `shot-viewer.slint` | `Viewer`, `ShotViewer` | A game's screenshots, full screen. |
 | `slot-actions.slint` | `SlotActions` | Plugin actions as round buttons. |
 | `slot-badges.slint` | `SlotBadges` | Plugin badges as small tags with a dot in their tone. |
