@@ -337,6 +337,15 @@ impl crate::bind::ImageSource for ImageCache {
                 if want && !self.failed.contains(&key) {
                     self.wanted.borrow_mut().push(key);
                 }
+                // A full image that isn't ready shows its card copy, when that is in memory: the
+                // Game Hub's cover then never flashes the title card for art its card has.
+                if size == ImageSize::Full {
+                    let card = (image.clone(), ImageSize::Thumb, crop);
+                    if let Some(i) = self.loaded.get(&card) {
+                        self.used.borrow_mut().insert(card, self.frame.get());
+                        return i.clone();
+                    }
+                }
                 Image::default()
             }
         }
@@ -511,5 +520,28 @@ mod tests {
             4,
             "the newest stayed"
         );
+    }
+
+    /// The Game Hub's cover, while its full copy loads: the card's copy, so the hub never shows
+    /// the title card for art the card already has. The full copy still loads, and then shows.
+    #[test]
+    fn a_full_image_shows_its_card_copy_while_it_loads() {
+        let mut cache = ImageCache::default();
+        let card = (art(1), ImageSize::Thumb, Crop::Ps4Band);
+        let full = (art(1), ImageSize::Full, Crop::Ps4Band);
+        cache.insert_pixels(card.clone(), Some(Ok(SharedPixelBuffer::<Rgba8Pixel>::new(4, 6))));
+
+        cache.begin_render();
+        let shown = cache.image(&art(1), ImageSize::Full, Crop::Ps4Band, true);
+        cache.end_render();
+        assert_eq!(shown.size().width, 4, "the card's copy shows");
+        assert_eq!(cache.take_wanted(), vec![full.clone()], "the full copy is still asked for");
+
+        cache.insert_pixels(full, Some(Ok(SharedPixelBuffer::<Rgba8Pixel>::new(8, 12))));
+        cache.begin_render();
+        assert_eq!(cache.image(&art(1), ImageSize::Full, Crop::Ps4Band, true).size().width, 8, "then the full one");
+        // Another cut is another image: no copy of it shows.
+        assert_eq!(cache.image(&art(1), ImageSize::Full, Crop::None, true).size().width, 0);
+        cache.end_render();
     }
 }

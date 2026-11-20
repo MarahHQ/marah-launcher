@@ -6,6 +6,8 @@
 #   scripts/record_demo.sh --binary <file>    records with this binary
 #   scripts/record_demo.sh --keep             keeps the work folder and prints where it is
 #   scripts/record_demo.sh --online           lets the launcher use the network
+#   scripts/record_demo.sh --library <dir>    shows your games: a copy of this data folder,
+#                                             such as the one in ~/.local/share
 #
 # The launcher runs on a virtual display (Xvfb) at 1920x1080. HOME and the XDG folders point
 # into a new temporary folder, so it sees none of your settings, games or files. Its library is
@@ -15,8 +17,13 @@
 # pass --online: no downloads, no store art, no update check. Programs that would open a browser
 # or a video player are stubs that do nothing.
 #
-# The path: Home, the Library, a game's Game Hub, back to Home, Settings, and back to Home, so
-# the loop closes. It takes about 25 seconds.
+# With --library, the launcher starts on a copy of your data folder (its settings, cache and
+# plugins) and so shows your own games and art. It reads your game folders where they are and
+# never writes to your data folder. Look at every screen before you publish the WebP: it shows
+# your library.
+#
+# The path: down Home's systems, the Library, its system chips, a search, a game's Game Hub, and
+# back to Home, so the loop closes. It takes about 20 seconds.
 #
 # Linux only. Needs Xvfb (xorg-x11-server-Xvfb on Fedora, xvfb on Ubuntu and Debian), xdotool,
 # ffmpeg with libx264 and libwebp, and ImageMagick 7 (magick), plus unshare (util-linux) for the
@@ -30,11 +37,13 @@ root=$PWD
 binary=""
 keep=false
 online=false
+library=""
 while (($#)); do
     case "$1" in
         --binary) binary=${2:?--binary needs a file}; shift 2 ;;
         --keep) keep=true; shift ;;
         --online) online=true; shift ;;
+        --library) library=${2:?--library needs a folder}; shift 2 ;;
         -h | --help) sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
         *) echo "unknown option: $1 (see --help)" >&2; exit 2 ;;
     esac
@@ -88,6 +97,7 @@ if [[ -z $binary ]]; then
     cargo build --release -p launcher-app
     binary=target/release/$bin_name
 fi
+[[ -z $library || -f $library/config.json ]] || { echo "no config.json in $library" >&2; exit 1; }
 [[ -x $binary ]] || { echo "no launcher binary at $binary" >&2; exit 1; }
 binary=$(realpath "$binary")
 
@@ -158,6 +168,15 @@ make_game() {
 EOF
 }
 
+data_dir=$home/.local/share/$data_folder
+mkdir -p "$data_dir"
+if [[ -n $library ]]; then
+    # Your library: a copy of your data folder, so the launcher writes to the copy only.
+    cp -a --reflink=auto "$library/config.json" "$data_dir/"
+    for part in cache plugins; do
+        [[ -d $library/$part ]] && cp -a --reflink=auto "$library/$part" "$data_dir/"
+    done
+else
 make_game sample-windows-game "Sample Windows Game" Adventure 2012-09-26 '#1d4e89' '#0b1a2e' \
     "A made-up adventure for the demo. Its title comes from the sample catalogs."
 make_game sample-platformer "Sample Platformer" Platformer 2024-03-14 '#2a9d8f' '#0b2a28' \
@@ -170,11 +189,16 @@ make_game sample-racer "Sample Racer" Racing 2025-01-30 '#e9c46a' '#3a2c0b' \
     "A made-up racing game for the demo. Its title comes from the sample catalogs."
 
 # Settings: the Welcome screen is done, no sounds, no emulator updates.
-data_dir=$home/.local/share/$data_folder
-mkdir -p "$data_dir"
 cat >"$data_dir/config.json" <<'EOF'
 { "app": { "welcomed": true, "sounds": false, "auto_update": false } }
 EOF
+fi
+# The PS4 plugin asks at the start to download the PS4's system files: not in the demo.
+mkdir -p "$data_dir/plugins/emu-shadps4"
+echo '{ "ask": false }' >"$data_dir/plugins/emu-shadps4/system-files-settings.json"
+# The Switch plugin asks at the start to download the Switch firmware: not in the demo either.
+mkdir -p "$data_dir/plugins/emu-lichii"
+echo '{ "automatic": false, "release": "22.5.0" }' >"$data_dir/plugins/emu-lichii/firmware-settings.json"
 
 # Nothing outside the launcher may show: browsers, file managers and video players do nothing.
 for tool in xdg-open gio kde-open gnome-open mpv vlc ffplay firefox chromium google-chrome; do
@@ -217,16 +241,21 @@ env_vars=(
     "XDG_CACHE_HOME=$home/.cache"
     "XDG_STATE_HOME=$home/.local/state"
     "XDG_RUNTIME_DIR=$work/runtime"
+    # No system bus: the launcher can't read your Wi-Fi networks, Bluetooth devices or drives.
+    "DBUS_SYSTEM_BUS_ADDRESS=unix:path=$work/runtime/no-system-bus"
     "LANG=C.UTF-8"
     "LIBGL_ALWAYS_SOFTWARE=1"
     "RUST_LOG=info"
 )
+# The sample games' folder; your library has its folders in its settings.
+folders=()
+[[ -n $library ]] || folders=(--folder "games=$home/Games")
 offline=()
 $online || offline=(unshare --map-current-user --net)
 (
     cd "$home"
     exec env -i "${env_vars[@]}" "${offline[@]}" "$binary" --windowed --theme default \
-        --data-dir "$data_dir" --folder "games=$home/Games"
+        --data-dir "$data_dir" "${folders[@]}"
 ) >"$work/launcher.log" 2>&1 &
 app_pid=$!
 
@@ -253,7 +282,7 @@ press() { # <pause> <key>...
     shift
     for key in "$@"; do
         x xdotool key --clearmodifiers "$key"
-        sleep 0.5
+        sleep 0.2
     done
     sleep "$pause"
 }
@@ -267,23 +296,28 @@ DISPLAY=$display ffmpeg -loglevel error -y -f x11grab -draw_mouse 0 -framerate 3
     -i "$display" -t 60 -c:v libx264 -preset ultrafast -qp 0 "$raw" </dev/null &
 rec_pid=$!
 rec_start=$(date +%s.%N)
-sleep 2.5
+sleep 1.5
 
-# Home, on "All games". Enter opens the Library.
-press 3 Return
-# Along the games, then Enter opens the Game Hub of the focused one.
-press 0.6 Right Right
-press 4 Return
-# Back to Home.
-press 2 Escape Escape
-# L1 (Tab) along the top bar: Search, Downloads, Emulators, Themes, Settings.
-press 0.3 Tab Tab Tab Tab Tab
-press 3 Return
-# Down Settings' one page, across the edges of its sections, a row at a time.
-for _ in 1 2 3 4 5 6 7 8; do press 0.5 Down; done
+# Home, down the systems list and back up to "All games": the art changes with each one.
+press 0.2 Down Down Down Down Down
+press 0.4 Up Up Up Up Up
+# Enter opens the Library. L2 and R2 (Page Down, Page Up) run down the covers and back.
+press 0.8 Return
+press 0.2 Next Next Next
+press 0.4 Prior Prior Prior
+# Up to the system chips: PC, then Switch, then all games again.
+press 0.2 Up Up
+press 0.8 Right Return
+press 0.8 Right Right Return
+press 0.6 Left Left Left Left Return
+# Triangle (/) searches: "mario", then Enter shows what it found.
+press 0.2 slash
+press 0.2 m a r i o
+press 0.8 Return
+# Enter opens the first game's Game Hub, then back to Home.
+press 2 Return
+press 0.4 Escape Escape
 press 1.5
-# Back to Home, where the loop starts.
-press 2.5 Escape Escape
 
 # The loop ends at the last key press and its pause, whatever the recording's own length.
 active=$(echo "$(date +%s.%N) - $rec_start" | bc)
