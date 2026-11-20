@@ -503,9 +503,9 @@ export struct DriveItem { drive: string, name: string, detail: string, path: str
 // One system area (see `AreaVm` in launcher-ui-api), as its status icon and its rows show it.
 // name: network | vpn | bluetooth | audio | power | os_updates | os_install | drives. state:
 // loading (its first read isn't over: show its icon in its loading look, and its panel a loading
-// row) | absent (nothing here manages it) | unsupported (it can't be used here) | ready. Show the
-// icon of an absent or unsupported area disabled: in place, dimmed, doing nothing, and still
-// focusable, with its reason on hover and focus (`kit/loading.slint`'s `StatusState`). reason:
+// row) | absent (nothing here manages it) | unsupported (it can't be used here) | ready. An
+// absent or unsupported area's tray item is never in the top bar: the tray lists it dimmed, doing
+// nothing, still focusable, with its reason (`TrayItem`, `kit/loading.slint`'s `StatusState`). reason:
 // why an absent or unsupported area can't be used, for the player; a ready area's reason says
 // which of its actions it refuses (power: restart and shut down). busy: long work runs in it now.
 export struct AreaItem { name: string, state: string, reason: string, busy: bool }
