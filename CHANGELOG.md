@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.16.0](https://github.com/MarahHQ/marah-launcher/compare/v0.15.0...v0.16.0) (2026-11-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* the top bar shows what matters, and a tray holds the rest ([#107](https://github.com/MarahHQ/marah-launcher/issues/107))
+* the player manages the machine in every mode and on every OS ([#106](https://github.com/MarahHQ/marah-launcher/issues/106))
+* drives, a folder browser, and a smoother Settings ([#103](https://github.com/MarahHQ/marah-launcher/issues/103))
+
+### Features
+
+* drives, a folder browser, and a smoother Settings ([#103](https://github.com/MarahHQ/marah-launcher/issues/103)) ([5e4e3b2](https://github.com/MarahHQ/marah-launcher/commit/5e4e3b264a35e3baf590f3d3818320866482e40e))
+* the player manages the machine in every mode and on every OS ([#106](https://github.com/MarahHQ/marah-launcher/issues/106)) ([adebb04](https://github.com/MarahHQ/marah-launcher/commit/adebb048809727a509e47b188bbb0c0cad4b3898))
+* the top bar shows what matters, and a tray holds the rest ([#107](https://github.com/MarahHQ/marah-launcher/issues/107)) ([8f7ea82](https://github.com/MarahHQ/marah-launcher/commit/8f7ea82aac9da0faaa83a4d54e726502a84b5267))
+
+
+### Bug Fixes
+
+* a cancel never claims to stop a program it can't stop, and asks the installer to stop ([#105](https://github.com/MarahHQ/marah-launcher/issues/105)) ([73774cc](https://github.com/MarahHQ/marah-launcher/commit/73774cc3d01d6863a565bf36aba4799d062adc6f))
+
 ## [0.15.0](https://github.com/MarahHQ/marah-launcher/compare/v0.14.0...v0.15.0) (2026-11-19)
 
 
