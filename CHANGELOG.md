@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.0](https://github.com/MarahHQ/marah-launcher/compare/v0.16.1...v0.17.0) (2026-11-20)
+
+
+### Features
+
+* Switch and Steam on macOS and Windows, and PS5 builds from upstream on macOS ([8048218](https://github.com/MarahHQ/marah-launcher/commit/8048218594fa4e08f4cbbd4a1b6b7348d339e021))
+
 ## [0.16.1](https://github.com/MarahHQ/marah-launcher/compare/v0.16.0...v0.16.1) (2026-11-20)
 
 
