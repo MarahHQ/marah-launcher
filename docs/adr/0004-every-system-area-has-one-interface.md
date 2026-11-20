@@ -41,7 +41,9 @@ work there, and a new part meant editing the `Capability` list, `Provided`, its
   whether a job runs in it. Slint functions can't loop, so a theme reads an area by its place.
 - A status icon whose area is absent or unsupported shows disabled: in place, dimmed, doing
   nothing when activated, still focusable, with its reason on hover and focus. The kit's
-  `StatusState` draws it for every theme.
+  `StatusState` draws it for every theme. Superseded by
+  [ADR-0005](0005-the-top-bar-draws-one-tray-list.md): such an area is never in the bar, and the
+  tray lists it dimmed with its reason.
 
 ## Consequences
 
@@ -71,9 +73,9 @@ work there, and a new part meant editing the `Capability` list, `Provided`, its
   `a_power_refusal_with_no_reason_still_says_why`,
   `the_vpn_area_s_reason_shows_after_its_first_read` and
   `the_view_lists_every_area_in_the_contract_s_order` in `tests/tests/seams/system.rs`;
-  `the_drives_icon_shows_disabled_when_drives_turn_out_unavailable` and
-  `a_disabled_icon_takes_the_focus_and_says_why_but_opens_nothing` in
-  `tests/tests/seams/system_theme.rs`; and
+  `the_drives_item_stays_in_the_tray_when_drives_turn_out_unavailable` and
+  `an_unusable_item_takes_the_focus_in_the_tray_and_says_why_but_opens_nothing` in
+  `tests/tests/seams/system_theme.rs` (renamed under ADR-0005); and
   `the_areas_global_places_each_area_where_the_view_lists_it` in
   `crates/ui-api/src/contract.rs`.
 - Not decided here: when the top bar shows the network, sound and Bluetooth icons. A later step

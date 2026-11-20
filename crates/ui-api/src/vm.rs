@@ -1300,6 +1300,59 @@ pub struct AppView {
     pub closing_game: Option<ClosingGameVm>,
     /// The machine's settings: network, sound, Bluetooth, battery, power, Marah OS.
     pub system: SystemVm,
+    /// The top bar's tray: every item the bar can show, sorted, each with whether it is in the
+    /// bar now ([`TrayItemVm::in_bar`]). The core builds it; a theme draws whatever it holds.
+    pub tray: Vec<TrayItemVm>,
+    /// The items in the bar now, in order, by their place in `tray`.
+    pub tray_bar: Vec<i32>,
+    /// The items the tray lists, in order, by their place in `tray`: all of them but a battery
+    /// the PC doesn't have, which stays in `tray` so the bar can close its place.
+    pub tray_rows: Vec<i32>,
+}
+
+/// One item of the top bar's tray. It says once what it is, how it looks, what it opens and
+/// whether the bar shows it now.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct TrayItemVm {
+    /// Its stable name: network | audio | bluetooth | drives | vpn | os-updates | power |
+    /// downloads | emulators | themes. The player's choice is saved by it.
+    pub id: String,
+    /// The kit's icon for it now, such as `wifi-3`, `volume-mute` or `download`. `battery` draws
+    /// the battery with its level.
+    pub icon: String,
+    /// What the player calls it, such as "Internet".
+    pub name: String,
+    /// Its state in a few words: "Wi-Fi · Home", "65%", "2 running, 40%". The reason while its
+    /// area can't be used, "Checking…" while it is read.
+    pub text: String,
+    /// status | shortcuts. Status items come first: the machine's areas and the downloads.
+    /// Shortcuts open a page and have no state to watch.
+    pub group: String,
+    /// The player's choice for it: always (in the bar) | needed (in the bar only while it
+    /// matters) | tray (only in the tray). An item the player never chose has its own default.
+    pub show: String,
+    /// The bar shows it now, by `show`, and only while its area can be used.
+    pub in_bar: bool,
+    /// Its area's state: loading | absent | unsupported | ready. An item with no area is ready.
+    pub state: String,
+    /// Why its area can't be used, for the player; empty otherwise.
+    pub reason: String,
+    /// Long work runs in it now: a download, a pairing, an eject.
+    pub busy: bool,
+    /// What opening it does: panel (the system panel `target`: network, sound, bluetooth or
+    /// drives) | screen (the screen `target`, as Navigate names it) | settings (Settings, on the
+    /// section `target`) | power (the power menu).
+    pub opens: String,
+    pub target: String,
+    /// Its state for screen readers and tests: "wifi 3", "muted", "on 1", "18 charging".
+    pub value: String,
+}
+
+impl AppView {
+    /// The tray item `id`, for tests and tools. It panics when the tray doesn't have it.
+    pub fn tray_item(&self, id: &str) -> &TrayItemVm {
+        self.tray.iter().find(|t| t.id == id).unwrap_or_else(|| panic!("no tray item {id} in {:?}", self.tray))
+    }
 }
 
 /// "Send ratings": the results the player can send, to pick from, then the picked reports one

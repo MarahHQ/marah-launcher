@@ -435,6 +435,20 @@ theme's callbacks.
 **Token default** (`TokenDef::default`): the value a design token has when a theme doesn't set
 it. A theme sets in `[theme.tokens]` only the tokens it changes.
 
+**Tray** (`kit/tray.slint`, launcher-core `tray.rs`): the top bar's list of everything the bar
+can show, like a desktop's system tray. The bar shows the tray items that matter now; the tray, a
+popover under the ⌃ after Settings, lists every one. The core builds the list; the kit draws it
+and names no item.
+_Avoid_: status menu, overflow
+
+**Tray item** (`TrayItemVm`, `tray::Item`): one entry of the tray: a system area, the downloads,
+or a shortcut to a page (Emulators, Themes). It says once its id, icon, name, state line, group
+(Status or Shortcuts), its default visibility, when it is needed now and what opening it does.
+The player chooses where it shows, saved by its id: Always (in the bar), When needed (in the bar
+only while it matters) or Only here (only in the tray). An item whose area can't be used is never
+in the bar.
+_Avoid_: status icon (the old name, for the bar's fixed icons)
+
 **Topic**: one release thread of a forum, as a catalog file lists it: the title, magnet link,
 size, peers and game info. `topic.rs` has its typed model, which the refresh and the reader
 share.

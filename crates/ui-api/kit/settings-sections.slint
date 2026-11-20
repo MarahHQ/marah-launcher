@@ -10,6 +10,7 @@ import { PowerAsk } from "power-ask.slint";
 import { Setup } from "install-os.slint";
 import { Brand } from "../brand.slint";
 import { AboutSlint, Palette } from "std-widgets.slint";
+import { Tray } from "tray.slint";
 
 // The rows of each of Settings' tabs, one component for each. A row that isn't always there
 // (Start at login, Screen, a VPN, the System rows) moves the rows after it: where the rows are
@@ -219,7 +220,6 @@ export component LauncherSection inherits VerticalLayout {
             accessible-label: "animations";
             accessible-value: Vm.animations ? "on" : "off";
             accessible-action-default => { Commands.set-animations(!Vm.animations); }
-            last: !Vm.can-start-at-login && Vm.monitors.length <= 1;
             reveal(y, h) => { root.reveal(y, h); }
             clicked => { Prefs.section = 0; Prefs.row = 4; Commands.set-animations(!Vm.animations); }
             property <int> seen: Prefs.serial;
@@ -231,7 +231,6 @@ export component LauncherSection inherits VerticalLayout {
         // In an installed build only: `cargo run`'s binary moves.
         if Vm.can-start-at-login : Row {
             label: "Start at login";
-        last: Vm.monitors.length <= 1;
             hint: Vm.start-at-login-error != "" ? Vm.start-at-login-error : Brand.name + " opens when you log in";
             hint-kind: Vm.start-at-login-error != "" ? 2 : 0;
             focused: Prefs.is(0, 5);
@@ -252,7 +251,6 @@ export component LauncherSection inherits VerticalLayout {
         if Vm.monitors.length > 1 : Row {
             property <int> at: Vm.monitor == "" ? -1 : self.find(Vm.monitor);
             label: "Screen";
-        last: true;
             hint: "The monitor " + Brand.name + " fills";
             focused: Prefs.is(0, LauncherRows.screen);
             accessible-role: button;
@@ -273,6 +271,27 @@ export component LauncherSection inherits VerticalLayout {
                 Commands.set-monitor(Vm.monitors[next]);
             }
             Value { kind: "choice"; text: Vm.monitor != "" ? Vm.monitor : "The one it is on"; focused: parent.focused; }
+        }
+        // What the top bar shows: the tray's Edit view, next to this row. The tray's Edit
+        // changes the same choices.
+        Row {
+            label: "Top bar";
+            hint: "Choose which icons show in the top bar";
+            last: true;
+            focused: Prefs.is(0, LauncherRows.top-bar);
+            accessible-role: button;
+            accessible-label: "top-bar";
+            accessible-value: Tray.bar;
+            accessible-action-default => { self.edit(); }
+            reveal(y, h) => { root.reveal(y, h); }
+            clicked => { Prefs.section = 0; Prefs.row = LauncherRows.top-bar; self.edit(); }
+            function edit() { Tray.edit-from(self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
+            // The page scrolled under it: the Edit view closes, as a System row's panel does.
+            property <length> place: self.absolute-position.y;
+            changed place => { if (Tray.anchored && Tray.open) { Tray.close(); } }
+            property <int> seen: Prefs.serial;
+            changed seen => { if (self.focused && Prefs.pending == 0) { self.edit(); } }
+            Value { kind: "choice"; text: Tray.bar == 1 ? "1 icon" : Tray.bar + " icons"; focused: parent.focused; }
         }
 }
 

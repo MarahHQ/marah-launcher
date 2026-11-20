@@ -1,26 +1,31 @@
-import { Vm, Areas } from "../types.slint";
+import { Vm } from "../types.slint";
 import { Tokens } from "../tokens.slint";
 import { Look } from "look.slint";
-import { NetIcon, SoundIcon, BluetoothIcon, StorageIcon, BatteryIcon, Sys } from "system-panel.slint";
 import { StatusSlot, StatusState } from "loading.slint";
-import { Leaving, Motion } from "motion.slint";
+import { Motion } from "motion.slint";
+import { Tray, TrayGlyph } from "tray.slint";
 
-// The machine's status icons, the same in every theme and wherever the launcher runs: the
-// network, sound, Bluetooth and drives icons (`Sys.statuses`, panels 0 to 3, in that order), then
-// the battery where the PC has one. Each icon opens its panel (`Sys.toggle`). Whether an icon works
-// comes from its area's state only (`StatusState`): loading, disabled with its reason, or ready.
-// A theme puts the bar in its top bar, before its Settings button, and gives it the focused icon.
+// The top bar's status icons, the same in every theme and wherever the launcher runs: the tray
+// items in the bar now (`Vm.tray`, each item's `in-bar`), in the tray's order, then the ⌃ that
+// opens the tray. The bar names no item: it draws whatever the core puts in it, and an item comes
+// in and goes with the bar's motion (`StatusSlot`). Each icon opens its item (`Tray.open-item`):
+// its panel, its screen, its Settings section or the power menu. A theme puts the bar in its top
+// bar, before its Settings button, gives it the focused item, and puts the tray's ⌃
+// (`TrayButton`) right after Settings, in the same group.
 
-// A machine status icon, as a round button: its panel opens under it. Its icon is its child. Its
-// area's state shows over it (`StatusState`): loading, or disabled where the area can't be used
-// here, which still takes the focus and shows why.
+// A status icon, as a round button: what it opens shows under the bar. Its icon is its child.
+// Its area's state shows over it (`StatusState`): loading, or disabled, which the bar never
+// shows but a theme's own button may.
 export component StatusButton inherits Rectangle {
     in property <string> label;
     in property <string> value;
     in property <bool> focused;
     in property <bool> current;
-    // Its area's place in `Vm.system.areas`.
-    in property <int> area;
+    // Its area's state and reason (`TrayItem`'s `state` and `reason`).
+    in property <string> state: "ready";
+    in property <string> reason;
+    // The loading line under it. An icon that draws its own (the battery) turns it off.
+    in property <bool> line: true;
     callback clicked();
     width: 52 * Look.px;
     height: 52 * Look.px;
@@ -34,7 +39,7 @@ export component StatusButton inherits Rectangle {
     accessible-label: root.label;
     accessible-value: status.loading ? "loading" : status.disabled ? "disabled" : root.value;
     accessible-enabled: !status.disabled;
-    accessible-description: status.disabled ? Vm.system.areas[root.area].reason : "";
+    accessible-description: status.disabled ? root.reason : "";
     accessible-action-default => { if (!status.disabled) { root.clicked(); } }
     animate background { duration: Motion.press; }
     Rectangle {
@@ -42,44 +47,45 @@ export component StatusButton inherits Rectangle {
         animate opacity { duration: Motion.focus; easing: Motion.enter; }
         @children
     }
-    status := StatusState { area: root.area; focused: root.focused; hovered: ta.has-hover; }
+    status := StatusState { state: root.state; reason: root.reason; line: root.line; focused: root.focused; hovered: ta.has-hover; }
     ta := TouchArea { mouse-cursor: status.cursor; clicked => { if (!status.disabled) { root.clicked(); } } }
 }
 
-// The status icons in a row, then the battery. Each icon's place holds the gap after it, so the
-// battery's place closes with its gap when it goes.
+// The items in the bar. Each item has a place, open while it is in the bar; the place
+// holds the gap after it, so a place that closes closes its gap with it.
 export component StatusBar inherits HorizontalLayout {
-    // The icon the keys or the pad are on, by its panel (0 to `Sys.statuses` - 1); -1 for none.
+    // The item the keys or the pad are on, by its place in the bar (0 to `Tray.bar` - 1); -1 for
+    // none.
     in property <int> focused: -1;
     // An icon's size, and the gap after each.
     in property <length> size: 52 * Look.px;
     in property <length> gap: 22 * Look.px;
     spacing: 0;
-    // The battery stays while it fades out and its place closes.
-    battery-place := Leaving { open: Vm.system.battery-shown || Vm.system.areas[Areas.power].state == "loading"; time: Motion.sheet-out; }
-    // Each icon is in place from the first frame, in its loading look until its area is read.
-    for panel in Sys.statuses : StatusSlot {
-        item-width: root.size;
+    // The focused item, by its place in `Vm.tray`.
+    property <int> focused-item: root.focused >= 0 && root.focused < Tray.bar ? Vm.tray-bar[root.focused] : -1;
+    // Each item is in place from the first frame, in its loading look until its area is read.
+    for item[i] in Vm.tray : place := StatusSlot {
+        open: item.in-bar;
+        // The battery's level is wider than an icon.
+        item-width: item.icon == "battery" ? 104 * Look.px : root.size;
         gap: root.gap;
-        button := StatusButton {
-            width: root.size;
+        if place.shown : button := StatusButton {
+            width: parent.width;
             height: root.size;
-            label: Sys.status-name(panel);
-            area: Sys.area(panel);
-            value: Sys.status-value(panel);
-            current: Sys.open == panel;
-            focused: root.focused == panel;
-            clicked => { Sys.toggle(panel); }
-            if panel == 0 : NetIcon { tint: button.lit ? Look.ink : Tokens.color-text; }
-            if panel == 1 : SoundIcon { color: button.lit ? Look.ink : Tokens.color-text; }
-            if panel == 2 : BluetoothIcon { color: button.lit ? Look.ink : Tokens.color-text; }
-            if panel == 3 : StorageIcon { color: button.lit ? Look.ink : Tokens.color-text; }
+            label: "status:" + item.id;
+            value: item.value;
+            state: item.state;
+            reason: item.reason;
+            line: item.icon != "battery";
+            current: Tray.current(item);
+            focused: root.focused-item == i;
+            clicked => { Tray.open-item(i); }
+            TrayGlyph {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                icon: item.icon;
+                tint: button.lit ? Look.ink : Tokens.color-text;
+            }
         }
-    }
-    if battery-place.shown : StatusSlot {
-        open: battery-place.open;
-        item-width: battery.width;
-        gap: root.gap;
-        battery := BatteryIcon {}
     }
 }

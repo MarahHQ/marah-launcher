@@ -205,6 +205,10 @@ export global Commands {
     // A monitor's name, "" for the one the launcher is on.
     public function set-monitor(name: string) { Host.command("Pref", "[\"monitor\"," + Json.text(name) + "]"); }
     public function finish-welcome() { Host.command("Pref", "[\"welcomed\",true]"); }
+    // Where the top bar's tray item `id` shows: always | needed | tray.
+    public function set-tray(id: string, show: string) {
+        Host.command("Tray", "{\"item\":" + Json.text(id) + ",\"show\":" + Json.text(show) + "}");
+    }
 
     // The machine: network, Bluetooth, sound, power and Marah OS.
     public function refresh-system() { Host.command("System", "\"Refresh\""); }

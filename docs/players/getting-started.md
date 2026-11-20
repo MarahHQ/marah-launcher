@@ -58,7 +58,8 @@ buttons. On an Xbox controller, ✕ is A and ○ is B.
 
 L1 and R1 do one of three things:
 
-- On Home and in the Library: move along the top bar, round the ends. ✕ opens the item.
+- On Home and in the Library: move along the top bar, round the ends. ✕ opens the item. The
+  last item is the tray's **⌃**, after Settings: it lists every icon the bar can show.
 - In Settings, and on a page with two sections or more: jump to the section before or after.
 - On other screens: go to the screen before or after, in the order Catalog, Downloads,
   Emulators, Themes, Settings, then back to Home.

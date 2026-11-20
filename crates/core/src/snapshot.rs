@@ -69,6 +69,8 @@ pub(crate) struct Snapshot<'a> {
     pub hidden_filter: bool,
     /// The system can start Marah Launcher at login.
     pub can_start_at_login: bool,
+    /// The player's choices of what the top bar shows.
+    pub tray: crate::tray::Choices,
     /// Now, by the core's clock.
     pub now: Instant,
     /// Now, in seconds since 1970: for "new" releases and the days since a game was played.

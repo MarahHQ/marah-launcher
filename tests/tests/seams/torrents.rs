@@ -924,3 +924,45 @@ async fn a_drive_a_download_writes_to_isn_t_unmounted_until_it_pauses() {
     t.core.dispatch(unmount()).await.unwrap();
     assert_eq!(system.read(|m| m.drive_actions.clone()), ["unmount /dev/sdb1"]);
 }
+
+/// The top bar's Downloads item: in the bar while a download runs, then, once it finishes, until
+/// the player opens Downloads. A download that finished before this start isn't news.
+#[tokio::test]
+async fn the_tray_s_downloads_is_in_the_bar_while_one_runs_and_until_its_end_is_seen() {
+    let s = setup().await;
+    let t = &s.t;
+    let item = |core: &launcher_core::Core| core.view().tray_item("downloads").clone();
+    assert!(!item(&t.core).in_bar, "nothing runs");
+    t.core
+        .dispatch(Command::Torrent(launcher_core::TorrentCmd::Download {
+            offer: offer(),
+            release: HASH.into(),
+            folder: None,
+        }))
+        .await
+        .unwrap();
+    until(t, "ready").await;
+    act(t, TorrentAction::Start).await;
+    t.torrents.progress(HASH, 4);
+    until(t, "downloading").await;
+    let running = item(&t.core);
+    assert!(running.in_bar && running.busy, "{running:?}");
+    assert!(running.text.starts_with("1 running"), "{running:?}");
+
+    t.torrents.complete(HASH);
+    until(t, "complete").await;
+    let done = item(&t.core);
+    assert!(done.in_bar && !done.busy, "finished and not seen: {done:?}");
+    assert_eq!(done.text, "1 finished");
+
+    // The next start: it finished before it.
+    let again = launcher_core::Core::start(t.kernel.clone()).await;
+    assert!(!item(&again).in_bar, "a download that finished before this start isn't news");
+
+    // Downloads opens, and closes: the player saw it.
+    t.core.dispatch(Command::Navigate(launcher_core::Route::Downloads)).await.unwrap();
+    assert!(!item(&t.core).in_bar, "on Downloads the player sees it");
+    t.core.dispatch(Command::Back).await.unwrap();
+    assert!(!item(&t.core).in_bar, "seen");
+    assert_eq!(item(&t.core).text, "Nothing running");
+}

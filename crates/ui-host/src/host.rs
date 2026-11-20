@@ -822,6 +822,8 @@ mod tests {
                 (_, "id" | "plugin") => vec![text("emu")],
                 (_, "sort") => vec![text("played"), text("title")],
                 (_, "grid") => vec![text("library"), text("catalog")],
+                // Where a tray item shows.
+                (_, "show") => vec![text("always"), text("needed"), text("tray")],
                 // Empty is the kit's own default for these: no answer, the emulator's scope,
                 // no args.
                 (_, "answer" | "scope" | "args") => vec![text("")],

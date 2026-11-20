@@ -1,0 +1,568 @@
+import { Vm, Host, TrayItem } from "../types.slint";
+import { Commands } from "commands.slint";
+import { Tokens } from "../tokens.slint";
+import { Look } from "look.slint";
+import { Icon } from "icon.slint";
+import { Sys, BatteryIcon } from "system-panel.slint";
+import { PowerMenu } from "power-menu.slint";
+import { Prefs } from "settings-rows.slint";
+import { Popover, Motion } from "motion.slint";
+import { LoadingLine } from "loading.slint";
+import { Reveal } from "reveal.slint";
+import { Hint } from "ask.slint";
+
+// The top bar's tray, the same in every theme: like a desktop's system tray, the bar shows the
+// items that matter and the tray lists every one (`Vm.tray`, `Vm.tray-rows`). The core builds the
+// list and says where each item shows; nothing here names an item. The tray opens from the ⌃
+// right after the top bar's Settings button (`TrayButton`), under it, or in its Edit view from
+// Settings → Launcher → Top bar, next to that row.
+//
+// Its rows are `Vm.tray-rows`, Status first, then Shortcuts. Row -1 is the header's button: Edit,
+// or Done in the Edit view. Each input works on its own:
+// - Mouse: a click on a row opens it, a right-click cycles where it shows, a click outside closes.
+// - Keys: Up and Down move, Enter opens, / or the Menu key cycles where it shows, Esc closes. In
+//   the Edit view Left and Right change where it shows.
+// - Pad: the d-pad moves, ✕ opens, △ cycles, ○ closes.
+export global Tray {
+    in-out property <bool> open;
+    // The Edit view: each item with its three-way choice.
+    in-out property <bool> editing;
+    // The focused row, by its place in `Vm.tray-rows`; -1 for the header's button.
+    in-out property <int> row;
+    // Opened from a row (Settings → Launcher → Top bar), not from the top bar: next to the row,
+    // whose place in the window this is. Esc then closes it, as it opened in the Edit view.
+    in-out property <bool> anchored;
+    in-out property <length> anchor-x;
+    in-out property <length> anchor-y;
+    in-out property <length> anchor-width;
+    in-out property <length> anchor-height;
+    // Where the ⌃ is in the window: the tray opens under it.
+    in-out property <length> button-x;
+    in-out property <length> button-width;
+
+    out property <int> rows: Vm.tray-rows.length;
+    // The items in the bar now.
+    out property <int> bar: Vm.tray-bar.length;
+
+    // The item at row `r`.
+    public pure function item(r: int) -> TrayItem {
+        Vm.tray[Vm.tray-rows[r]]
+    }
+    // The item's area can be used: it opens, and it can be in the bar.
+    public pure function usable(item: TrayItem) -> bool {
+        item.state != "absent" && item.state != "unsupported"
+    }
+    // What the player reads for a choice.
+    public pure function choice(show: string) -> string {
+        show == "always" ? "Always" : show == "needed" ? "When needed" : "Only here"
+    }
+    // The choices in order: Always, When needed, Only here.
+    public pure function choice-at(at: int) -> string {
+        at <= 0 ? "always" : at == 1 ? "needed" : "tray"
+    }
+    pure function place-of(show: string) -> int {
+        show == "always" ? 0 : show == "needed" ? 1 : 2
+    }
+    // What opening the item shows now: its panel or its screen.
+    public pure function current(item: TrayItem) -> bool {
+        item.opens == "panel" ? Sys.open >= 0 && Sys.open == Sys.panel-named(item.target)
+            : item.opens == "screen" ? Vm.screen == item.target
+            : false
+    }
+
+    public function show() {
+        if (Sys.open >= 0) { Sys.close(); }
+        root.open = true;
+        root.editing = false;
+        root.anchored = false;
+        root.row = root.rows > 0 ? 0 : -1;
+        Host.play-sound("select");
+    }
+    public function toggle() {
+        if (root.open) { root.close(); Host.play-sound("back"); } else { root.show(); }
+    }
+    public function close() {
+        root.open = false;
+    }
+    // The Edit view, next to the row at `x`, `y`, `width`, `height` in the window.
+    public function edit-from(x: length, y: length, width: length, height: length) {
+        root.show();
+        root.editing = true;
+        root.anchored = true;
+        root.anchor-x = x;
+        root.anchor-y = y;
+        root.anchor-width = width;
+        root.anchor-height = height;
+    }
+    // Opens the item at `at` in `Vm.tray`: its panel, its screen, its Settings section or the power
+    // menu. An item whose area can't be used opens nothing.
+    public function open-item(at: int) {
+        let item = Vm.tray[at];
+        if (!root.usable(item)) { Host.play-sound("error"); return; }
+        root.open = false;
+        if (item.opens == "panel") {
+            let panel = Sys.panel-named(item.target);
+            if (Sys.open == panel) { Sys.close(); } else { Sys.show-status(panel); }
+        } else if (item.opens == "screen") {
+            Host.play-sound("select");
+            Commands.navigate(item.target);
+        } else if (item.opens == "settings") {
+            Host.play-sound("select");
+            Prefs.open-at(item.target);
+        } else if (item.opens == "power") {
+            PowerMenu.show();
+        }
+    }
+    // Where the item at row `r` shows.
+    public function set-show(r: int, show: string) {
+        if (r < 0 || r >= root.rows || root.item(r).show == show) { return; }
+        Commands.set-tray(root.item(r).id, show);
+        Host.play-sound("move");
+    }
+    // The next choice for the item at row `r`, round the three.
+    public function cycle(r: int) {
+        root.set-show(r, root.choice-at(Math.mod(root.place-of(root.item(r).show) + 1, 3)));
+    }
+    // The header's button: Edit opens the Edit view; Done goes back, or closes the view opened
+    // from Settings.
+    public function head() {
+        if (!root.editing) {
+            root.editing = true;
+        } else if (root.anchored) {
+            root.close();
+        } else {
+            root.editing = false;
+        }
+        Host.play-sound("select");
+    }
+    // Where the keys stop on the bar after the items in it changed from `was` to `now`: the stops
+    // after the items (Settings, then the ⌃) keep their button; an item's stop stays, or goes to
+    // Settings when there are fewer items. `at` counts from the first item.
+    public pure function refocus(at: int, was: int, now: int) -> int {
+        at >= was ? at + now - was : Math.min(at, now)
+    }
+
+    // Handles a key while the tray is open. It takes every key: nothing behind it moves.
+    public function key(text: string) -> bool {
+        if (text == Key.Escape || text == Key.Backspace) {
+            if (root.editing && !root.anchored) {
+                root.editing = false;
+            } else {
+                root.close();
+            }
+            Host.play-sound("back");
+            return true;
+        }
+        if (text == Key.DownArrow) {
+            if (root.row + 1 < root.rows) { root.row += 1; Host.play-sound("move"); }
+            return true;
+        }
+        if (text == Key.UpArrow) {
+            if (root.row >= 0) { root.row -= 1; Host.play-sound("move"); }
+            return true;
+        }
+        if (text == Key.Return || text == " ") {
+            if (root.row < 0) { root.head(); }
+            else if (root.editing) { root.cycle(root.row); }
+            else { root.open-item(Vm.tray-rows[root.row]); }
+            return true;
+        }
+        // △ on a pad arrives as "/"; on a keyboard, / or the Menu key.
+        if ((text == "/" || text == Key.Menu) && root.row >= 0) { root.cycle(root.row); return true; }
+        if (root.editing && root.row >= 0 && (text == Key.LeftArrow || text == Key.RightArrow)) {
+            // The choices read left to right in every direction, as the keys do.
+            let step = text == Key.RightArrow ? 1 : -1;
+            root.set-show(root.row, root.choice-at(Math.clamp(root.place-of(root.item(root.row).show) + step, 0, 2)));
+            return true;
+        }
+        true
+    }
+
+    // The key hints while it is open.
+    out property <[Hint]> hints: root.row < 0 ? [
+            { pad: "✕", key: "Enter", label: root.editing ? "Done" : "Edit" },
+            { pad: "○", key: "Esc", label: "Close" },
+        ]
+        : root.editing ? [
+            { pad: "⮜  ⮞", key: "← →", label: "Show in bar" },
+            { pad: "⮝  ⮟", key: "↑ ↓", label: "Move" },
+            { pad: "○", key: "Esc", label: root.anchored ? "Close" : "Done" },
+        ]
+        : root.usable(root.item(root.row)) ? [
+            { pad: "✕", key: "Enter", label: "Open" },
+            { pad: "△", key: "/", label: "Show in bar: " + root.choice(root.item(root.row).show) },
+            { pad: "○", key: "Esc", label: "Close" },
+        ]
+        : [
+            { pad: "△", key: "/", label: "Show in bar: " + root.choice(root.item(root.row).show) },
+            { pad: "○", key: "Esc", label: "Close" },
+        ];
+}
+
+// An item's icon (`TrayItem`'s `icon`): a kit `Icon`, the Wi-Fi fan over a dim full one, or the
+// battery with its level.
+export component TrayGlyph inherits Rectangle {
+    in property <string> icon;
+    in property <color> tint: Tokens.color-text;
+    property <bool> battery: root.icon == "battery";
+    property <bool> wifi: root.icon == "wifi-0" || root.icon == "wifi-1" || root.icon == "wifi-2" || root.icon == "wifi-3"
+        || root.icon == "wifi-4" || root.icon == "wifi-off";
+    width: root.battery ? 92 * Look.px : 26 * Look.px;
+    height: 26 * Look.px;
+    if root.battery : BatteryIcon { width: parent.width; height: parent.height; }
+    if root.wifi : Icon { name: "wifi-4"; color: root.tint.with-alpha(0.3); width: parent.width; height: parent.height; }
+    if root.wifi && root.icon != "wifi-0" && root.icon != "wifi-off" : Icon {
+        name: root.icon;
+        color: root.tint;
+        width: parent.width;
+        height: parent.height;
+    }
+    if root.icon == "wifi-off" : Icon { name: "slash"; color: root.tint; width: parent.width; height: parent.height; }
+    if !root.battery && !root.wifi : Icon { name: root.icon; color: root.tint; width: parent.width; height: parent.height; }
+}
+
+// The ⌃ right after the top bar's Settings button: it opens and closes the tray, which opens
+// under it, its far edge lined up with the ⌃'s.
+export component TrayButton inherits Rectangle {
+    in property <bool> focused;
+    width: 52 * Look.px;
+    height: 52 * Look.px;
+    border-radius: self.height / 2;
+    background: root.focused ? Tokens.color-tint
+        : Tray.open ? Tokens.color-tint.with-alpha(0.141)
+        : ta.has-hover ? Tokens.color-tint.with-alpha(0.078) : transparent;
+    animate background { duration: Motion.press; }
+    accessible-role: button;
+    accessible-label: "tray";
+    accessible-value: Tray.open ? "open" : "closed";
+    accessible-action-default => { Tray.toggle(); }
+    // The tray opens under it, wherever the theme puts it.
+    property <length> at: self.absolute-position.x;
+    property <length> wide: self.width;
+    changed at => { Tray.button-x = root.at; }
+    changed wide => { Tray.button-width = root.wide; }
+    init => { Tray.button-x = root.at; Tray.button-width = root.wide; }
+    Icon {
+        name: "chevu";
+        color: root.focused ? Look.ink : Tokens.color-text;
+        width: 26 * Look.px;
+        height: 26 * Look.px;
+        transform-rotation: Tray.open ? 180deg : 0deg;
+        animate transform-rotation { duration: Motion.popover-in; easing: Motion.enter; }
+    }
+    ta := TouchArea { mouse-cursor: pointer; clicked => { Tray.toggle(); } }
+}
+
+// The header's pill: Edit, or Done.
+component HeadButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> focused;
+    callback clicked();
+    height: 36 * Look.px;
+    width: label.preferred-width + 32 * Look.px;
+    border-radius: self.height / 2;
+    background: root.focused ? Tokens.color-tint : ta.has-hover ? Tokens.color-tint.with-alpha(0.141) : Tokens.color-tint.with-alpha(0.071);
+    animate background { duration: Motion.focus; easing: Motion.enter; }
+    transform-scale: ta.pressed ? 0.97 : 1;
+    animate transform-scale { duration: Motion.press; }
+    accessible-role: button;
+    accessible-label: "tray-edit";
+    accessible-value: root.text;
+    accessible-item-selected: root.focused;
+    accessible-action-default => { root.clicked(); }
+    label := Text {
+        text: root.text;
+        font-size: 15 * Look.tpx;
+        font-weight: 600;
+        color: root.focused ? Look.ink : Tokens.color-text;
+    }
+    ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+// The three choices of one item side by side: Always, When needed, Only here. The current one is
+// lit; on the focused row it takes the solid focus fill.
+component Chooser inherits Rectangle {
+    in property <string> id;
+    in property <string> show;
+    in property <bool> focused;
+    callback choose(string);
+    height: 36 * Look.px;
+    width: segments.preferred-width;
+    border-radius: self.height / 2;
+    background: Tokens.color-tint.with-alpha(0.071);
+    segments := HorizontalLayout {
+        padding: 3 * Look.px;
+        spacing: 2 * Look.px;
+        for c in [
+            { value: "always", label: "Always" },
+            { value: "needed", label: "When needed" },
+            { value: "tray", label: "Only here" },
+        ] : Rectangle {
+            property <bool> on: root.show == c.value;
+            width: t.preferred-width + 22 * Look.px;
+            border-radius: self.height / 2;
+            background: self.on ? (root.focused ? Tokens.color-tint : Tokens.color-tint.with-alpha(0.2))
+                : ta.has-hover ? Tokens.color-tint.with-alpha(0.078) : transparent;
+            animate background { duration: Motion.focus; easing: Motion.enter; }
+            accessible-role: button;
+            accessible-label: "tray-choice:" + root.id;
+            accessible-value: c.value;
+            accessible-description: c.label;
+            accessible-item-selected: self.on;
+            accessible-action-default => { root.choose(c.value); }
+            t := Text {
+                text: c.label;
+                font-size: 14 * Look.tpx;
+                font-weight: parent.on ? 600 : 400;
+                color: parent.on && root.focused ? Look.ink : Tokens.color-text;
+                vertical-alignment: center;
+            }
+            ta := TouchArea { mouse-cursor: pointer; clicked => { root.choose(c.value); } }
+        }
+    }
+}
+
+// One row of the tray: the item's icon, name and state line, and where it shows (in the Edit
+// view, its three choices). A row whose area can't be used is dimmed and says why; it still
+// takes the focus and the hover. The first row of a group has the group's name over it.
+component TrayRow inherits VerticalLayout {
+    in property <TrayItem> item;
+    // The group's name over the row, or "".
+    in property <string> header;
+    in property <bool> focused;
+    in property <bool> editing;
+    callback reveal(length, length);
+    callback pressed();
+    callback cycle();
+    callback choose(string);
+    spacing: 4 * Look.px;
+    property <bool> usable: Tray.usable(root.item);
+    property <bool> loading: root.item.state == "loading";
+    changed focused => { if (root.focused) { root.reveal(self.y, self.height); } }
+    if root.header != "" : Text {
+        text: root.header;
+        height: 30 * Look.px;
+        font-size: 14 * Look.tpx;
+        font-weight: 600;
+        color: Look.text3;
+        vertical-alignment: bottom;
+        horizontal-alignment: Look.rtl ? right : left;
+        accessible-role: text;
+        accessible-label: "tray-group";
+        accessible-value: self.text;
+    }
+    row := Rectangle {
+        height: 62 * Look.px;
+        border-radius: 14 * Look.px;
+        background: root.focused ? Tokens.color-tint.with-alpha(0.149)
+            : ta.has-hover && root.usable ? Tokens.color-tint.with-alpha(0.071) : transparent;
+        border-width: root.focused ? 2 * Look.px : 0;
+        border-color: root.usable ? Tokens.color-tint : Look.ring;
+        animate background, border-width { duration: Motion.focus; easing: Motion.enter; }
+        transform-scale: ta.pressed && root.usable && !root.editing ? 0.97 : 1;
+        animate transform-scale { duration: Motion.press; }
+        accessible-role: button;
+        accessible-label: "tray-item";
+        accessible-value: root.item.id;
+        accessible-description: root.item.name + " · " + root.item.text;
+        accessible-item-selected: root.focused;
+        accessible-enabled: root.usable;
+        accessible-action-default => { root.pressed(); }
+        ta := TouchArea {
+            mouse-cursor: root.usable && !root.editing ? MouseCursor.pointer : MouseCursor.default;
+            clicked => { root.pressed(); }
+            // A right-click changes where it shows, as △ does.
+            pointer-event(event) => {
+                if (event.button == PointerEventButton.right && event.kind == PointerEventKind.up) { root.cycle(); }
+            }
+        }
+        HorizontalLayout {
+            padding-left: 16 * Look.px;
+            padding-right: 12 * Look.px;
+            spacing: 14 * Look.px;
+            VerticalLayout {
+                alignment: center;
+                // The battery's level is wider than an icon: the names line up after the widest.
+                Rectangle {
+                    width: 30 * Look.px;
+                    height: 26 * Look.px;
+                    opacity: root.usable && !root.loading ? 1 : 0.45;
+                    TrayGlyph {
+                        x: Look.rtl ? parent.width - self.width : 0;
+                        icon: root.item.icon == "battery" ? "bolt" : root.item.icon;
+                        tint: Tokens.color-text;
+                    }
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                horizontal-stretch: 1;
+                spacing: 2 * Look.px;
+                Text {
+                    text: root.item.name;
+                    font-size: 18 * Look.tpx;
+                    font-weight: 600;
+                    color: Tokens.color-text;
+                    opacity: root.usable ? 1 : 0.55;
+                    overflow: elide;
+                    horizontal-alignment: Look.rtl ? right : left;
+                }
+                Text {
+                    text: root.item.text;
+                    font-size: 14 * Look.tpx;
+                    color: Look.text3;
+                    overflow: elide;
+                    horizontal-alignment: Look.rtl ? right : left;
+                    accessible-role: text;
+                    accessible-label: "tray-text";
+                    accessible-value: self.text;
+                }
+            }
+            if !root.editing : VerticalLayout {
+                alignment: center;
+                shown := Reveal { }
+                Text {
+                    opacity: shown.fade;
+                    text: Tray.choice(root.item.show);
+                    font-size: 14 * Look.tpx;
+                    color: root.item.in-bar ? Tokens.color-text : Look.text3;
+                    horizontal-alignment: Look.rtl ? left : right;
+                    accessible-role: text;
+                    accessible-label: "tray-show:" + root.item.id;
+                    accessible-value: root.item.show;
+                }
+            }
+            if root.editing : VerticalLayout {
+                alignment: center;
+                Chooser {
+                    r := Reveal { }
+                    opacity: r.fade;
+                    id: root.item.id;
+                    show: root.item.show;
+                    focused: root.focused;
+                    choose(show) => { root.choose(show); }
+                }
+            }
+        }
+        // A part read for the first time: its line sweeps along the row's foot.
+        if root.loading : LoadingLine {
+            x: 16 * Look.px;
+            y: parent.height - 6 * Look.px;
+            width: parent.width - 32 * Look.px;
+        }
+    }
+}
+
+// The tray, under the ⌃ after the top bar's Settings button, or next to the Settings row that opened its
+// Edit view. Put it over your screens, the size of the window: `Overlays` does.
+export component TraySheet inherits Rectangle {
+    // Closed by a click outside it. While it fades out, the clicks go to the screen behind.
+    TouchArea { enabled: Tray.open; clicked => { Tray.close(); } }
+    // A system panel opened: the tray gives way to it.
+    property <int> panel: Sys.open;
+    changed panel => { if (root.panel >= 0) { Tray.close(); } }
+    // A row went while the tray is open (the battery, once the power is read): the keys stay
+    // on a row there is.
+    property <int> count: Tray.rows;
+    changed count => { if (Tray.row >= root.count) { Tray.row = root.count - 1; } }
+
+    property <length> margin: 16 * Look.px;
+    property <length> gap: 8 * Look.px;
+    property <length> anchored-height: Math.min(root.height - 2 * root.margin, body.preferred-height);
+    property <length> below: Tray.anchor-y + Tray.anchor-height + root.gap;
+    property <length> above: Tray.anchor-y - root.gap - root.anchored-height;
+    card := Popover {
+        open: Tray.open;
+        origin-x: Look.rtl ? 0 : self.width;
+        origin-y: Tray.anchored && self.y < Tray.anchor-y ? self.height : 0;
+        width: Math.min(root.width - 32 * Look.px, (Tray.editing ? 620 : 470) * Look.tpx);
+        animate width { duration: Motion.focus; easing: Motion.enter; }
+        x: !Tray.anchored ? Math.clamp(Look.rtl ? Tray.button-x : Tray.button-x + Tray.button-width - self.width,
+                root.margin, root.width - self.width - root.margin)
+            : Math.clamp(Look.rtl ? Tray.anchor-x : Tray.anchor-x + Tray.anchor-width - self.width,
+                root.margin, root.width - self.width - root.margin);
+        y: !Tray.anchored ? 96 * Look.px
+            : root.below + root.anchored-height <= root.height - root.margin ? root.below
+            : Math.max(root.margin, root.above);
+        height: Tray.anchored ? root.anchored-height : Math.min(root.height - self.y - 40 * Look.px, body.preferred-height);
+        border-radius: 22 * Look.px;
+        background: Tokens.color-surface.with-alpha(0.949);
+        border-width: 1px;
+        border-color: Look.line;
+        drop-shadow-blur: 24 * Look.px;
+        drop-shadow-color: Tokens.color-shade.with-alpha(0.502);
+        accessible-role: list;
+        accessible-label: "tray-panel";
+        accessible-value: Tray.editing ? "edit" : "status";
+        TouchArea {}
+        clip: true;
+        body := VerticalLayout {
+            padding: 18 * Look.px;
+            spacing: 8 * Look.px;
+            HorizontalLayout {
+                spacing: 12 * Look.px;
+                Text {
+                    text: Tray.editing ? "Top bar" : "Status";
+                    font-size: 22 * Look.tpx;
+                    font-weight: 600;
+                    color: Tokens.color-text;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                    horizontal-alignment: Look.rtl ? right : left;
+                    accessible-role: text;
+                    accessible-label: "tray-title";
+                    accessible-value: self.text;
+                }
+                HeadButton {
+                    text: Tray.editing ? "Done" : "Edit";
+                    focused: Tray.row < 0;
+                    clicked => { Tray.row = -1; Tray.head(); }
+                }
+            }
+            if Tray.editing : Rectangle {
+                height: note.preferred-height;
+                shown := Reveal { }
+                note := Text {
+                    width: parent.width;
+                    opacity: shown.fade;
+                    text: "Where each one shows. Every one stays in this list.";
+                    font-size: 15 * Look.tpx;
+                    color: Look.text3;
+                    wrap: word-wrap;
+                    horizontal-alignment: Look.rtl ? right : left;
+                }
+            }
+            scroller := Flickable {
+                // The rows' own height, up to what the card has room for.
+                min-height: Math.min(rows.preferred-height, 120 * Look.px);
+                preferred-height: rows.preferred-height;
+                viewport-height: rows.preferred-height;
+                vertical-stretch: 1;
+                rows := VerticalLayout {
+                    width: scroller.width;
+                    spacing: 4 * Look.px;
+                    for at[k] in Vm.tray-rows : TrayRow {
+                        item: Vm.tray[at];
+                        header: k > 0 && Vm.tray[Vm.tray-rows[k - 1]].group != Vm.tray[at].group ? "Shortcuts" : "";
+                        focused: Tray.row == k;
+                        editing: Tray.editing;
+                        // The focused row stays in sight.
+                        reveal(y, h) => {
+                            if (y + scroller.viewport-y < 0) {
+                                scroller.viewport-y = -y;
+                            } else if (y + h + scroller.viewport-y > scroller.height) {
+                                scroller.viewport-y = scroller.height - y - h;
+                            }
+                        }
+                        pressed => {
+                            Tray.row = k;
+                            if (!Tray.editing) { Tray.open-item(at); }
+                        }
+                        cycle => { Tray.row = k; Tray.cycle(k); }
+                        choose(show) => { Tray.row = k; Tray.set-show(k, show); }
+                    }
+                }
+            }
+        }
+    }
+}

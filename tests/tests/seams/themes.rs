@@ -206,11 +206,32 @@ fn a_theme_built_for_0_6_is_refused_for_its_version_and_not_compiled() {
     assert_eq!(host.ui.current(), Some(&id("classic")), "the theme on screen stays");
 }
 
-/// A theme built for 0.7.0 loads on this host.
+/// Version 0.8.0 put the top bar's items in one list, `Vm.tray`, and moved the bar's stops: a
+/// theme built for 0.7 may count `Sys.statuses` icons in its top bar. It is refused for its
+/// version, and never gets as far as a compile error.
 #[test]
-fn a_theme_built_for_0_7_0_loads() {
+fn a_theme_built_for_0_7_is_refused_for_its_version_and_not_compiled() {
     let dir = tempfile::tempdir().unwrap();
-    write_theme(dir.path(), "current", "ui_api = \"^0.7\"", &[]);
+    let old_shell = "import { Sys } from \"kit/system-panel.slint\";\n\
+                     export component Shell inherits Window { property <int> n: Sys.statuses + Sys.nothing; }";
+    write_theme(dir.path(), "old", "ui_api = \"^0.7\"", &[("shell.slint", old_shell)]);
+    let mut host = composed(|h| h.discover(dir.path()));
+    host.ui.start().unwrap();
+
+    let error = host.ui.switch(&id("old")).unwrap_err();
+    assert!(matches!(&error, ThemeError::UiApi { .. }), "{error}");
+    assert_eq!(
+        error.to_string(),
+        format!("theme old needs UI API ^0.7, this host has {}", launcher_ui_api::UI_API_VERSION)
+    );
+    assert_eq!(host.ui.current(), Some(&id("classic")), "the theme on screen stays");
+}
+
+/// A theme built for 0.8.0 loads on this host.
+#[test]
+fn a_theme_built_for_0_8_0_loads() {
+    let dir = tempfile::tempdir().unwrap();
+    write_theme(dir.path(), "current", "ui_api = \"^0.8\"", &[]);
     let mut host = composed(|h| h.discover(dir.path()));
     host.ui.start().unwrap();
 

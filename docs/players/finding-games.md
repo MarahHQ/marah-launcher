@@ -19,18 +19,48 @@ installed" when it has no build yet, or "Didn't load" when its plugin failed to 
 
 ### The top bar
 
-The top bar holds Search (the Catalog), Downloads, Emulators, Themes and Settings, with the
-clock.
+The top bar holds Search (the Catalog), the icons that matter now, Settings, the tray's **⌃**,
+and the clock. It works like a desktop's system tray: the bar shows only the important icons,
+and the tray lists every one.
 
 - While a game runs, the top bar shows the game with **Resume** and **Stop**.
-- While a download runs, it shows the download's progress.
-- The top bar has network, sound, Bluetooth and drive icons, wherever the launcher runs: in a
-  window on your desktop too. Each one opens a panel for its settings. The drive icon opens the
-  Drives panel (see [Drives](#drives)).
-- An icon for something this PC can't do shows dimmed, such as Bluetooth on a PC without an
-  adapter, or the drives without UDisks. It opens nothing. Point at it, or move to it with the
-  keys or the pad, to see why.
-- On a PC with a battery, it shows the battery level.
+- While an emulator download runs, it shows the download's progress.
+- The internet, and the battery on a PC that has one, are always in the bar.
+- Other icons come into the bar while they matter, and leave when they don't:
+  - Downloads, while a download or an install runs, and once one finishes, until you open
+    Downloads.
+  - Drives, while a USB drive is plugged in or one is ejecting.
+  - Bluetooth, while a device is connected, or while it pairs or looks for devices.
+  - Sound, while it is muted.
+  - The OS's updates, while an update waits for a restart.
+  - The VPN, while it is connected.
+- Each icon opens what it is about: the internet, sound, Bluetooth and drive icons open a panel
+  for their settings (the drive icon opens the Drives panel, see [Drives](#drives)); Downloads,
+  Emulators and Themes open their screen; the VPN and the OS's updates open their Settings
+  section; the battery opens the power menu.
+- This works wherever the launcher runs: in a window on your desktop too.
+
+#### The tray
+
+**⌃**, right after Settings, opens the tray under it. It lists every item: the machine's and
+Downloads under **Status**, then Emulators and Themes under **Shortcuts**. Each row has its
+icon, its name, its state ("Wi-Fi · Home", "65%", "1 running, 40%") and where it shows.
+
+- Something this PC can't do is never in the bar. The tray lists it dimmed, with why, such as
+  Bluetooth on a PC without an adapter, or the drives without UDisks. It opens nothing.
+- Each item shows **Always** (in the bar), **When needed** (in the bar only while it matters)
+  or **Only here** (only in the tray). Change it on its row, or in the Edit view.
+
+| | Mouse | Keyboard | Controller |
+| --- | --- | --- | --- |
+| Open the tray | Click **⌃** | Enter on **⌃** | ✕ on **⌃** |
+| Move | Point | ↑ ↓ | D-pad |
+| Open an item | Click its row | Enter | ✕ |
+| Change where it shows | Right-click its row | / or the Menu key | △ |
+| Close | Click outside | Esc | ○ |
+
+**Edit**, at the top of the tray, shows every item with its three choices side by side: ← →
+(or the d-pad, or a click) picks one. Settings → Launcher → **Top bar** opens the same view.
 
 When the PC runs on battery and the level falls to 20%, a notice says "Battery at 20%. Plug in
 soon." At 10%, a second notice says "Battery at 10%. Save your game and plug in." Each notice

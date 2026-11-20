@@ -10,9 +10,9 @@ import { Reveal } from "reveal.slint";
 import { LoadingLine, LoadingRow } from "loading.slint";
 
 // The machine's settings in the top bar (`Vm.system`): the network, sound, Bluetooth and drives
-// icons (`StatusBar` in status-bar.slint) open a panel under them, wherever Marah Launcher runs, on
-// a desktop too. An icon whose area can't be used here shows disabled and opens no panel
-// (`StatusState`). The battery shows wherever the PC has one.
+// items of the tray (`kit/tray.slint`), in the bar or in the tray, open a panel under the bar,
+// wherever Marah Launcher runs, on a desktop too. An item whose area can't be used here opens no
+// panel: the tray lists it dimmed, with why (`StatusState`).
 //
 // Each panel is a list of rows the keys move through:
 //   0 Network     "Look for networks", then one row per Wi-Fi network
@@ -65,6 +65,10 @@ export global Sys {
             : panel == 1 ? (Vm.system.muted ? "muted" : Vm.system.volume)
             : panel == 2 ? (!Vm.system.bluetooth-on ? "off" : "on " + Vm.system.connected-devices)
             : ""
+    }
+    // The panel a tray item opens, by the name it gives (`TrayItem`'s `target`); -1 for none.
+    public pure function panel-named(name: string) -> int {
+        name == "network" ? 0 : name == "sound" ? 1 : name == "bluetooth" ? 2 : name == "drives" ? 3 : -1
     }
     // The area each panel shows, by its place in `Vm.system.areas`.
     public pure function area(panel: int) -> int {

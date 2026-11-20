@@ -44,6 +44,8 @@ pub enum Area {
     Browser,
     /// What the view reads from the disk: the games' folders and logs, and the host folders.
     Files,
+    /// The player's choices of what the top bar shows.
+    Tray,
 }
 
 /// The core's state in `area` changed.

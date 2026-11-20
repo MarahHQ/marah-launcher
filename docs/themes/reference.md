@@ -6,7 +6,7 @@ for theme authors who already have a theme running; start with
 [writing-a-theme.md](writing-a-theme.md). Terms follow [the glossary](../../GLOSSARY.md).
 
 The contract is the crate `launcher-ui-api` (`crates/ui-api`). Its version is
-`UI_API_VERSION`, now `0.7.0` (`crates/ui-api/src/lib.rs`). A theme's `ui_api` range must
+`UI_API_VERSION`, now `0.8.0` (`crates/ui-api/src/lib.rs`). A theme's `ui_api` range must
 include it.
 
 ## Contents
@@ -134,6 +134,7 @@ and struct holds. Read that file as the reference.
 | Prompts | `has-install-prompt`, `install-prompt`, `has-result-prompt`, `result-prompt`, `has-question`, `question`, `ratings`, `browser` (the folder browser) |
 | Start | `boot`, `art-ready` |
 | Status | `task`, `clock`, `has-running`, `running`, `closing`, `has-closing-game`, `closing-game`, `notices`, `notice-cards` |
+| The top bar's tray | `tray` (each a `TrayItem`), `tray-bar`, `tray-rows` |
 | Window and input | `viewport`, `input-mode`, `pad-key`, `power-menu`, `pad-name` |
 
 An optional part comes with a `has-` flag: read `detail` only when `has-detail` is true. Text
@@ -203,6 +204,7 @@ A variant with a sub-enum takes that enum, written as JSON the same way. The doc
 | `LauncherUpdate` | `"Check"`, `"Download"`. |
 | `System` | `SystemCommand` (`crates/core/src/system.rs`): `"Refresh"`, `"ScanWifi"`, `{"JoinWifi": {"ssid": name, "password": text or null}}`, `{"ForgetWifi": name}`, `{"SetBluetooth": bool}`, `"ScanBluetooth"`, `{"Pair": address}`, `{"ConnectDevice": address}`, `{"DisconnectDevice": address}`, `{"RemoveDevice": address}`, `{"SetOutput": name}`, `{"SetVolume": 0-100}`, `{"SetMuted": bool}`, `"Restart"`, `"ShutDown"`, `"LogOut"`, `"CheckOsUpdate"`, `{"InstallOs": path}`, `"ChoosePartitions"`, `{"CancelJob": id}`. |
 | `Pref` | A pair, such as `["sounds", false]`. The key is a `Pref` in snake case (`crates/core/src/preferences.rs`). The player sets `sounds`, `animations`, `fullscreen`, `return_on_exit`, `scale`, `start_at_login`, `auto_update`, `auto_install`, `monitor`, `welcomed` and `backup_folder`. The core sets the others. |
+| `Tray` | `{"item": id, "show": "always" or "needed" or "tray"}`: where the top bar's tray item `id` shows. The choice is saved by the id; an id the tray doesn't have is refused. |
 | `SetThemeOption` | `{"key": option, "value": text}`. |
 | `SetConfig` | `{"plugin": id, "scope": scope, "value": json}`. A scope is `{"type": "emulator"}` or `{"type": "game", "game": text}`. Pass a settings panel's `scope` back unchanged. |
 | `SetConfigField` | `{"plugin": id, "scope": scope, "key": field, "value": text}`. |
@@ -323,7 +325,7 @@ Tests in `contract.rs` hold every kit file to three rules:
 | `keyboard.slint` | `Osk`, `TextField`, `OnScreenKeyboard` | A text field, and the on-screen keyboard it opens for a controller. A field with `picking` shows a row of picks over the keys, such as a search's matches or recent searches. |
 | `lingering.slint` | `Lingering` | Keeps a screen or a sheet on screen while it goes out. |
 | `list-item.slint` | `ListItem` | A row: a label, a line under it, a value at the end. |
-| `loading.slint` | `LoadingLine`, `LoadingSpinner`, `LoadingRow`, `StatusSlot`, `StatusLoading`, `StatusState` | What shows while a system area is read for the first time: a status icon's thin line and its "Checking…" label, a panel's loading row, and the place that keeps a status icon in the top bar and closes, with its gap, when the icon goes. `StatusState` shows an area's state over its status icon: loading, or disabled with its reason. |
+| `loading.slint` | `LoadingLine`, `LoadingSpinner`, `LoadingRow`, `StatusSlot`, `StatusLoading`, `StatusState` | What shows while a system area is read for the first time: a status icon's thin line and its "Checking…" label, a panel's loading row, and the place that keeps a tray item in the top bar and opens or closes, with its gap, as the item comes or goes (`StatusSlot`, `shown` while it is on screen). `StatusState` shows an item's `state` and `reason` over its icon: loading, or disabled with its reason. |
 | `look.slint` | `Look` | Shared sizes (`k`, `px`, `t`, `tpx`), `rtl`, colors made from tokens, `timed`, `motion-on`, `clock`, the kinds of motion, and words and colors for ratings, results, sorts and states. |
 | `motion.slint` | `Motion`, `Leaving`, `Popover`, `Card`, `Sheet`, `Tooltip` | The kit's shared motion: its times, a part kept on screen while it fades out, a popover that grows from its anchor, a card's fill with round corners (top to bottom, the software renderer draws a gradient square past them), a sheet whose card slides up over a fading wash, and a label that fades in on key focus or after a short hover. The install prompt, a plugin's question and the art of a game with no cover use `Card` too. |
 | `notices.slint` | `Notices`, `NoticeStack` | The notices on screen. Delete closes the newest. |
@@ -349,9 +351,10 @@ Tests in `contract.rs` hold every kit file to three rules:
 | `slot-actions.slint` | `SlotActions` | Plugin actions as round buttons. |
 | `slot-badges.slint` | `SlotBadges` | Plugin badges as small tags with a dot in their tone. |
 | `slot-sections.slint` | `SlotSections` | Plugin sections as fact cards. |
-| `status-bar.slint` | `StatusBar`, `StatusButton` | The machine's status icons in one row, the same in every theme: the network, sound, Bluetooth and drives icons, then the battery. Put it in your top bar before Settings, and give it `focused`, the icon the keys are on (0 to `Sys.statuses` - 1, or -1). |
-| `system-panel.slint` | `Sys`, `NetIcon`, `SoundIcon`, `BluetoothIcon`, `StorageIcon`, `BatteryIcon`, `SystemSheet` | The network, sound, Bluetooth and drives icons and their panels, wherever the launcher runs, and the battery. `Sys.statuses` is how many status icons there are (4). `Sys.toggle` and `Sys.show-status` open a status icon's panel, and open nothing for a disabled area. `Sys.loading`, `Sys.disabled` and `Sys.reason` read a panel's area. A notice with a `drive` opens the Drives panel. |
+| `status-bar.slint` | `StatusBar`, `StatusButton` | The tray items in the bar now (`Vm.tray`, `in-bar`), in one row, the same in every theme. It names no item: whatever the core puts in the bar shows, and comes and goes with the bar's motion. Put it in your top bar before Settings, and give it `focused`, the item the keys are on (0 to `Tray.bar` - 1, or -1). |
+| `system-panel.slint` | `Sys`, `NetIcon`, `SoundIcon`, `BluetoothIcon`, `StorageIcon`, `BatteryIcon`, `SystemSheet` | The network, sound, Bluetooth and drives panels, wherever the launcher runs, and the battery. `Sys.statuses` is how many panels there are (4). `Sys.toggle` and `Sys.show-status` open a panel, and open nothing for a disabled area. `Sys.panel-named` is the panel a tray item's `target` names. `Sys.loading`, `Sys.disabled` and `Sys.reason` read a panel's area. A notice with a `drive` opens the Drives panel. |
 | `trailer-player.slint` | `Trailers`, `TrailerPlayer` | A trailer in the window, with its keys. |
+| `tray.slint` | `Tray`, `TrayGlyph`, `TrayButton`, `TraySheet` | The top bar's tray: every tray item in a popover under the ⌃ (`TrayButton`), Status first, then Shortcuts, each with its icon, name, state line and where it shows; its Edit view, with each item's three choices; its keys (`Tray.key`) and hints (`Tray.hints`). `Tray.open-item` opens an item, `Tray.toggle` the tray, `Tray.edit-from` the Edit view next to a row. `Overlays` shows the tray and `ShellKeys` sends it its keys. Accessible labels: `tray` (the ⌃, value `open` or `closed`), `tray-panel` (value `status` or `edit`), `tray-title`, `tray-edit` (Edit or Done), `tray-item` (value the item's id), `tray-text` (its state line), `tray-show:<id>` (value its choice), `tray-group`, `tray-choice:<id>` (value `always`, `needed` or `tray`). |
 | `widgets.slint` | `FocusRing`, `KeyCap`, `BackButton`, `Stars`, `Chip`, `Pill`, `Kicker`, `Switch`, `Shimmer`, `Cover` | Small widgets. |
 
 ### What a shell does for the kit
@@ -371,7 +374,7 @@ theme: put your screens inside it and give it the focus (`forward-focus`).
 3. The power menu (`PowerMenu.key`), and Ctrl+P to open it.
 4. A plugin's question at the start (`Question.key`), the Welcome screen, and the boot screen
    while the start's installs run.
-5. The OS installer (`Setup.key`) and a machine panel (`Sys.key`).
+5. The OS installer (`Setup.key`), the top bar's tray (`Tray.key`, which takes every key while it is open) and a machine panel (`Sys.key`).
 6. The launch splash, while it lists the game's keys (`splash-keys`): it takes every key but
    Escape and Ctrl+Q.
 7. Delete closes the newest notice.
@@ -404,7 +407,7 @@ on its releases, set `Hub.to-releases` before you open it.
 The shell also does these things:
 
 - Put `Overlays` over your screens, the size of the window, with `logo` set to your emblem. It
-  shows the prompts, the game menu, the trailer, the screenshot viewer, a folder's list, the
+  shows the top bar's tray, the prompts, the game menu, the trailer, the screenshot viewer, a folder's list, the
   folder browser, the
   OS installer, the power menu and the closing screen while each is open.
 - Put `QuestionPrompt` over your boot screen while `Vm.has-question`. The start waits for the
@@ -491,13 +494,43 @@ Version 0.7.0 put every system area in one list
 A theme built for 0.6 that reads `Vm.system.*-loading`, `*-reason` or `*-available` reads
 `Vm.system.areas` instead, then sets `ui_api = "^0.7"`.
 
+Version 0.8.0 put the top bar's items in one list, the tray
+([ADR-0005](../adr/0005-the-top-bar-draws-one-tray-list.md)):
+
+- `Vm.tray` lists every tray item (`TrayItem`): its `id`, `icon`, `name`, state line (`text`),
+  `group` (`status` or `shortcuts`), where it shows (`show`: `always`, `needed` or `tray`),
+  whether it is in the bar now (`in-bar`), its area's `state` and `reason`, `busy`, what opening
+  it does (`opens` and `target`) and its `value`. `Vm.tray-bar` and `Vm.tray-rows` are the items
+  in the bar and the items the tray lists, by their place in `Vm.tray`. The command `Tray` sets
+  where an item shows.
+- `StatusBar` draws the items in the bar, not four fixed icons: its `focused` is the item's place
+  in the bar (0 to `Tray.bar` - 1). The battery is a tray item too. `StatusButton` takes `state`
+  and `reason` in place of `area`, and `StatusState` the same.
+- An area that can't be used is never in the bar: the tray lists it dimmed, with its reason. The
+  0.7.0 rule, a disabled icon in place in the bar, is gone.
+- The top bar's Downloads, Emulators and Themes buttons are tray items now. Downloads shows in the
+  bar while a download or an install runs, and once one finished until the player opens
+  Downloads. Emulators and Themes show only in the tray, unless the player chooses otherwise.
+- The bar ends with Settings, then the tray's ⌃ (`TrayButton`, `kit/tray.slint`), then the clock.
+  Both built-in themes count their stops as Search, `Tray.bar` items, Settings and the ⌃:
+  `Nav.statuses` is `Tray.bar`.
+- `Overlays` shows the tray (`TraySheet`), and `ShellKeys` sends it its keys before a machine
+  panel's. `ShellHints.pick` gives the tray's hints while it is open.
+- Settings → Launcher has a last row, Top bar (`LauncherRows.top-bar`), which opens the tray's
+  Edit view next to it. `Prefs.open-at(name)` opens Settings on a tab by its name.
+
+A theme built for 0.7 with a top bar of its own puts `TrayButton` after its Settings button,
+counts `Tray.bar` items in place of `Sys.statuses`, then sets `ui_api = "^0.8"`.
+
 #### Status icons
 
-The kit's `StatusBar` (`kit/status-bar.slint`) draws every status icon in the same order in every
-theme, wherever the launcher runs. A theme with a top bar of its own puts it before its Settings
-button. Every status icon is in place from the first frame, so the top bar never shifts.
-The kit's `StatusState` (`kit/loading.slint`) shows an area's state over its icon. Put it in the
-icon's button with the area's place, and read its `dim`, `cursor`, `disabled` and `lit`:
+The kit's `StatusBar` (`kit/status-bar.slint`) draws the tray items in the bar now, in the same
+order in every theme, wherever the launcher runs. A theme with a top bar of its own puts it before
+its Settings button, and the tray's ⌃ (`TrayButton`) right after Settings, in the same group,
+with the same size and gap. Every item has its place from the first frame, open while the item
+is in the bar (`StatusSlot`). The kit's `StatusState` (`kit/loading.slint`) shows an item's state
+over its icon. Put it in the icon's button with the item's `state` and `reason`, and read its
+`dim`, `cursor`, `disabled` and `lit`:
 
 - **Loading:** while its area loads, the icon dims, and a 2 px line (`LoadingLine`) sweeps under
   it. With Animations off the line is dotted and stands still. Its accessible value is `loading`,
@@ -505,20 +538,36 @@ icon's button with the area's place, and read its `dim`, `cursor`, `disabled` an
   empty, dim battery with "--%" and the same line. A loading icon can be focused and clicked. Its
   panel opens at once on a loading row (`LoadingRow`, accessible label `loading`: "Reading
   drives…", "Reading the network…") that the rows replace when the read ends. The folder
-  browser's places show "Reading drives…" under them while `places-loading`.
-- **Disabled:** an area that is absent or unsupported keeps its icon in place, dimmer, with the
-  plain pointer (`cursor`) in place of the hand and no hover fill. A click, Enter or the pad's ✕
-  opens nothing. The icon still takes the keys' and the pad's focus and the pointer's hover, and
-  then its reason shows under it on one line, on a chip that stays inside the window (`TipChip`
-  in `kit/motion.slint`, accessible label `status-reason`). Its focus is a ring that `StatusState`
-  draws round the dim icon: give the solid focus fill, and the glyph's colour on it, only while
-  `lit` (focused and not disabled). The built-in themes give it the accessible
-  value `disabled`, `accessible-enabled: false`, and the reason as its description. Left and
-  right in an open panel go past a disabled one.
-- **An icon that goes:** only what isn't there at all closes its place: a PC with no battery
-  fades the battery out, and its place (`StatusSlot`) closes with its gap, in the motion times.
-  Put each icon in a `StatusSlot` with the gap after it, and keep the slot while it fades out
-  with `Leaving`.
+  browser's places show "Reading drives…" under them while `places-loading`. In the tray, a
+  loading row says "Checking…" and its line sweeps along the row's foot. An item set to When
+  needed waits in the tray until its area is read; one set to Always shows loading in the bar.
+- **Disabled:** an item whose area is absent or unsupported is never in the bar. The tray lists
+  it dimmed, with its reason as its state line and the plain pointer. A click, Enter or the pad's
+  ✕ opens nothing. It still takes the keys', the pad's and the pointer's focus, as a ring, not
+  the solid fill. `StatusState` still draws the disabled look, with its reason on a chip
+  (`TipChip`, accessible label `status-reason`), for a theme's own button.
+- **An item that comes or goes:** an item comes into the bar, or leaves it, as the player's
+  choice or the moment says. Its place (`StatusSlot`) opens or closes with its gap, in the motion
+  times; draw the icon only while the place is `shown`.
+
+#### The tray
+
+The tray (`kit/tray.slint`) opens under the ⌃. Its header says Status, with an Edit button. Its
+rows are `Vm.tray-rows`: Status items first, then a Shortcuts group. Each row has the item's icon,
+name, state line and where it shows. The focus starts on the first row and always shows. Row -1
+is the header's button.
+
+| Input | Open | Move | Open a row | Change where it shows | Close |
+| --- | --- | --- | --- | --- | --- |
+| Mouse | Click the ⌃ | Hover | Click | Right-click | Click outside |
+| Keys | Enter on the ⌃ | Up, Down | Enter | `/` or Menu; Left and Right in the Edit view | Esc |
+| Pad | ✕ on the ⌃ | D-pad | ✕ | △; left and right in the Edit view | ○ |
+
+A choice goes round Always, When needed, Only here. The hints read Open, "Show in bar: <choice>"
+and Close; on an item that can't be used, no Open. Edit, or Settings → Launcher → Top bar, opens
+the Edit view: each item with its three choices side by side. Esc goes back to the list, or closes
+the view opened from Settings. Nothing in the tray holds input: it takes every key while it is
+open, and a part that goes takes none.
 
 ### Motion
 
@@ -528,7 +577,7 @@ place at its first frame.
 
 | Piece | Used by | Motion | Time (`Motion`) |
 | --- | --- | --- | --- |
-| `Popover` | the system panels and the Drives panel | grows from 0.96 at its anchor's side and fades in; fades out | `popover-in` 120 ms, `popover-out` 90 ms |
+| `Popover` | the system panels, the Drives panel and the tray | grows from 0.96 at its anchor's side and fades in; fades out | `popover-in` 120 ms, `popover-out` 90 ms |
 | `Sheet` | the folder browser, a folder's list, the dialogs before Restart, Shut down and a restore | the wash fades in, the card slides up 16 px and fades in; both fade out | `sheet-in` 150 ms, `sheet-out` 110 ms |
 | `Leaving` | the shells and `Overlays` | keeps a part on screen while it fades out | the part's out time |
 | `Tooltip` | the Drives panel's buttons | fades in at once on key focus, after `tip-wait` under the pointer | `tip-in` 80 ms, `tip-wait` 250 ms, `tip-out` 60 ms |

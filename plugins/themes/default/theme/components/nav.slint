@@ -2,7 +2,7 @@ import { Vm, Host } from "../types.slint";
 import { Commands } from "../kit/commands.slint";
 import { Games } from "../kit/games.slint";
 import { Look } from "../kit/look.slint";
-import { Sys } from "../kit/system-panel.slint";
+import { Tray } from "../kit/tray.slint";
 import { Origin } from "../kit/origin.slint";
 // Origin is the kit's; the theme's files read it from here too.
 export { Origin } from "../kit/origin.slint";
@@ -13,9 +13,8 @@ export { Origin } from "../kit/origin.slint";
 // (`filters`), its bar (`bar`: search, sort, the genres' list, and in the Catalog the catalog
 // plugin's button) and its grid (`grid`). The Library has one card size.
 //
-// The top bar has no tabs: the screen buttons (0 to 3), then the machine's icons, the kit's status
-// bar (the network, sound, Bluetooth and drives icons, everywhere), then Settings. A system opens
-// the Library screen on
+// The top bar has no tabs: Search (0), then the kit's status bar (the tray items in the bar now),
+// Settings, and the ⌃ that opens the tray last. A system opens the Library screen on
 // its games (LibrarySystem, then Navigate); Back from it is the core's. The list shows no game,
 // so the shell's game keys (Menu, T) work only in the Library. The shell, the card, the top bar
 // and the running screen read the other members.
@@ -54,10 +53,9 @@ export global Nav {
     in-out property <bool> to-search;
 
     out property <int> tabs: 0;
-    // The screen buttons, the machine's icons (`Sys.statuses`: the network, sound, Bluetooth and
-    // drives icons), and Settings last.
-    out property <int> buttons: 5 + root.statuses;
-    out property <int> statuses: Sys.statuses;
+    // Search, the tray items in the bar now (`Tray.bar`), Settings, and the tray's ⌃ last.
+    out property <int> buttons: 3 + root.statuses;
+    out property <int> statuses: Tray.bar;
 
     public pure function platform(entry: int) -> string {
         entry < 0 || entry >= Vm.home.groups.length ? "" : Vm.home.groups[entry].platform
@@ -109,18 +107,15 @@ export global Nav {
     }
     // The top bar's first item the keys can reach: Search, or Downloads with no Catalog.
     out property <int> first-tab: Vm.catalog-available ? 0 : 1;
-    // The screen buttons (Search, Downloads, Emulators, Themes), the machine's icons, and Settings
-    // last.
+    // Search, the tray items in the bar, Settings, and the tray's ⌃ last.
     public function activate-tab(index: int) {
-        if (index >= root.tabs + 4 && index < root.tabs + 4 + root.statuses) {
-            Sys.show-status(index - root.tabs - 4);
+        if (index >= root.tabs + 1 && index < root.tabs + 1 + root.statuses) {
+            Tray.open-item(Vm.tray-bar[index - root.tabs - 1]);
+        } else if (index == root.tabs + 2 + root.statuses) {
+            Tray.toggle();
         } else {
             Host.play-sound("select");
-            Commands.navigate(index == 0 ? "catalog"
-                : index == 1 ? "downloads"
-                : index == 2 ? "emulators"
-                : index == 3 ? "themes"
-                : "settings");
+            Commands.navigate(index == root.tabs ? "catalog" : "settings");
         }
     }
     // The Catalog's bar has the catalog plugin's first button (`Vm.catalog-actions`), such as

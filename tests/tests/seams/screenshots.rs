@@ -846,7 +846,16 @@ fn shoot_system(window: &MinimalSoftwareWindow, out: &Path) {
     };
     open(&mut host, "status:network");
     shoot(window, &out.join("classic-system-network.png"));
-    open(&mut host, "status:sound");
+    // The sound isn't muted: it waits in the tray, which opens its panel.
+    open(&mut host, "tray");
+    let found = i_slint_backend_testing::ElementHandle::find_by_accessible_label(host.instance(), "tray-item");
+    found
+        .into_iter()
+        .find(|e| e.accessible_value().as_deref() == Some("audio"))
+        .expect("the row")
+        .invoke_accessible_default_action();
+    follow(&mut host);
+    follow(&mut host);
     shoot(window, &out.join("classic-system-sound.png"));
     open(&mut host, "status:bluetooth");
     shoot(window, &out.join("classic-system-bluetooth.png"));
@@ -1381,6 +1390,7 @@ shots! {
     the_system_controls => shoot_system,
     the_os_install_s_cancel => shoot_install_cancel,
     the_status_areas => shoot_status_areas,
+    the_tray => shoot_tray,
     the_system_controls_on_a_desktop => shoot_desktop_system,
     the_stick_s_disks_with_none_offered => shoot_disks_reason,
     a_game_s_own_settings => shoot_game_settings,
@@ -1475,11 +1485,11 @@ fn shoot_desktop_system(window: &MinimalSoftwareWindow, out: &Path) {
     }
 }
 
-/// The top bar's status icons in each built-in theme, one area in each state: the network is
-/// ready, the sound still reads, and Bluetooth and the drives are disabled (no adapter, a long
-/// reason), as `<theme>-status-areas.png`; then with the keys on Bluetooth's icon, which shows
-/// why, as `<theme>-status-disabled-focused.png`; then on the drives' icon, last but one in the
-/// bar, whose long reason moves in from the window's edge, as `<theme>-status-disabled-edge.png`.
+/// The top bar in each built-in theme, one area in each state: the network is ready, the sound
+/// still reads, and Bluetooth and the drives can't be used (no adapter, a long reason), as
+/// `<theme>-status-areas.png`: only the network is in the bar. Then the tray with the keys on
+/// Bluetooth's row, dimmed with why, and the drives' long reason on one line, as
+/// `<theme>-tray-unavailable.png`.
 fn shoot_status_areas(window: &MinimalSoftwareWindow, out: &Path) {
     use launcher_core::system::Place;
     use slint::platform::Key;
@@ -1522,15 +1532,127 @@ fn shoot_status_areas(window: &MinimalSoftwareWindow, out: &Path) {
             "{theme}"
         );
         shoot(window, &out.join(format!("{theme}-status-areas.png")));
-        // From Settings, back past the drives' icon to Bluetooth's.
+        // Areas that can't be used are never in the bar: the tray lists them dimmed, with why.
+        // The ⌃ is the bar's last stop; the internet, the sound, then Bluetooth.
+        key(&mut host, Key::Backtab);
+        key(&mut host, Key::Return);
+        key(&mut host, Key::DownArrow);
+        key(&mut host, Key::DownArrow);
+        follow(&mut host);
+        follow(&mut host);
+        shoot(window, &out.join(format!("{theme}-tray-unavailable.png")));
+        key(&mut host, Key::Escape);
+    }
+}
+
+/// The top bar's tray in each built-in theme, as the whole screen with its clock: the bar at the
+/// start (`<theme>-tray-bar-start.png`); with a download running and a USB stick plugged in
+/// (`-tray-bar-busy.png`); the tray open with the keys on a row and the pad's hints
+/// (`-tray-open.png`); and its Edit view (`-tray-edit.png`).
+fn shoot_tray(window: &MinimalSoftwareWindow, out: &Path) {
+    use launcher_core::system::{Place, SystemCommand};
+    use slint::platform::Key;
+    const HASH: &str = "c12fe1c06bba254a9dc9f519b335aa7c1367a88a";
+    window.set_size(slint::PhysicalSize::new(WIDTH, HEIGHT));
+    for theme in [theme_classic::ID, theme_default::ID] {
+        let home = tempfile::tempdir().unwrap();
+        let media = tempfile::tempdir().unwrap();
+        let system = launcher_testkit::FakeSystem::new();
+        system.with(|m| {
+            m.network = launcher_api::NetworkStatus {
+                connection: launcher_api::Connection::Wifi,
+                name: "Home".into(),
+                signal: Some(80),
+            };
+            m.bluetooth_on = true;
+            m.level = launcher_api::AudioLevel { volume: 65, muted: false };
+            m.battery = Some(launcher_api::Battery { percent: 72, charging: false });
+            m.mount_at = Some(media.path().to_path_buf());
+        });
+        let place = Place { whole_screen: true, own_os: true, stick: false };
+        let plugin = system.plugin();
+        let mut host = composed_on_current_platform(|h| {
+            h.place(place)
+                .home(home.path())
+                .plugin(plugin)
+                .plugin(FakeCatalog::kyty().installs("Astro").build())
+                .built_in(launcher_api::PluginBox::code(release_catalog::ReleaseCatalog::default()))
+        });
+        host.ui.start_with(Some(id(theme))).unwrap();
+        host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
+        host.dispatch(Command::System(SystemCommand::Refresh));
+        host.dispatch(Command::Notice(launcher_core::NoticeCmd::DismissAll));
+        host.platform.set_local_time("12:45 PM");
+        host.on_tick();
+        follow(&mut host);
+        follow(&mut host);
+        shoot(window, &out.join(format!("{theme}-tray-bar-start.png")));
+
+        // A USB stick comes, and a download runs.
+        system.with(|m| {
+            m.drives = vec![launcher_api::SystemDrive {
+                device: "/dev/sda1".into(),
+                disk: "/dev/sda".into(),
+                uuid: "1A2B".into(),
+                label: "STICK".into(),
+                size: 64_000_000_000,
+                filesystem: "exfat".into(),
+                usb: true,
+                ..launcher_api::SystemDrive::default()
+            }]
+        });
+        host.dispatch(Command::Drive(launcher_core::DriveCmd::Refresh));
+        host.test.torrents.has(HASH, "Astro", &[("Astro/astro.pkg", b"a game package")]);
+        host.serve_catalog(&[(
+            "ps5",
+            serde_json::json!([{ "id": "1", "title": "[PS5] Astro [EUR / v01.05]", "size": "1 GB",
+                "magnet": format!("magnet:?xt=urn:btih:{HASH}"),
+                "game_info": { "name": "Astro", "title_id": "PPSA01234", "region": "EUR", "version": "v01.05" } }]),
+        )]);
+        host.dispatch(Command::Torrent(launcher_core::TorrentCmd::Download {
+            offer: "release-catalog:emu-kyty/PPSA01234".parse().unwrap(),
+            release: HASH.into(),
+            folder: None,
+        }));
+        run_until(&host, 1000, |core| core.view().downloads.torrents.first().is_some_and(|t| t.state == "ready"));
+        host.dispatch(Command::Torrent(launcher_core::TorrentCmd::Act {
+            id: HASH.into(),
+            action: launcher_core::TorrentAction::Start,
+        }));
+        host.test.torrents.progress(HASH, 4);
+        run_until(&host, 1000, |core| core.view().downloads.torrents.first().is_some_and(|t| t.state == "downloading"));
+        host.dispatch(Command::Notice(launcher_core::NoticeCmd::DismissAll));
+        follow(&mut host);
+        follow(&mut host);
+        let view = host.core().view();
+        let bar: Vec<&str> = view.tray_bar.iter().map(|&i| view.tray[i as usize].id.as_str()).collect();
+        assert_eq!(bar, ["network", "drives", "power", "downloads"], "{theme}");
+        shoot(window, &out.join(format!("{theme}-tray-bar-busy.png")));
+
+        // The pad: the ⌃ is the bar's last stop; ✕ opens the tray; down to the drives.
+        host.ui.set_input_mode("gamepad");
+        key(&mut host, Key::Backtab);
+        key(&mut host, Key::Return);
         for _ in 0..3 {
-            key(&mut host, Key::Backtab);
+            key(&mut host, Key::DownArrow);
         }
         follow(&mut host);
-        shoot(window, &out.join(format!("{theme}-status-disabled-focused.png")));
-        key(&mut host, Key::Tab);
         follow(&mut host);
-        shoot(window, &out.join(format!("{theme}-status-disabled-edge.png")));
+        shoot(window, &out.join(format!("{theme}-tray-open.png")));
+
+        // Up to Edit, and in; down to the sound.
+        for _ in 0..4 {
+            key(&mut host, Key::UpArrow);
+        }
+        key(&mut host, Key::Return);
+        key(&mut host, Key::DownArrow);
+        key(&mut host, Key::DownArrow);
+        follow(&mut host);
+        follow(&mut host);
+        shoot(window, &out.join(format!("{theme}-tray-edit.png")));
+        key(&mut host, Key::Escape);
+        key(&mut host, Key::Escape);
+        host.ui.set_input_mode("pointer");
     }
 }
 

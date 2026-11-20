@@ -32,6 +32,7 @@ opens on Launcher.
 | Animations | Sheets, menus and cards move into place. Off, they are in place at once, in every theme. On by default. |
 | Start at login | The launcher opens when you log in. Only in an installed build. |
 | Screen | The monitor the launcher fills. Only with two monitors or more. |
+| Top bar | Which icons the top bar shows. Opens the tray's Edit view next to the row: for each item, **Always**, **When needed** or **Only here**. See [The top bar](finding-games.md#the-top-bar). |
 
 ## Updates
 

@@ -90,7 +90,7 @@ capabilities = ["theme"]
 type = "data"
 
 [theme]
-ui_api = "^0.7"
+ui_api = "^0.8"
 ```
 
 - `id`: 1 to 64 lowercase letters, digits or `-`, starting with a letter. It can't be the id of
@@ -100,7 +100,7 @@ ui_api = "^0.7"
 - `capabilities` is exactly `["theme"]`.
 - `[runtime] type = "data"`: a theme has no code.
 - `[theme] ui_api` must include the theme contract's version, `UI_API_VERSION` in
-  `crates/ui-api/src/lib.rs` (now `0.7.0`).
+  `crates/ui-api/src/lib.rs` (now `0.8.0`).
 
 The rest of `[theme]` is optional: input devices, tokens, breakpoints, assets, options and
 system art. Every key is in [reference.md](reference.md#the-theme-section).

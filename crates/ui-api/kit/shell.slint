@@ -18,6 +18,7 @@ import { Trailers, TrailerPlayer } from "trailer-player.slint";
 import { Notices } from "notices.slint";
 import { Osk } from "keyboard.slint";
 import { Sys } from "system-panel.slint";
+import { Tray, TraySheet } from "tray.slint";
 import { Setup, InstallOs } from "install-os.slint";
 import { Prompt, InstallPrompt } from "install-prompt.slint";
 import { Question } from "question-prompt.slint";
@@ -38,6 +39,7 @@ export global ShellHints {
     // `trailer-key`: the shown game has a trailer, and its key opens it.
     public pure function pick(sort-open: bool, grid-header: bool, home: [Hint], trailer-key: bool) -> [Hint] {
         PowerAsk.asking != "" ? AskKeys.hints
+        : Tray.open ? Tray.hints
         : Osk.open ? [
             { pad: "✕", key: "Enter", label: "Type" },
             { pad: "□", key: "⌫", label: "Delete" },
@@ -140,8 +142,8 @@ export global Screens {
 }
 
 // The shell's keys, in the order every theme answers them: the overlays first (the closing
-// screen, the folder browser, the on-screen keyboard, the power menu, Welcome, Install OS, a
-// system panel, a notice, a trailer, the result prompt, the game menu, the screenshot viewer,
+// screen, the folder browser, the on-screen keyboard, the power menu, Welcome, Install OS, the
+// top bar's tray, a system panel, a notice, a trailer, the result prompt, the game menu, the screenshot viewer,
 // the install prompt), then the app's own keys, then the screen's. A gamepad's d-pad and
 // buttons arrive as arrow, Return, Escape and Tab keys.
 //
@@ -177,6 +179,7 @@ export component ShellKeys inherits FocusScope {
         Viewer.open = false;
         GameMenu.close();
         Prefs.reset();
+        Tray.close();
         root.screen-changed();
         root.focus();
     }
@@ -251,6 +254,8 @@ export component ShellKeys inherits FocusScope {
         if (Vm.boot.installing) { return accept; }
         // Marah OS's USB stick: Welcome, then installing, before anything else.
         if (Setup.shown) { Setup.key(event.text); return accept; }
+        // The top bar's tray: it takes every key while it is open.
+        if (Tray.open && Tray.key(event.text)) { return accept; }
         // A panel of the machine's settings is open under the top bar.
         if (Sys.open >= 0 && Sys.key(event.text)) { return accept; }
         // The launch splash lists the game's keys: they are the game's. Escape (Back) and
@@ -315,14 +320,17 @@ export component ShellKeys inherits FocusScope {
     @children
 }
 
-// What opens over the screens, each while it is open, the later over the earlier: the install
-// prompt, the screenshot viewer, a trailer, the game menu, the result prompt, Send ratings, the
+// What opens over the screens, each while it is open, the later over the earlier: the top bar's
+// tray, the install prompt, the screenshot viewer, a trailer, the game menu, the result prompt, Send ratings, the
 // folder browser, Install OS, the power menu, the dialog before Restart or Shut down on a desktop,
 // and the closing screen over everything. Put it over
 // your screens, the size of the window. `ShellKeys` sends each one its keys.
 export component Overlays inherits Rectangle {
     // The theme's emblem, for the closing screen's steps about no game.
     in property <image> logo;
+    // The top bar's tray stays while it fades out; it takes no key then.
+    tray := Leaving { open: Tray.open; time: Motion.popover-out; }
+    if tray.shown : TraySheet { width: parent.width; height: parent.height; }
     if Vm.has-install-prompt : InstallPrompt { width: parent.width; height: parent.height; }
     if Viewer.open : ShotViewer { width: parent.width; height: parent.height; }
     if Vm.has-trailer : TrailerPlayer { width: parent.width; height: parent.height; }
