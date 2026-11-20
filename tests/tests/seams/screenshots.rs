@@ -846,7 +846,16 @@ fn shoot_system(window: &MinimalSoftwareWindow, out: &Path) {
     };
     open(&mut host, "status:network");
     shoot(window, &out.join("classic-system-network.png"));
-    open(&mut host, "status:sound");
+    // The sound isn't muted: it waits in the tray, which opens its panel.
+    open(&mut host, "tray");
+    let found = i_slint_backend_testing::ElementHandle::find_by_accessible_label(host.instance(), "tray-item");
+    found
+        .into_iter()
+        .find(|e| e.accessible_value().as_deref() == Some("audio"))
+        .expect("the row")
+        .invoke_accessible_default_action();
+    follow(&mut host);
+    follow(&mut host);
     shoot(window, &out.join("classic-system-sound.png"));
     open(&mut host, "status:bluetooth");
     shoot(window, &out.join("classic-system-bluetooth.png"));

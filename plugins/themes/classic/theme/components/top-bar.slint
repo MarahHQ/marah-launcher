@@ -5,6 +5,7 @@ import { Look } from "../kit/look.slint";
 import { Nav } from "nav.slint";
 import { Icon } from "../kit/icon.slint";
 import { StatusBar } from "../kit/status-bar.slint";
+import { Tray, TrayButton } from "../kit/tray.slint";
 import { Hint } from "../kit/shell.slint";
 import { Reveal } from "../kit/reveal.slint";
 import { LoadingLine } from "../kit/loading.slint";
@@ -110,16 +111,25 @@ component PillButton inherits Rectangle {
 }
 
 // The top bar: Home and Library on the reading side; a running game, the
-// active download, the screen buttons, Settings and the clock, last, on the other.
+// active download, Search, the status bar, Settings, the tray's ⌃ and the clock, last, on the
+// other.
 export component TopBar inherits Rectangle {
     // The keys are on the top bar (home only).
     in property <bool> keys;
     height: 104 * Look.px;
 
     property <int> download: Vm.downloads.length > 0 ? 0 : -1;
-    // The drives' icon went: the keys stay on the bar.
-    property <int> items: Nav.tabs + Nav.buttons;
-    changed items => { if (Nav.tab >= root.items) { Nav.tab = root.items - 1; } }
+    // An item came into the bar or left it: the keys stay on the ⌃ and on Settings, and on an
+    // item's stop while there is one.
+    property <int> bar: Tray.bar;
+    property <int> bar-was;
+    init => { root.bar-was = root.bar; }
+    changed bar => {
+        if (Nav.tab > Nav.tabs) {
+            Nav.tab = Nav.tabs + 1 + Tray.refocus(Nav.tab - Nav.tabs - 1, root.bar-was, root.bar);
+        }
+        root.bar-was = root.bar;
+    }
     // The game folders are being scanned (at the start, or for a folder or a drive that came):
     // a quiet line along the bar's foot. It only shows; the games stand as they are meanwhile.
     if Vm.home.loading : LoadingLine {
@@ -215,8 +225,8 @@ export component TopBar inherits Rectangle {
             }
             TouchArea { mouse-cursor: pointer; clicked => { Commands.navigate("downloads"); } }
         }
-        // Search opens the Catalog, which a turned-off Game Catalog takes away. The buttons
-        // keep their places for the keys (`Nav.tabs` + 0 to 3, Settings last): the keys skip Search's.
+        // Search opens the Catalog, which a turned-off Game Catalog takes away. It keeps its
+        // place for the keys (`Nav.tabs`): the keys skip it.
         if Vm.catalog-available : RoundButton {
             icon: "search";
             label: "Search";
@@ -224,32 +234,28 @@ export component TopBar inherits Rectangle {
             focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs;
             clicked => { Commands.navigate("catalog"); }
         }
-        for b[i] in [
-            { icon: "disk", label: "Downloads", screen: "downloads" },
-            { icon: "gamepad", label: "Emulators", screen: "emulators" },
-            { icon: "palette", label: "Themes", screen: "themes" },
-        ] : RoundButton {
-            icon: b.icon;
-            label: b.label;
-            current: Vm.screen == b.screen;
-            focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 1 + i;
-            clicked => { Commands.navigate(b.screen); }
-        }
-        // The machine's icons (the kit's status bar, the same in every theme) and Settings, with
-        // no spacing of their own: each icon's place holds the gap after it, so a place that
-        // closes closes its gap with it.
+        // The kit's status bar (the tray items in the bar now, the same in every theme) and
+        // Settings, with no spacing of their own: each icon's place holds the gap after it, so a
+        // place that closes closes its gap with it. Downloads, Emulators and Themes are tray
+        // items: in the bar when the player or the moment says so.
         HorizontalLayout {
             spacing: 0;
             StatusBar {
-                focused: root.keys && Nav.zone == "tabs" ? Nav.tab - Nav.tabs - 4 : -1;
+                focused: root.keys && Nav.zone == "tabs" ? Nav.tab - Nav.tabs - 1 : -1;
             }
-            // Settings is always the last icon, after the machine's.
+            // Settings, after the bar's items.
             RoundButton {
                 icon: "gear";
                 label: "Settings";
                 current: Vm.screen == "settings";
-                focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 4 + Nav.statuses;
+                focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 1 + Nav.statuses;
                 clicked => { Commands.navigate("settings"); }
+            }
+            // The ⌃ that opens the tray, right after Settings, in the same group: the keys reach
+            // it last, and the tray opens under it. The clock, after it, takes no focus.
+            Rectangle { width: 22 * Look.px; }
+            TrayButton {
+                focused: root.keys && Nav.zone == "tabs" && Nav.tab == Nav.tabs + 2 + Nav.statuses;
             }
         }
         // The clock, at the end of the bar.

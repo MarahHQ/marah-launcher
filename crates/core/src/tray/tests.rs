@@ -9,7 +9,7 @@ use super::*;
 use crate::system::SystemState;
 
 /// A machine with every area ready: a wired network, the sound at 40, Bluetooth on with nothing
-/// connected, no drive, no VPN connected, Marah OS up to date and a battery at 65%.
+/// connected, no drive, no VPN connected, the OS up to date and a battery at 65%.
 fn machine() -> SystemState {
     let mut system = SystemState::default();
     let ready = |data| AreaState::Ready(data);
@@ -323,4 +323,25 @@ fn saved_choices_are_read_by_id_and_the_rest_keep_their_default() {
     assert_eq!(tray.bar(), ["network", "audio", "power"]);
     assert_eq!(tray.item("vpn").show, "needed", "its default");
     assert!(tray.items.iter().all(|i| i.id != "gone-item"), "an id the core doesn't list is ignored");
+}
+
+#[test]
+fn bluetooth_turned_off_has_nothing_connected_and_leaves_the_bar() {
+    let mut system = machine();
+    *data(&mut system, SystemArea::Bluetooth) = AreaData::Bluetooth {
+        powered: false,
+        devices: vec![BluetoothDevice {
+            address: "AA".into(),
+            name: "DualSense".into(),
+            paired: true,
+            connected: true,
+        }],
+    };
+    let tray = tray(&system);
+    let bluetooth = tray.item("bluetooth");
+    assert!(!bluetooth.in_bar, "off: the device it last listed isn't connected");
+    assert_eq!(
+        (bluetooth.text.as_str(), bluetooth.value.as_str(), bluetooth.icon.as_str()),
+        ("Off", "off", "bluetooth-off")
+    );
 }

@@ -8,9 +8,11 @@ import { Sys } from "system-panel.slint";
 // show.
 
 // LAUNCHER: the first five rows are fixed. The screen moves down when "Start at login" shows.
+// "Top bar" is the last row.
 export global LauncherRows {
     out property <int> screen: Vm.can-start-at-login ? 6 : 5;
-    out property <int> count: root.screen + (Vm.monitors.length > 1 ? 1 : 0);
+    out property <int> top-bar: root.screen + (Vm.monitors.length > 1 ? 1 : 0);
+    out property <int> count: root.top-bar + 1;
 }
 
 // DOWNLOADS: the VPN switch, then the VPNs (or the row that says there is none), "Add a VPN"

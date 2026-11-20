@@ -28,7 +28,8 @@ fn with_the_game_catalog_turned_off_the_ways_to_the_catalog_go() {
     assert!(host.values("hint").contains(&"Top bar".to_owned()), "the hint says L1 and R1 move along it");
     assert_eq!(key_asks(&mut host, Key::Tab), []);
     assert_eq!(key_asks(&mut host, Key::Tab), []);
-    assert_eq!(key_asks(&mut host, Key::Return), [Command::Navigate(launcher_core::Route::Downloads)], "R1 skips it");
+    // Nothing is in the bar here (no system plugin): past Search's place is Settings.
+    assert_eq!(key_asks(&mut host, Key::Return), [Command::Navigate(launcher_core::Route::Settings)], "R1 skips it");
     host.dispatch(Command::Navigate(launcher_core::Route::Downloads));
     host.settle();
     assert_eq!(key_asks(&mut host, Key::Backtab), [Command::Navigate(launcher_core::Route::Home)], "and L1");

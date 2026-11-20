@@ -93,6 +93,7 @@ pub const KIT: &[(&str, &str)] = &[
     ("status-bar.slint", include_str!("../kit/status-bar.slint")),
     ("system-panel.slint", include_str!("../kit/system-panel.slint")),
     ("trailer-player.slint", include_str!("../kit/trailer-player.slint")),
+    ("tray.slint", include_str!("../kit/tray.slint")),
     ("widgets.slint", include_str!("../kit/widgets.slint")),
 ];
 

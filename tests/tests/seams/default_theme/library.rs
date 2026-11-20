@@ -165,10 +165,11 @@ fn up_from_the_grid_goes_to_the_bar_then_the_systems_then_the_top_bar() {
     host.navigate(Key::Return);
     host.settle();
     assert_eq!(library_titles(&host).len(), 2, "the PS4's games: {:?}", library_titles(&host));
-    // Up again: the top bar, whose first button the keys reach is Downloads.
+    // Up again: the top bar, whose first button the keys reach is Settings (no Catalog, nothing
+    // in the bar).
     host.navigate(Key::UpArrow);
     host.navigate(Key::Return);
-    assert_eq!(host.core().view().screen, launcher_ui_api::ScreenId::Downloads);
+    assert_eq!(host.core().view().screen, launcher_ui_api::ScreenId::Settings);
 }
 
 #[test]

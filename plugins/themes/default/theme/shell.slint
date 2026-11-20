@@ -34,6 +34,7 @@ import { Trailers } from "kit/trailer-player.slint";
 import { Notices, NoticeStack } from "kit/notices.slint";
 import { Osk, OnScreenKeyboard } from "kit/keyboard.slint";
 import { Sys, SystemSheet } from "kit/system-panel.slint";
+import { Tray } from "kit/tray.slint";
 import { Screens, ShellKeys, Overlays, ShellHints, Hint } from "kit/shell.slint";
 import { Reveal } from "kit/reveal.slint";
 import { Brand } from "brand.slint";
@@ -205,7 +206,7 @@ export component Shell inherits Window {
         && (Vm.screen == "game-detail" || (Games.library && Games.has-detail));
     property <bool> trailer-key: root.game-keys && Vm.detail.trailer-url != "";
     property <bool> overlay: Vm.has-install-prompt || Vm.has-question || GameMenu.open || Vm.has-trailer || Viewer.open || Nav.sort-open
-        || Osk.open || PowerMenu.open || PowerAsk.asking != "";
+        || Osk.open || PowerMenu.open || PowerAsk.asking != "" || Tray.open;
     // The PS or Xbox button, held: the host counts it up.
     property <int> power-asks: Vm.power-menu;
     changed power-asks => { PowerMenu.show(); }

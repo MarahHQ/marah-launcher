@@ -51,6 +51,11 @@ pub trait ThemeDriver {
         ElementHandle::find_by_accessible_label(self.shown(), label).next().unwrap_or_else(|| panic!("no {label}"))
     }
 
+    /// Every shown element labelled `label`, in order.
+    fn all(&self, label: &str) -> Vec<ElementHandle> {
+        ElementHandle::find_by_accessible_label(self.shown(), label).collect()
+    }
+
     /// The values of the elements labelled `label`, in order.
     fn values(&self, label: &str) -> Vec<String> {
         let found = ElementHandle::find_by_accessible_label(self.shown(), label);
@@ -112,6 +117,34 @@ pub trait ThemeDriver {
         window.dispatch_event(WindowEvent::PointerReleased { position, button: PointerEventButton::Left });
         self.carry_out();
         self.settle();
+    }
+
+    /// A click with `button` in the middle of the element labelled `label` whose value is
+    /// `value`: press, then release, as a pointer does.
+    fn click_with(&mut self, label: &str, value: &str, button: PointerEventButton) {
+        let found = ElementHandle::find_by_accessible_label(self.shown(), label);
+        let target = found
+            .into_iter()
+            .find(|e| e.accessible_value().as_deref() == Some(value))
+            .unwrap_or_else(|| panic!("no {label} {value}"));
+        let (at, size) = (target.absolute_position(), target.size());
+        let position = slint::LogicalPosition::new(at.x + size.width / 2.0, at.y + size.height / 2.0);
+        let window = self.shown().window();
+        window.dispatch_event(WindowEvent::PointerMoved { position });
+        window.dispatch_event(WindowEvent::PointerPressed { position, button });
+        window.dispatch_event(WindowEvent::PointerReleased { position, button });
+        self.carry_out();
+        self.settle();
+    }
+
+    /// A left click on the element labelled `label` whose value is `value`.
+    fn click_value(&mut self, label: &str, value: &str) {
+        self.click_with(label, value, PointerEventButton::Left);
+    }
+
+    /// A right click on the element labelled `label` whose value is `value`.
+    fn right_click_value(&mut self, label: &str, value: &str) {
+        self.click_with(label, value, PointerEventButton::Right);
     }
 
     /// A mouse click at `x`, `y` in the window's logical pixels: for a place no element is

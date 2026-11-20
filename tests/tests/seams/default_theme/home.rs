@@ -49,9 +49,10 @@ fn up_and_down_move_along_the_list_and_stop_at_its_end() {
 fn up_from_the_first_system_goes_to_the_top_bar() {
     let mut host = default_theme();
     host.navigate(Key::UpArrow);
-    // The top bar's first button the keys reach: with no Catalog, Downloads.
+    // The top bar's first button the keys reach: with no Catalog and nothing in the bar (no
+    // system plugin here), Settings.
     host.navigate(Key::Return);
-    assert_eq!(host.core().view().screen, ScreenId::Downloads);
+    assert_eq!(host.core().view().screen, ScreenId::Settings);
 }
 
 #[test]
@@ -359,8 +360,7 @@ fn a_game_played_from_its_game_hub_in_a_system_s_games_comes_back_to_them_on_it(
     assert_eq!(selected_title(&host).as_deref(), Some("Beta"), "on the game that was played");
 }
 
-/// The top bar from its end: the clock, then Settings, then the machine's icons, then the
-/// screen buttons.
+/// The top bar from its end: the clock, the tray's ⌃, then Settings.
 #[test]
 fn the_top_bar_ends_with_the_clock_then_settings() {
     let mut host = default_theme();
@@ -369,6 +369,6 @@ fn the_top_bar_ends_with_the_clock_then_settings() {
     host.settle();
     assert_eq!(host.count("clock"), 1, "the clock shows");
     let x = |label: &str| host.first(label).absolute_position().x;
-    assert!(x("clock") > x("Settings"), "the clock {} after Settings {}", x("clock"), x("Settings"));
-    assert!(x("Settings") > x("Themes"), "Settings {} after the screen buttons {}", x("Settings"), x("Themes"));
+    assert!(x("clock") > x("tray"), "the clock {} after the ⌃ {}", x("clock"), x("tray"));
+    assert!(x("tray") > x("Settings"), "the ⌃ {} after Settings {}", x("tray"), x("Settings"));
 }

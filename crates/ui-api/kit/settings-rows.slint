@@ -163,7 +163,7 @@ export global Prefs {
             : section == root.backup-section ? BackupRows.count
             : SystemRows.count
     }
-    // Back to the first row, as a sheet opens.
+    // Back to the first row, as a sheet opens; in Settings opened by `open-at`, on its section.
     public function reset() {
         root.section = root.first-section(0);
         root.row = 0;
@@ -171,6 +171,26 @@ export global Prefs {
         root.reading = false;
         root.editing = false;
         root.seen = -1;
+        if (root.to-tab != "" && Vm.screen == "settings") { root.show(root.tab-named(root.to-tab)); }
+        root.to-tab = "";
+    }
+    // The Settings tab Settings opens on next, by its name; "" for the first.
+    in-out property <string> to-tab;
+    // The Settings tab called `name` (`settings-tabs`); the first for a name it doesn't have.
+    public pure function tab-named(name: string) -> int {
+        root.settings-tabs[1].name == name ? 1 : root.settings-tabs[2].name == name ? 2
+            : root.settings-tabs[3].name == name ? 3 : root.settings-tabs[4].name == name ? 4
+            : root.settings-tabs[5].name == name ? 5 : root.settings-tabs[6].name == name ? 6
+            : root.settings-tabs[7].name == name ? 7 : 0
+    }
+    // Opens Settings on the tab called `name`, such as "System".
+    public function open-at(name: string) {
+        if (Vm.screen == "settings") {
+            root.show(root.tab-named(name));
+        } else {
+            root.to-tab = name;
+            Commands.navigate("settings");
+        }
     }
     public pure function is(section: int, row: int) -> bool {
         !root.tabs && root.section == section && root.row == row

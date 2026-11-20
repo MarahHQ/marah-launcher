@@ -5,7 +5,7 @@ import { Motion, Tooltip, TipChip } from "motion.slint";
 
 // What shows while a system area is still read (`Vm.system.areas`, state loading): a status
 // icon's thin line, a panel's loading row, and the slot that keeps a status icon's place in the
-// top bar. And the state a status icon shows for its area: loading, disabled or ready.
+// top bar. And the state an icon shows for its area: loading, disabled or ready.
 // Each moves only while it is on screen: put it in an `if` on the loading state, and it stops
 // with it. With Animations off each stands still.
 
@@ -83,15 +83,18 @@ export component LoadingRow inherits Rectangle {
 
 // A status icon's place in the top bar: `item-width` and the `gap` after it. While `open` turns
 // false the icon fades out and the place closes, so the icons after it slide over; it opens
-// again the same way. An area that can't be used keeps its place: its icon shows disabled
-// (`StatusState`); only what isn't there at all closes its place, such as a battery. Open from its first frame, it is in place at once: the bar never shifts at
-// the start. The place's width is the one size that moves, on purpose: it is the gap closing.
+// again the same way. Open from its first frame, it is in place at once: the bar never shifts at
+// the start. The place's width is the one size that moves, on purpose: it is the gap closing. The
+// top bar keeps a place for every tray item, open while the item is in the bar (`TrayItem`'s
+// `in-bar`), so an item comes in and goes with this motion. Draw the icon only while `shown`.
 export component StatusSlot inherits Rectangle {
     in property <bool> open: true;
     in property <length> item-width;
     in property <length> gap;
     property <float> k: root.open ? 1 : 0;
     animate k { duration: root.open ? Motion.popover-in : Motion.sheet-out; easing: root.open ? Motion.enter : ease-in; }
+    // Open, or still closing: the icon is on screen.
+    out property <bool> shown: root.open || root.k > 0;
     width: (root.item-width + root.gap) * root.k;
     opacity: root.k;
     // Only while it moves: a tooltip under the icon shows past its place.
@@ -125,22 +128,26 @@ export component StatusLoading inherits Rectangle {
     }
 }
 
-// The state a status icon shows for its area (`Vm.system.areas[area]`), the same in every theme.
-// The theme's icon reads `dim`, `cursor`, `disabled` and `lit`, and puts this over itself.
+// The state an icon shows for its area (a tray item's `state` and `reason`), the same in every
+// theme, in the top bar and in the tray. The icon reads `dim`, `cursor`, `disabled` and `lit`, and
+// puts this over itself.
 // - loading: the icon dims, the line sweeps under it, and "Checking…" shows under it on hover or
 //   key focus. It can still be clicked: its panel says what it reads.
-// - absent or unsupported: the icon is disabled. It stays in place, dimmer, with the plain pointer
-//   and no hover fill, and does nothing when clicked or pressed. It still takes the keys' and the
-//   pad's focus and the pointer's hover, and then its reason shows under it on a chip ("This PC
-//   has no Bluetooth adapter"). Its focus is a ring round the dim icon, not the solid fill: it
-//   reads as focused but not usable.
+// - absent or unsupported: the icon is disabled. Such an item is never in the top bar: the tray
+//   lists it, dimmer, with the plain pointer and no hover fill, and it does nothing when clicked
+//   or pressed. It still takes the keys' and the pad's focus and the pointer's hover, and then its
+//   reason shows (`reason-tip`: under it on a chip, for an icon alone). Its focus is a ring round
+//   the dim icon, not the solid fill: it reads as focused but not usable.
 // - ready: nothing over the icon.
 export component StatusState inherits Rectangle {
-    // The area's place in `Vm.system.areas` (`Areas`).
-    in property <int> area;
+    in property <string> state;
+    in property <string> reason;
     in property <bool> focused;
     in property <bool> hovered;
-    out property <string> state: Vm.system.areas[root.area].state;
+    // The reason shows on a chip under the icon. A tray row says it on its own line instead.
+    in property <bool> reason-tip: true;
+    // The loading line under the icon. A tray row draws its own.
+    in property <bool> line: true;
     out property <bool> loading: root.state == "loading";
     out property <bool> disabled: root.state == "absent" || root.state == "unsupported";
     // The icon's opacity.
@@ -150,19 +157,19 @@ export component StatusState inherits Rectangle {
     // The icon shows the theme's solid focus fill, and its glyph the colour on it: focused and
     // usable.
     out property <bool> lit: root.focused && !root.disabled;
-    if root.loading : StatusLoading { focused: root.focused; hovered: root.hovered; }
-    if root.disabled : Rectangle {
+    if root.loading && root.line : StatusLoading { focused: root.focused; hovered: root.hovered; }
+    if root.disabled && root.reason-tip : Rectangle {
         border-radius: self.height / 2;
         border-width: 2 * Look.px;
         border-color: Look.ring;
         opacity: root.focused ? 1 : 0;
         animate opacity { duration: Motion.focus; easing: Motion.enter; }
     }
-    if root.disabled : TipChip {
+    if root.disabled && root.reason-tip : TipChip {
         y: parent.height + 4 * Look.px;
         anchor-x: root.absolute-position.x;
         anchor-width: root.width;
-        text: Vm.system.areas[root.area].reason;
+        text: root.reason;
         shown: root.focused || root.hovered;
         hovered: root.hovered && !root.focused;
         name: "status-reason";

@@ -51,5 +51,6 @@ mod text_fit;
 mod themes;
 mod timing;
 mod torrents;
+mod tray;
 mod unpack;
 mod vpn;

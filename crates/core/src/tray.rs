@@ -365,7 +365,8 @@ fn areas(facts: &Facts) -> Vec<Item> {
         Item::new("bluetooth", Status, Needed, "Bluetooth", "bluetooth").opens("panel", "bluetooth"),
         |item, data| {
             let D::Bluetooth { powered, devices } = data else { return };
-            let connected = devices.iter().filter(|d| d.connected).count();
+            // Off, nothing is connected, whatever the devices last said.
+            let connected = if *powered { devices.iter().filter(|d| d.connected).count() } else { 0 };
             item.needed = connected > 0 || item.busy;
             item.icon = if !powered {
                 "bluetooth-off"
