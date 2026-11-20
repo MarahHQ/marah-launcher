@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.1](https://github.com/MarahHQ/marah-launcher/compare/v0.16.0...v0.16.1) (2026-11-20)
+
+
+### Bug Fixes
+
+* the Game Hub shows the card's cover while its own loads, and a livelier demo ([37e96d1](https://github.com/MarahHQ/marah-launcher/commit/37e96d1805c67d3c7598667324c64687392a77fb))
+
 ## [0.16.0](https://github.com/MarahHQ/marah-launcher/compare/v0.15.0...v0.16.0) (2026-11-20)
 
 
