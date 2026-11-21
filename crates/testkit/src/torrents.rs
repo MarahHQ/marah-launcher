@@ -92,13 +92,6 @@ impl FakeTorrents {
         }
     }
 
-    /// The running torrent is connected to `count` peers.
-    pub fn peers(&self, hash: &str, count: u32) {
-        if let Some(r) = self.lock().running.get_mut(hash) {
-            r.stats.peers = count;
-        }
-    }
-
     /// The running torrent downloads `bytes` a second.
     pub fn rate(&self, hash: &str, bytes: u64) {
         if let Some(r) = self.lock().running.get_mut(hash) {

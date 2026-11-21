@@ -275,7 +275,7 @@ impl Setup {
             verifying: false,
             waiting_vpn: false,
             start: None,
-            no_peers_since: None,
+            idle_since: None,
             hand_off: HandOff {
                 unpack: Unpack { sets: vec![set], phase: UnpackPhase::Waiting, ..Unpack::default() },
                 ..HandOff::default()
