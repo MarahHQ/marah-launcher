@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.2](https://github.com/MarahHQ/marah-launcher/compare/v0.17.1...v0.17.2) (2026-11-21)
+
+
+### Bug Fixes
+
+* a download with no peer for 2 minutes starts again to find the swarm anew ([f30c3ca](https://github.com/MarahHQ/marah-launcher/commit/f30c3ca4f44e7a2447eef863bfe1016f44276dd0))
+
 ## [0.17.1](https://github.com/MarahHQ/marah-launcher/compare/v0.17.0...v0.17.1) (2026-11-20)
 
 
