@@ -74,6 +74,7 @@ impl FakeHost {
         host.torrent_poll = Duration::from_millis(10);
         host.store_poll = Duration::from_millis(10);
         host.vpn_poll = Duration::from_millis(10);
+        host.no_peers_restart = Duration::from_secs(1);
         // The test catalogs' topics carry no pictures: the Game Catalog's "Hide games without
         // images", on for a player, is off here, so they list. A test of the setting turns it on.
         std::fs::write(
