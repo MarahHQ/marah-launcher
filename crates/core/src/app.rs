@@ -349,7 +349,11 @@ impl Core {
             };
             let torrents = crate::torrents::TorrentsSubsystem::new(
                 ports.torrents(),
-                crate::torrents::Polls { torrents: kernel.host().torrent_poll, vpn: kernel.host().vpn_poll },
+                crate::torrents::Polls {
+                    torrents: kernel.host().torrent_poll,
+                    vpn: kernel.host().vpn_poll,
+                    no_peers: kernel.host().no_peers_restart,
+                },
                 crate::torrents::Records::new(kernel.config().clone()),
                 ports.vpn.clone(),
                 Notifier::new(changes.clone(), kernel.events().clone()),

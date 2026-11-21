@@ -41,7 +41,7 @@ mod vpn;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use launcher_api::{GameKey, HostPath, PluginId};
 use serde::{Deserialize, Serialize};
@@ -127,6 +127,9 @@ pub(crate) struct TorrentJob {
     /// How the torrent was started this run.
     #[serde(skip)]
     pub start: Option<TorrentStart>,
+    /// Since when it has downloaded with no peer, by the polls.
+    #[serde(skip)]
+    pub no_peers_since: Option<Instant>,
     #[serde(flatten)]
     pub hand_off: HandOff,
 }
@@ -301,11 +304,13 @@ pub(crate) struct TorrentPorts {
     pub clock: Arc<dyn Clock>,
 }
 
-/// How often the watch reads the running torrents, and checks the VPN.
+/// How often the watch reads the running torrents, and checks the VPN. How long a download
+/// goes with no peer before it starts again.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Polls {
     pub torrents: Duration,
     pub vpn: Duration,
+    pub no_peers: Duration,
 }
 
 #[derive(Default)]
@@ -488,6 +493,7 @@ impl TorrentsSubsystem {
             verifying: false,
             waiting_vpn: false,
             start: None,
+            no_peers_since: None,
             hand_off: HandOff::default(),
         };
         Arc::make_mut(&mut self.state().jobs).insert(job.id.clone(), job.clone());
@@ -583,6 +589,7 @@ impl TorrentsSubsystem {
         self.update(id, |job| {
             job.error.clear();
             job.start = Some(how);
+            job.no_peers_since = None;
             if seeding {
                 job.verifying = true;
             } else {
@@ -660,11 +667,12 @@ impl TorrentsSubsystem {
     async fn poll(&self) -> bool {
         let ids: Vec<String> = self.state().jobs.values().filter(|j| j.running()).map(|j| j.id.clone()).collect();
         let sharing = self.sharing();
+        let now = self.inner.ports.clock.now();
         let mut running = false;
         for id in ids {
             let Some(stats) = self.port().stats(&id) else { continue };
             running = true;
-            let Some((actions, title, finished)) = self.update(&id, |job| {
+            let Some((actions, title, finished, stuck)) = self.update(&id, |job| {
                 job.download_rate = stats.download_rate;
                 job.upload_rate = stats.upload_rate;
                 job.peers = stats.peers;
@@ -677,13 +685,18 @@ impl TorrentsSubsystem {
                 // A download with files left out shows as complete once the stubs an older
                 // version made are gone (`drop_stubs`), and looks for its archives then.
                 if actions.contains(&Action::Finished) && job.partial() {
-                    return (actions, job.title.clone(), Some(phase));
+                    return (actions, job.title.clone(), Some(phase), false);
                 }
                 job.set_phase(phase);
                 if actions.contains(&Action::Finished) {
                     job.hand_off.unpack = crate::archives::Unpack::of(&job.folder);
                 }
-                (actions, job.title.clone(), None)
+                let alone = job.state == TorrentState::Downloading && !job.seeding && stats.peers == 0;
+                job.no_peers_since = alone.then(|| job.no_peers_since.unwrap_or(now));
+                let stuck = job
+                    .no_peers_since
+                    .is_some_and(|since| now.saturating_duration_since(since) >= self.inner.polls.no_peers);
+                (actions, job.title.clone(), None, stuck)
             }) else {
                 continue;
             };
@@ -709,8 +722,25 @@ impl TorrentsSubsystem {
                     Action::Stopped => self.emit(TorrentEvent::Stopped { title: title.clone() }),
                 }
             }
+            if stuck {
+                self.start_again(&id).await;
+            }
         }
         running
+    }
+
+    /// Stops a download that went [`Polls::no_peers`] with no peer and starts it again, as the
+    /// player's Pause and Start do. The engine tries a peer that dropped again only after a wait
+    /// that grows to an hour, and skips it when the DHT or a tracker finds it again; a start
+    /// forgets those waits and connects to every peer they find.
+    async fn start_again(&self, id: &str) {
+        tracing::info!(id, "a download had no peer for a while: starting it again");
+        if let Err(e) = self.port().stop(id).await {
+            tracing::warn!(error = %e, "a download with no peer didn't stop to start again");
+            return;
+        }
+        let Some(job) = self.job(id) else { return };
+        self.start(id, job.start.unwrap_or(job.download_start(self.sharing()))).await;
     }
 
     /// Runs the player's action on a download.

@@ -966,3 +966,69 @@ async fn the_tray_s_downloads_is_in_the_bar_while_one_runs_and_until_its_end_is_
     assert!(!item(&t.core).in_bar, "seen");
     assert_eq!(item(&t.core).text, "Nothing running");
 }
+
+/// The engine tries a peer that dropped again only after a wait that grows to an hour, and
+/// skips it when the DHT or a tracker finds it again. A start forgets those waits.
+#[tokio::test]
+async fn a_download_with_no_peers_for_a_while_starts_again_to_find_the_swarm_anew() {
+    let s = setup().await;
+    let t = &s.t;
+    t.core
+        .dispatch(Command::Torrent(launcher_core::TorrentCmd::Download {
+            offer: offer(),
+            release: HASH.into(),
+            folder: None,
+        }))
+        .await
+        .unwrap();
+    until(t, "ready").await;
+    act(t, TorrentAction::Start).await;
+    t.torrents.progress(HASH, 4);
+    until(t, "downloading").await;
+    let starts = || t.torrents.started().len();
+    assert_eq!(starts(), 1);
+
+    // `no_peers_restart` is 1 s on the fake host. A short gap doesn't count.
+    t.torrents.peers(HASH, 0);
+    t.clock.advance(Duration::from_millis(700)).await;
+    t.torrents.peers(HASH, 2);
+    t.clock.advance(Duration::from_millis(50)).await;
+    t.torrents.peers(HASH, 0);
+    t.clock.advance(Duration::from_millis(700)).await;
+    assert_eq!(starts(), 1, "the wait counts from the last poll that saw a peer");
+
+    t.clock.advance(Duration::from_millis(400)).await;
+    assert_eq!(t.torrents.started(), [(HASH.to_owned(), false), (HASH.to_owned(), false)], "it starts again");
+
+    // The new start has no peers yet: it gets a whole wait of its own.
+    t.torrents.progress(HASH, 4);
+    t.torrents.peers(HASH, 0);
+    t.clock.advance(Duration::from_millis(900)).await;
+    assert_eq!(starts(), 2);
+}
+
+/// A finished download that seeds with no one to share with stays as it is.
+#[tokio::test]
+async fn a_seed_with_no_peers_does_not_start_again() {
+    let s = setup().await;
+    let t = &s.t;
+    t.core
+        .dispatch(Command::Torrent(launcher_core::TorrentCmd::Download {
+            offer: offer(),
+            release: HASH.into(),
+            folder: None,
+        }))
+        .await
+        .unwrap();
+    until(t, "ready").await;
+    act(t, TorrentAction::Start).await;
+    t.torrents.progress(HASH, 4);
+    until(t, "downloading").await;
+    t.torrents.complete(HASH);
+    t.torrents.peers(HASH, 0);
+    until(t, "complete").await;
+    let starts = t.torrents.started().len();
+
+    t.clock.advance(Duration::from_secs(3)).await;
+    assert_eq!(t.torrents.started().len(), starts);
+}
