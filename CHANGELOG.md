@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.17.3](https://github.com/MarahHQ/marah-launcher/compare/v0.17.2...v0.17.3) (2026-11-22)
+
+
+### Bug Fixes
+
+* a game installed from a catalog download gets its game file and art from the catalog's details ([103fed3](https://github.com/MarahHQ/marah-launcher/commit/103fed3a0e0c1e2c6e6bc360cf358a9fd43ac569))
+* **deps:** url 2.5.9 for RUSTSEC-2026-0592 ([4b7be8b](https://github.com/MarahHQ/marah-launcher/commit/4b7be8b6d38a7d093b8521c2dbb0295df5184a33))
+* torrents take peers' connections on a port the router forwards, and a download that gets no bytes for 2 minutes starts again ([570ecb3](https://github.com/MarahHQ/marah-launcher/commit/570ecb33427ffd9942f6bfc1594facfa7d1366ff))
+
 ## [0.17.2](https://github.com/MarahHQ/marah-launcher/compare/v0.17.1...v0.17.2) (2026-11-21)
 
 
