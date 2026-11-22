@@ -180,7 +180,7 @@ fn setup_with(call_timeout: Duration) -> Setup {
             let installs = reader.lock().unwrap().clone().unwrap();
             let phase = installs.snapshot().jobs.values().next().map(|j| j.phase);
             let name = match event {
-                InstallEvent::Installed => "installed".to_owned(),
+                InstallEvent::Installed { .. } => "installed".to_owned(),
                 InstallEvent::Failed(error) => format!("failed: {error}"),
                 InstallEvent::Unpacked { source, into, title, .. } => {
                     format!("unpacked {title} from {} into {:?}", source.path, into.map(|i| i.path.to_string()))

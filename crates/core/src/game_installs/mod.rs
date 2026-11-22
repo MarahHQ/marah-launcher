@@ -136,8 +136,8 @@ impl InstallsSnapshot {
 
 /// What the core must do about the installs. The subsystem waits for it.
 pub(crate) enum InstallEvent {
-    /// A game is in: the library lists it.
-    Installed,
+    /// A game is in: the library lists it. `plugin` installed `game` from `source`.
+    Installed { plugin: PluginId, source: HostPath, game: InstalledGame },
     /// An install failed: the player is told.
     Failed(String),
     /// A download's archives unpacked after the player pressed Install: the install starts.
@@ -235,7 +235,8 @@ struct HostJob {
     reported: Mutex<Option<Instant>>,
     clock: Arc<dyn Clock>,
     folders: Arc<HostFolders>,
-    /// The source it installs from.
+    /// The plugin that installs, and the source it installs from.
+    plugin: PluginId,
     source: HostPath,
     /// The folder in the source the host made itself and may give away: a download's unpacked
     /// archives. `take` moves only from inside it.
@@ -258,7 +259,8 @@ impl HostJob {
         }
         let Some(inner) = self.installs.upgrade() else { return };
         let (id, folders) = (self.id, self.folders.clone());
-        self.runtime.spawn(async move { GameInstallsSubsystem { inner }.ended(id, result, &folders).await });
+        let from = (self.plugin.clone(), self.source.clone());
+        self.runtime.spawn(async move { GameInstallsSubsystem { inner }.ended(id, from, result, &folders).await });
     }
 }
 
@@ -483,6 +485,7 @@ impl GameInstallsSubsystem {
             reported: Mutex::new(None),
             clock: clock.clone(),
             folders: folders.clone(),
+            plugin: plugin.clone(),
             source: source.clone(),
             disposable,
         });
@@ -538,11 +541,19 @@ impl GameInstallsSubsystem {
         }
     }
 
-    async fn ended(&self, id: JobId, result: PluginResult<InstalledGame>, folders: &HostFolders) {
+    /// `from`: the plugin that installed, and the source.
+    async fn ended(
+        &self,
+        id: JobId,
+        from: (PluginId, HostPath),
+        result: PluginResult<InstalledGame>,
+        folders: &HostFolders,
+    ) {
         // The library lists the game before the job shows as done.
         if let Ok(game) = &result {
             tracing::info!(title = %game.title, "game installed");
-            self.emit(InstallEvent::Installed).await;
+            let (plugin, source) = from;
+            self.emit(InstallEvent::Installed { plugin, source, game: game.clone() }).await;
         }
         let (phase, error) = match &result {
             Ok(_) => (GamePhase::Done, None),
