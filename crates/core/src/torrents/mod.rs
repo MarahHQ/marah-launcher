@@ -127,9 +127,9 @@ pub(crate) struct TorrentJob {
     /// How the torrent was started this run.
     #[serde(skip)]
     pub start: Option<TorrentStart>,
-    /// Since when it has downloaded with no peer, by the polls.
+    /// Since when it has downloaded with no bytes arriving, by the polls.
     #[serde(skip)]
-    pub no_peers_since: Option<Instant>,
+    pub idle_since: Option<Instant>,
     #[serde(flatten)]
     pub hand_off: HandOff,
 }
@@ -305,12 +305,12 @@ pub(crate) struct TorrentPorts {
 }
 
 /// How often the watch reads the running torrents, and checks the VPN. How long a download
-/// goes with no peer before it starts again.
+/// goes with no bytes arriving before it starts again.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Polls {
     pub torrents: Duration,
     pub vpn: Duration,
-    pub no_peers: Duration,
+    pub idle: Duration,
 }
 
 #[derive(Default)]
@@ -493,7 +493,7 @@ impl TorrentsSubsystem {
             verifying: false,
             waiting_vpn: false,
             start: None,
-            no_peers_since: None,
+            idle_since: None,
             hand_off: HandOff::default(),
         };
         Arc::make_mut(&mut self.state().jobs).insert(job.id.clone(), job.clone());
@@ -589,7 +589,7 @@ impl TorrentsSubsystem {
         self.update(id, |job| {
             job.error.clear();
             job.start = Some(how);
-            job.no_peers_since = None;
+            job.idle_since = None;
             if seeding {
                 job.verifying = true;
             } else {
@@ -691,11 +691,10 @@ impl TorrentsSubsystem {
                 if actions.contains(&Action::Finished) {
                     job.hand_off.unpack = crate::archives::Unpack::of(&job.folder);
                 }
-                let alone = job.state == TorrentState::Downloading && !job.seeding && stats.peers == 0;
-                job.no_peers_since = alone.then(|| job.no_peers_since.unwrap_or(now));
-                let stuck = job
-                    .no_peers_since
-                    .is_some_and(|since| now.saturating_duration_since(since) >= self.inner.polls.no_peers);
+                let idle = job.state == TorrentState::Downloading && !job.seeding && stats.download_rate == 0;
+                job.idle_since = idle.then(|| job.idle_since.unwrap_or(now));
+                let stuck =
+                    job.idle_since.is_some_and(|since| now.saturating_duration_since(since) >= self.inner.polls.idle);
                 (actions, job.title.clone(), None, stuck)
             }) else {
                 continue;
@@ -729,14 +728,15 @@ impl TorrentsSubsystem {
         running
     }
 
-    /// Stops a download that went [`Polls::no_peers`] with no peer and starts it again, as the
-    /// player's Pause and Start do. The engine tries a peer that dropped again only after a wait
-    /// that grows to an hour, and skips it when the DHT or a tracker finds it again; a start
-    /// forgets those waits and connects to every peer they find.
+    /// Stops a download that went [`Polls::idle`] with no bytes arriving and starts it again, as
+    /// the player's Pause and Start do. The engine tries a peer that dropped again only after a
+    /// wait that grows to an hour, and skips it when the DHT or a tracker finds it again; a peer
+    /// can also stay connected and send nothing. A start forgets those waits and connects to
+    /// every peer they find.
     async fn start_again(&self, id: &str) {
-        tracing::info!(id, "a download had no peer for a while: starting it again");
+        tracing::info!(id, "a download got no bytes for a while: starting it again");
         if let Err(e) = self.port().stop(id).await {
-            tracing::warn!(error = %e, "a download with no peer didn't stop to start again");
+            tracing::warn!(error = %e, "a download that got no bytes didn't stop to start again");
             return;
         }
         let Some(job) = self.job(id) else { return };
