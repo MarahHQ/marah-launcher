@@ -1033,3 +1033,32 @@ async fn a_seed_with_no_peers_does_not_start_again() {
     t.clock.advance(Duration::from_secs(3)).await;
     assert_eq!(t.torrents.started().len(), starts);
 }
+
+/// A game installed from a catalog download gets its game file from the catalog's details at
+/// once, whatever name and title id the game has: here the catalog's name isn't the game's,
+/// and the catalog has no title id.
+#[tokio::test]
+async fn a_game_installed_from_a_download_gets_its_game_file_from_the_catalog_s_details() {
+    let info = serde_json::json!({ "name": "Catalog Title", "release_summary": "What the catalog says.",
+        "image_urls": ["https://i1.imageban.ru/out/catalog.jpg"] });
+    let topic = topic("[Nintendo Switch] Catalog Title [NSP]", info);
+    let files: &[(&str, &[u8])] = &[("Game Title [0100AAAA00000000][v0].nsp", b"PFS0 game")];
+    // A JPEG's first bytes.
+    let jpg: &[u8] = b"\xff\xd8\xff\xe0 a cover";
+    let (t, home) = downloaded("SWITCH", topic, files, |h, _| {
+        h.http().serve("https://i1.imageban.ru/out/catalog.jpg", jpg);
+        h
+    })
+    .await;
+    install(&t).await;
+    assert_eq!(installed(&t).await.install, "done");
+
+    let folder = home.path().join("Games/SWITCH/Game Title");
+    assert_eq!(std::fs::read(folder.join("launcher_art/cover.jpg")).expect("the catalog's cover"), jpg);
+    let file = folder.join("launcher_game.json");
+    let json: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).expect("the game file")).unwrap();
+    assert_eq!(json["title"], "Catalog Title", "{json}");
+    assert_eq!(json["description"], "What the catalog says.", "{json}");
+    assert_eq!(json["source"]["offer"], "release-catalog:emu-lichii/title-catalogtitle", "{json}");
+    assert_eq!(json["source"]["release"], HASH, "{json}");
+}

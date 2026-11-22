@@ -333,7 +333,16 @@ pub(crate) async fn install_game(
 /// What the game installs subsystem tells the rest of the core.
 pub(crate) async fn install_event(core: &Core, event: InstallEvent) {
     match event {
-        InstallEvent::Installed => {
+        InstallEvent::Installed { plugin, source, game } => {
+            // A game from a catalog download takes the catalog's details into its folder.
+            let download =
+                core.torrents().snapshot().jobs.values().find(|j| j.emulator == plugin && j.source == source).cloned();
+            if let Some(download) = download
+                && let Err(e) =
+                    crate::game_files::write_installed(core, &plugin, &game.dest, &download.offer, &download.id).await
+            {
+                tracing::warn!(error = %e, "could not write the game file of an installed download");
+            }
             if let Err(e) = Box::pin(core.dispatch(crate::Command::Library(crate::LibraryCmd::Refresh))).await {
                 tracing::warn!(error = %e, "library refresh after an install failed");
             }

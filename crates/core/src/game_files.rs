@@ -119,6 +119,67 @@ async fn write_one(core: &Core, game: &GameKey, folder: &HostPath) -> std::io::R
         }
         (about, art, summary.title.clone(), summary.platform.clone(), summary.title_id.clone(), source)
     };
+    let file = save(core, dir, &title, &platform, title_id.as_deref(), &about, art, source).await?;
+    core.library().set_game_file(game, Some((game.plugin.clone(), file.metadata(folder))));
+    Ok(())
+}
+
+/// Writes the game file of a game that download `release` of catalog offer `offer` installed
+/// into `dest`, from the catalog's details: its title, what it says of the game, and its art.
+/// Nothing when the plugin may not write in `dest`, or the folder has a file with details.
+pub(crate) async fn write_installed(
+    core: &Core,
+    plugin: &PluginId,
+    dest: &HostPath,
+    offer: &GameKey,
+    release: &str,
+) -> std::io::Result<()> {
+    let kernel = core.kernel();
+    let Ok(manifest) = kernel.manifest(plugin) else { return Ok(()) };
+    if manifest.permissions.folder(&dest.folder).filter(|grant| grant.write).is_none() {
+        return Ok(());
+    }
+    let Some(dir) = kernel.host_folders(plugin).and_then(|f| f.resolve(dest).ok()).filter(|p| p.is_dir()) else {
+        return Ok(());
+    };
+    let on_disk = dir.clone();
+    let described = tokio::task::spawn_blocking(move || game_file::read(&on_disk).is_some_and(|f| f.has_details()))
+        .await
+        .unwrap_or(false);
+    if described {
+        return Ok(());
+    }
+    let Some(listed) = core.library().snapshot().offer(offer).cloned() else { return Ok(()) };
+    // The catalog's page of the offer, and the store's data of its release.
+    let details = crate::catalog_reads::offer_detail(core, &listed).details;
+    let (mut about, mut art) = {
+        let library = core.library().snapshot();
+        (merge(library.metadata(offer).iter().map(|(_, m)| m)), library.art(offer))
+    };
+    if about.description.is_empty() {
+        about.description = details.description;
+    }
+    if art.cover.is_none() {
+        art.cover = details.summary.cover.clone().map(|c| (offer.plugin.clone(), c));
+    }
+    let summary = details.summary;
+    let source = Source { offer: offer.to_string(), release: release.to_owned() };
+    save(core, dir, &summary.title, &summary.platform, summary.title_id.as_deref(), &about, art, Some(source)).await?;
+    Ok(())
+}
+
+/// Fetches the art and writes the game file into `dir`. Gives the file written.
+#[allow(clippy::too_many_arguments)] // The file's fields, each its own.
+async fn save(
+    core: &Core,
+    dir: PathBuf,
+    title: &str,
+    platform: &str,
+    title_id: Option<&str>,
+    about: &GameMetadata,
+    art: crate::library::GameArt,
+    source: Option<Source>,
+) -> std::io::Result<GameFile> {
     let mut pieces: Vec<(ArtKind, (PluginId, launcher_api::ImageSource))> = Vec::new();
     pieces.extend(art.cover.map(|i| (ArtKind::Cover, i)));
     pieces.extend(art.background.map(|i| (ArtKind::Background, i)));
@@ -132,7 +193,7 @@ async fn write_one(core: &Core, game: &GameKey, folder: &HostPath) -> std::io::R
         let bytes = match core.image_bytes(&image_ref(&plugin, &source)).await {
             Ok(bytes) => bytes,
             Err(e) => {
-                tracing::info!(game = %game, error = %e, "a picture for a game file didn't load");
+                tracing::info!(title, error = %e, "a picture for a game file didn't load");
                 continue;
             }
         };
@@ -145,13 +206,12 @@ async fn write_one(core: &Core, game: &GameKey, folder: &HostPath) -> std::io::R
         }
         files.push((path, bytes));
     }
-    let file = GameFile::new(&title, &platform, title_id.as_deref(), &about, source, saved);
-    let layer = file.metadata(folder);
-    tokio::task::spawn_blocking(move || game_file::write(&dir, &file, &files))
+    let file = GameFile::new(title, platform, title_id, about, source, saved);
+    let written = file.clone();
+    tokio::task::spawn_blocking(move || game_file::write(&dir, &written, &files))
         .await
         .map_err(std::io::Error::other)??;
-    core.library().set_game_file(game, Some((game.plugin.clone(), layer)));
-    Ok(())
+    Ok(file)
 }
 
 /// One metadata from layers, first layer first: each field from the first layer that has it.
