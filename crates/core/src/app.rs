@@ -352,7 +352,7 @@ impl Core {
                 crate::torrents::Polls {
                     torrents: kernel.host().torrent_poll,
                     vpn: kernel.host().vpn_poll,
-                    no_peers: kernel.host().no_peers_restart,
+                    idle: kernel.host().idle_restart,
                 },
                 crate::torrents::Records::new(kernel.config().clone()),
                 ports.vpn.clone(),

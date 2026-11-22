@@ -1,7 +1,8 @@
 //! The host's BitTorrent: [`launcher_core::Torrents`] on librqbit 9.1.0.
 //!
 //! One session, made at the first use, with no local peer discovery, at most 50 peers, and
-//! uploads capped at [`SEED_UPLOAD_LIMIT`]. A torrent's metadata is kept as `<info hash>.torrent`
+//! uploads capped at [`SEED_UPLOAD_LIMIT`]. It listens for peers on TCP, on a free port that
+//! UPnP asks the router to forward ([`listener`]). A torrent's metadata is kept as `<info hash>.torrent`
 //! in the data folder's `torrents/`, so a start after a restart doesn't ask the swarm for it
 //! again. The core saves the downloads; librqbit keeps only which pieces each one was checked
 //! to have, in `torrents/resume/`, so a launch reads one piece of each file instead of every
@@ -66,6 +67,20 @@ pub struct Local {
     pub peers: Vec<std::net::SocketAddr>,
 }
 
+/// Where the session takes peers' connections: a free port on every address, which UPnP asks
+/// the router to forward. The DHT and the trackers get that port, so a peer can connect to this
+/// computer too, and not only this computer to a peer whose own port is open. A local session
+/// listens on this computer only.
+fn listener(local: bool) -> librqbit::ListenerOptions {
+    let any = if local { std::net::Ipv4Addr::LOCALHOST.into() } else { std::net::Ipv6Addr::UNSPECIFIED.into() };
+    librqbit::ListenerOptions {
+        mode: librqbit::ListenerMode::TcpOnly,
+        listen_addr: std::net::SocketAddr::new(any, 0),
+        enable_upnp_port_forwarding: !local,
+        ..Default::default()
+    }
+}
+
 fn error(e: impl std::fmt::Display) -> PluginError {
     PluginError::Network(e.to_string())
 }
@@ -119,15 +134,10 @@ impl RqbitTorrents {
             bind_device_name: self.bind.lock().unwrap_or_else(|p| p.into_inner()).clone(),
             ..Default::default()
         };
+        opts.listen = Some(listener(self.local.is_some()));
         if self.local.is_some() {
             opts.dht = None;
             opts.disable_trackers = true;
-            opts.listen = Some(librqbit::ListenerOptions {
-                mode: librqbit::ListenerMode::TcpOnly,
-                listen_addr: "127.0.0.1:0".parse().expect("an address"),
-                enable_upnp_port_forwarding: false,
-                ..Default::default()
-            });
         }
         let session = Session::new_with_opts(self.dir.join("unused-default-output"), opts).await.map_err(error)?;
         *self.session.lock().unwrap_or_else(|p| p.into_inner()) = Some(session.clone());
@@ -308,6 +318,21 @@ impl Torrents for RqbitTorrents {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Without a listener the DHT got no port and the trackers a made-up one: no peer could
+    /// connect, and only peers with an open port of their own were reachable.
+    #[test]
+    fn a_session_takes_peers_connections_on_every_address_and_asks_the_router_to_forward_its_port() {
+        let any = listener(false);
+        assert!(any.listen_addr.ip().is_unspecified(), "{}", any.listen_addr);
+        assert_eq!(any.listen_addr.port(), 0, "a free port");
+        assert!(any.enable_upnp_port_forwarding);
+        assert!(any.mode.tcp_enabled());
+
+        let local = listener(true);
+        assert!(local.listen_addr.ip().is_loopback());
+        assert!(!local.enable_upnp_port_forwarding);
+    }
 
     /// Opt-in, `MARAH_TORRENT_TESTS=1`: a real transfer between two librqbit sessions on this
     /// computer, with no DHT, trackers or other network. The payload is made-up bytes.

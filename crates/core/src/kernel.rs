@@ -71,9 +71,10 @@ pub struct HostConfig {
     pub store_poll: Duration,
     /// How often the VPN is checked while downloads go only through it.
     pub vpn_poll: Duration,
-    /// How long a download goes with no peer before it starts again. The engine tries a peer
-    /// that dropped again only after a wait that grows to an hour; a start forgets those waits.
-    pub no_peers_restart: Duration,
+    /// How long a download goes with no bytes arriving before it starts again. The engine tries
+    /// a peer that dropped again only after a wait that grows to an hour, and a peer can stay
+    /// connected and send nothing; a start forgets those waits.
+    pub idle_restart: Duration,
 }
 
 impl HostConfig {
@@ -99,7 +100,7 @@ impl HostConfig {
             torrent_poll: Duration::from_secs(1),
             store_poll: Duration::from_secs(2),
             vpn_poll: Duration::from_secs(2),
-            no_peers_restart: Duration::from_secs(120),
+            idle_restart: Duration::from_secs(120),
         }
     }
 
