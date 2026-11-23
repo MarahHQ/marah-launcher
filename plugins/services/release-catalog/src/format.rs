@@ -33,7 +33,7 @@
 use std::collections::HashSet;
 
 use launcher_api::serde_json;
-use launcher_api::{Fact, FactKind, GameMetadata, ImageSource, Release, ReleaseList};
+use launcher_api::{Console, Fact, FactKind, GameMetadata, ImageSource, Release, ReleaseList};
 
 use crate::info_hash;
 use crate::sources::{ForumFacts, Forums};
@@ -319,7 +319,7 @@ fn is_game(title: &str, genre: &str, title_id: &str, magnet: &str) -> bool {
 }
 
 /// The consoles a topic may name itself, upper case.
-const CONSOLES: [&str; 4] = ["PS5", "PS4", "PC", "SWITCH"];
+const CONSOLES: [&str; 7] = ["PS5", "PS4", "PC", "SWITCH", "PS1", "NES", "GENESIS"];
 
 /// The console a topic is for: its game info's, else the `[PS5]` tag in its title (`[Nintendo
 /// Switch]` or `[NSW2]` for a Switch game), else its title id's.
@@ -377,6 +377,15 @@ pub fn releases(file: &CatalogFile, forums: &Forums) -> Result<ReleaseList, Stri
         return Err("topic_count doesn't match the topics".into());
     }
     let file_forum = forums.named(file.source.as_deref(), file.platform.as_deref());
+    // A file whose forum the sources don't name (a new console's, before its forum is known)
+    // is its console's: its `platform` names it. PC has forums of its own.
+    let named_console = file
+        .platform
+        .as_deref()
+        .and_then(|p| Console::new(p).ok())
+        .filter(|c| c.as_str() != "PC")
+        .map(|console| ForumFacts { console, system: None, wine: false });
+    let file_forum = file_forum.or(named_console.as_ref());
     let mut ids = HashSet::new();
     let mut hashes = HashSet::new();
     let mut releases = Vec::with_capacity(topics.len());
@@ -409,7 +418,8 @@ pub fn release(id: i64, topic: &Topic, forum: Option<&ForumFacts>) -> Result<Opt
     let (own_platform, own_system) = declared(topic);
     let title = text(&topic.title);
     let named = text(&info.name);
-    let name = clean_name(if named.is_empty() { &title } else { &named });
+    // A name of tags alone ("[2 in 1]") names nothing: the title does then.
+    let name = Some(clean_name(&named)).filter(|n| !n.is_empty()).unwrap_or_else(|| clean_name(&title));
     if name.is_empty() {
         return Err(format!("topic {id} has no game name"));
     }
@@ -469,7 +479,14 @@ pub fn release(id: i64, topic: &Topic, forum: Option<&ForumFacts>) -> Result<Opt
         seeders: topic.seeders,
         leechers: topic.leechers,
         counted_at: text(&topic.peers_observed),
-        image_urls: texts(&info.image_urls).into_iter().filter(|url| url.starts_with("https://")).collect(),
+        // Older topics link their pictures over http://; their hosts serve https:// too.
+        image_urls: texts(&info.image_urls)
+            .into_iter()
+            .filter_map(|url| match url.strip_prefix("http://") {
+                Some(rest) => Some(format!("https://{rest}")),
+                None => url.starts_with("https://").then_some(url),
+            })
+            .collect(),
         ..Release::default()
     }))
 }
@@ -530,6 +547,17 @@ mod tests {
         assert_eq!(r.description, "Horizon · Action");
     }
 
+    /// Some topics name their game with a tag alone ("[2 in 1]"): the title names it then.
+    #[test]
+    fn a_game_name_of_tags_alone_gives_way_to_the_title_s() {
+        let list = read(&file(serde_json::json!([
+            { "id": "1", "title": "[PS] [2 in 1] Bloody Roar [SCUS-94199] + Bloody Roar 2 [SLPS-01842]", "magnet": MAGNET,
+              "game_info": { "name": "[2 in 1]", "title_id": "SCUS-94199" } },
+        ])))
+        .unwrap();
+        assert_eq!(list.releases[0].title, "Bloody Roar");
+    }
+
     #[test]
     fn a_topic_keeps_its_peers_and_its_game_facts() {
         let list = read(&file(serde_json::json!([
@@ -569,7 +597,11 @@ mod tests {
             ],
             "in the Game Hub's order, a date before a year"
         );
-        assert_eq!(astro.image_urls, ["https://i1.imageban.ru/out/cover.jpg"], "only https:// addresses");
+        assert_eq!(
+            astro.image_urls,
+            ["https://i1.imageban.ru/out/cover.jpg", "https://plain.example/a.jpg"],
+            "an http:// picture is asked for over https://; text that isn't an address is left out"
+        );
         let bolt = &list.releases[1];
         assert_eq!((bolt.seeders, bolt.leechers, bolt.counted_at.as_str()), (None, None, ""), "no count");
         assert_eq!(

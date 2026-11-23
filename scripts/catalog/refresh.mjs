@@ -10,7 +10,7 @@ import { readFile, rename, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyApi } from './api.mjs';
-import { distFile, platformFrom, UNPLAYABLE } from './platforms.mjs';
+import { distFile, platformFrom, takes, UNPLAYABLE } from './platforms.mjs';
 import { cleanName, normalize } from './steam.mjs';
 
 // Facts about the game, the same in every release of it. Everything else (region, edition,
@@ -81,8 +81,8 @@ export function labelBytes(label) {
 export function refreshCatalog(catalog, feed, api, platform, now = new Date()) {
   const known = new Map(catalog.topics.map(topic => [topic.id, topic]));
   // Every release the API lists (it lists topics with a torrent), whatever its title's tag,
-  // except ones the launcher can't play.
-  const fresh = feed.filter(entry => !UNPLAYABLE.test(entry.title));
+  // except ones the launcher can't play. A forum of many consoles: only this catalog's.
+  const fresh = feed.filter(entry => !UNPLAYABLE.test(entry.title) && takes(platform.titles, entry.title));
   let added = 0, renamed = 0;
   for (const entry of fresh) {
     const topic = known.get(entry.id);

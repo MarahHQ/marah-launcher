@@ -377,6 +377,41 @@ test('a release without details borrows the game facts of another release of the
   assert.equal(borrowDetails([donor, fresh, other]), 0, 'only once');
 });
 
+// A forum of many consoles that feeds two catalogs, each with the title tags of its console.
+const MIXED = { forumId: '7', tag: null, origin: ORIGIN, source: `${ORIGIN}/forum/viewforum.php?f=7`, platform: 'NES', titles: ['NES', 'Dendy'] };
+
+test('a forum of many consoles gives a catalog only the topics with its title tags', async () => {
+  const { takes } = await import('./platforms.mjs');
+  assert.ok(takes(['NES', 'Dendy'], '[Обновлено] [dendy] Contra [RUS]'), 'any tag before the name, in any case');
+  assert.ok(!takes(['NES'], '[SNES] Contra III'), 'a whole tag, not part of one');
+  assert.ok(!takes(['NES'], '[Amiga] NES Remix'), 'only the tags before the name');
+  assert.ok(takes(null, '[Amiga] anything'), 'a forum without titles takes every topic');
+
+  const { parseFeed, refreshCatalog } = await import('./refresh.mjs');
+  const feed = parseFeed(`<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">
+    <entry><link href="https://rutracker.org/forum/viewtopic.php?t=1"/><title>[NES] Battletoads [U]</title></entry>
+    <entry><link href="https://rutracker.org/forum/viewtopic.php?t=2"/><title>[Amiga] Benefactor [ENG]</title></entry>
+  </feed>`);
+  const api = { format: { topic_id: ['tor_status', 'seeders', 'reg_time', 'tor_size_bytes', 'keeping_priority', 'keepers', 'seeder_last_seen', 'info_hash', 'topic_poster', 'leechers'] },
+    update_time: 1791382052, result: { 1: [2, 3, 1791382052, 1000, 1, [], 0, '1'.repeat(40), 1, 1], 2: [2, 3, 1791382052, 1000, 1, [], 0, '2'.repeat(40), 1, 1] } };
+  const { catalog } = refreshCatalog({ topics: [], topic_count: 0 }, feed, api, MIXED);
+  assert.deepEqual(catalog.topics.map(t => t.id), ['1']);
+
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.route(`${ORIGIN}/**`, route => route.fulfill({ contentType: 'text/html', body: '<title>Other</title>' }));
+    await page.goto(`${ORIGIN}/forum/viewforum.php?f=7`);
+    await page.setContent(`<title>Other</title><table>
+      <tr><td><a class="torTopic" href="viewtopic.php?t=1">[NES] Battletoads</a></td><td class="vf-col-tor"><a class="dl-stub">1 MB</a></td></tr>
+      <tr><td><a class="torTopic" href="viewtopic.php?t=2">[Amiga] Benefactor</a></td><td class="vf-col-tor"><a class="dl-stub">9 MB</a></td></tr>
+    </table>`);
+    assert.deepEqual((await page.evaluate(readListing, MIXED)).topics.map(t => t.id), ['1']);
+  } finally {
+    await browser.close();
+  }
+});
+
 test('releases the launcher cannot play are left out by their tag', async () => {
   const { UNPLAYABLE } = await import('./platforms.mjs');
   for (const title of ['[PS VR Only] GORN [USA]', '[PS4 VR] Dreams', '[PS VR+PS Move] Job Simulator', '[PS4 Exclusive VR Only] Blood & Truth',

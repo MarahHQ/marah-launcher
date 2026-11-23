@@ -13,6 +13,9 @@
 //!   `url` into the `source` of the topics it adds.
 //! - A forum has a console `tag` or a PC `system`, and `wine` is `true` for a forum whose games
 //!   are packed with Wine.
+//! - A forum of many consoles has `titles`: the tags of its catalog's console. The catalog takes
+//!   only the topics one of whose tags before the name is one of them ([`Forum::takes`]). So one
+//!   forum can feed two catalogs, each with its own `titles`.
 //!
 //! A file reads only when all of it does: every forum's `url` starts with `https://`, because
 //! it goes into the `source` of each topic the refresh adds.
@@ -65,6 +68,30 @@ pub struct Forum {
     /// Its games are packed with Wine.
     #[serde(default)]
     pub wine: bool,
+    /// For a forum of many consoles, the title tags of this catalog's console (`NES`, `Dendy`).
+    /// Empty: every topic is this catalog's.
+    #[serde(default)]
+    pub titles: Vec<String>,
+}
+
+impl Forum {
+    /// The topic titled `title` belongs to this forum's catalog: the forum has no `titles`, or
+    /// one of the `[…]` tags before the title's name is one of them, in any case.
+    pub fn takes(&self, title: &str) -> bool {
+        self.titles.is_empty()
+            || leading_tags(title).any(|tag| self.titles.iter().any(|t| t.trim().eq_ignore_ascii_case(tag)))
+    }
+}
+
+/// The `[…]` tags before a title's name, trimmed: `[Обновлено] [PS] Crash` gives `Обновлено`, `PS`.
+fn leading_tags(title: &str) -> impl Iterator<Item = &str> {
+    let mut rest = title.trim_start();
+    std::iter::from_fn(move || {
+        let inner = rest.strip_prefix('[')?;
+        let (tag, after) = inner.split_once(']')?;
+        rest = after.trim_start();
+        Some(tag.trim())
+    })
 }
 
 /// Reads a catalog sources file.
@@ -113,17 +140,23 @@ pub struct ForumFacts {
 /// are for.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Forums {
-    by_number: HashMap<String, ForumFacts>,
+    /// A forum that feeds two catalogs has the facts of each.
+    by_number: HashMap<String, Vec<ForumFacts>>,
     by_key: HashMap<String, ForumFacts>,
 }
 
 impl Forums {
     /// The forum a catalog file or a topic names: the one of the `f=` number in its `source`,
     /// else, with no number there, the one whose key is its `platform` (`ps5`, `wine`), as the
-    /// collector's listing of one forum names it. `None` for a forum the sources don't have.
+    /// collector's listing of one forum names it. Of a forum that feeds two catalogs, the one
+    /// whose console is the `platform`. `None` for a forum the sources don't have.
     pub fn named(&self, source: Option<&str>, platform: Option<&str>) -> Option<&ForumFacts> {
         match source.and_then(forum_number) {
-            Some(number) => self.by_number.get(&number),
+            Some(number) => {
+                let all = self.by_number.get(&number)?;
+                let platform = platform.map(str::trim).unwrap_or_default();
+                all.iter().find(|f| f.console.as_str().eq_ignore_ascii_case(platform)).or(all.first())
+            }
             None => self.by_key.get(&platform?.trim().to_ascii_lowercase()),
         }
     }
@@ -138,7 +171,7 @@ impl Sources {
                 let facts =
                     ForumFacts { console: catalog.console.clone(), system: forum.system.clone(), wine: forum.wine };
                 if let Some(number) = forum_number(&forum.url) {
-                    forums.by_number.insert(number, facts.clone());
+                    forums.by_number.entry(number).or_default().push(facts.clone());
                 }
                 forums.by_key.insert(forum.key.to_ascii_lowercase(), facts);
             }
@@ -193,5 +226,35 @@ mod tests {
         assert_eq!(forums.named(Some("https://xyz.dev/catalog"), Some("ps5")).unwrap().console.as_str(), "PS5");
         assert_eq!(forums.named(Some("https://xyz.net/f?f=9"), Some("ps5")), None, "a number the sources don't have");
         assert_eq!(forums.named(None, None), None);
+    }
+
+    /// One forum of many consoles feeds two catalogs, each with the titles of its console.
+    const MIXED: &str = r#"{
+          "nes": { "platform": "NES", "forums": [
+            { "key": "nes", "url": "https://xyz.net/f?f=7", "titles": ["NES", "Dendy"] }] },
+          "genesis": { "platform": "Genesis", "forums": [
+            { "key": "genesis", "url": "https://xyz.net/f?f=7", "titles": ["SMD", "Sega Genesis"] }] } }"#;
+
+    #[test]
+    fn a_forum_with_titles_takes_the_topics_one_of_whose_first_tags_is_one_of_them() {
+        let sources = read(MIXED.as_bytes()).unwrap();
+        let nes = &sources.catalogs["nes"].forums[0];
+        assert!(nes.takes("[NES] Battletoads [U] [1.2 MB]"));
+        assert!(nes.takes("[Обновлено] [dendy] Contra [RUS]"), "any of the tags before the name, in any case");
+        assert!(!nes.takes("[SNES] Contra III"), "a whole tag, not part of one");
+        assert!(!nes.takes("[Amiga] NES Remix"), "only the tags before the name");
+        assert!(!nes.takes("Battletoads"));
+        let genesis = &sources.catalogs["genesis"].forums[0];
+        assert!(genesis.takes("[Sega Genesis] Sonic the Hedgehog"));
+        let ps5 = &read(SOURCES.as_bytes()).unwrap().catalogs["ps5"].forums[0];
+        assert!(ps5.takes("[Amiga] anything"), "a forum without titles takes every topic");
+    }
+
+    #[test]
+    fn a_topic_of_a_forum_that_feeds_two_catalogs_is_its_platform_s() {
+        let forums = read(MIXED.as_bytes()).unwrap().forums();
+        let url = Some("https://xyz.net/f?f=7");
+        assert_eq!(forums.named(url, Some("GENESIS")).unwrap().console.as_str(), "GENESIS");
+        assert_eq!(forums.named(url, Some("nes")).unwrap().console.as_str(), "NES");
     }
 }
