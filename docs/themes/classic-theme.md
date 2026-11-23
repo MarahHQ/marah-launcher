@@ -43,7 +43,7 @@ All paths are under `plugins/themes/classic/theme/`.
 | `components/nav.slint` | `Nav`: where the keys are on Home, the Library and the Catalog, and what each key does there. |
 | `components/top-bar.slint` | `TopBar`, `PadGlyph`, `PadArrows`, `Hints`: the top bar and the key hints. |
 | `fonts/` | Inter (Regular, Medium, SemiBold, Bold) and Tajawal (Regular, Bold), with `OFL-Inter.txt` and `OFL-Tajawal.txt`. |
-| `images/logo.png` | The launcher's emblem. |
+| `images/logo-mark.png` | The launcher's mark, its only logo inside the launcher. |
 | `sounds/` | `move.wav`, `select.wav`, `back.wav`, `error.wav`, `start.wav`. |
 
 ### How Default differs
@@ -76,7 +76,7 @@ From `theme.toml`:
 | `navigation` | `focus` |
 | breakpoints | `compact` (`max_width = 900`), then `regular` |
 | fonts | the six font files above |
-| images | `logo`, `logo-mark` |
+| images | `logo-mark` |
 | sounds | `move`, `select`, `back`, `error`, `start` |
 
 It has no `fallback` key.

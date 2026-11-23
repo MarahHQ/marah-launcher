@@ -873,20 +873,24 @@ fn a_sheet_opened_with_the_keys_takes_keys_at_once_in_every_theme() {
     }
 }
 
-/// The boot screen draws the logo mark, the gamepad alone, in every theme: the theme's
-/// `logo-mark` image, which isn't its full logo.
+/// Inside the launcher the logo is the mark, the gamepad alone, in every theme: the boot screen
+/// draws the theme's `logo-mark` image, and no theme has the full emblem, which is the app icon
+/// only. The closing screen and Settings' About card take the mark, so a theme that drew the
+/// emblem would name an image it doesn't have, and not load.
 #[test]
-fn the_boot_screen_draws_the_logo_mark_in_every_theme() {
+fn the_launcher_draws_the_logo_mark_and_never_the_full_logo_in_every_theme() {
     for theme in THEMES {
         let work = std::sync::Arc::new(Asker::default());
         let host = in_theme(theme, |h| two_emulators(h).plugin(asker(work.clone())));
         assert!(!host.core().view().boot.ready, "{theme}: the boot screen shows");
         assert_eq!(host.count("logo-mark"), 1, "{theme}");
-        let image = |name: &str| match host.instance().get_global_property("Assets", name) {
-            Ok(slint_interpreter::Value::Image(image)) => image.to_rgba8().expect("pixels").as_bytes().to_vec(),
-            other => panic!("{theme}: no image {name}: {other:?}"),
-        };
-        let (mark, logo) = (image("logo-mark"), image("logo"));
-        assert!(!mark.is_empty() && mark != logo, "{theme}: the mark is its own image");
+        let image = |name: &str| host.instance().get_global_property("Assets", name);
+        match image("logo-mark") {
+            Ok(slint_interpreter::Value::Image(mark)) => {
+                assert!(!mark.to_rgba8().expect("pixels").as_bytes().is_empty(), "{theme}: the mark is drawn")
+            }
+            other => panic!("{theme}: no logo-mark image: {other:?}"),
+        }
+        assert!(image("logo").is_err(), "{theme}: the full logo is the app icon only");
     }
 }
