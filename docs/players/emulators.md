@@ -42,11 +42,13 @@ and import it on the emulator's page.
 | --- | --- | --- |
 | PS4 (shadPS4) | `ps4-system-files.zip` | `sys_modules/` (the `.sprx` files), `fonts/` (`font/`, `font2/`) |
 | Switch (Lichii) | `switch-firmware-keys.zip` | `firmware/` (the `.nca` files), `keys/` (`prod.keys`, `title.keys`). A `VERSION` file that names the version is fine: the launcher leaves it out. |
-| PS1, NES, Genesis (RetroArch) | `retroarch-bios.zip` | `system/` (the BIOS files) |
+| PS1 | `ps1-bios.zip` | `system/` (`scph*.bin`, `psxonpsp660.bin`) |
+| NES | `nes-bios.zip` | `system/` (`disksys.rom` for Famicom Disk System games, `gamegenie.nes`) |
+| Genesis | `genesis-bios.zip` | `system/` (`bios_MD.bin`, `bios_*.sms`, `bios.gg`, and the lock-on carts `sk.bin`, `sk2chip.bin`, `areplay.bin`, `ggenie.bin`) |
 
-The RetroArch emulators share one folder, so one `retroarch-bios.zip` serves all three. Most
-PS1, NES and Genesis games play without BIOS files, so their page doesn't warn while the files
-are missing.
+The PS1, NES and Genesis emulators run on RetroArch, and their BIOS files all go into
+RetroArch's one `system` folder. Each takes only its own files from its archive. Most of their
+games play without BIOS files, so their pages don't warn while the files are missing.
 
 ### Import an archive
 
@@ -95,8 +97,8 @@ the zip from Explorer (**Send to → Compressed (zipped) folder**) and leave out
   <https://files.prodkeys.net/ProdKeys.NET-v22.5.0.zip>. Put `prod.keys` and `title.keys` in
   `keys/`.
 - **BIOS files:** your own console's, or a RetroArch `system/` folder. The PS1 core reads
-  `scph5500.bin`, `scph5501.bin`, `scph5502.bin`, `scph1001.bin` or `scph7001.bin`; the Genesis
-  core reads `bios_MD.bin`, `bios_E.sms`, `bios_U.sms`, `bios_J.sms` and `bios.gg`; the NES core
+  `scph5500.bin`, `scph5501.bin`, `scph5502.bin`, `scph1001.bin` or `scph7001.bin`. The Genesis
+  core reads `bios_MD.bin`, `bios_E.sms`, `bios_U.sms`, `bios_J.sms` and `bios.gg`. The NES core
   reads `disksys.rom` for Famicom Disk System games.
 
 ## PS5: KytyPS5

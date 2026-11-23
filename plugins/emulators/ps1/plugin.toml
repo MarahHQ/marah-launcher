@@ -79,14 +79,15 @@ name = "PlayStation"
 icon = "icon.png"
 cover = "cover.jpg"
 
-# BIOS files, which the player imports from one archive on the emulator's page: see
-# docs/players/emulators.md, "System files". They go into RetroArch's system folder, in the
-# data folder every RetroArch plugin shares, so one archive serves PS1, NES and Genesis.
+# The PS1 BIOS (scph*.bin), which the player imports from one archive on the emulator's page:
+# see docs/players/emulators.md, "System files". They go into RetroArch's system folder, in the
+# data folder every RetroArch plugin shares; this plugin takes only its own files from it.
 [system_files]
-name = "RetroArch BIOS files"
-archive = "retroarch-bios.zip"
+name = "PS1 BIOS files"
+archive = "ps1-bios.zip"
 optional = true
 
 [[system_files.part]]
 from = "system"
 into = "system"
+files = ["scph*.bin", "psxonpsp660.bin"]

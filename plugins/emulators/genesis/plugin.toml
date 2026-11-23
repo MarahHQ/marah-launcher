@@ -70,14 +70,16 @@ name = "Sega Genesis"
 icon = "icon.png"
 cover = "cover.jpg"
 
-# BIOS files, which the player imports from one archive on the emulator's page: see
-# docs/players/emulators.md, "System files". They go into RetroArch's system folder, in the
-# data folder every RetroArch plugin shares, so one archive serves PS1, NES and Genesis.
+# The Mega Drive, Master System and Game Gear BIOS files, and the lock-on carts, which the
+# player imports from one archive on the emulator's page: see docs/players/emulators.md,
+# "System files". They go into RetroArch's system folder, in the
+# data folder every RetroArch plugin shares; this plugin takes only its own files from it.
 [system_files]
-name = "RetroArch BIOS files"
-archive = "retroarch-bios.zip"
+name = "Genesis BIOS files"
+archive = "genesis-bios.zip"
 optional = true
 
 [[system_files.part]]
 from = "system"
 into = "system"
+files = ["bios_MD.bin", "bios_*.sms", "bios.gg", "sk.bin", "sk2chip.bin", "areplay.bin", "ggenie.bin"]
