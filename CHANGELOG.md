@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.19.0](https://github.com/MarahHQ/marah-launcher/compare/v0.18.1...v0.19.0) (2026-11-23)
+
+
+### ⚠ BREAKING CHANGES
+
+* emulators import their system files from one archive on their page, in place of the PS4 and Switch downloads (API 0.6.0)
+
+### Features
+
+* emulators import their system files from one archive on their page, in place of the PS4 and Switch downloads (API 0.6.0) ([b150788](https://github.com/MarahHQ/marah-launcher/commit/b150788b7dad72f7c99db53a66c41ae05c8f41d5))
+
 ## [0.18.1](https://github.com/MarahHQ/marah-launcher/compare/v0.18.0...v0.18.1) (2026-11-23)
 
 
