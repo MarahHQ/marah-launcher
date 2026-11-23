@@ -534,3 +534,54 @@ async fn the_places_are_home_its_folders_that_are_there_and_the_backup_folder() 
     );
     assert_eq!(shown.shown, "~/Downloads/old-pc");
 }
+
+/// The retro plugins and the backup folder.
+async fn retro(backups: &Path) -> TestCore {
+    let test = FakeHost::new()
+        .platform(Some(Platform::Linux))
+        .built_in(PluginBox::code(emu_nes::NesPlugin))
+        .built_in(PluginBox::code(emu_genesis::GenesisPlugin))
+        .built_in(PluginBox::code(emu_ps1::Ps1Plugin))
+        .boot_core()
+        .await;
+    let folder = serde_json::json!(backups.display().to_string());
+    test.core.dispatch(Command::Pref(Pref::BackupFolder, folder)).await.unwrap();
+    test
+}
+
+/// Each retro console's saves, save states, core options and remaps, the PS1's BIOS files and
+/// RetroArch's own settings, from the folder the retro plugins share.
+#[tokio::test]
+async fn the_retro_consoles_saves_states_options_bios_and_retroarch_s_settings_go_to_another_computer() {
+    let backups = tempfile::tempdir().unwrap();
+    let a = retro(backups.path()).await;
+    let shared = a.data_dir().join("shared/retroarch");
+    write(&shared.join("saves/FCEUmm/Game.srm"), b"nes save");
+    write(&shared.join("states/Genesis Plus GX/Sonic.state1"), b"genesis state");
+    write(&shared.join("saves/PCSX-ReARMed/Saga.srm"), b"ps1 card");
+    write(&shared.join("config/FCEUmm/FCEUmm.opt"), b"fceumm_palette = \"nes-classic\"");
+    write(&shared.join("config/remaps/PCSX-ReARMed/PCSX-ReARMed.rmp"), b"input_player1_btn_a = \"1\"");
+    write(&shared.join("system/scph5501.bin"), b"bios");
+    write(&shared.join("retroarch.cfg"), b"menu_driver = \"ozone\"");
+    write(&shared.join("builds/1.22.2/RetroArch-Linux-x86_64/squashfs-root/AppRun"), b"program");
+    write(&shared.join("logs/retroarch.log"), b"not an item");
+    a.core.dispatch(Command::Backup(BackupCmd::BackUp { large: false })).await.unwrap();
+    let file = files(backups.path()).remove(0);
+
+    let b = retro(backups.path()).await;
+    b.core.dispatch(Command::Backup(BackupCmd::Restore(file))).await.unwrap();
+    let to = b.data_dir().join("shared/retroarch");
+    let read = |path: &str| std::fs::read(to.join(path)).ok();
+    assert_eq!(read("saves/FCEUmm/Game.srm").as_deref(), Some(&b"nes save"[..]));
+    assert_eq!(read("states/Genesis Plus GX/Sonic.state1").as_deref(), Some(&b"genesis state"[..]));
+    assert_eq!(read("saves/PCSX-ReARMed/Saga.srm").as_deref(), Some(&b"ps1 card"[..]));
+    assert_eq!(read("config/FCEUmm/FCEUmm.opt").as_deref(), Some(&b"fceumm_palette = \"nes-classic\""[..]));
+    assert_eq!(
+        read("config/remaps/PCSX-ReARMed/PCSX-ReARMed.rmp").as_deref(),
+        Some(&b"input_player1_btn_a = \"1\""[..])
+    );
+    assert_eq!(read("system/scph5501.bin").as_deref(), Some(&b"bios"[..]));
+    assert_eq!(read("retroarch.cfg").as_deref(), Some(&b"menu_driver = \"ozone\""[..]));
+    assert_eq!(read("builds/1.22.2/RetroArch-Linux-x86_64/squashfs-root/AppRun"), None, "RetroArch downloads again");
+    assert_eq!(read("logs/retroarch.log"), None, "logs aren't an item");
+}

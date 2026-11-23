@@ -1,5 +1,6 @@
 //! Installed console games in a named host folder: folders with `sce_sys/param.json` (PS5)
-//! or `sce_sys/param.sfo` (PS4), and Switch game files (see [`switch_file`]).
+//! or `sce_sys/param.sfo` (PS4), Switch game files (see [`switch_file`]), and the files of a
+//! retro console's games (see [`RomSystem`]), in its own folder only.
 //!
 //! Each of the player's folders is searched three folders down, for layouts like
 //! `Games/PS5/<Title>/<PPSAxxxxx-app0>`.
@@ -17,6 +18,70 @@ pub enum Console {
     Ps4,
     /// Switch and Switch 2 games, each one file.
     Switch,
+    /// A retro console's games, each one file, in the console's own folder.
+    Rom(&'static RomSystem),
+}
+
+/// A retro console's game files.
+#[derive(Debug, PartialEq, Eq)]
+pub struct RomSystem {
+    /// Its folder inside each games folder (`NES`). Its games are looked for there alone: a
+    /// `.zip` or a `.bin` elsewhere may be another console's.
+    pub folder: &'static str,
+    /// The extensions of a file that is a game, in lowercase: `cue`, not the `bin` it names.
+    pub games: &'static [&'static str],
+    /// The extensions of the files a game is made of, which an install copies: `cue` and `bin`.
+    pub files: &'static [&'static str],
+    /// A playlist that names a game's discs (`m3u`): a folder with one lists that alone.
+    pub playlist: Option<&'static str>,
+    /// The console's repository on libretro-thumbnails (`Nintendo_-_Nintendo_Entertainment_System`):
+    /// its pictures are named after each game's No-Intro or Redump name, as a ROM named so is.
+    pub thumbnails: Option<&'static str>,
+}
+
+/// Where libretro-thumbnails keeps its pictures.
+pub const THUMBNAILS: &str = "https://raw.githubusercontent.com/libretro-thumbnails";
+
+/// The address of the picture of `kind` (`Named_Boxarts`, `Named_Snaps`) for the game in the
+/// file `name`: its name without the extension, with the characters libretro replaces
+/// (`&*/:`<>?\|"`) as `_`. `None` for a console with no repository.
+pub fn thumbnail(system: &RomSystem, kind: &str, name: &str) -> Option<String> {
+    let repo = system.thumbnails?;
+    let stem = name.rsplit_once('.').map(|(s, _)| s).filter(|s| !s.is_empty()).unwrap_or(name);
+    let safe: String = stem.chars().map(|c| if "&*/:`<>?\\|\"".contains(c) { '_' } else { c }).collect();
+    let mut encoded = String::new();
+    for byte in format!("{safe}.png").bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => encoded.push(byte as char),
+            _ => encoded.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    Some(format!("{THUMBNAILS}/{repo}/master/{kind}/{encoded}"))
+}
+
+/// The lowercase extension of `name`, if it has one.
+fn extension(name: &str) -> Option<String> {
+    name.rsplit_once('.').filter(|(stem, _)| !stem.is_empty()).map(|(_, e)| e.to_ascii_lowercase())
+}
+
+impl RomSystem {
+    /// `name` is one of this console's game files: a game, or a file a game is made of.
+    pub fn is_file(&self, name: &str) -> bool {
+        extension(name).is_some_and(|e| self.files.contains(&e.as_str()) || self.games.contains(&e.as_str()))
+    }
+
+    /// `name` is a game of this console.
+    pub fn is_game(&self, name: &str) -> bool {
+        extension(name).is_some_and(|e| self.games.contains(&e.as_str()))
+    }
+}
+
+/// A game's title from its file name: the name without its extension and its tags in brackets,
+/// "Super Mario Bros. (World) [!].nes" is "Super Mario Bros.". A name that is only tags keeps them.
+pub fn rom_title(name: &str) -> String {
+    let stem = name.rsplit_once('.').map(|(s, _)| s).filter(|s| !s.is_empty()).unwrap_or(name);
+    let cut = stem.find(['(', '[']).map_or(stem, |at| &stem[..at]).trim();
+    if cut.is_empty() { stem.trim().to_owned() } else { cut.to_owned() }
 }
 
 /// The extensions of a Switch game file: a package (`.nsp`), a cartridge image (`.xci`),
@@ -86,6 +151,10 @@ pub struct FoundGame {
     pub file: Option<HostPath>,
     pub icon: Option<HostPath>,
     pub background: Option<HostPath>,
+    /// Pictures on the web when the game's files have none: a retro game's box art and a
+    /// screenshot from libretro-thumbnails ([`RomSystem::thumbnails`]).
+    pub web_cover: Option<String>,
+    pub web_background: Option<String>,
 }
 
 /// The most a metadata file may be.
@@ -126,8 +195,8 @@ pub fn ps5_param(bytes: &[u8]) -> Option<(String, String)> {
 pub async fn read_game(folders: &dyn Folders, console: Console, dir: &HostPath) -> Option<FoundGame> {
     let sce = dir.join("sce_sys").ok()?;
     match console {
-        // A Switch game is a file: see `scan`.
-        Console::Switch => None,
+        // A Switch or a retro game is a file: see `scan`.
+        Console::Switch | Console::Rom(_) => None,
         Console::Ps5 => {
             let p: Value = serde_json::from_slice(&read(folders, &sce.join("param.json").ok()?).await?).ok()?;
             let localized = &p["localizedParameters"];
@@ -149,6 +218,8 @@ pub async fn read_game(folders: &dyn Folders, console: Console, dir: &HostPath) 
                 file: None,
                 icon: file_in(folders, &sce, &["icon0.png"]).await,
                 background: file_in(folders, &sce, &["pic0.png"]).await,
+                web_cover: None,
+                web_background: None,
             })
         }
         Console::Ps4 => {
@@ -173,6 +244,8 @@ pub async fn read_game(folders: &dyn Folders, console: Console, dir: &HostPath) 
                 file: None,
                 icon: file_in(folders, &sce, &["icon0.png"]).await,
                 background: file_in(folders, &sce, &["pic1.png", "pic0.png"]).await,
+                web_cover: None,
+                web_background: None,
             })
         }
     }
@@ -181,6 +254,45 @@ pub async fn read_game(folders: &dyn Folders, console: Console, dir: &HostPath) 
 /// How far below a game folder a game is looked for: a console folder (`PS5`), a folder of
 /// the player's, then the game.
 const SCAN_DEPTH: usize = 3;
+
+/// The retro games among the files of `dir`, at `depth` below the console's folder: each game
+/// file, or only the playlists when the folder has one (they name the folder's discs). A folder
+/// below the console's that holds one game and no folder but its art (an install's
+/// `NES/<title>`) is that game's folder, with its other files (a disc's tracks): an uninstall
+/// deletes it. Else each game is its own file.
+fn rom_games(system: &RomSystem, dir: &HostPath, depth: usize, entries: &[DirEntry]) -> PluginResult<Vec<FoundGame>> {
+    let files: Vec<DirEntry> = entries.iter().filter(|e| !e.is_dir).cloned().collect();
+    let files = files.as_slice();
+    let folders = entries.iter().any(|e| e.is_dir && e.name != launcher_api::ART_FOLDER);
+    let listed = |e: &&DirEntry| match system.playlist {
+        Some(playlist) if files.iter().any(|f| extension(&f.name).as_deref() == Some(playlist)) => {
+            extension(&e.name).as_deref() == Some(playlist)
+        }
+        _ => system.is_game(&e.name),
+    };
+    let games: Vec<&DirEntry> = files.iter().filter(listed).collect();
+    let own_folder = depth >= 1 && games.len() == 1 && !folders;
+    let mut out = Vec::new();
+    for entry in games {
+        // A name that can't be a path is no game this plugin can name.
+        let Ok(file) = dir.join(&entry.name) else { continue };
+        out.push(FoundGame {
+            id: String::new(),
+            title: rom_title(&entry.name),
+            title_id: String::new(),
+            content_id: String::new(),
+            version: String::new(),
+            age: None,
+            dir: if own_folder { dir.clone() } else { file.clone() },
+            file: Some(file),
+            icon: None,
+            background: None,
+            web_cover: thumbnail(system, "Named_Boxarts", &entry.name),
+            web_background: thumbnail(system, "Named_Snaps", &entry.name),
+        });
+    }
+    Ok(out)
+}
 
 /// The Switch games among the files of `dir`, at `depth` below the root. When `dir` is at least
 /// two folders down (`Switch/<title>`) and holds one game, it is that game's folder; else each
@@ -204,6 +316,8 @@ fn switch_games(dir: &HostPath, depth: usize, files: &[DirEntry]) -> PluginResul
             file: Some(file),
             icon: None,
             background: None,
+            web_cover: None,
+            web_background: None,
         });
     }
     Ok(out)
@@ -216,7 +330,11 @@ fn switch_games(dir: &HostPath, depth: usize, files: &[DirEntry]) -> PluginResul
 pub async fn scan(folders: &dyn Folders, folder: &str, console: Console) -> PluginResult<Vec<FoundGame>> {
     let mut found: Vec<FoundGame> = Vec::new();
     for root in folders.roots(folder).await? {
-        let mut level = vec![HostPath::new(folder, root.root, RelPath::root())];
+        let top = match console {
+            Console::Rom(system) => RelPath::new(system.folder)?,
+            _ => RelPath::root(),
+        };
+        let mut level = vec![HostPath::new(folder, root.root, top)];
         for depth in 0..=SCAN_DEPTH {
             let mut next = Vec::new();
             for dir in level {
@@ -224,8 +342,9 @@ pub async fn scan(folders: &dyn Folders, folder: &str, console: Console) -> Plug
                     found.push(game);
                     continue;
                 }
-                // A Switch game is a file, so the deepest folders are listed too.
-                if depth == SCAN_DEPTH && console != Console::Switch {
+                // A Switch or a retro game is a file, so the deepest folders are listed too.
+                let files_are_games = matches!(console, Console::Switch | Console::Rom(_));
+                if depth == SCAN_DEPTH && !files_are_games {
                     continue;
                 }
                 // A root that can't be listed (not there yet) holds no games.
@@ -238,9 +357,11 @@ pub async fn scan(folders: &dyn Folders, folder: &str, console: Console) -> Plug
                         }
                     }
                 }
-                if console == Console::Switch {
-                    let files: Vec<DirEntry> = entries.into_iter().filter(|e| !e.is_dir).collect();
-                    found.extend(switch_games(&dir, depth, &files)?);
+                let files = || entries.iter().filter(|e| !e.is_dir).cloned().collect::<Vec<DirEntry>>();
+                match console {
+                    Console::Switch => found.extend(switch_games(&dir, depth, &files())?),
+                    Console::Rom(system) => found.extend(rom_games(system, &dir, depth, &entries)?),
+                    Console::Ps5 | Console::Ps4 => {}
                 }
             }
             level = next;
@@ -336,7 +457,11 @@ impl FoundGame {
             id: self.id.clone(),
             title: self.title.clone(),
             platform: platform.to_owned(),
-            cover: self.icon.clone().map(launcher_api::ImageSource::Folder),
+            cover: self
+                .icon
+                .clone()
+                .map(launcher_api::ImageSource::Folder)
+                .or_else(|| self.web_cover.clone().map(launcher_api::ImageSource::Url)),
             tags: Vec::new(),
             release_year: None,
             title_id: (!self.title_id.is_empty()).then(|| self.title_id.clone()),
@@ -379,7 +504,11 @@ impl FoundGame {
             developer: None,
             genres: Vec::new(),
             size_bytes: None,
-            background: self.background.clone().map(launcher_api::ImageSource::Folder),
+            background: self
+                .background
+                .clone()
+                .map(launcher_api::ImageSource::Folder)
+                .or_else(|| self.web_background.clone().map(launcher_api::ImageSource::Url)),
             facts,
         }
     }
@@ -438,6 +567,66 @@ fn level_badge(level: launcher_api::CompatLevel) -> (&'static str, launcher_api:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const PS1: RomSystem = RomSystem {
+        folder: "PS1",
+        games: &["cue", "chd"],
+        files: &["bin"],
+        playlist: Some("m3u"),
+        thumbnails: Some("Sony_-_PlayStation"),
+    };
+
+    #[test]
+    fn a_rom_s_pictures_are_named_after_its_file_as_libretro_names_them() {
+        assert_eq!(
+            thumbnail(&PS1, "Named_Boxarts", "Crash Bandicoot (USA).cue").as_deref(),
+            Some(
+                "https://raw.githubusercontent.com/libretro-thumbnails/Sony_-_PlayStation/master/Named_Boxarts/Crash%20Bandicoot%20%28USA%29.png"
+            )
+        );
+        let odd = thumbnail(&PS1, "Named_Snaps", "Tom & Jerry: Fists.cue").unwrap();
+        assert!(odd.ends_with("/Named_Snaps/Tom%20_%20Jerry_%20Fists.png"), "{odd}");
+        assert_eq!(thumbnail(&RomSystem { thumbnails: None, ..PS1 }, "Named_Boxarts", "a.cue"), None);
+    }
+
+    #[test]
+    fn a_rom_s_title_is_its_name_without_tags() {
+        assert_eq!(rom_title("Super Mario Bros. (World) [!].nes"), "Super Mario Bros.");
+        assert_eq!(rom_title("Sonic the Hedgehog.md"), "Sonic the Hedgehog");
+        assert_eq!(rom_title("(Prototype).nes"), "(Prototype)", "a name of tags alone keeps them");
+        assert_eq!(rom_title("noext"), "noext");
+    }
+
+    #[test]
+    fn a_game_file_is_one_whose_extension_says_a_game_and_a_part_is_copied_too() {
+        assert!(PS1.is_game("Crash (USA).CUE") && !PS1.is_game("Crash (USA) (Track 1).bin"));
+        assert!(PS1.is_file("Crash (USA) (Track 1).bin") && PS1.is_file("Crash.chd"));
+        assert!(!PS1.is_file("readme.txt") && !PS1.is_file(".bin"));
+    }
+
+    #[test]
+    fn a_folder_with_a_playlist_lists_the_playlist_not_its_discs() {
+        let dir = HostPath::new("games", 0, RelPath::new("PS1/FF7").unwrap());
+        let file = |name: &str| DirEntry { name: name.into(), is_dir: false, size: 1 };
+        let discs = [file("FF7 (Disc 1).cue"), file("FF7 (Disc 1).bin"), file("FF7 (Disc 2).cue")];
+        let titles = |files: &[DirEntry]| -> Vec<String> {
+            rom_games(&PS1, &dir, 1, files).unwrap().into_iter().map(|g| g.title).collect()
+        };
+        assert_eq!(titles(&discs), ["FF7", "FF7"], "each disc, without a playlist");
+        let with_list = [discs.as_slice(), &[file("FF7.m3u")]].concat();
+        let games = rom_games(&PS1, &dir, 1, &with_list).unwrap();
+        assert_eq!(games.iter().map(|g| g.title.as_str()).collect::<Vec<_>>(), ["FF7"]);
+        assert_eq!(games[0].file.as_ref().unwrap().path.as_str(), "PS1/FF7/FF7.m3u", "the playlist starts it");
+        assert_eq!(games[0].dir, dir, "one game below the console's folder: the folder is the game's");
+        let loose = HostPath::new("games", 0, RelPath::new("PS1").unwrap());
+        let at_top = rom_games(&PS1, &loose, 0, &[file("Racer.cue"), file("Racer.bin")]).unwrap();
+        assert_eq!(at_top[0].dir.path.as_str(), "PS1/Racer.cue", "in the console's folder itself, its file");
+        let folder = |name: &str| DirEntry { name: name.into(), is_dir: true, size: 0 };
+        let with_art = rom_games(&PS1, &dir, 1, &[file("FF7.cue"), folder("launcher_art")]).unwrap();
+        assert_eq!(with_art[0].dir, dir, "its art's folder is its own");
+        let with_more = rom_games(&PS1, &dir, 1, &[file("FF7.cue"), folder("Hacks")]).unwrap();
+        assert_eq!(with_more[0].dir.path.as_str(), "PS1/FF7/FF7.cue", "a folder of other games isn't deleted with it");
+    }
 
     #[test]
     fn a_switch_file_s_name_gives_its_title_id_and_version_and_updates_are_not_games() {

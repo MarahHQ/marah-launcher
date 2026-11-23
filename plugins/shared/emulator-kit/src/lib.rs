@@ -29,6 +29,7 @@ pub mod host;
 pub mod installs;
 pub mod pkg5;
 pub mod read_at;
+pub mod retroarch;
 pub mod settings;
 pub mod sfo;
 #[cfg(test)]
