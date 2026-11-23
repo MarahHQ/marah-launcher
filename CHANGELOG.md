@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.1](https://github.com/MarahHQ/marah-launcher/compare/v0.18.0...v0.18.1) (2026-11-23)
+
+
+### Bug Fixes
+
+* the third-party sources step makes dist/, which a fresh checkout no longer has ([65f6661](https://github.com/MarahHQ/marah-launcher/commit/65f66612b16b6c7a0008c98f386874e4d63ad98b))
+
 ## [0.18.0](https://github.com/MarahHQ/marah-launcher/compare/v0.17.3...v0.18.0) (2026-11-23)
 
 
