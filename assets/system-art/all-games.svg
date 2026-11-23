@@ -1,22 +1,64 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="21.5 21.5 469 469" role="img" aria-label="All Games icon">
-<defs>
- <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#008de9"/><stop offset=".48" stop-color="#1927ad"/><stop offset="1" stop-color="#8b00ce"/></linearGradient>
- <linearGradient id="edge" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#43f5ff"/><stop offset=".5" stop-color="#5477ff"/><stop offset="1" stop-color="#ff46e6"/></linearGradient>
- <linearGradient id="left" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#18e6ff"/><stop offset="1" stop-color="#1862dc"/></linearGradient>
- <linearGradient id="mid" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#30edff"/><stop offset="1" stop-color="#7d65f8"/></linearGradient>
- <linearGradient id="right" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e47bff"/><stop offset="1" stop-color="#9e2ce4"/></linearGradient>
- <linearGradient id="pad" x1="0" y1="0" x2=".8" y2="1"><stop stop-color="#fff"/><stop offset=".65" stop-color="#f2f4ff"/><stop offset="1" stop-color="#dcb8ff"/></linearGradient>
- <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="12"/></filter>
- <clipPath id="clip"><rect x="25" y="25" width="462" height="462" rx="95"/></clipPath>
-</defs>
-<rect x="25" y="25" width="462" height="462" rx="95" fill="url(#tile)" stroke="url(#edge)" stroke-width="7"/>
-<g clip-path="url(#clip)"><path d="M50 84Q155 25 258 60" fill="none" stroke="#7efaff" stroke-width="13" opacity=".12"/></g>
-<!-- fan of game library cards -->
-<g transform="rotate(-18 174 258)"><rect x="96" y="163" width="157" height="201" rx="25" fill="url(#left)" stroke="#7feeff" stroke-width="3"/><path d="M100 310l52-54 38 30 63-73v129H100Z" fill="#0956bb" opacity=".8"/><circle cx="165" cy="232" r="20" fill="#0748a4"/><path d="M132 281q32-49 66 0" fill="#0748a4"/><ellipse cx="130" cy="192" rx="13" ry="7" fill="#b4ffff" transform="rotate(-32 130 192)" opacity=".85"/></g>
-<rect x="196" y="133" width="143" height="207" rx="25" fill="url(#mid)" stroke="#9feaff" stroke-width="3"/><path d="M199 282l38-39 25 20 29-39 45 44v56H199Z" fill="#1450bd" opacity=".65"/><path d="M250 274v-52h12v-17l15 11 13-21 14 23 12-8v64Z" fill="#133caa"/><path d="M271 205v-25l15 7-15 7" fill="#133caa"/><ellipse cx="226" cy="165" rx="16" ry="8" fill="#d0ffff" transform="rotate(-35 226 165)"/>
-<g transform="rotate(18 347 256)"><rect x="285" y="167" width="142" height="196" rx="24" fill="url(#right)" stroke="#ff9dff" stroke-width="3"/><path d="M287 308l43-41 34 18 61-53v110H287Z" fill="#6d2ac1"/><path d="M337 244q-3-41 37-43 40 0 37 43-20 13-34-4v45h-17v-45q-12 17-23 4" fill="#7225b9"/><circle cx="355" cy="221" r="8" fill="#c87aff"/><circle cx="388" cy="221" r="7" fill="#c87aff"/></g>
-<!-- controller silhouette -->
-<path d="M163 281c-29-3-47 13-59 44l-27 76c-13 38 17 67 49 51 18-9 34-33 53-47 14-10 35-12 77-12s63 2 77 12c19 14 35 38 53 47 32 16 62-13 49-51l-27-76c-12-31-30-47-59-44-23 3-33 12-53 12h-80c-20 0-30-9-53-12Z" fill="url(#pad)" stroke="#e3eaff" stroke-width="3"/>
-<path d="M160 321v53m-27-26h54" stroke="#061957" stroke-width="19" stroke-linecap="round"/>
-<g fill="#061957"><circle cx="350" cy="321" r="14"/><circle cx="320" cy="348" r="14"/><circle cx="380" cy="348" r="14"/><circle cx="350" cy="376" r="14"/></g>
-</svg>
+<ns0:svg xmlns:ns0="http://www.w3.org/2000/svg" viewBox="30.500 30.500 451.000 451.000" width="469" height="469" role="img" aria-label="All games"><ns0:g transform="translate(5.42372881 5.42372881) scale(1.9576271186)">
+    <ns0:g transform="translate(12.8 12.8) scale(0.9)"><ns0:g transform="matrix(0.4669117647 0 0 0.4703703704 -12.0735294118 -3.2333333333)">
+<ns0:title id="title">All games</ns0:title><ns0:desc id="desc">Hand-drawn native vector recreation from the supplied reference, with three collectible cards and a white gamepad occluding the cards; the dark region is a rear separation shape, not a border.</ns0:desc>
+<ns0:defs>
+ <ns0:linearGradient id="tile" x1=".02" y1=".05" x2=".96" y2=".96" objectBoundingBox="true"><ns0:stop stop-color="#00b8f7" /><ns0:stop offset=".19" stop-color="#0878dd" /><ns0:stop offset=".49" stop-color="#102f9a" /><ns0:stop offset=".77" stop-color="#2c136f" /><ns0:stop offset="1" stop-color="#ae1ac3" /></ns0:linearGradient>
+ <ns0:radialGradient id="topBlue" cx=".24" cy=".02" r=".74"><ns0:stop stop-color="#30b9ff" stop-opacity=".65" /><ns0:stop offset=".4" stop-color="#1672ee" stop-opacity=".27" /><ns0:stop offset="1" stop-color="#003d9c" stop-opacity="0" /></ns0:radialGradient>
+ <ns0:radialGradient id="rightViolet" cx="1" cy=".98" r=".8"><ns0:stop stop-color="#d21ada" stop-opacity=".57" /><ns0:stop offset=".56" stop-color="#8b20cb" stop-opacity=".16" /><ns0:stop offset="1" stop-color="#8b20cb" stop-opacity="0" /></ns0:radialGradient>
+ <ns0:linearGradient id="rim" x1=".04" y1=".1" x2=".98" y2=".96"><ns0:stop stop-color="#65ffff" /><ns0:stop offset=".21" stop-color="#14baf7" /><ns0:stop offset=".47" stop-color="#1e68e5" /><ns0:stop offset=".72" stop-color="#6238dd" /><ns0:stop offset="1" stop-color="#d329dc" /></ns0:linearGradient>
+ <ns0:linearGradient id="leftCard" x1=".12" y1=".04" x2=".84" y2=".97"><ns0:stop stop-color="#6ef3fc" /><ns0:stop offset=".23" stop-color="#26c4f4" /><ns0:stop offset=".66" stop-color="#0878c9" /><ns0:stop offset="1" stop-color="#08408c" /></ns0:linearGradient>
+ <ns0:linearGradient id="midCard" x1=".06" y1="0" x2=".89" y2="1"><ns0:stop stop-color="#69e9ff" /><ns0:stop offset=".25" stop-color="#35adfa" /><ns0:stop offset=".65" stop-color="#3165e5" /><ns0:stop offset="1" stop-color="#19318e" /></ns0:linearGradient>
+ <ns0:linearGradient id="rightCard" x1="0" y1=".05" x2="1" y2="1"><ns0:stop stop-color="#ff83e7" /><ns0:stop offset=".33" stop-color="#d24cdb" /><ns0:stop offset=".72" stop-color="#8723b6" /><ns0:stop offset="1" stop-color="#46146f" /></ns0:linearGradient>
+ <ns0:linearGradient id="gamepad" x1=".25" y1="0" x2=".79" y2="1"><ns0:stop stop-color="#ffffff" /><ns0:stop offset=".43" stop-color="#fcfdff" /><ns0:stop offset=".77" stop-color="#e0e6ff" /><ns0:stop offset="1" stop-color="#caaaf1" /></ns0:linearGradient>
+ <ns0:linearGradient id="shine" x1="0" y1="0" x2="1" y2="1"><ns0:stop stop-color="#fff" stop-opacity=".6" /><ns0:stop offset="1" stop-color="#fff" stop-opacity="0" /></ns0:linearGradient>
+ <ns0:filter id="soft" x="-20%" y="-20%" width="140%" height="140%"><ns0:feGaussianBlur stdDeviation="3" /></ns0:filter>
+ <ns0:clipPath id="rearOcclusion"><ns0:rect x="110" y="235" width="390" height="123" /></ns0:clipPath>
+ <ns0:clipPath id="tileClip"><ns0:path d="M171 9 H429 C512 9 572 65 572 150 V413 C572 500 512 548 425 549 H171 C81 549 28 499 28 411 V151 C28 63 83 9 171 9 Z" /></ns0:clipPath>
+<ns0:mask id="cardCutout" maskUnits="userSpaceOnUse" x="0" y="0" width="600" height="600"><ns0:rect width="600" height="600" fill="white" /><ns0:path d="M135 358 C143 325 153 296 169 279 C182 264 196 258 212 258 C232 258 241 267 262 267 L339 267 C359 267 369 258 387 258 C406 257 421 265 434 282 C450 304 460 337 470 373 C476 396 474 413 465 427 C458 438 450 445 437 445 C419 445 406 432 389 414 L374 399 C363 389 352 385 334 385 L269 385 C251 385 239 392 228 404 L209 423 C195 439 184 446 169 446 C152 446 141 436 135 420 C129 404 131 382 135 358 Z" fill="black" stroke="black" stroke-width="17" stroke-linejoin="round" /></ns0:mask>
+</ns0:defs>
+
+<ns0:g clip-path="url(#tileClip)">
+
+<ns0:path d="M171 9 H429 C512 9 572 65 572 150 V413 C572 500 512 548 425 549 H171 C81 549 28 499 28 411 V151 C28 63 83 9 171 9 Z" fill="url(#tile)" />
+<ns0:g clip-path="url(#tileClip)">
+ <ns0:path d="M171 9 H429 C512 9 572 65 572 150 V413 C572 500 512 548 425 549 H171 C81 549 28 499 28 411 V151 C28 63 83 9 171 9 Z" fill="url(#topBlue)" />
+ <ns0:path d="M171 9 H429 C512 9 572 65 572 150 V413 C572 500 512 548 425 549 H171 C81 549 28 499 28 411 V151 C28 63 83 9 171 9 Z" fill="url(#rightViolet)" />
+ <ns0:path d="M30 153 C30 61 90 8 171 8 H430 C504 8 571 60 571 150" fill="none" stroke="#e7faff" stroke-opacity=".15" stroke-width="6" />
+ <ns0:g mask="url(#cardCutout)">
+ 
+ <ns0:path d="M81 212 Q76 189 99 180 L191 153 Q216 146 215 171 L215 331 Q213 352 194 356 L155 372 Z" fill="#06194b" opacity=".35" filter="url(#soft)" />
+ <ns0:path d="M82 211 Q78 190 99 182 L188 154 Q213 146 214 169 L214 326 Q214 344 198 351 L152 363 Z" fill="url(#leftCard)" />
+ <ns0:path d="M85 211 Q81 194 101 185 L190 157 Q209 150 211 169" fill="none" stroke="#a6faff" stroke-width="3.5" opacity=".72" />
+ <ns0:path d="M104 208 Q110 199 123 202 Q127 212 115 222 L105 228 Q100 220 104 208Z" fill="#a6ffff" /><ns0:path d="M114 201 Q127 204 124 214 L114 222 Q111 211 114 201Z" fill="#218ad8" />
+ <ns0:circle cx="165" cy="230" r="20" fill="#07559f" opacity=".8" /><ns0:path d="M131 289 Q137 260 165 255 Q196 253 204 289 L206 326 L139 340 Z" fill="#06478f" opacity=".7" />
+ <ns0:circle cx="137" cy="259" r="5" fill="#06559b" opacity=".75" />
+ 
+ <ns0:path d="M229 150 Q229 122 258 121 L359 125 Q392 125 393 156 L393 307 L229 308 Z" fill="#0a1655" opacity=".32" filter="url(#soft)" />
+ <ns0:path d="M230 151 Q230 122 260 123 L359 126 Q391 126 392 155 L392 306 L229 307 Z" fill="url(#midCard)" />
+ <ns0:path d="M232 151 Q232 126 260 126 L359 129 Q389 129 389 156" fill="none" stroke="#b3fbff" stroke-width="3.2" opacity=".75" />
+ <ns0:path d="M251 152 Q256 141 272 144 Q275 155 261 163 L250 169 Q246 160 251 152Z" fill="#e3ffff" /><ns0:path d="M270 143 Q278 148 274 157 L261 165 Q264 154 270 143Z" fill="#0a93e7" />
+ <ns0:circle cx="314" cy="201" r="24" fill="#2b5ed3" opacity=".65" /><ns0:path d="M275 256 Q283 226 313 225 Q345 225 354 258 L356 294 L272 293 Z" fill="#2352c2" opacity=".63" />
+ 
+ <ns0:path d="M405 160 L507 194 Q525 201 519 222 L465 361 L405 313 Z" fill="#11104d" opacity=".36" filter="url(#soft)" />
+ <ns0:path d="M406 161 L506 194 Q524 201 518 221 L465 356 L406 309 Z" fill="url(#rightCard)" />
+ <ns0:path d="M410 164 L505 197 Q521 203 515 221" fill="none" stroke="#ffa5ee" stroke-width="3" opacity=".45" />
+ <ns0:circle cx="444" cy="276" r="18" fill="#67209e" opacity=".56" /><ns0:path d="M420 325 Q425 298 447 297 Q471 298 478 319 L465 356 Z" fill="#67209e" opacity=".45" />
+ </ns0:g>
+
+ <ns0:path d="M135 358 C143 325 153 296 169 279 C182 264 196 258 212 258 C232 258 241 267 262 267 L339 267 C359 267 369 258 387 258 C406 257 421 265 434 282 C450 304 460 337 470 373 C476 396 474 413 465 427 C458 438 450 445 437 445 C419 445 406 432 389 414 L374 399 C363 389 352 385 334 385 L269 385 C251 385 239 392 228 404 L209 423 C195 439 184 446 169 446 C152 446 141 436 135 420 C129 404 131 382 135 358 Z" fill="url(#gamepad)" />
+ <ns0:path d="M171 278 C185 265 198 260 214 260 C232 260 242 269 261 269 L340 269 C358 269 372 260 386 260 C406 259 421 267 432 284" fill="none" stroke="#fff" stroke-opacity=".8" stroke-width="2.4" />
+ 
+ <ns0:path d="M208 301 Q208 295 215 295 H223 Q229 295 229 302 V325 H247 Q254 325 254 332 V341 Q254 348 247 348 H229 V367 Q229 374 222 374 H214 Q207 374 207 367 V348 H188 Q181 348 181 341 V332 Q181 325 188 325 H207 Z" fill="#091d5b" />
+ 
+ <ns0:circle cx="381" cy="310" r="13" fill="#0a1b59" />
+ <ns0:circle cx="354" cy="337" r="13" fill="#0a1b59" />
+ <ns0:circle cx="408" cy="337" r="13" fill="#0a1b59" />
+ <ns0:circle cx="381" cy="364" r="13" fill="#0a1b59" />
+</ns0:g>
+
+<ns0:path d="M171 9 H429 C512 9 572 65 572 150 V413 C572 500 512 548 425 549 H171 C81 549 28 499 28 411 V151 C28 63 83 9 171 9 Z" fill="none" stroke="url(#rim)" stroke-width="5" />
+</ns0:g>
+</ns0:g>
+</ns0:g>
+    </ns0:g>
+</ns0:svg>
