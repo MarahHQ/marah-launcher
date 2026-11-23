@@ -2021,6 +2021,25 @@ fn the_default_theme_renders_its_list_both_ways() {
     host.first("settings-tab:Settings").invoke_accessible_default_action();
     follow(&mut host);
     shoot(&window, &out.join("default-lichii-settings.png"));
+    // Its firmware and keys block, then the folder browser its Import… row opens on archives.
+    host.first("settings-tab:About").invoke_accessible_default_action();
+    follow(&mut host);
+    shoot(&window, &out.join("default-lichii-system-files.png"));
+    let downloads = home.path().join("Downloads");
+    std::fs::create_dir_all(downloads.join("Old")).unwrap();
+    std::fs::write(downloads.join("switch-firmware-keys.zip"), b"zip").unwrap();
+    std::fs::write(downloads.join("notes.txt"), b"not an archive").unwrap();
+    host.dispatch(Command::RunAction {
+        plugin: "emu-lichii".parse().unwrap(),
+        action: launcher_api::HOST_IMPORT_SYSTEM_FILES.into(),
+        game: None,
+        args: serde_json::Value::Null,
+    });
+    follow(&mut host);
+    assert_eq!(host.core().view().browser.purpose, "system-files");
+    shoot(&window, &out.join("default-import-browser.png"));
+    host.dispatch(Command::Browse(launcher_core::BrowseCmd::Close));
+    follow(&mut host);
     host.dispatch(Command::Navigate(Route::Plugin("firm".parse().unwrap())));
     follow(&mut host);
     shoot(&window, &out.join("default-block-working.png"));
@@ -2051,6 +2070,8 @@ fn the_default_theme_renders_its_list_both_ways() {
             "default-rtl-home",
             "default-lichii",
             "default-lichii-settings",
+            "default-lichii-system-files",
+            "default-import-browser",
             "default-block-working",
         ],
     );
