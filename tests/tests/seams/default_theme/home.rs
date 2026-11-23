@@ -372,3 +372,65 @@ fn the_top_bar_ends_with_the_clock_then_settings() {
     assert!(x("clock") > x("tray"), "the clock {} after the ⌃ {}", x("clock"), x("tray"));
     assert!(x("tray") > x("Settings"), "the ⌃ {} after Settings {}", x("tray"), x("Settings"));
 }
+
+/// The systems whose tiles are faded at the list's ends, as the tiles say.
+fn faded(host: &Composed) -> Vec<String> {
+    i_slint_backend_testing::ElementHandle::find_by_accessible_label(host.instance(), "systems-tile")
+        .filter(|e| e.accessible_description().as_deref() == Some("faded at the list's end"))
+        .map(|e| e.accessible_value().unwrap_or_default().to_string())
+        .collect()
+}
+
+/// A long list fades at its bottom, above the hints, and at its top once it has scrolled: no
+/// tile ends on a hard edge. The focused tile never fades.
+#[test]
+fn the_tiles_at_the_list_s_ends_fade_but_never_the_focused_one() {
+    let mut host = default_theme_of(|h| {
+        (1..=8).fold(h, |h, n| {
+            h.plugin(FakeCatalog::new(&format!("emu-{n}")).playable().system(&format!("SYS{n}")).build())
+        })
+    });
+    let shown = host.values("systems-tile");
+    assert!(faded(&host).contains(shown.last().unwrap()), "the last tile fades above the hints: {:?}", faded(&host));
+    assert!(!faded(&host).contains(&shown[0]), "the top fades only once the list has scrolled");
+
+    for _ in 1..shown.len() {
+        host.navigate(Key::DownArrow);
+    }
+    let last = shown.last().unwrap();
+    assert_eq!(host.focused("systems-tile"), std::slice::from_ref(last));
+    assert!(!faded(&host).contains(last), "the focused tile never fades");
+    assert!(
+        faded(&host).iter().any(|s| s == &shown[0] || s == &shown[1]),
+        "the top fades once scrolled: {:?}",
+        faded(&host)
+    );
+}
+
+/// Where the list says it has systems out of sight: `above`, `below`, or both.
+fn more(host: &Composed) -> Vec<String> {
+    host.values("systems-more").into_iter().filter(|v| !v.is_empty()).collect()
+}
+
+/// A mark at the list's top and bottom says systems are out of sight that way, while they are.
+#[test]
+fn marks_at_the_list_s_ends_say_when_systems_are_out_of_sight() {
+    let mut host = default_theme_of(|h| {
+        (1..=8).fold(h, |h, n| {
+            h.plugin(FakeCatalog::new(&format!("emu-{n}")).playable().system(&format!("SYS{n}")).build())
+        })
+    });
+    assert_eq!(more(&host), ["below"], "at the start, only below");
+    // The list scrolls only once the focus nears the bottom: six steps down, the top is out of sight.
+    for _ in 0..6 {
+        host.navigate(Key::DownArrow);
+    }
+    assert_eq!(more(&host), ["above", "below"], "in the middle, both ways");
+    for _ in 0..8 {
+        host.navigate(Key::DownArrow);
+    }
+    assert_eq!(more(&host), ["above"], "at the end, only above");
+
+    let short = default_theme();
+    assert!(more(&short).is_empty(), "a list that fits has no mark: {:?}", more(&short));
+}
