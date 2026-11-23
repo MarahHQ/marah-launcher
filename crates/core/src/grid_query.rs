@@ -175,6 +175,9 @@ pub(crate) struct GridData<'a> {
     pub hidden_filter: bool,
     /// What this PC runs, for each game's best version.
     pub pc: ThisPc,
+    /// Home's systems, in its order: the consoles of the emulator plugins. The system chips
+    /// follow it, whatever game the sort puts first.
+    pub systems: Vec<String>,
 }
 
 /// A grid's games, searched, filtered and sorted, before paging, with the filters' chips.
@@ -394,6 +397,9 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
             }),
         }
     }
+    // Home's systems in its order, then the others by name.
+    let place = |id: &str| data.systems.iter().position(|s| s.eq_ignore_ascii_case(id)).unwrap_or(data.systems.len());
+    systems[1..].sort_by(|a, b| place(&a.id).cmp(&place(&b.id)).then_with(|| a.id.cmp(&b.id)));
     let level = |e: &Entry| reach(library, owned, offers.get(&e.key).copied(), &e.key);
     let ingame = cards(searched.iter().copied().filter(in_view).filter(|e| level(e) >= CompatLevel::Ingame).collect());
     // The Catalog's only: the Library's games are the player's own. Shown once a game has a
@@ -644,7 +650,8 @@ mod tests {
     fn shown_with(library: &LibrarySnapshot, query: &GridQuery, pc: ThisPc) -> (Vec<String>, Vec<(String, usize)>) {
         let (jobs, installs, plays) = (BTreeMap::new(), InstallsSnapshot::default(), PlayTimes::default());
         let ownership = Ownership::new(library, &jobs, &installs);
-        let data = GridData { library, ownership: &ownership, plays: &plays, hidden_filter: true, pc };
+        let data =
+            GridData { library, ownership: &ownership, plays: &plays, hidden_filter: true, pc, systems: Vec::new() };
         let games = query.games(&data);
         let keys = games.shown.iter().map(|e| e.key.local.clone()).collect();
         (keys, games.systems.into_iter().map(|c| (c.id, c.count)).collect())
@@ -654,7 +661,14 @@ mod tests {
     fn over<T>(library: &LibrarySnapshot, plays: &PlayTimes, read: impl FnOnce(&GridData) -> T) -> T {
         let (jobs, installs) = (BTreeMap::new(), InstallsSnapshot::default());
         let ownership = Ownership::new(library, &jobs, &installs);
-        read(&GridData { library, ownership: &ownership, plays, hidden_filter: true, pc: ThisPc::default() })
+        read(&GridData {
+            library,
+            ownership: &ownership,
+            plays,
+            hidden_filter: true,
+            pc: ThisPc::default(),
+            systems: Vec::new(),
+        })
     }
 
     fn keys(library: &LibrarySnapshot, query: &GridQuery) -> Vec<String> {
@@ -800,6 +814,31 @@ mod tests {
     }
 
     #[test]
+    fn the_system_chips_follow_home_s_systems_whatever_game_sorts_first() {
+        let mut offers = astro_on_two_consoles().offers.as_ref().clone();
+        offers.push(version("cat:retro", "Retro", "SNES", "snes", "2026-10-04"));
+        offers.push(version("cat:arcade", "Arcade", "Arcade", "mame", "2026-10-05"));
+        let games = offers.iter().map(|o| o.entry.clone()).collect();
+        let library = library_with(games, offers);
+        let (jobs, installs, plays) = (BTreeMap::new(), InstallsSnapshot::default(), PlayTimes::default());
+        let ownership = Ownership::new(&library, &jobs, &installs);
+        // Home's systems, as their plugins name the consoles, in any case.
+        let systems = vec!["pc".to_owned(), "PS4".to_owned(), "ps5".to_owned()];
+        let pc = ThisPc::default();
+        let data =
+            GridData { library: &library, ownership: &ownership, plays: &plays, hidden_filter: true, pc, systems };
+        let filters = [GridFilter::InGame, GridFilter::Installed, GridFilter::Hidden].map(GridFilter::as_str);
+        for sort in Sort::ALL {
+            for query in [GridQuery { sort, ..GridQuery::catalog() }, GridQuery { sort, ..GridQuery::library() }] {
+                let chips = query.games(&data).systems.into_iter().map(|c| c.id);
+                let chips: Vec<String> = chips.filter(|id| !filters.contains(&id.as_str())).collect();
+                // "All", Home's systems in its order, then the others by name.
+                assert_eq!(chips, ["", "PC", "PS4", "PS5", "Arcade", "SNES"], "{sort:?}");
+            }
+        }
+    }
+
+    #[test]
     fn the_catalog_leaves_hidden_games_out_but_for_the_hidden_filter() {
         let library = library(
             Vec::new(),
@@ -864,7 +903,11 @@ mod tests {
         let (keys, chips) = shown_with(&library, &GridQuery::catalog(), this_pc());
         assert_eq!(keys, ["astro-pc", "quest"], "the PC's needs no emulator; sorted by the newest version");
         let chip = |id: &str| (id.to_owned(), 1);
-        assert_eq!(chips, [(String::new(), 2), chip("PS5"), chip("PC"), chip("PS4")], "All counts cards");
+        assert_eq!(
+            chips,
+            [(String::new(), 2), chip("PC"), chip("PS4"), chip("PS5")],
+            "All counts cards; no Home systems: by name"
+        );
         let (all, _) = shown_with(&library, &GridQuery::catalog(), ThisPc::default());
         assert_eq!(all, ["astro-ps5", "quest"], "nothing known of this PC: the Catalog's order");
     }

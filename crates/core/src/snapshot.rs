@@ -91,7 +91,14 @@ impl Snapshot<'_> {
             plays: &self.sessions.plays,
             hidden_filter: self.hidden_filter,
             pc: self.this_pc(),
+            systems: self.home_systems(),
         }
+    }
+
+    /// Home's systems, in its order: the console of each turned-on emulator plugin.
+    pub fn home_systems(&self) -> Vec<String> {
+        let plugins = self.plugins.of_kind(PluginKind::Emulator).into_iter();
+        plugins.filter_map(|id| Some(self.plugins.manifest(&id)?.console.as_ref()?.as_str().to_owned())).collect()
     }
 
     /// This PC's system and how it meets each emulator's needs, for each game's best version.
