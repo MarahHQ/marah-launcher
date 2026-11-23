@@ -180,7 +180,7 @@ A theme can put its own pictures in place of `icon` and `cover`: see
 
 Firmware, keys, BIOS files or system modules, which the player imports from one archive on the
 emulator's page. The host does the import: the plugin needs no code for it. The page gets a
-block with the files' state and an **Import…** row ([`HOST_IMPORT_SYSTEM_FILES`]), which opens
+block with the files' state and an **Import…** row (`HOST_IMPORT_SYSTEM_FILES`), which opens
 the folder browser on archives. The import unpacks the archive through the host's `Archives`
 port, checks `SHA256SUMS` when the archive has one, and copies each part into its folder. It
 writes nothing until every part is checked, and puts every part back when one can't be written.
