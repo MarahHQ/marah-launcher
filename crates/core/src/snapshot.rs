@@ -94,6 +94,25 @@ impl Snapshot<'_> {
         }
     }
 
+    /// Home's emulators, in its order: the turned-on emulator plugins that install or start
+    /// games, by their system's full name ("Nintendo Switch", "PlayStation 5").
+    pub fn home_emulators(&self) -> Vec<PluginId> {
+        let plugins = &self.plugins;
+        let mut named: Vec<(String, PluginId)> = plugins
+            .of_kind(PluginKind::Emulator)
+            .into_iter()
+            .filter_map(|id| {
+                let manifest = plugins.manifest(&id)?;
+                let caps = &manifest.capabilities;
+                let manages = caps.contains(&Capability::Installer) || caps.contains(&Capability::Launcher);
+                let name = manifest.system.as_ref().map(|l| l.name.to_lowercase()).unwrap_or_default();
+                manages.then_some((name, id))
+            })
+            .collect();
+        named.sort_by(|a, b| a.0.cmp(&b.0));
+        named.into_iter().map(|(_, id)| id).collect()
+    }
+
     /// This PC's system and how it meets each emulator's needs, for each game's best version.
     pub fn this_pc(&self) -> crate::game_groups::ThisPc {
         let emulators = self.plugins.order().iter().filter_map(|id| {

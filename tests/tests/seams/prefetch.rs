@@ -32,7 +32,7 @@ fn art_store() -> launcher_testkit::StubPlugin {
         }
     }
     launcher_testkit::StubPlugin::from_toml(
-        "id = \"store\"\nkind = \"service\"\nname = \"store\"\nversion = \"1.0.0\"\nhost_api = \"^0.5\"\n\
+        "id = \"store\"\nkind = \"service\"\nname = \"store\"\nversion = \"1.0.0\"\nhost_api = \"^0.6\"\n\
          capabilities = [\"metadata\"]\n[permissions]\nnetwork = [\"art.example\"]",
     )
     .provides(|_| Ok(launcher_api::Provided { metadata: Some(std::sync::Arc::new(Art)), ..Default::default() }))

@@ -5,7 +5,7 @@ name = "NES"
 # The program the plugin installs and runs. Sentences about the program name it.
 emulator = "RetroArch"
 version = "0.1.0"
-host_api = "^0.5"
+host_api = "^0.6"
 # libretro has a pack of cores for Linux and Windows, and none for macOS.
 platforms = ["linux", "windows"]
 # The console it plays: it gets that console's catalog.
@@ -69,3 +69,16 @@ name = "Nintendo Entertainment System"
 # The system's pictures, in assets/ (made by scripts/make-system-art.sh).
 icon = "icon.png"
 cover = "cover.jpg"
+
+# The Famicom Disk System BIOS (disksys.rom), which the player imports from one archive on the emulator's page:
+# see docs/players/emulators.md, "System files". They go into RetroArch's system folder, in the
+# data folder every RetroArch plugin shares; this plugin takes only its own files from it.
+[system_files]
+name = "NES BIOS files"
+archive = "nes-bios.zip"
+optional = true
+
+[[system_files.part]]
+from = "system"
+into = "system"
+files = ["disksys.rom", "gamegenie.nes"]

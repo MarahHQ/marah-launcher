@@ -32,6 +32,75 @@ updates your own build.
 Settings → Updates says when the launcher installs and updates builds. See
 [Settings](settings.md#updates).
 
+## System files
+
+Some emulators need files besides their program and your games: firmware, keys, BIOS files or
+system modules. The launcher doesn't download them. You put them in one archive per emulator,
+and import it on the emulator's page.
+
+| Emulator | Archive | What it holds |
+| --- | --- | --- |
+| PS4 (shadPS4) | `ps4-system-files.zip` | `sys_modules/` (the `.sprx` files), `fonts/` (`font/`, `font2/`) |
+| Switch (Lichii) | `switch-firmware-keys.zip` | `firmware/` (the `.nca` files), `keys/` (`prod.keys`, `title.keys`). A `VERSION` file that names the version is fine: the launcher leaves it out. |
+| PS1 | `ps1-bios.zip` | `system/` (`scph*.bin`, `psxonpsp660.bin`) |
+| NES | `nes-bios.zip` | `system/` (`disksys.rom` for Famicom Disk System games, `gamegenie.nes`) |
+| Genesis | `genesis-bios.zip` | `system/` (`bios_MD.bin`, `bios_*.sms`, `bios.gg`, and the lock-on carts `sk.bin`, `sk2chip.bin`, `areplay.bin`, `ggenie.bin`) |
+
+The PS1, NES and Genesis emulators run on RetroArch, and their BIOS files all go into
+RetroArch's one `system` folder. Each takes only its own files from its archive. Most of their
+games play without BIOS files, so their pages don't warn while the files are missing.
+
+### Import an archive
+
+1. Open the emulator's page from the Emulators screen.
+2. In its system files block, select **Import…**. The folder browser opens at your Downloads
+   folder, and lists folders and archives.
+3. Pick the archive. The launcher unpacks it, checks it, and copies each folder where the
+   emulator reads it. The block then says **Installed** and how many files it imported.
+
+Each part replaces only the files it brings: your other files in those folders stay. The Switch
+firmware and keys are the exception: each replaces its old folder whole, so two versions never
+mix. Only one import runs at a time. The launcher writes
+nothing until it has checked the whole archive. If any part can't be written, every part goes
+back as it was, and the block says why. An archive that lacks a folder is refused with the
+folders it should hold.
+
+### Make an archive
+
+Put the folders in the table at the top of the archive, or in one folder that holds them. A
+`SHA256SUMS` file at the top is optional: when it is there, every file it lists must be in the
+archive and match, or the import is refused. Other files, such as a `README`, are left out.
+
+On Linux or macOS, for the PS4:
+
+```sh
+mkdir ps4 && cd ps4
+# Copy sys_modules/ and fonts/ here, then:
+find . -type f ! -name SHA256SUMS | sort | sed 's|^\./||' | xargs -d '\n' sha256sum > SHA256SUMS
+zip -qr ../ps4-system-files.zip .
+```
+
+On macOS, use `shasum -a 256` in place of `sha256sum`, and leave out `-d '\n'`. On Windows, make
+the zip from Explorer (**Send to → Compressed (zipped) folder**) and leave out `SHA256SUMS`.
+
+### Where the files come from
+
+- **PS4:** the `shadps4` folder of the retrobios collection, at
+  <https://github.com/Abdess/retrobios/tree/f75b87448e52aa4f64385105583b6e937957d95d/bios/Sony/PlayStation%204/shadps4>.
+  It holds `sys_modules/` and `fonts/` as the archive needs them.
+- **Switch firmware:** the release of the version you want at
+  <https://github.com/THZoria/NX_Firmware/releases>, for example
+  <https://github.com/THZoria/NX_Firmware/releases/tag/22.5.0>. Unzip it: its `.nca` files go in
+  `firmware/`.
+- **Switch keys:** the keys of the same version, at
+  `https://files.prodkeys.net/ProdKeys.NET-v<version>.zip`, for example
+  <https://files.prodkeys.net/ProdKeys.NET-v22.5.0.zip>. Put `prod.keys` and `title.keys` in
+  `keys/`.
+- **BIOS files:** your own console's, or a RetroArch `system/` folder. The PS1 core reads
+  `scph5500.bin`, `scph5501.bin`, `scph5502.bin`, `scph1001.bin` or `scph7001.bin`. The Genesis
+  core reads `bios_MD.bin`, `bios_E.sms`, `bios_U.sms`, `bios_J.sms` and `bios.gg`. The NES core
+  reads `disksys.rom` for Famicom Disk System games.
+
 ## PS5: KytyPS5
 
 A KytyPS5 build that knows the `--data-folder` option keeps its saves in one folder that every
@@ -43,23 +112,8 @@ such build shares: "KytyPS5 saves" on its page, `~/.local/share/KytyPS5` until y
 
 Some PS4 games need the PS4's system modules and fonts: 14 `.sprx` files in `sys_modules`, and
 45 fonts in `fonts/font` and `fonts/font2`, in **shadPS4 data** (`~/.local/share/shadPS4` until
-you change it).
-
-- If any of them are missing, a question comes up over the boot screen: **Install PS4 system
-  files?** **Install** downloads the missing files, about 38 MB for all of them, from the
-  [retrobios collection](https://github.com/Abdess/retrobios) on GitHub, at a fixed commit. The
-  boot screen shows the download and waits for it. **Not now** downloads nothing, and the next
-  start asks again.
-- The launcher checks the size and SHA-256 of each file before it puts the file in place. If a
-  download fails, or a file doesn't match, the block says why, the boot goes on, and no
-  half-written file is left in shadPS4's folders.
-- The **System files** block on the PS4 page shows the state: **Installed**, **Missing** and how
-  many, or **Your own files**. **Install now** installs the missing files at once. Turn off
-  **Ask at start** in the same block, and the start no longer asks.
-- Files you put there yourself are never replaced, and files that aren't on the list are never
-  touched.
-
-These are Sony's files: check that you may use them where you live.
+you change it). Import them from `ps4-system-files.zip` on the PS4 page: see
+[System files](#system-files). These are Sony's files: check that you may use them where you live.
 
 ### The touchpad button
 
@@ -102,29 +156,12 @@ to that folder.
 
 ### Firmware and keys
 
-The **Firmware** block on Lichii's page shows the firmware installed and the update that runs,
-with a bar while it downloads.
-
-- With **Ask at start** on, as it is by default, each start checks for the set release. If no
-  firmware is there, or the launcher installed an older one, a question comes up over the boot
-  screen. **Install** downloads it, and the boot screen shows the download and waits for it.
-  **Not now** downloads nothing, and the next start asks again.
-- A visit to Lichii's page never downloads. The block shows **Available** and the firmware it
-  would install. **Update now** installs it at once.
-- Firmware you put there yourself is left alone.
-
-The launcher downloads the **Firmware release** set in that block from
-[THZoria/NX_Firmware](https://github.com/THZoria/NX_Firmware), checks its SHA-256 against the one
-GitHub gives, and puts it in place of the firmware in that folder. Lichii uses it from its next
-start. `prod.keys` and any `title.keys` from the archive of the same version, at
-`https://files.prodkeys.net/ProdKeys.NET-v<firmware_release>.zip`, go into the `keys` folder.
-The keys always match the firmware: firmware newer than its keys can't be read, and Lichii hangs
-on its start.
-
-**Firmware release** is `22.5.0` by default. To use another one, select the row, press Enter,
-type a version that both sites have, such as `22.1.0`, then press **Update now**. The badge
-beside the button names the firmware version the launcher installed. If an update fails, the old
-firmware stays.
+Switch games need the Switch firmware and the keys of the same version. Import both from
+`switch-firmware-keys.zip` on Lichii's page: see [System files](#system-files). The firmware goes
+into `nand/system/Contents/registered` in **Lichii data**, in place of the firmware there, so two
+versions never mix. `prod.keys` and `title.keys` go into `keys`, in place of the keys there.
+Lichii uses them from its next start. The keys must match the firmware: firmware newer than its keys can't be read, and Lichii
+hangs on its start.
 
 This is Nintendo's firmware: check that you may use it where you live.
 

@@ -1949,43 +1949,31 @@ fn another_theme_renders_the_same_library() {
 
 /// The Default theme's Home, left to right and right to left, on the five built-in emulators
 /// with their own icons and covers, as `default-all-games.png` (All games focused),
-/// A service with a Firmware block as Lichii's looks while it downloads.
-fn downloading_block() -> FakeService {
+/// A service with a block that shows work under way: a bar, a result and a button, as the
+/// System files block looks while an archive imports.
+fn working_block() -> FakeService {
     use launcher_api::{BlockRow, Tone};
     let rows = vec![
+        BlockRow { label: "Status".into(), value: "Importing…".into(), progress: Some(0.46), ..BlockRow::default() },
         BlockRow {
-            label: "Installed".into(),
-            value: "Not from Marah Launcher".into(),
-            hint: "Update now puts the set firmware release in its place".into(),
+            label: "Last import".into(),
+            hint: "59 files imported".into(),
+            tone: Tone::Success,
             ..BlockRow::default()
         },
         BlockRow {
-            label: "Downloading the firmware".into(),
-            value: "46%".into(),
-            hint: "159.4 MB of 340.5 MB".into(),
-            tone: Tone::Info,
-            progress: Some(0.46),
-            ..BlockRow::default()
-        },
-        BlockRow {
-            label: "Firmware release".into(),
-            value: "22.5.0".into(),
-            hint: "The Switch version to install, with its keys. Type one like 22.5.0.".into(),
-            action: Some("set-firmware-release".into()),
-            input: true,
-            ..BlockRow::default()
-        },
-        BlockRow {
-            label: "Automatic updates".into(),
-            hint: "Marah Launcher keeps the set release installed, checked every 6 hours. Nintendo's firmware: check that \
-                       you may use it where you live."
-                .into(),
-            action: Some("auto".into()),
-            switch: Some(true),
+            label: "Import…".into(),
+            hint: "Pick ps4-system-files.zip: see the guide in the docs".into(),
+            action: Some("import".into()),
             ..BlockRow::default()
         },
     ];
-    FakeService::new("firm", "Firm").block(launcher_api::SlotId::EmulatorPanel, "firmware", "Firmware", rows)
+    FakeService::new("firm", "Firm").block(
+        launcher_api::SlotId::EmulatorPanel,
+        "system-files",
+        "PS4 system files",
+        rows,
+    )
 }
 
 /// `default-home.png` and `default-rtl-home.png`.
@@ -2001,7 +1989,7 @@ fn the_default_theme_renders_its_list_both_ways() {
             .built_in(PluginBox::code(emu_lichii::LichiiPlugin))
             .built_in(PluginBox::code(emu_pc::PcPlugin))
             .built_in(PluginBox::code(emu_steam::SteamPlugin))
-            .plugin(downloading_block().build())
+            .plugin(working_block().build())
     });
     host.ui.start().unwrap();
     host.ui.switch(&id(theme_default::ID)).unwrap();
@@ -2018,7 +2006,7 @@ fn the_default_theme_renders_its_list_both_ways() {
     host.dispatch(Command::SetThemeOption { key: "direction".into(), value: "rtl".into() });
     host.load_images();
     shoot(&window, &out.join("default-rtl-home.png"));
-    // Lichii's page: its build, its firmware and its settings.
+    // Lichii's page: its build, its firmware and keys import, and its settings.
     host.dispatch(Command::SetThemeOption { key: "direction".into(), value: "ltr".into() });
     host.dispatch(Command::Navigate(Route::Plugin("emu-lichii".parse().unwrap())));
     follow(&mut host);
@@ -2026,9 +2014,28 @@ fn the_default_theme_renders_its_list_both_ways() {
     host.first("settings-tab:Settings").invoke_accessible_default_action();
     follow(&mut host);
     shoot(&window, &out.join("default-lichii-settings.png"));
+    // Its firmware and keys block, then the folder browser its Import… row opens on archives.
+    host.first("settings-tab:About").invoke_accessible_default_action();
+    follow(&mut host);
+    shoot(&window, &out.join("default-lichii-system-files.png"));
+    let downloads = home.path().join("Downloads");
+    std::fs::create_dir_all(downloads.join("Old")).unwrap();
+    std::fs::write(downloads.join("switch-firmware-keys.zip"), b"zip").unwrap();
+    std::fs::write(downloads.join("notes.txt"), b"not an archive").unwrap();
+    host.dispatch(Command::RunAction {
+        plugin: "emu-lichii".parse().unwrap(),
+        action: launcher_api::HOST_IMPORT_SYSTEM_FILES.into(),
+        game: None,
+        args: serde_json::Value::Null,
+    });
+    follow(&mut host);
+    assert_eq!(host.core().view().browser.purpose, "system-files");
+    shoot(&window, &out.join("default-import-browser.png"));
+    host.dispatch(Command::Browse(launcher_core::BrowseCmd::Close));
+    follow(&mut host);
     host.dispatch(Command::Navigate(Route::Plugin("firm".parse().unwrap())));
     follow(&mut host);
-    shoot(&window, &out.join("default-block-downloading.png"));
+    shoot(&window, &out.join("default-block-working.png"));
     // Settings, one page: its top, R1 twice on to Updates, then from right to left. Each shot
     // waits out the scroll's animation.
     let still = |host: &mut Composed| {
@@ -2056,7 +2063,9 @@ fn the_default_theme_renders_its_list_both_ways() {
             "default-rtl-home",
             "default-lichii",
             "default-lichii-settings",
-            "default-block-downloading",
+            "default-lichii-system-files",
+            "default-import-browser",
+            "default-block-working",
         ],
     );
 }
@@ -2150,22 +2159,22 @@ fn the_boot_screen_renders_the_start_s_installs() {
     }
 }
 
-/// A plugin that asks the firmware's question at the start, for the screenshot.
-struct FirmwareAsker;
+/// A plugin that asks a question at the start, for the screenshot.
+struct StartAsker;
 
 #[launcher_api::async_trait]
-impl launcher_api::StartupWork for FirmwareAsker {
+impl launcher_api::StartupWork for StartAsker {
     async fn status(&self) -> Option<launcher_api::StartupStep> {
         None
     }
 
     async fn question(&self) -> Option<launcher_api::StartupQuestion> {
         Some(launcher_api::StartupQuestion {
-            title: "Install Switch firmware 22.5.0?".into(),
-            text: "Switch games need the firmware and its keys. Marah Launcher downloads firmware 22.5.0 from \
-                   THZoria/NX_Firmware on GitHub, and the keys of the same version, into Eden's folder."
+            title: "Update the compatibility list?".into(),
+            text: "The list says how well each game plays. It downloads once, and the Catalog's badges \
+                   follow it."
                 .into(),
-            yes: "Install".into(),
+            yes: "Update".into(),
             no: "Not now".into(),
         })
     }
@@ -2180,13 +2189,10 @@ fn the_boot_screen_renders_a_plugin_s_question() {
             h.plugin(
                 launcher_testkit::StubPlugin::from_toml(
                     "id = \"asker\"\nkind = \"service\"\nname = \"Asker\"\nversion = \"1.0.0\"\n\
-                     host_api = \"^0.5\"\ncapabilities = [\"startup\"]",
+                     host_api = \"^0.6\"\ncapabilities = [\"startup\"]",
                 )
                 .provides(|_| {
-                    Ok(launcher_api::Provided {
-                        startup: Some(std::sync::Arc::new(FirmwareAsker)),
-                        ..Default::default()
-                    })
+                    Ok(launcher_api::Provided { startup: Some(std::sync::Arc::new(StartAsker)), ..Default::default() })
                 }),
             )
         });
@@ -2198,7 +2204,7 @@ fn the_boot_screen_renders_a_plugin_s_question() {
         host.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh));
         run_until(&host, 2000, |core| core.view().question.is_some());
         host.load_images();
-        assert_eq!(host.values("question"), ["Install Switch firmware 22.5.0?"], "{theme}");
+        assert_eq!(host.values("question"), ["Update the compatibility list?"], "{theme}");
         shoot(&window, &out.join(format!("{theme}-boot-question.png")));
         round_corners(&host, &out, &format!("{theme}-boot-question"), "question");
     }

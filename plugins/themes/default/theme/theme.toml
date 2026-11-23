@@ -2,7 +2,7 @@ id = "default"
 kind = "theme"
 name = "Default"
 version = "0.2.0"
-host_api = "^0.5"
+host_api = "^0.6"
 capabilities = ["theme"]
 activation = "eager"
 
@@ -42,10 +42,9 @@ fonts = [
 ]
 
 [theme.assets.images]
-# The Marah Launcher emblem (assets/logo.svg in the repository, drawn at 512 px).
-logo = "images/logo.png"
-# The mark alone, the gamepad (assets/logo-mark-static.svg, drawn at 512 px): the loading
-# screen and Settings.
+# The launcher's logo inside the launcher: the mark alone, the gamepad
+# (assets/logo-mark-static.svg, drawn at 512 px), on the loading screen, the closing screen
+# and the About card in Settings. The full emblem (assets/logo.svg) is the app icon only.
 logo-mark = "images/logo-mark.png"
 # The "All games" entry at the top of the list (scripts/make-system-art.sh).
 all-games-icon = "images/all-games-icon.png"

@@ -50,6 +50,7 @@ pub(crate) async fn refresh_emulator(core: &Core, plugin: &PluginId) {
         }
     }
     builds.read(plugin, emu);
+    crate::system_files::refresh(core, plugin).await;
 }
 
 pub(crate) async fn refresh_emulators(core: &Core) {

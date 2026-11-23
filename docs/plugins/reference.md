@@ -62,7 +62,7 @@ kind = "emulator"
 name = "PS5"
 emulator = "KytyPS5"
 version = "0.1.0"
-host_api = "^0.5"
+host_api = "^0.6"
 platforms = ["linux", "macos", "windows"]
 console = "PS5"
 capabilities = ["catalog", "downloader", "installer", "configurator", "launcher", "compatibility", "slots", "game_installer", "backup"]
@@ -114,7 +114,7 @@ cover = "cover.jpg"
 | `name` | yes | What the player sees: in the plugin lists, on the plugin page, and where a sentence means the console. An emulator names its console: `PS5`. |
 | `emulator` | no | For an emulator, the name of the program it installs and runs, such as `KytyPS5`. Sentences about the program use it. Leave it out when the program has no name of its own: `name` is used. |
 | `version` | yes | The plugin's semver version. |
-| `host_api` | yes | A semver range of the API versions the plugin works with, such as `^0.5`. The host refuses the plugin when the range doesn't include `API_VERSION`, now `0.5.0`. |
+| `host_api` | yes | A semver range of the API versions the plugin works with, such as `^0.6`. The host refuses the plugin when the range doesn't include `API_VERSION`, now `0.6.0`. |
 | `platforms` | no | `linux`, `macos`, `windows`. Empty means every system. |
 | `console` | no | For an emulator, the console it plays: ASCII letters, digits and `-`, kept in uppercase (`ps5` and `PS5` are one console). The host gives the emulator that console's releases. Not the systems the plugin runs on. |
 | `capabilities` | no | The capabilities `init` provides, in snake case. See [Capabilities](#capabilities). |
@@ -129,6 +129,7 @@ cover = "cover.jpg"
 | `install_note` | no | For an emulator with a game installer: what it installs from, in one or two sentences. The install sheet shows it. |
 | `system` | no | `[system]`: the system the plugin's games show under. See below. |
 | `shared_data` | no | A data folder this plugin shares with every plugin that names the same one, such as `retroarch`: lowercase letters, digits and `-`. Its storage, downloads and programs live in `shared/<name>` in the app's data folder, not in `plugins/<id>`. The host runs one install among them at a time, and after one, it reads the builds of each. Only a built-in plugin may name one: a plugin from disk that does is refused. |
+| `system_files` | no | `[system_files]`: files the emulator needs besides its program and the games, which the player imports from one archive on its page. See below. |
 
 ### `[[dependencies]]`
 
@@ -175,6 +176,49 @@ once and that neither value is empty.
 A theme can put its own pictures in place of `icon` and `cover`: see
 [the theme reference](../themes/reference.md).
 
+### `[system_files]`
+
+Firmware, keys, BIOS files or system modules, which the player imports from one archive on the
+emulator's page. The host does the import: the plugin needs no code for it. The page gets a
+block with the files' state and an **Import…** row (`HOST_IMPORT_SYSTEM_FILES`), which opens
+the folder browser on archives. The import unpacks the archive through the host's `Archives`
+port, checks `SHA256SUMS` when the archive has one, and copies each part into its folder. It
+writes nothing until every part is checked, and puts every part back when one can't be written.
+The code is in `crates/core/src/system_files.rs`. From `plugins/emulators/lichii/plugin.toml`:
+
+```toml
+[system_files]
+name = "Switch firmware and keys"
+archive = "switch-firmware-keys.zip"
+
+[[system_files.part]]
+from = "firmware"
+folder = "lichii-data"
+into = "nand/system/Contents/registered"
+files = ["*.nca"]
+replace = true
+
+[[system_files.part]]
+from = "keys"
+folder = "lichii-data"
+into = "keys"
+files = ["prod.keys", "title.keys"]
+required = ["prod.keys"]
+replace = true
+```
+
+| Key | Meaning |
+| --- | --- |
+| `name` | What the page calls them: "Switch firmware and keys". |
+| `archive` | The archive's usual name, which the page's hint names. |
+| `optional` | Games play without them (BIOS files): the page doesn't warn while they are missing. |
+| `part.from` | The folder in the archive, at its top or in the one folder the archive holds. |
+| `part.folder` | The `[[permissions.filesystem]]` folder the files go into, which the plugin must write. Without it, the plugin's data folder (the shared one with `shared_data`). |
+| `part.into` | The folder inside that folder. Never empty: the import works beside it. |
+| `part.files` | The file names the part takes, `*` for any text. Empty takes every file. |
+| `part.required` | File names the part must have. Without them, one file is enough. |
+| `part.replace` | The target folder is swapped whole, so no old file stays (a firmware). Without it, the part's files replace the files of the same name, and the folder's other files stay. |
+
 ## What the kernel checks
 
 `validate` in `crates/core/src/kernel.rs` rejects a plugin at boot when:
@@ -185,6 +229,8 @@ A theme can put its own pictures in place of `icon` and `cover`: see
 - `[system]` `color` isn't `#rrggbb`;
 - a folder grant's `folder` or `was` isn't lowercase letters, digits and `-`;
 - a folder grant has both `write = true` and `listed_in`;
+- `[system_files]` has no name, archive or part, a part's `into` is empty, or a part's `folder`
+  isn't a folder grant with `write = true`;
 - the plugin is third-party with `runtime` `native` ("third-party plugins must be data-only");
 - a plugin that isn't `system` declares a system capability, or lists `long_running` or `polkit`;
 - an entry of `long_running` or `polkit` isn't also in `process`;
@@ -525,8 +571,7 @@ A `Block` is a titled list of `BlockRow`s, on the plugin page only, after the bu
 `label`, a `value`, a `hint` under the label, and a `tone`. `progress` (0 to 1) adds a bar under
 it. A row with an `action` is a button: picking it calls `run_action`, as an `Action` does. With
 `switch` set, the row shows a switch. With `input` set, picking the row opens an editor, and the
-typed line goes to `run_action` as the args (a JSON string). Lichii's Firmware block is an
-example.
+typed line goes to `run_action` as the args (a JSON string).
 
 A slot action has the plugin's call timeout. Run long work in the background, show how it goes
 in the panel, and publish `SLOTS_CHANGED` when it changes.
@@ -688,7 +733,7 @@ Most plugins give the same items every time. `emulator_kit::backup::Items::provi
 ```rust
 backup: Some(emulator_kit::backup::Items::provided(vec![
     // Its settings, keys, saves and trophies; not its caches, logs and downloads, and not
-    // the PS4 system files, which the System files block downloads again.
+    // the PS4 system files, which the player imports again from their archive.
     BackupItem::new(
         "data",
         "PS4 settings and saves",
@@ -706,8 +751,8 @@ are in the host's `config.json` already. Use `skip` for what the emulator makes 
 
 ## Startup work
 
-The `startup` capability is work a plugin does on its own when the launcher starts, such as
-Lichii's Switch firmware or shadPS4's PS4 system files. The boot screen shows it as a row of its
+The `startup` capability is work a plugin does on its own when the launcher starts, such as a
+download the plugin needs before its games play. The boot screen shows it as a row of its
 checklist and waits until it is over.
 
 ```rust
@@ -723,12 +768,12 @@ pub trait StartupWork: Send + Sync {
 - The core asks for `status` after it reads the plugin's slots at the start, then every half
   second while the work runs (`READ_EVERY` in `crates/core/src/startup.rs`). `None` means no work
   this run: the boot screen doesn't wait.
-- A `StartupStep` has a `label` ("Switch firmware"), a `detail` of a few words, a `progress` from
+- A `StartupStep` has a `label` ("Compatibility list"), a `detail` of a few words, a `progress` from
   0 to 1 when known, and a `state`: `Working`, `Done` or `Failed`.
 - The boot screen goes when no work runs, or after two minutes in which nothing moved
   (`STALL_LIMIT`). The work goes on behind Home.
 - Work that downloads something the player didn't ask for asks first (`question`, API 0.3.2). A
-  `StartupQuestion` has a `title` ("Install Switch firmware 22.5.0?"), a `text` of a sentence or
+  `StartupQuestion` has a `title` ("Update the compatibility list?"), a `text` of a sentence or
   two, and its `yes` and `no` buttons ("Install", "Not now"). The core shows it over the boot
   screen, one plugin at a time, and the boot waits for the answer. While it is asked, `status`
   says `None`.
@@ -807,7 +852,7 @@ it. It depends on `launcher-api` as a plugin does, plus `tokio`, and the vendore
 A console emulator describes itself, and the kit runs the rest. The plugin gives a `Flavor` for
 its builds, which the `BuildManager` installs, updates and rolls back. It gives a `ConsoleSpec`
 for its games, compatibility list and page, which the `ConsoleEmulator` serves. A plugin with a
-block of its own on its panel, such as Lichii's firmware, gives a `Panel` with `with_panel`: the
+block of its own on its panel gives a `Panel` with `with_panel`: the
 `ConsoleEmulator` shows its items after its own and offers it each action first. The plugin keeps
 its settings type, its launch arguments and what its game installs copy. The kit reaches the host
 only through the host facades in `host::Host`, never the whole `PluginContext`, so its tests run
@@ -888,8 +933,8 @@ Each one is a working example. The capabilities are the ones in each `plugin.tom
 | Plugin | Folder | Id | Systems | Capabilities |
 | --- | --- | --- | --- | --- |
 | PS5: KytyPS5 | `plugins/emulators/kytyps5` | `emu-kyty` | Linux, macOS, Windows | `catalog`, `downloader`, `installer`, `configurator`, `launcher`, `compatibility`, `slots`, `game_installer`, `backup` |
-| PS4: shadPS4 | `plugins/emulators/shadps4` | `emu-shadps4` | Linux, macOS, Windows | the same as KytyPS5, and `startup` |
-| Switch: Lichii | `plugins/emulators/lichii` | `emu-lichii` | Linux, macOS, Windows | `catalog`, `downloader`, `installer`, `configurator`, `launcher`, `slots`, `game_installer`, `backup`, `startup` |
+| PS4: shadPS4 | `plugins/emulators/shadps4` | `emu-shadps4` | Linux, macOS, Windows | the same as KytyPS5 |
+| Switch: Lichii | `plugins/emulators/lichii` | `emu-lichii` | Linux, macOS, Windows | `catalog`, `downloader`, `installer`, `configurator`, `launcher`, `slots`, `game_installer`, `backup` |
 | PC | `plugins/emulators/pc` | `emu-pc` | Linux, macOS, Windows | `catalog`, `launcher`, `slots`, `game_installer`, `configurator`, `backup` |
 | Steam | `plugins/emulators/steam` | `emu-steam` | Linux, macOS, Windows | `catalog`, `launcher`, `slots`, `releases`, `metadata` |
 | Game Catalog | `plugins/services/release-catalog` | `release-catalog` | Linux, macOS, Windows | `releases`, `configurator`, `slots` |
@@ -904,13 +949,12 @@ Notes on each:
   `kyty-data` folder, which is the plugin's backup item.
 - **shadPS4.** Builds come from shadPS4's official releases. On Linux the build is an AppImage
   in a zip (`AppImageInZip`), which the host takes out and extracts. Games are PS4 game folders.
-  Backup: its data folder without caches and logs, and its DLC as a large item. Its startup work
-  asks to install the missing PS4 system files (`src/system_files.rs`): 14 system modules and 45
-  fonts, each checked against the size and SHA-256 in `src/system_files.tsv`.
+  Backup: its data folder without caches and logs, and its DLC as a large item. Its
+  `[system_files]` take the PS4 system modules and fonts from `ps4-system-files.zip`.
 - **Lichii.** Builds are Lichii's AppImage (`AppImage`). Games are Switch game files. Its backup
   items are in its folders `lichii-data` and `lichii-config` and in its own data folder. It grants
-  `lichii-config` read only: the restore writes there anyway. Its startup work and its Firmware
-  block install Switch firmware and the keys of the same version.
+  `lichii-config` read only: the restore writes there anyway. Its `[system_files]` take the
+  Switch firmware and the keys of the same version from `switch-firmware-keys.zip`.
 - **PC.** No builds of its own. It installs PC games from a download folder, finds what starts
   them, and runs a Windows game through umu-launcher or Wine on Linux and macOS. On Linux a
   Windows game runs in a sandbox. Backup: each game's Wine prefix, as a large item. The details

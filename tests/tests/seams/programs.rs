@@ -10,7 +10,7 @@ use crate::common::native;
 use launcher_api::*;
 use launcher_testkit::{FakeHost, StubPlugin, TestCore};
 
-const MANIFEST: &str = "id = \"prober\"\nkind = \"emulator\"\nname = \"P\"\nversion = \"1.0.0\"\nhost_api = \"^0.5\"\n\
+const MANIFEST: &str = "id = \"prober\"\nkind = \"emulator\"\nname = \"P\"\nversion = \"1.0.0\"\nhost_api = \"^0.6\"\n\
     [permissions]\nprocess = [\"folder:builds\", \"system:emu\"]\n\
     [[permissions.filesystem]]\nfolder = \"builds\"\n\
     [[permissions.filesystem]]\nfolder = \"other\"\n";

@@ -306,7 +306,7 @@ fn the_catalog_says_loading_catalog_until_the_catalogs_are_read() {
         h.plugin(FakeCatalog::new("emu-kyty").system("PS4").games([]).build().console("PS5")).plugin(
             launcher_testkit::StubPlugin::from_toml(
                 "id = \"slow-catalog\"\nkind = \"service\"\nname = \"Slow\"\nversion = \"1.0.0\"\n\
-                 host_api = \"^0.5\"\ncapabilities = [\"releases\"]",
+                 host_api = \"^0.6\"\ncapabilities = [\"releases\"]",
             )
             .provides(move |_| {
                 Ok(launcher_api::Provided {

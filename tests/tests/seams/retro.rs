@@ -271,3 +271,30 @@ async fn the_other_retro_pages_show_an_install_at_once() {
 
     assert_eq!(page(&ps1()), [retroarch::VERSION], "the PS1 page shows it");
 }
+
+/// The Library's system chips go by the label they show, A to Z: GENESIS, NES, PS1. Home keeps
+/// its own order, by the systems' full names. Neither follows the order the plugins load in.
+#[tokio::test]
+async fn the_library_s_system_chips_go_by_their_label_and_home_by_full_name() {
+    let host = FakeHost::new().platform(Some(Platform::Linux));
+    let games = tempfile::tempdir().unwrap();
+    for rel in ["NES/Alpha (World).nes", "PS1/Beta (USA).cue", "GENESIS/Gamma (USA).md"] {
+        let path = games.path().join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, b"rom").unwrap();
+    }
+    let test = host
+        .built_in(PluginBox::code(emu_genesis::GenesisPlugin))
+        .built_in(PluginBox::code(emu_ps1::Ps1Plugin))
+        .built_in(PluginBox::code(emu_nes::NesPlugin))
+        .boot_core()
+        .await;
+    test.core.dispatch(Command::SetFolders { name: "games".into(), paths: vec![games.path().into()] }).await.unwrap();
+    test.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
+
+    let view = test.core.view();
+    let home: Vec<&str> = view.emulators.emulators.iter().map(|e| e.system.as_str()).collect();
+    assert_eq!(home, ["NES", "PS1", "GENESIS"], "Home: by the systems' full names");
+    let chips: Vec<&str> = view.home.library.systems.iter().map(|c| c.id.as_str()).collect();
+    assert_eq!(chips, ["", "GENESIS", "NES", "PS1"], "All, then the labels A to Z");
+}

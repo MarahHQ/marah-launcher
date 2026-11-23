@@ -21,7 +21,7 @@ async fn settings_are_checked_by_the_plugin_before_they_are_stored() {
         }
     }
     let plugin = StubPlugin::from_toml(
-        "id = \"cfg\"\nkind = \"emulator\"\nname = \"Cfg\"\nversion = \"1.0.0\"\nhost_api = \"^0.5\"\ncapabilities = [\"configurator\"]",
+        "id = \"cfg\"\nkind = \"emulator\"\nname = \"Cfg\"\nversion = \"1.0.0\"\nhost_api = \"^0.6\"\ncapabilities = [\"configurator\"]",
     )
     .provides(|_| Ok(Provided { configurator: Some(Arc::new(Strict)), ..Provided::default() }));
     let t = FakeHost::new().plugin(plugin).boot_core().await;

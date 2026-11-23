@@ -126,7 +126,7 @@ impl FakeEmulator {
             false => ("", String::new()),
         };
         StubPlugin::from_toml(&format!(
-            "id = \"{plugin_id}\"\nkind = \"emulator\"\n{names}\nversion = \"1.0.0\"\nhost_api = \"^0.5\"\n\
+            "id = \"{plugin_id}\"\nkind = \"emulator\"\n{names}\nversion = \"1.0.0\"\nhost_api = \"^0.6\"\n\
              capabilities = [\"catalog\", \"downloader\", \"installer\", \"launcher\", \"slots\"{compat}]\n\
              [permissions]\n{links}{permissions}\n"
         ))

@@ -394,6 +394,8 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
             }),
         }
     }
+    // The chips after "All" go by their label, A to Z in any case, whatever game sorts first.
+    systems[1..].sort_by_cached_key(|s| (s.label.to_lowercase(), s.id.clone()));
     let level = |e: &Entry| reach(library, owned, offers.get(&e.key).copied(), &e.key);
     let ingame = cards(searched.iter().copied().filter(in_view).filter(|e| level(e) >= CompatLevel::Ingame).collect());
     // The Catalog's only: the Library's games are the player's own. Shown once a game has a
@@ -800,6 +802,26 @@ mod tests {
     }
 
     #[test]
+    fn the_system_chips_go_by_their_label_in_any_case_whatever_game_sorts_first() {
+        let mut offers = astro_on_two_consoles().offers.as_ref().clone();
+        offers.push(version("cat:retro", "Retro", "SWITCH", "switch", "2026-10-04"));
+        offers.push(version("cat:arcade", "Arcade", "Arcade", "mame", "2026-10-05"));
+        offers.push(version("cat:shop", "Shop", "Steam", "steam", "2026-10-06"));
+        let games = offers.iter().map(|o| o.entry.clone()).collect();
+        let library = library_with(games, offers);
+        let filters = [GridFilter::InGame, GridFilter::Installed, GridFilter::Hidden].map(GridFilter::as_str);
+        for sort in Sort::ALL {
+            for query in [GridQuery { sort, ..GridQuery::catalog() }, GridQuery { sort, ..GridQuery::library() }] {
+                let chips = over(&library, &PlayTimes::default(), |data| query.games(data).systems);
+                let chips: Vec<String> =
+                    chips.into_iter().map(|c| c.id).filter(|id| !filters.contains(&id.as_str())).collect();
+                // "All", then the labels A to Z in any case: "Steam" before "SWITCH".
+                assert_eq!(chips, ["", "Arcade", "PC", "PS4", "PS5", "Steam", "SWITCH"], "{sort:?}");
+            }
+        }
+    }
+
+    #[test]
     fn the_catalog_leaves_hidden_games_out_but_for_the_hidden_filter() {
         let library = library(
             Vec::new(),
@@ -864,7 +886,11 @@ mod tests {
         let (keys, chips) = shown_with(&library, &GridQuery::catalog(), this_pc());
         assert_eq!(keys, ["astro-pc", "quest"], "the PC's needs no emulator; sorted by the newest version");
         let chip = |id: &str| (id.to_owned(), 1);
-        assert_eq!(chips, [(String::new(), 2), chip("PS5"), chip("PC"), chip("PS4")], "All counts cards");
+        assert_eq!(
+            chips,
+            [(String::new(), 2), chip("PC"), chip("PS4"), chip("PS5")],
+            "All counts cards; no Home systems: by name"
+        );
         let (all, _) = shown_with(&library, &GridQuery::catalog(), ThisPc::default());
         assert_eq!(all, ["astro-ps5", "quest"], "nothing known of this PC: the Catalog's order");
     }

@@ -1591,9 +1591,7 @@ dependencies = [
  "emulator-kit",
  "flate2",
  "launcher-api",
- "sha2",
  "tokio",
- "zip",
  "zstd",
 ]
 

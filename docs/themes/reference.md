@@ -406,7 +406,8 @@ on its releases, set `Hub.to-releases` before you open it.
 
 The shell also does these things:
 
-- Put `Overlays` over your screens, the size of the window, with `logo` set to your emblem. It
+- Put `Overlays` over your screens, the size of the window, with `logo` set to your mark (the
+  built-in themes give it `Assets.logo-mark`). It
   shows the top bar's tray, the prompts, the game menu, the trailer, the screenshot viewer, a folder's list, the
   folder browser, the
   OS installer, the power menu and the closing screen while each is open.
@@ -800,7 +801,6 @@ fonts = [
 ]
 
 [theme.assets.images]
-logo = "images/logo.png"
 logo-mark = "images/logo-mark.png"
 all-games-icon = "images/all-games-icon.png"
 all-games-cover = "images/all-games-cover.jpg"
@@ -819,9 +819,10 @@ The host decodes PNG and JPEG, and shrinks an image to fit 1920×1080 (`MAX_WIDT
 `ThemeError::Asset`. Game art comes from `Vm` (`GameCard.cover` and the like), not from
 `Assets`.
 
-The built-in themes declare two images of the launcher: `logo`, the full emblem, for the
-closing screen (`Overlays`), and `logo-mark`, the gamepad alone, for the loading screen and the
-About card in Settings. Both are PNGs at 512 px: `logo-mark.png` is
+The built-in themes declare one image of the launcher: `logo-mark`, the gamepad alone, for the
+loading screen, the closing screen (`Overlays`) and the About card in Settings. Inside the
+launcher the logo is always the mark. The full emblem (`assets/logo.svg`) is the app icon
+only, so no theme declares it. `logo-mark.png` is a PNG at 512 px:
 `assets/logo-mark-static.svg` drawn by `scripts/make-icons.sh`. The host draws no SVG, and the
 mark's wink (`assets/logo-mark.svg`) is a CSS animation, so the themes use the still mark.
 

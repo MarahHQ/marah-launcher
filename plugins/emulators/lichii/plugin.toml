@@ -5,19 +5,19 @@ name = "Switch"
 # The program the plugin installs and runs. Sentences about the program name it.
 emulator = "Lichii"
 version = "0.1.0"
-host_api = "^0.5"
+host_api = "^0.6"
 # The official build this plugin installs: the Linux AppImage, or the macOS or Windows zip.
 # Lichii has no Intel Mac build: there Install says so, and your own build still runs.
 platforms = ["linux", "macos", "windows"]
 # The console it plays: it gets that console's catalog (switch.json).
 console = "Switch"
-capabilities = ["catalog", "downloader", "installer", "configurator", "launcher", "slots", "game_installer", "backup", "startup"]
+capabilities = ["catalog", "downloader", "installer", "configurator", "launcher", "slots", "game_installer", "backup"]
 # What the install sheet says this emulator installs from.
-install_note = "Installs a Switch game from its game files (.nsp, .nsz, .xci, .xcz, .nup), with its update and DLC files, into the Switch folder of your game folders. A solid .nsz, which Lichii can't play, becomes the .nsp it was made from. Marah Launcher downloads the set firmware release and its keys into Lichii's data folder once you turn on Automatic updates in the Firmware block on Lichii's page, or press Update now."
+install_note = "Installs a Switch game from its game files (.nsp, .nsz, .xci, .xcz, .nup), with its update and DLC files, into the Switch folder of your game folders. A solid .nsz, which Lichii can't play, becomes the .nsp it was made from. Import the Switch firmware and keys from their archive in the Switch firmware and keys block on Lichii's page."
 
 [permissions]
 # GitHub's API, release downloads and the CDN they redirect to.
-network = ["api.github.com", "github.com", "*.githubusercontent.com", "files.prodkeys.net"]
+network = ["api.github.com", "github.com", "*.githubusercontent.com"]
 # The AppImage is unpacked once, so running it needs no FUSE.
 # The host runs the downloaded AppImage once, to unpack it.
 # On macOS, the programs in Lichii's app; on Windows, those at the zip's top.
@@ -57,8 +57,8 @@ title = "Lichii settings"
 after = "own_build"
 
 # Lichii's data folder: keys, firmware, saves and mods, which every Lichii build shares. The
-# plugin writes firmware (nand/system) and the keys of the same version (keys), when firmware
-# updates are on or the player asks. Settings → Backup saves the folder, and a restore writes
+# host writes the firmware (nand/system) and the keys of the same version (keys) when the player
+# imports their archive ([system_files]). Settings → Backup saves the folder, and a restore writes
 # it, as the host. From build-150 on, Lichii keeps its own folders, in place of Eden's
 # (~/.local/share/eden): its window imports Eden's data once, and eden-cli starts no game until
 # then.
@@ -85,3 +85,25 @@ name = "Nintendo Switch"
 icon = "icon.png"
 cover = "cover.jpg"
 color = "#e60012"
+
+# The Switch firmware and the keys of the same version, which the player imports from one
+# archive on the emulator's page: see docs/players/emulators.md, "System files". Both replace
+# their folders whole, so two versions never mix.
+[system_files]
+name = "Switch firmware and keys"
+archive = "switch-firmware-keys.zip"
+
+[[system_files.part]]
+from = "firmware"
+folder = "lichii-data"
+into = "nand/system/Contents/registered"
+files = ["*.nca"]
+replace = true
+
+[[system_files.part]]
+from = "keys"
+folder = "lichii-data"
+into = "keys"
+files = ["prod.keys", "title.keys"]
+required = ["prod.keys"]
+replace = true

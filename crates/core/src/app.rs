@@ -124,6 +124,12 @@ pub enum Command {
         game: Option<GameKey>,
         args: Value,
     },
+    /// Imports `plugin`'s system files from the archive `file`, picked in the folder browser,
+    /// which closes ([`crate::system_files`]).
+    ImportSystemFiles {
+        plugin: PluginId,
+        file: std::path::PathBuf,
+    },
     /// Turns a plugin on or off. A theme stays on, and an emulator that is busy can't be
     /// turned off.
     SetPluginEnabled {
@@ -804,6 +810,10 @@ impl Core {
             Command::AddFolder { name, path } => plugin_settings::add_folder(self, &name, &path).await,
             Command::RemoveFolder { name, path } => plugin_settings::remove_folder(self, &name, &path).await,
             Command::Browse(command) => crate::browser::handle(self, command).await,
+            Command::ImportSystemFiles { plugin, file } => {
+                self.browsing().close();
+                crate::system_files::import(self, &plugin, &file).await
+            }
             Command::SetPluginEnabled { plugin, enabled } => {
                 plugin_settings::set_plugin_enabled(self, &plugin, enabled).await
             }

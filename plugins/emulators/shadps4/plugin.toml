@@ -5,12 +5,12 @@ name = "PS4"
 # The program the plugin installs and runs. Sentences about the program name it.
 emulator = "shadPS4"
 version = "0.1.0"
-host_api = "^0.5"
+host_api = "^0.6"
 # The official builds this plugin installs: the Linux AppImage and the Windows program.
 platforms = ["linux", "macos", "windows"]
 # The console it plays: it gets that console's catalog.
 console = "PS4"
-capabilities = ["catalog", "downloader", "installer", "configurator", "launcher", "compatibility", "slots", "game_installer", "backup", "startup"]
+capabilities = ["catalog", "downloader", "installer", "configurator", "launcher", "compatibility", "slots", "game_installer", "backup"]
 # What the install sheet says this emulator installs from.
 install_note = "Installs a PS4 game from its folder or from PS4 packages (.pkg), with its update and DLC. Installing checks that it holds a game, not that its files are genuine, and never runs them."
 
@@ -69,8 +69,7 @@ discrete_gpu = true
 [permissions]
 # The compatibility list's report form, filled in, which "Send ratings" opens for the player.
 links = ["https://github.com/shadps4-compatibility/shadps4-game-compatibility/issues/new?"]
-# GitHub's API, release downloads and the CDN they redirect to (builds and the compatibility list),
-# and raw.githubusercontent.com, where the PS4 system files come from.
+# GitHub's API, release downloads and the CDN they redirect to (builds and the compatibility list).
 network = ["api.github.com", "github.com", "*.githubusercontent.com"]
 # The AppImage is unpacked once, so running it needs no FUSE.
 # The host runs the downloaded AppImage once, to unpack it.
@@ -121,3 +120,20 @@ name = "PlayStation 4"
 icon = "icon.png"
 cover = "cover.jpg"
 color = "#8fc2ff"
+
+# The PS4 system modules and fonts shadPS4 needs, which the player imports from one archive on
+# the emulator's page: see docs/players/emulators.md, "System files".
+[system_files]
+name = "PS4 system files"
+archive = "ps4-system-files.zip"
+
+[[system_files.part]]
+from = "sys_modules"
+folder = "shadps4-data"
+into = "sys_modules"
+files = ["*.sprx"]
+
+[[system_files.part]]
+from = "fonts"
+folder = "shadps4-data"
+into = "fonts"

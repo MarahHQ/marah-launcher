@@ -15,8 +15,8 @@
 //! - Lichii keeps keys, firmware, saves and settings in its own folder (`~/.local/share/lichii`,
 //!   on Windows `%APPDATA%\lichii`), which every build shares. Builds before build-150 used
 //!   Eden's (`~/.local/share/eden`).
-//!   Marah Launcher updates firmware and configured keys when the player asks, in [`firmware`]; they
-//!   can also be installed by hand.
+//!   The player imports the firmware and the keys of the same version from one archive on the
+//!   emulator's page (`[system_files]` in the manifest): the host copies them.
 //! - Installs: Switch game files from a download, in [`install`].
 //! - No compatibility list: Lichii's community reports have no list to download.
 
@@ -33,11 +33,8 @@ use launcher_api::serde_json::Value;
 use launcher_api::*;
 
 mod config;
-mod firmware;
 mod install;
 mod nsz;
-
-pub use firmware::release_url;
 
 const MANIFEST: &str = include_str!("../plugin.toml");
 /// Every release is a pre-release; a build comes out several times a day.
@@ -244,9 +241,8 @@ impl CodePlugin for LichiiPlugin {
             version_row: true,
             own_row: false,
         };
-        let firmware = firmware::Firmware::new(host.clone(), ctx.events().clone());
         let platform = host.platform;
-        let emu = ConsoleEmulator::start(LichiiFlavor { platform }, spec, host).await?.with_panel(firmware.clone());
+        let emu = ConsoleEmulator::start(LichiiFlavor { platform }, spec, host).await?;
         let emu = Arc::new(emu);
         let controllers = ctx.services().get::<Controllers>().map(|c| (*c).clone());
         let lichii = Arc::new(Lichii { emu: emu.clone(), controllers, platform });
@@ -259,7 +255,6 @@ impl CodePlugin for LichiiPlugin {
             game_installer: Some(lichii.clone()),
             slots: Some(emu.clone()),
             backup: Some(backup_items()),
-            startup: Some(firmware),
             assets: Some(launcher_api::system_art!()),
             ..Provided::default()
         })
@@ -269,8 +264,8 @@ impl CodePlugin for LichiiPlugin {
 inventory::submit! { PluginFactory::code(|| Box::new(LichiiPlugin)) }
 
 /// What a backup holds of Lichii: from Lichii's data folder, the keys, the NAND (firmware and
-/// saves), the SD card, amiibo and mods; the settings its window saves; and the firmware
-/// settings of the Firmware block.
+/// saves), the SD card, amiibo and mods; and the settings its window saves. A backup an older
+/// version made may hold `firmware-settings` too: a restore skips it.
 fn backup_items() -> std::sync::Arc<dyn Backup> {
     let data = |path: &str| BackupPlace::Folder(HostPath::new(DATA, 0, RelPath::new(path).expect("a plain path")));
     emulator_kit::backup::Items::provided(vec![
@@ -283,11 +278,6 @@ fn backup_items() -> std::sync::Arc<dyn Backup> {
             "settings",
             "Lichii settings",
             BackupPlace::Folder(HostPath::new(CONFIG, 0, RelPath::new(config::QT_CONFIG).expect("a plain path"))),
-        ),
-        BackupItem::new(
-            "firmware-settings",
-            "Switch firmware settings",
-            BackupPlace::Data(RelPath::new(firmware::SETTINGS).expect("a plain path")),
         ),
     ])
 }

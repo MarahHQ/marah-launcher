@@ -37,7 +37,12 @@ impl Pc {
 
     /// A computer `host` describes: its home folder, its name.
     async fn on(backups: &Path, host: FakeHost) -> Pc {
-        let plugin = StubPlugin::backs_up(PLUGIN, PERMISSIONS, FakeBackup::new(items()));
+        Pc::listing(backups, host, items()).await
+    }
+
+    /// [`Pc::on`], with a plugin that lists `items`.
+    async fn listing(backups: &Path, host: FakeHost, items: Vec<BackupItem>) -> Pc {
+        let plugin = StubPlugin::backs_up(PLUGIN, PERMISSIONS, FakeBackup::new(items));
         let test = host.built_in(plugin.boxed()).boot_core().await;
         let (saves, keys) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
         for (name, dir) in [("emu-saves", &saves), ("emu-keys", &keys)] {
@@ -112,6 +117,30 @@ async fn a_backup_from_one_computer_restores_into_another_s_folders_and_keeps_it
     assert!(pending["app"].get("folders").is_none(), "with no folder of a's");
     let now = files(backups.path());
     assert!(now.iter().any(|f| f.contains("-before-restore")), "what b had is backed up first: {now:?}");
+}
+
+/// A backup an older version made holds an item the plugin lists no more, as Lichii's
+/// "Switch firmware settings": the restore leaves that item out and restores the rest.
+#[tokio::test]
+async fn a_backup_with_an_item_the_plugin_dropped_restores_the_rest() {
+    let backups = tempfile::tempdir().unwrap();
+    let mut old_items = items();
+    old_items.push(BackupItem::new(
+        "firmware-settings",
+        "Firmware settings",
+        BackupPlace::Data(RelPath::new("firmware-settings.json").unwrap()),
+    ));
+    let a = Pc::listing(backups.path(), FakeHost::new(), old_items).await;
+    write(&a.data().join("settings.ini"), b"fullscreen=1");
+    write(&a.data().join("firmware-settings.json"), b"{\"ask\":true}");
+    a.run(BackupCmd::BackUp { large: false }).await.unwrap();
+    let made = files(backups.path());
+
+    let b = Pc::new(backups.path()).await;
+    b.run(BackupCmd::Restore(made[0].clone())).await.unwrap();
+
+    assert_eq!(std::fs::read(b.data().join("settings.ini")).unwrap(), b"fullscreen=1");
+    assert!(!b.data().join("firmware-settings.json").exists(), "the dropped item stays out");
 }
 
 #[tokio::test]

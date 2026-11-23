@@ -77,6 +77,8 @@ pub(crate) struct BuildsSnapshot {
     /// The emulators whose install, update or uninstall is under way.
     pub installing: BTreeSet<PluginId>,
     pub install_prompt: Option<InstallPrompt>,
+    /// Each plugin's system files, for its page: see [`crate::system_files`].
+    pub system_files: BTreeMap<PluginId, crate::system_files::Status>,
 }
 
 impl BuildsSnapshot {
@@ -94,6 +96,7 @@ struct State {
     install_prompt: Option<InstallPrompt>,
     /// Emulators with an update that waits for their game to close.
     waiting: BTreeSet<PluginId>,
+    system_files: BTreeMap<PluginId, crate::system_files::Status>,
 }
 
 struct Shared {
@@ -181,6 +184,33 @@ impl BuildsSubsystem {
             emulators: state.emulators.clone(),
             installing: state.installing.clone(),
             install_prompt: state.install_prompt.clone(),
+            system_files: state.system_files.clone(),
+        }
+    }
+
+    /// What `plugin`'s page says of its system files.
+    pub fn system_files(&self, plugin: &PluginId) -> crate::system_files::Status {
+        self.state().system_files.get(plugin).cloned().unwrap_or_default()
+    }
+
+    /// Marks an import of `plugin`'s system files as running: `false` while any import runs, as
+    /// plugins may share the folders. The check and the mark happen under one lock.
+    pub fn start_import(&self, plugin: &PluginId) -> bool {
+        let mut state = self.state();
+        if state.system_files.values().any(|s| s.importing) {
+            return false;
+        }
+        let status = state.system_files.entry(plugin.clone()).or_default();
+        (status.importing, status.progress) = (true, 0.0);
+        drop(state);
+        self.inner.notifier.changed(Area::Plugins);
+        true
+    }
+
+    pub fn set_system_files(&self, plugin: &PluginId, status: crate::system_files::Status) {
+        let before = self.state().system_files.insert(plugin.clone(), status.clone());
+        if before.as_ref() != Some(&status) {
+            self.inner.notifier.changed(Area::Plugins);
         }
     }
 

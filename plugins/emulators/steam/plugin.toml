@@ -2,7 +2,7 @@ id = "emu-steam"
 kind = "emulator"
 name = "Steam"
 version = "0.1.0"
-host_api = "^0.5"
+host_api = "^0.6"
 # Marah Launcher finds a game Steam started in the process list: on Linux by Steam's reaper, on
 # macOS and Windows by its program, in the game's folder.
 platforms = ["linux", "macos", "windows"]
