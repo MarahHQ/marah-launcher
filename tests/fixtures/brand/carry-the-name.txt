@@ -104,7 +104,6 @@ packaging/windows/marah-launcher.iss
 plugins/emulators/kytyps5/src/lib.rs
 plugins/emulators/lichii/plugin.toml
 plugins/emulators/lichii/src/config.rs
-plugins/emulators/lichii/src/firmware.rs
 plugins/emulators/lichii/src/lib.rs
 plugins/emulators/pc/src/manifest.rs
 plugins/emulators/steam/plugin.toml
@@ -122,9 +121,7 @@ plugins/system/host/src/linux.rs
 plugins/system/host/src/parse.rs
 plugins/system/host/src/vpn.rs
 plugins/themes/classic/theme/components/boot.slint
-plugins/themes/classic/theme/theme.toml
 plugins/themes/default/theme/components/boot.slint
-plugins/themes/default/theme/theme.toml
 scripts/appimage.sh
 scripts/bundle-libarchive.sh
 scripts/bundle-libmpv.sh
