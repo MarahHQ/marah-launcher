@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.18.0](https://github.com/MarahHQ/marah-launcher/compare/v0.17.3...v0.18.0) (2026-11-23)
+
+
+### ⚠ BREAKING CHANGES
+
+* plugins can share one data folder, and downloads unpack a 7z, or part of one (API 0.5.0)
+
+### Features
+
+* **catalog:** a forum of many consoles feeds a catalog by its title tags, and the PS1, NES and Genesis catalogs ([0653006](https://github.com/MarahHQ/marah-launcher/commit/0653006c7e8aa2c9bfe4d5c20e9188de1c0fbf3c))
+* **catalog:** a refresh starts from the published catalogs, and git ignores the collector's work folder ([93e8a01](https://github.com/MarahHQ/marah-launcher/commit/93e8a017b10256d329a97b949d4a87ace8f20449))
+* NES, Genesis and PS1 on one shared RetroArch, with their saves in backups ([e1592c2](https://github.com/MarahHQ/marah-launcher/commit/e1592c2e7c25a3f7cf7b25e7119c49cdf91c4b13))
+* new system icons, All games icon and retro covers, drawn through librsvg ([1b380f6](https://github.com/MarahHQ/marah-launcher/commit/1b380f699e8e482f0e7eae05eaa81bee7a9b9730))
+* plugins can share one data folder, and downloads unpack a 7z, or part of one (API 0.5.0) ([c26b778](https://github.com/MarahHQ/marah-launcher/commit/c26b778f33e2a5427e9390ea1838f7de71a81b40))
+* **theme:** the Home list fades at its ends, marks the systems out of sight, and its focus ring follows the icons' corners ([2bb73b3](https://github.com/MarahHQ/marah-launcher/commit/2bb73b3e92e9d4cad502094a8600176df3b829e7))
+
+
+### Bug Fixes
+
+* a game's page shows no empty title id row ([3333f75](https://github.com/MarahHQ/marah-launcher/commit/3333f7591939f20d29790e2c785bd7e1029fbea3))
+
 ## [0.17.3](https://github.com/MarahHQ/marah-launcher/compare/v0.17.2...v0.17.3) (2026-11-22)
 
 
