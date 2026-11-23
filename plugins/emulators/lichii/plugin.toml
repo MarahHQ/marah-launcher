@@ -87,8 +87,8 @@ cover = "cover.jpg"
 color = "#e60012"
 
 # The Switch firmware and the keys of the same version, which the player imports from one
-# archive on the emulator's page: see docs/players/emulators.md, "System files". The firmware
-# replaces the old one whole, so two versions never mix; the keys join the player's other files.
+# archive on the emulator's page: see docs/players/emulators.md, "System files". Both replace
+# their folders whole, so two versions never mix.
 [system_files]
 name = "Switch firmware and keys"
 archive = "switch-firmware-keys.zip"
@@ -106,3 +106,4 @@ folder = "lichii-data"
 into = "keys"
 files = ["prod.keys", "title.keys"]
 required = ["prod.keys"]
+replace = true

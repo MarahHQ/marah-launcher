@@ -1954,14 +1954,7 @@ fn another_theme_renders_the_same_library() {
 fn working_block() -> FakeService {
     use launcher_api::{BlockRow, Tone};
     let rows = vec![
-        BlockRow {
-            label: "Status".into(),
-            value: "Importing…".into(),
-            hint: "159.4 MB of 340.5 MB".into(),
-            tone: Tone::Info,
-            progress: Some(0.46),
-            ..BlockRow::default()
-        },
+        BlockRow { label: "Status".into(), value: "Importing…".into(), progress: Some(0.46), ..BlockRow::default() },
         BlockRow {
             label: "Last import".into(),
             hint: "59 files imported".into(),

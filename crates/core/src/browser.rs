@@ -401,9 +401,6 @@ async fn blocking<T: Send + 'static>(work: impl FnOnce() -> std::io::Result<T> +
         .map_err(|e| CoreError::Invalid(e.to_string()))
 }
 
-/// The folders of `dir`, each by name, then with `restore` its backups newest first; for a
-/// restore the folders that hold backups come first. Hidden folders only with `hidden`; other
-/// files and links are left out.
 /// What the browser lists besides folders.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Listing {
@@ -422,6 +419,10 @@ impl Listing {
     }
 }
 
+/// The folders of `dir`, each by name, then for [`Listing::Backups`] its backups newest first, or
+/// for [`Listing::Archives`] its archives by name. For a restore the folders that hold backups
+/// come first. Hidden folders and archives only with `hidden`; other files and links are left
+/// out.
 fn list(dir: &Path, hidden: bool, listing: Listing) -> std::io::Result<Vec<BrowseEntry>> {
     let restore = listing == Listing::Backups;
     let mut folders = Vec::new();

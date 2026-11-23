@@ -204,6 +204,7 @@ folder = "lichii-data"
 into = "keys"
 files = ["prod.keys", "title.keys"]
 required = ["prod.keys"]
+replace = true
 ```
 
 | Key | Meaning |

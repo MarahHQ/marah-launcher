@@ -41,7 +41,7 @@ and import it on the emulator's page.
 | Emulator | Archive | What it holds |
 | --- | --- | --- |
 | PS4 (shadPS4) | `ps4-system-files.zip` | `sys_modules/` (the `.sprx` files), `fonts/` (`font/`, `font2/`) |
-| Switch (Lichii) | `switch-firmware-keys.zip` | `firmware/` (the `.nca` files), `keys/` (`prod.keys`, `title.keys`) |
+| Switch (Lichii) | `switch-firmware-keys.zip` | `firmware/` (the `.nca` files), `keys/` (`prod.keys`, `title.keys`). A `VERSION` file that names the version is fine: the launcher leaves it out. |
 | PS1, NES, Genesis (RetroArch) | `retroarch-bios.zip` | `system/` (the BIOS files) |
 
 The RetroArch emulators share one folder, so one `retroarch-bios.zip` serves all three. Most
@@ -57,7 +57,8 @@ are missing.
    emulator reads it. The block then says **Installed** and how many files it imported.
 
 Each part replaces only the files it brings: your other files in those folders stay. The Switch
-firmware is the one exception: it replaces the old firmware folder whole. The launcher writes
+firmware and keys are the exception: each replaces its old folder whole, so two versions never
+mix. Only one import runs at a time. The launcher writes
 nothing until it has checked the whole archive. If any part can't be written, every part goes
 back as it was, and the block says why. An archive that lacks a folder is refused with the
 folders it should hold.
@@ -156,8 +157,8 @@ to that folder.
 Switch games need the Switch firmware and the keys of the same version. Import both from
 `switch-firmware-keys.zip` on Lichii's page: see [System files](#system-files). The firmware goes
 into `nand/system/Contents/registered` in **Lichii data**, in place of the firmware there, so two
-versions never mix. `prod.keys` and `title.keys` go into `keys`. Lichii uses them from its next
-start. The keys must match the firmware: firmware newer than its keys can't be read, and Lichii
+versions never mix. `prod.keys` and `title.keys` go into `keys`, in place of the keys there.
+Lichii uses them from its next start. The keys must match the firmware: firmware newer than its keys can't be read, and Lichii
 hangs on its start.
 
 This is Nintendo's firmware: check that you may use it where you live.
