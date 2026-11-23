@@ -3,7 +3,7 @@ id = "playstation-store"
 kind = "service"
 name = "PlayStation Store"
 version = "0.1.0"
-host_api = "^0.4"
+host_api = "^0.5"
 platforms = ["linux", "macos", "windows"]
 capabilities = ["metadata"]
 

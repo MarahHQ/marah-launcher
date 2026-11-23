@@ -139,7 +139,7 @@ impl StubPlugin {
     /// A plugin that provides only `backup`, with `permissions`: TOML for its `[permissions]`.
     pub fn backs_up(id: &str, permissions: &str, backup: FakeBackup) -> Self {
         StubPlugin::from_toml(&format!(
-            "id = \"{id}\"\nkind = \"emulator\"\nname = \"{id}\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
+            "id = \"{id}\"\nkind = \"emulator\"\nname = \"{id}\"\nversion = \"1.0.0\"\nhost_api = \"^0.5\"\n\
              capabilities = [\"backup\"]\n[permissions]\n{permissions}\n"
         ))
         .provides(move |_| Ok(Provided { backup: Some(Arc::new(backup.clone())), ..Provided::default() }))

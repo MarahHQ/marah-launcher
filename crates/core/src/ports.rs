@@ -722,7 +722,10 @@ pub trait Archives: Send + Sync {
     /// refuses an archive that needs a password, an entry whose path leaves `into` (an absolute
     /// path, `..`, or a link that points out), an entry at or under a link, which would be
     /// written through it, and an archive bigger than the free space. It stops with
-    /// [`ArchiveError::Cancelled`] soon after `cancel` is set.
+    /// [`ArchiveError::Cancelled`] soon after `cancel` is set. `only`: the archive's paths to
+    /// unpack, each a file or a folder with everything in it; empty for all. Only a 7z unpacks
+    /// part of itself: another archive with `only` is [`ArchiveError::Unsupported`].
+    #[allow(clippy::too_many_arguments)] // The unpack's inputs, each its own.
     async fn unpack(
         &self,
         kind: ArchiveKind,
@@ -731,6 +734,7 @@ pub trait Archives: Send + Sync {
         free: Option<u64>,
         progress: UnpackProgress,
         cancel: Arc<AtomicBool>,
+        only: &[String],
     ) -> Result<(), ArchiveError>;
 }
 
@@ -747,6 +751,7 @@ impl Archives for NoArchives {
         _free: Option<u64>,
         _progress: UnpackProgress,
         _cancel: Arc<AtomicBool>,
+        _only: &[String],
     ) -> Result<(), ArchiveError> {
         Err(ArchiveError::Unsupported(format!(
             "this build of {} can't unpack archives",
@@ -926,6 +931,7 @@ impl Ports {
             http: self.http.clone(),
             spawner: self.spawner.clone(),
             clock: self.clock.clone(),
+            archives: self.archives.clone(),
         }
     }
 

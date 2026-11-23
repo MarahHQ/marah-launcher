@@ -295,7 +295,7 @@ fn a_screen_that_exports_the_wrong_name_is_refused_with_the_file_named() {
 #[test]
 fn the_default_settings_screen_maps_a_folder_through_the_host() {
     let plugin = launcher_testkit::StubPlugin::from_toml(
-        "id = \"pc\"\nkind = \"emulator\"\nname = \"PC games\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
+        "id = \"pc\"\nkind = \"emulator\"\nname = \"PC games\"\nversion = \"1.0.0\"\nhost_api = \"^0.5\"\n\
          [[permissions.filesystem]]\nfolder = \"games\"",
     );
     let mut host = composed(|h| h.plugin(plugin));
@@ -370,7 +370,7 @@ export component HomeScreen inherits Rectangle {
 fn the_default_settings_screen_edits_a_folder_with_the_keys() {
     use slint::platform::{Key, WindowEvent};
     let plugin = launcher_testkit::StubPlugin::from_toml(
-        "id = \"pc\"\nkind = \"emulator\"\nname = \"PC games\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
+        "id = \"pc\"\nkind = \"emulator\"\nname = \"PC games\"\nversion = \"1.0.0\"\nhost_api = \"^0.5\"\n\
          [[permissions.filesystem]]\nfolder = \"games\"",
     );
     let mut host = composed(|h| h.plugin(plugin));

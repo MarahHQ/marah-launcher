@@ -5,6 +5,7 @@
 //! blocking, so it runs on Tokio's blocking pool.
 
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 
 use launcher_api::ArchiveFormat;
 
@@ -153,15 +154,19 @@ pub(crate) async fn unpack(
     platform: Option<launcher_api::Platform>,
     may_run: &(dyn Fn(&Path) -> bool + Sync),
     format: ArchiveFormat,
+    only: &[String],
     archive: &Path,
     into: &Path,
 ) -> CoreResult<()> {
+    if !only.is_empty() && !matches!(format, ArchiveFormat::SevenZip | ArchiveFormat::AppImageIn7z) {
+        return Err(failed("only a 7z unpacks part of itself"));
+    }
     let mut name = into.file_name().map(|n| n.to_os_string()).unwrap_or_default();
     name.push(".unpacking");
     let staging = into.with_file_name(name);
     let _ = tokio::fs::remove_dir_all(&staging).await;
     tokio::fs::create_dir_all(&staging).await.map_err(failed)?;
-    let result = unpack_into(ports, platform, may_run, format, archive, &staging, into).await;
+    let result = unpack_into(ports, platform, may_run, format, only, archive, &staging, into).await;
     if let Err(e) = result {
         let _ = tokio::fs::remove_dir_all(&staging).await;
         return Err(e);
@@ -170,11 +175,13 @@ pub(crate) async fn unpack(
     tokio::fs::rename(&staging, into).await.map_err(failed)
 }
 
+#[allow(clippy::too_many_arguments)] // The unpack's inputs, each its own.
 async fn unpack_into(
     ports: &DownloadPorts,
     platform: Option<launcher_api::Platform>,
     may_run: &(dyn Fn(&Path) -> bool + Sync),
     format: ArchiveFormat,
+    only: &[String],
     archive: &Path,
     dir: &Path,
     into: &Path,
@@ -208,7 +215,51 @@ async fn unpack_into(
             }
             extract_appimage(ports, may_run, &appimage, &dir, into).await
         }
+        ArchiveFormat::SevenZip => seven(ports, &archive, &dir, only).await,
+        ArchiveFormat::AppImageIn7z => {
+            if platform != Some(launcher_api::Platform::Linux) {
+                return Err(failed("AppImages run on Linux only"));
+            }
+            seven(ports, &archive, &dir, only).await?;
+            let found = {
+                let dir = dir.clone();
+                blocking(move || Ok(files_named(&dir, ".AppImage"))).await?
+            };
+            let [appimage] = found.as_slice() else {
+                return Err(failed(format!("expected one AppImage in the 7z, found {}", found.len())));
+            };
+            // It unpacks where it is: its folder in `dir` is the same folder in `into`.
+            let folder = appimage.parent().unwrap_or(&dir).to_path_buf();
+            let there = into.join(folder.strip_prefix(&dir).unwrap_or(Path::new("")));
+            extract_appimage(ports, may_run, appimage, &folder, &there).await
+        }
     }
+}
+
+/// Unpacks the 7z `archive` into `dir` through the host's archives, only the paths `only` when
+/// there are any.
+async fn seven(ports: &DownloadPorts, archive: &Path, dir: &Path, only: &[String]) -> CoreResult<()> {
+    let progress: crate::UnpackProgress = Arc::new(|_, _| {});
+    let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let parts = [archive.to_path_buf()];
+    ports.archives.unpack(crate::ArchiveKind::SevenZ, &parts, dir, None, progress, cancel, only).await.map_err(failed)
+}
+
+/// The files under `dir` whose names end with `suffix`.
+fn files_named(dir: &Path, suffix: &str) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut todo = vec![dir.to_path_buf()];
+    while let Some(folder) = todo.pop() {
+        for entry in std::fs::read_dir(&folder).into_iter().flatten().flatten() {
+            let path = entry.path();
+            match entry.file_type() {
+                Ok(t) if t.is_dir() => todo.push(path),
+                Ok(t) if t.is_file() && path.to_string_lossy().ends_with(suffix) => found.push(path),
+                _ => {}
+            }
+        }
+    }
+    found
 }
 
 /// Runs `appimage`, in `dir`, with `--appimage-extract`, so `dir` gets its `squashfs-root`

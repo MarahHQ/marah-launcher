@@ -83,7 +83,7 @@ id = "fixture-grid"
 kind = "theme"
 name = "Fixture grid"
 version = "0.1.0"
-host_api = "^0.4"
+host_api = "^0.5"
 capabilities = ["theme"]
 
 [runtime]
@@ -96,7 +96,7 @@ ui_api = "^0.8"
 - `id`: 1 to 64 lowercase letters, digits or `-`, starting with a letter. It can't be the id of
   a built-in plugin, such as `default` or `classic`.
 - `host_api` must include the plugin API version, `API_VERSION` in `crates/api/src/lib.rs`
-  (now `0.4.0`).
+  (now `0.5.0`).
 - `capabilities` is exactly `["theme"]`.
 - `[runtime] type = "data"`: a theme has no code.
 - `[theme] ui_api` must include the theme contract's version, `UI_API_VERSION` in

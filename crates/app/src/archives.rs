@@ -42,9 +42,10 @@ impl Archives for HostArchives {
         free: Option<u64>,
         progress: UnpackProgress,
         cancel: Arc<AtomicBool>,
+        only: &[String],
     ) -> Result<(), ArchiveError> {
         let (parts, into) = (parts.to_vec(), into.to_path_buf());
-        let work = Work { into, free, progress, cancel, done: 0, total: 0 };
+        let work = Work { into, free, progress, cancel, done: 0, total: 0, only: only.to_vec() };
         match tokio::task::spawn_blocking(move || unpack(kind, &parts, work)).await {
             Ok(result) => result,
             Err(e) => Err(ArchiveError::Io(format!("the unpacking stopped: {e}"))),
@@ -61,6 +62,14 @@ struct Work {
     cancel: Arc<AtomicBool>,
     done: u64,
     total: u64,
+    /// The paths of the archive to unpack, each a file or a folder; empty for all.
+    only: Vec<String>,
+}
+
+/// `name` is one of `only`, or inside one of them.
+fn wanted(only: &[String], name: &str) -> bool {
+    let name = name.trim_end_matches('/');
+    only.iter().map(|o| o.trim_end_matches('/')).any(|o| name == o || name.starts_with(&format!("{o}/")))
 }
 
 impl Work {
@@ -231,6 +240,18 @@ fn unpack_set(kind: ArchiveKind, parts: &[PathBuf], work: &mut Work) -> Result<(
         | ArchiveKind::Iso
         | ArchiveKind::Cab
         | ArchiveKind::Script => (Via::Libarchive, lib_entries(kind, parts)?),
+    };
+    let listing = if work.only.is_empty() {
+        listing
+    } else {
+        if !matches!(reader, Via::SevenZ) {
+            return Err(ArchiveError::Unsupported("only a 7z unpacks part of itself".into()));
+        }
+        let kept: Vec<ArchiveEntry> = listing.into_iter().filter(|e| wanted(&work.only, &e.name)).collect();
+        if kept.is_empty() {
+            return Err(ArchiveError::Corrupt(format!("the archive has none of {}", work.only.join(", "))));
+        }
+        kept
     };
     let plan = plan_unpack(listing, &work.into, work.free)?;
     work.total = plan.total;
@@ -487,7 +508,14 @@ fn seven_write(parts: &[PathBuf], plan: &Plan, work: &mut Work) -> Result<(), Ar
     let result = reader.for_each_entries(|file, data| {
         let step = (|| -> Result<(), ArchiveError> {
             work.check_cancel()?;
-            let entry = planned.get(file.name.as_str()).ok_or_else(changed)?;
+            let Some(entry) = planned.get(file.name.as_str()) else {
+                // Left out by `only`: read past it.
+                if wanted(&work.only, &file.name) || work.only.is_empty() {
+                    return Err(changed());
+                }
+                std::io::copy(data, &mut std::io::sink()).map_err(|e| read_error(Path::new(&file.name), &e))?;
+                return Ok(());
+            };
             work.put(entry, data)?;
             // The next entry's data follows this one's in the block: read past what wasn't used.
             std::io::copy(data, &mut std::io::sink()).map_err(|e| read_error(&entry.path, &e))?;
@@ -762,6 +790,16 @@ mod tests {
 
     /// Unpacks into `<dir>/out`, and returns the last progress it reported.
     fn run(kind: ArchiveKind, parts: &[PathBuf], dir: &Path) -> Result<(u64, u64), ArchiveError> {
+        run_only(kind, parts, dir, Vec::new())
+    }
+
+    /// [`run`], with only the paths `only`.
+    fn run_only(
+        kind: ArchiveKind,
+        parts: &[PathBuf],
+        dir: &Path,
+        only: Vec<String>,
+    ) -> Result<(u64, u64), ArchiveError> {
         let into = dir.join("out");
         std::fs::create_dir_all(&into).unwrap();
         let last = Arc::new(Mutex::new((0, 0)));
@@ -769,7 +807,8 @@ mod tests {
             let last = last.clone();
             Arc::new(move |done, total| *last.lock().unwrap() = (done, total))
         };
-        let work = Work { into, free: None, progress, cancel: Arc::new(AtomicBool::new(false)), done: 0, total: 0 };
+        let work =
+            Work { into, free: None, progress, cancel: Arc::new(AtomicBool::new(false)), done: 0, total: 0, only };
         unpack(kind, parts, work)?;
         Ok(*last.lock().unwrap())
     }
@@ -826,6 +865,34 @@ mod tests {
             std::fs::copy(testdata().join("crypted.zip"), &path).unwrap();
             Some((ArchiveKind::Zip, vec![path]))
         }
+    }
+
+    /// A download's 7z of many programs: only the files and folders asked for come out.
+    #[test]
+    fn a_7z_unpacks_only_the_paths_asked_for() {
+        let dir = folder("seven-only");
+        let entries: &[(&str, &[u8])] = &[
+            ("pack/cores/a_libretro.so", b"a"),
+            ("pack/cores/b_libretro.so", b"bb"),
+            ("pack/cores/c_libretro.so", b"ccc"),
+            ("pack/info/a.info", b"i"),
+            ("pack/info/b.info", b"j"),
+        ];
+        std::fs::write(dir.join("pack.7z"), seven_of(entries)).unwrap();
+        let only = vec!["pack/cores/b_libretro.so".to_owned(), "pack/info/".to_owned()];
+        let last = run_only(ArchiveKind::SevenZ, &[dir.join("pack.7z")], &dir, only).unwrap();
+        let out = dir.join("out/pack");
+        assert_eq!(std::fs::read(out.join("cores/b_libretro.so")).unwrap(), b"bb");
+        assert_eq!(std::fs::read(out.join("info/b.info")).unwrap(), b"j", "a folder, with everything in it");
+        assert!(!out.join("cores/a_libretro.so").exists() && !out.join("cores/c_libretro.so").exists());
+        assert_eq!(last, (4, 4), "progress counts only what comes out");
+
+        let none = run_only(ArchiveKind::SevenZ, &[dir.join("pack.7z")], &folder("seven-none"), vec!["nope".into()]);
+        assert!(matches!(none, Err(ArchiveError::Corrupt(_))), "{none:?}");
+        let zip = folder("zip-only");
+        std::fs::write(zip.join("a.zip"), zip_of(&[("a.txt", b"a")])).unwrap();
+        let refused = run_only(ArchiveKind::Zip, &[zip.join("a.zip")], &zip, vec!["a.txt".into()]);
+        assert!(matches!(refused, Err(ArchiveError::Unsupported(_))), "only a 7z: {refused:?}");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -970,7 +1037,15 @@ mod tests {
             let last = last.clone();
             Arc::new(move |done, total| *last.lock().unwrap() = (done, total))
         };
-        let work = Work { into, free: None, progress, cancel: Arc::new(AtomicBool::new(false)), done: 0, total: 0 };
+        let work = Work {
+            into,
+            free: None,
+            progress,
+            cancel: Arc::new(AtomicBool::new(false)),
+            done: 0,
+            total: 0,
+            only: Vec::new(),
+        };
         tools.unpack(kind, parts, work)?;
         Ok(*last.lock().unwrap())
     }
@@ -1016,6 +1091,7 @@ mod tests {
             cancel: Arc::new(AtomicBool::new(false)),
             done: 0,
             total: 0,
+            only: Vec::new(),
         };
         let refused = tools.unpack(ArchiveKind::Rar, &[testdata().join("version.rar")], work).unwrap_err();
         assert!(matches!(refused, ArchiveError::NoRoom { free: 0, .. }), "{refused:?}");
@@ -1150,7 +1226,8 @@ mod tests {
         let into = dir.join("out");
         std::fs::create_dir_all(&into).unwrap();
         let cancel = Arc::new(AtomicBool::new(true));
-        let work = Work { into, free: None, progress: Arc::new(|_, _| {}), cancel, done: 0, total: 0 };
+        let work =
+            Work { into, free: None, progress: Arc::new(|_, _| {}), cancel, done: 0, total: 0, only: Vec::new() };
         let stopped = unpack(ArchiveKind::Zip, &[dir.join("game.zip")], work).unwrap_err();
         assert_eq!(stopped, ArchiveError::Cancelled);
         assert_eq!(stopped.to_string(), "The unpacking was cancelled");

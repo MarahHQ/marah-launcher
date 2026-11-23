@@ -325,7 +325,7 @@ fn slow_catalogs(open: Arc<tokio::sync::Semaphore>) -> StubPlugin {
         }
     }
     StubPlugin::from_toml(
-        "id = \"slow-catalog\"\nkind = \"service\"\nname = \"Slow\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
+        "id = \"slow-catalog\"\nkind = \"service\"\nname = \"Slow\"\nversion = \"1.0.0\"\nhost_api = \"^0.5\"\n\
          capabilities = [\"releases\"]",
     )
     .provides(move |_| {

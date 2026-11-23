@@ -62,7 +62,7 @@ kind = "emulator"
 name = "PS5"
 emulator = "KytyPS5"
 version = "0.1.0"
-host_api = "^0.4"
+host_api = "^0.5"
 platforms = ["linux", "macos", "windows"]
 console = "PS5"
 capabilities = ["catalog", "downloader", "installer", "configurator", "launcher", "compatibility", "slots", "game_installer", "backup"]
@@ -114,7 +114,7 @@ cover = "cover.jpg"
 | `name` | yes | What the player sees: in the plugin lists, on the plugin page, and where a sentence means the console. An emulator names its console: `PS5`. |
 | `emulator` | no | For an emulator, the name of the program it installs and runs, such as `KytyPS5`. Sentences about the program use it. Leave it out when the program has no name of its own: `name` is used. |
 | `version` | yes | The plugin's semver version. |
-| `host_api` | yes | A semver range of the API versions the plugin works with, such as `^0.4`. The host refuses the plugin when the range doesn't include `API_VERSION`, now `0.4.0`. |
+| `host_api` | yes | A semver range of the API versions the plugin works with, such as `^0.5`. The host refuses the plugin when the range doesn't include `API_VERSION`, now `0.5.0`. |
 | `platforms` | no | `linux`, `macos`, `windows`. Empty means every system. |
 | `console` | no | For an emulator, the console it plays: ASCII letters, digits and `-`, kept in uppercase (`ps5` and `PS5` are one console). The host gives the emulator that console's releases. Not the systems the plugin runs on. |
 | `capabilities` | no | The capabilities `init` provides, in snake case. See [Capabilities](#capabilities). |
@@ -128,6 +128,7 @@ cover = "cover.jpg"
 | `keymap` | no | `[[keymap]]` entries. See below. |
 | `install_note` | no | For an emulator with a game installer: what it installs from, in one or two sentences. The install sheet shows it. |
 | `system` | no | `[system]`: the system the plugin's games show under. See below. |
+| `shared_data` | no | A data folder this plugin shares with every plugin that names the same one, such as `retroarch`: lowercase letters, digits and `-`. Its storage, downloads and programs live in `shared/<name>` in the app's data folder, not in `plugins/<id>`. The host runs one install among them at a time, and after one, it reads the builds of each. Only a built-in plugin may name one: a plugin from disk that does is refused. |
 
 ### `[[dependencies]]`
 
@@ -406,8 +407,11 @@ These two install emulator builds. The host runs the steps:
    a label and a list of `Artifact` values.
 2. It downloads each artifact, checks its `sha256` (and an Ed25519 `signature` when one is
    given), writes it to `dest` in the data folder, and unpacks it when `unpack` asks. The formats
-   are `TarGz`, `Zip`, `AppImageInZip` and `AppImage`. The last two run the AppImage's
-   `--appimage-extract`, on Linux only.
+   are `TarGz`, `Zip`, `AppImageInZip`, `AppImage`, `SevenZip` and `AppImageIn7z`. The
+   AppImage formats run the AppImage's `--appimage-extract`, on Linux only; `AppImageIn7z`
+   unpacks the 7z, then extracts its one AppImage where it is. A 7z can unpack only some of
+   its paths: `unpack.only` lists them, each a file or a folder with everything in it. The host
+   refuses `only` for the other formats.
 3. It calls `Installer::install(version, files)` or `Installer::update(from, to, files)` with
    the `DownloadedArtifact` values.
 

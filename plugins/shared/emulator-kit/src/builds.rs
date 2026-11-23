@@ -1,4 +1,5 @@
-//! An emulator's builds: official ones from GitHub releases, and your own build.
+//! An emulator's builds: official ones from GitHub releases, or builds the flavor pins with
+//! their checksums ([`Flavor::pinned`]), and your own build.
 //!
 //! A [`Flavor`] describes one emulator: where its releases are, which asset fits this system,
 //! where the program is in a build, how a test run looks, and where your own build may be.
@@ -60,6 +61,31 @@ pub struct OwnBuild {
     pub system: &'static str,
 }
 
+/// A build the flavor names itself, for an emulator whose builds are on no GitHub release:
+/// each file with its address, size and SHA-256, which Marah Launcher ships. The files unpack
+/// in order, into the build's folder.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PinnedBuild {
+    pub tag: String,
+    pub files: Vec<PinnedFile>,
+}
+
+/// One file of a [`PinnedBuild`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PinnedFile {
+    /// Its name in the plugin's `downloads/`.
+    pub name: String,
+    pub url: String,
+    pub size: u64,
+    pub sha256: String,
+    pub format: ArchiveFormat,
+    /// The folder in the build's folder it unpacks into; `None` for the build's folder itself.
+    /// Only the first file may unpack into the build's folder: an unpack replaces its folder.
+    pub into: Option<&'static str>,
+    /// Only these paths of a 7z ([`Unpack::only`]); empty for all.
+    pub only: Vec<String>,
+}
+
 /// What a game starts: the program, the folder it runs in (`None`: the program's folder), and
 /// the downloaded build's tag (`None` for your own build).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -96,6 +122,12 @@ pub trait Flavor: Send + Sync + 'static {
     const OFFICIAL_STYLE: ActionStyle = ActionStyle::Secondary;
 
     fn release_source(&self, settings: &Self::Settings) -> PluginResult<ReleaseSource>;
+
+    /// The builds, newest first, when the flavor names them itself: then no release list is
+    /// fetched, and [`Flavor::release_source`] isn't asked.
+    fn pinned(&self) -> Option<Vec<PinnedBuild>> {
+        None
+    }
 
     /// Whether a release asset is the build for this system.
     fn asset_matches(&self, name: &str) -> bool;
@@ -178,6 +210,25 @@ impl<F: Flavor> BuildManager<F> {
 
     /// Releases with a build for this system, newest first.
     pub async fn builds(&self) -> PluginResult<Vec<(github::Release, github::Asset)>> {
+        if let Some(pinned) = self.flavor.pinned() {
+            return Ok(pinned
+                .into_iter()
+                .filter_map(|build| {
+                    let assets: Vec<github::Asset> = build
+                        .files
+                        .iter()
+                        .map(|f| github::Asset {
+                            name: f.name.clone(),
+                            url: f.url.clone(),
+                            size: f.size,
+                            sha256: Some(f.sha256.clone()),
+                        })
+                        .collect();
+                    let first = assets.first()?.clone();
+                    Some((github::Release { tag: build.tag, published_at: String::new(), assets }, first))
+                })
+                .collect());
+        }
         let source = self.source().await?;
         let host = &self.host;
         let json = cache::cached_json(
@@ -315,7 +366,9 @@ impl<F: Flavor> BuildManager<F> {
     /// Runs one of the build panel's actions.
     pub async fn run_action(&self, name: &str) -> PluginResult<()> {
         match name {
-            // The release list is kept for hours; this asks GitHub now.
+            // The release list is kept for hours; this asks GitHub now. Pinned builds come with
+            // Marah Launcher.
+            "check" if self.flavor.pinned().is_some() => Ok(()),
             "check" => cache::forget(self.host.storage.as_ref(), &self.source().await?.cache).await,
             "use-own" => self.settings.set_own_build(true).await,
             "use-official" => self.leave_own(self.versions.state().await.current.as_deref()).await,
@@ -339,6 +392,27 @@ impl<F: Flavor> BuildManager<F> {
     }
 }
 
+/// The download plan of a pinned build: each of its files, unpacked in order.
+fn pinned_plan(name: &str, pretty: &str, build: &PinnedBuild) -> PluginResult<DownloadPlan> {
+    let folder = versions::folder(&build.tag)?;
+    let mut artifacts = Vec::new();
+    for file in &build.files {
+        let into = match file.into {
+            Some(sub) => folder.join(sub)?,
+            None => folder.clone(),
+        };
+        artifacts.push(Artifact {
+            url: file.url.clone(),
+            size: Some(file.size),
+            sha256: file.sha256.clone(),
+            signature: None,
+            dest: RelPath::new(format!("downloads/{}", file.name))?,
+            unpack: Some(Unpack { format: file.format, into, only: file.only.clone() }),
+        });
+    }
+    Ok(DownloadPlan { label: format!("{name} {pretty}"), artifacts })
+}
+
 fn action(id: &str, label: String, style: ActionStyle) -> SlotItem {
     SlotItem {
         id: id.into(),
@@ -357,6 +431,9 @@ impl<F: Flavor> Downloader for BuildManager<F> {
             None => builds.into_iter().next(),
         }
         .ok_or_else(|| PluginError::NotFound(format!("no {} build for this system", F::NAME)))?;
+        if let Some(build) = self.flavor.pinned().and_then(|p| p.into_iter().find(|b| b.tag == release.tag)) {
+            return pinned_plan(F::NAME, &self.flavor.pretty(&release.tag), &build);
+        }
         let sha256 = asset
             .sha256
             .clone()
@@ -372,6 +449,7 @@ impl<F: Flavor> Downloader for BuildManager<F> {
                 unpack: Some(Unpack {
                     format: self.flavor.archive_format(&asset.name),
                     into: versions::folder(&release.tag)?,
+                    only: Vec::new(),
                 }),
             }],
         })
@@ -535,6 +613,86 @@ pub(crate) mod tests {
             self.left_own.lock().unwrap().push(to.map(Into::into));
             Ok(())
         }
+    }
+
+    /// [`TestFlavor`], with a build it pins: a program and a pack of parts beside it.
+    struct PinnedFlavor(TestFlavor);
+
+    #[async_trait]
+    impl Flavor for PinnedFlavor {
+        type Settings = TestSettings;
+        const NAME: &'static str = "TestEmu";
+        const CONSOLE: &'static str = "PS9";
+
+        fn release_source(&self, _settings: &TestSettings) -> PluginResult<ReleaseSource> {
+            Err(PluginError::Precondition("a pinned flavor has no release list".into()))
+        }
+
+        fn pinned(&self) -> Option<Vec<PinnedBuild>> {
+            let file = |name: &str, into, only: &[&str]| PinnedFile {
+                name: name.into(),
+                url: format!("https://builds.example/{name}"),
+                size: 10,
+                sha256: "ab".repeat(32),
+                format: ArchiveFormat::SevenZip,
+                into,
+                only: only.iter().map(|o| o.to_string()).collect(),
+            };
+            Some(vec![PinnedBuild {
+                tag: "1.2".into(),
+                files: vec![file("emu.7z", None, &[]), file("parts.7z", Some("parts"), &["parts/a.so"])],
+            }])
+        }
+
+        fn asset_matches(&self, _name: &str) -> bool {
+            true
+        }
+
+        fn archive_format(&self, _asset: &str) -> ArchiveFormat {
+            ArchiveFormat::SevenZip
+        }
+
+        async fn program(&self, storage: &dyn Storage, tag: &str) -> PluginResult<RelPath> {
+            self.0.program(storage, tag).await
+        }
+
+        fn runs(&self, help: &str) -> bool {
+            self.0.runs(help)
+        }
+
+        fn own_build(&self) -> OwnBuild {
+            self.0.own_build()
+        }
+    }
+
+    /// A pinned build is offered with no release list, and its plan has each of its files, in
+    /// order, each with its checksum and the paths it keeps.
+    #[tokio::test]
+    async fn a_pinned_build_plans_each_of_its_files_with_no_release_list() {
+        let host = TestHost::default();
+        let builds = BuildManager::new(PinnedFlavor(TestFlavor::default()), host.host());
+        let versions: Vec<String> = builds.available().await.unwrap().into_iter().map(|v| v.version).collect();
+        assert_eq!(versions, ["1.2"]);
+        assert!(host.http.requests().is_empty(), "no release list is fetched");
+
+        let plan = builds.plan(&DownloadRequest::EmulatorBuild { version: None }).await.unwrap();
+        let places: Vec<(&str, &str, &[String])> = plan
+            .artifacts
+            .iter()
+            .map(|a| {
+                let unpack = a.unpack.as_ref().unwrap();
+                (a.url.as_str(), unpack.into.as_str(), unpack.only.as_slice())
+            })
+            .collect();
+        assert_eq!(
+            places,
+            [
+                ("https://builds.example/emu.7z", "builds/1.2", &[][..]),
+                ("https://builds.example/parts.7z", "builds/1.2/parts", &["parts/a.so".to_owned()][..]),
+            ]
+        );
+        assert!(plan.artifacts.iter().all(|a| a.sha256 == "ab".repeat(32)));
+        builds.run_action("check").await.unwrap();
     }
 
     type Switch = (Option<String>, Option<String>);
@@ -785,7 +943,7 @@ pub(crate) mod tests {
         assert_eq!(plan.label, "TestEmu v1");
         assert_eq!(
             plan.artifacts[0].unpack,
-            Some(Unpack { format: ArchiveFormat::Zip, into: RelPath::new("builds/v1").unwrap() })
+            Some(Unpack { format: ArchiveFormat::Zip, into: RelPath::new("builds/v1").unwrap(), only: Vec::new() })
         );
         let old = t.builds.plan(&DownloadRequest::EmulatorBuild { version: Some("v0".into()) }).await.unwrap_err();
         assert_eq!(old, PluginError::Precondition("GitHub has no checksum for emu-linux.zip".into()));
