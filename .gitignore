@@ -1,5 +1,5 @@
 target/
 node_modules/
-# Packages (scripts/package.sh and the make targets). git tracks dist/catalog/.
-/dist/*
-!/dist/catalog/
+# Packages (scripts/package.sh and the make targets), and the catalog collector's work folder
+# (dist/catalog/): the published assets/catalog/*.json are the source of each refresh.
+/dist/

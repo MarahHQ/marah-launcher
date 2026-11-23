@@ -1,13 +1,17 @@
 #!/usr/bin/env node
-// Bring a source (Russian) catalog up to date without a browser, for the daily catalog workflow:
+// Bring a forum's part of a published catalog (assets/catalog/<name>.json, English) up to date
+// without a browser, for the daily catalog workflow:
 // new and renamed releases from the forum's Atom feed (titles; it covers the last 1–4 weeks), and
 // magnets, sizes and peers for every release from the public API. Release details from topic pages
 // (genre, title ID, languages) need the browser collector; new topics arrive without them, and
 // borrow the game's own facts (title ID, genre, developer…) from another release of the same game.
 //
-//   node refresh.mjs --platform ps5 [--catalog dist/catalog/ps5-topics.json.ru-backup.json]
-import { readFile, rename, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+// It writes the forum's listing to dist/catalog/<key>-topics.json: the topics it adds have the feed's
+// Russian titles, and translate.mjs makes only those English.
+//
+//   node refresh.mjs --platform ps5 [--catalog assets/catalog/ps5.json]
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyApi } from './api.mjs';
 import { distFile, platformFrom, takes, UNPLAYABLE } from './platforms.mjs';
@@ -114,21 +118,35 @@ export function refreshCatalog(catalog, feed, api, platform, now = new Date()) {
   };
 }
 
+/** The listing of `platform`'s forum in the published catalog `catalog`: its topics (a catalog of
+ * several forums names each topic's forum in its `source`), as a complete, English listing of
+ * that forum, which the refresh changes and publish.mjs reads. */
+export function fromCatalog(catalog, platform) {
+  const forums = catalog.forums ?? [catalog.source];
+  const topics = catalog.topics.filter(topic => (topic.source ?? catalog.source) === platform.source
+    || (forums.length === 1 && !topic.source));
+  const { forums: _, ...rest } = catalog;
+  return { ...rest, source: platform.source, platform: platform.key, complete: true,
+    translation: catalog.translation ?? { language: 'en' }, topic_count: topics.length, topics };
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
   const platform = platformFrom(args);
   const index = args.indexOf('--catalog');
-  const path = resolve(index >= 0 ? args[index + 1]
-    : distFile(`${platform.key}-topics.json.ru-backup.json`));
+  const from = resolve(index >= 0 ? args[index + 1]
+    : fileURLToPath(new URL(`../../assets/catalog/${platform.catalog}.json`, import.meta.url)));
+  const path = distFile(`${platform.key}-topics.json`);
   const get = async (url, as) => {
     const response = await fetch(url, { signal: AbortSignal.timeout(60_000), headers: { 'User-Agent': 'marah-launcher-catalog' } });
     if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
     return response[as]();
   };
-  const catalog = JSON.parse(await readFile(path, 'utf8'));
+  const catalog = fromCatalog(JSON.parse(await readFile(from, 'utf8')), platform);
   const feed = parseFeed(await get(platform.feed, 'text'));
   const api = await get(platform.api, 'json');
   const { catalog: updated, added, renamed, removed, borrowed } = refreshCatalog(catalog, feed, api, platform);
+  await mkdir(dirname(path), { recursive: true });
   const temporary = `${path}.${process.pid}.tmp`;
   await writeFile(temporary, JSON.stringify(updated, null, 2) + '\n');
   await rename(temporary, path);

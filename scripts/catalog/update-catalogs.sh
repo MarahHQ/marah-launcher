@@ -1,24 +1,26 @@
 #!/usr/bin/env bash
-# Makes or updates the catalogs Marah Launcher bundles: assets/catalog/ps5.json, ps4.json, pc.json and
-# switch.json.
+# Makes or updates the catalogs Marah Launcher bundles: assets/catalog/<name>.json, one for each
+# catalog in assets/catalog-sources.json.
 #
-#   scripts/catalog/update-catalogs.sh [--console ps5|ps4|pc|switch] [--refresh] [--dry-run]
+#   scripts/catalog/update-catalogs.sh [--console <name>] [--refresh] [--dry-run]
 #
 # --console reads only that catalog's forums, and replaces only that catalog. Without it, every
 # catalog in assets/catalog-sources.json is made.
 #
 # Without --refresh (the full run), each forum in assets/catalog-sources.json is read again in a
-# visible Chrome window: do the Cloudflare check yourself when it shows. Its new listing becomes
-# the Russian source, and translate.mjs makes it English. Set STEAM=1 to add Steam art and
-# ProtonDB ratings (steam.mjs) before the translation.
+# visible Chrome window: do the Cloudflare check yourself when it shows. Its new listing is
+# Russian, and translate.mjs makes it English. Set STEAM=1 to add Steam art and ProtonDB ratings
+# (steam.mjs) before the translation.
 #
-# With --refresh, no browser opens: refresh.mjs updates each Russian source from the forum's
-# feed and API. A forum needs a Russian source from an earlier full run; one without it is
-# skipped.
+# With --refresh, no browser opens: refresh.mjs starts from each forum's topics in the published
+# assets/catalog/<name>.json and updates them from the forum's feed and API, and translate.mjs
+# makes the new topics English. A catalog with no file there yet is skipped.
 #
-# Then publish.mjs writes the catalogs, and they are copied into dist/catalog/publish/ and
-# assets/catalog/. Before anything changes, the current assets/catalog/*.json and Russian sources
-# are copied to dist/catalog/backup/<UTC time>/. The run stops at the first forum whose listing
+# Then publish.mjs writes the catalogs, and they are copied into assets/catalog/, and into
+# dist/catalog/publish/ for publish-catalog.sh. dist/catalog/ is
+# the scripts' work folder, which git ignores: the published files are the source of the next
+# refresh. Before anything changes, the current assets/catalog/*.json are copied to
+# dist/catalog/backup/<UTC time>/. The run stops at the first forum whose listing
 # is partial, and never copies a file that is not complete and English.
 #
 # A full run that stopped after it read every listing page keeps its listing in
@@ -30,7 +32,6 @@
 #
 # --dry-run prints each command and copy without doing it.
 #
-# The files in assets/catalog/ are your data: don't commit them.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -103,16 +104,12 @@ else
 fi
 [ -n "$forums" ] || fail "no forums in $sources"
 
-# Back up the bundled catalogs and the Russian sources before anything changes them.
+# Back up the bundled catalogs before anything changes them.
 backup="$dist/backup/$(date -u +%Y%m%dT%H%M%SZ)"
-echo "Backup of the current catalogs and Russian sources: $backup"
+echo "Backup of the current catalogs: $backup"
 run mkdir -p "$backup"
 for name in $names; do
   if [ -f "$assets/$name.json" ]; then run cp -p "$assets/$name.json" "$backup/$name.json"; fi
-done
-for key in $forums; do
-  source="$dist/$key-topics.json.ru-backup.json"
-  if [ -f "$source" ]; then run cp -p "$source" "$backup/"; fi
 done
 
 if [ "$refresh" = 0 ]; then
@@ -145,13 +142,16 @@ if [ "$refresh" = 0 ]; then
   done
 else
   for key in $forums; do
-    if [ ! -f "$dist/$key-topics.json.ru-backup.json" ]; then
-      echo "== $key: skipped, no Russian source $dist/$key-topics.json.ru-backup.json. Run make catalog first."
+    name=$(jq -r --arg k "$key" 'to_entries[] | select(any(.value.forums[]; .key == $k)) | .key' "$sources")
+    # A listing of an earlier run must not stand in for this one.
+    if [ "$dry" = 0 ]; then rm -f "$dist/$key-topics.json"; fi
+    if [ ! -f "$assets/$name.json" ]; then
+      echo "== $key: skipped, no catalog $assets/$name.json yet. Run make catalog first."
       continue
     fi
-    echo "== $key: refresh from the feed and the forum list"
+    echo "== $key: refresh $name.json from the feed and the forum list"
     run node "$here/refresh.mjs" --platform "$key"
-    run node "$here/translate.mjs" --platform "$key" --from-original
+    run node "$here/translate.mjs" --platform "$key"
   done
 fi
 
@@ -190,4 +190,4 @@ if [ "$dry" = 0 ]; then
     fi
   done
 fi
-echo "The earlier files are in $backup. Build Marah Launcher again to bundle the new catalogs. Don't commit them."
+echo "The earlier files are in $backup. Build Marah Launcher again to bundle the new catalogs, and commit them: the next refresh starts from them."

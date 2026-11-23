@@ -10,11 +10,10 @@ their magnet links and game facts.
 - `assets/catalog-sources.json` names the forums each catalog comes from. The collector reads it,
   and the plugin's `build.rs` compiles the same file into Marah Launcher.
 - `assets/catalog/ps5.json`, `ps4.json`, `pc.json`, `switch.json`, `ps1.json`, `nes.json` and
-  `genesis.json` are the bundled catalogs. `ps1.json`, `nes.json` and `genesis.json` start empty:
-  `ps1.json` until its first full run, and `nes.json` and `genesis.json` until
-  `catalog-sources.json` names their forums. The plugin's `build.rs` compiles these into Marah Launcher (the list is in `bundled-names.rs`); a build fails
-  when one is missing. Git holds a full set; `make catalog` and `make catalog-refresh` replace
-  them, and the next build bundles the new ones.
+  `genesis.json` are the bundled catalogs. The plugin's `build.rs` compiles these into Marah
+  Launcher (the list is in `bundled-names.rs`); a build fails when one is missing. Git holds a
+  full set, and they are the source of the next refresh. `make catalog` and
+  `make catalog-refresh` replace them; commit them, and the next build bundles them.
 - In Marah Launcher, the plugin uses the bundled catalog while its **Catalog address** setting is empty.
   With an address, it fetches `<address>/<console>.json`, keeps it in the plugin's `fetched/`
   folder, fetches again after 6 hours, and falls back to the copy fetched before, then to the
@@ -102,19 +101,22 @@ Both targets run `scripts/catalog/update-catalogs.sh`, with `--refresh` for the 
 Chrome, and runs `npm install` when `node_modules` is missing.
 
 - **Full run**: for each forum, `list.mjs --include-magnets`. Do the Cloudflare check in the
-  Chrome window when it shows. The new listing is copied over the forum's Russian source, so
-  `steam.mjs` (with `STEAM=1`) and `translate.mjs --from-original` work from it. A full run
-  without `STEAM=1` drops the Steam data of earlier runs, since that data lives in the Russian
-  source; the backup keeps a copy.
-- **Refresh**: for each forum, `refresh.mjs`, then `translate.mjs --from-original`. A forum needs
-  a Russian source from an earlier full run. The script skips a forum without one and says so.
+  Chrome window when it shows. The new listing is Russian: it is kept as this run's Russian
+  copy, `steam.mjs` (with `STEAM=1`) adds to it, and `translate.mjs --from-original` makes it
+  English. A full run without `STEAM=1` drops the Steam data of earlier runs; the backup keeps a
+  copy.
+- **Refresh**: for each forum, `refresh.mjs` starts from the forum's topics in the published
+  `assets/catalog/<name>.json` (a catalog of two forums, `pc.json`, names each topic's forum in
+  its `source`) and brings them up to date from the forum's feed and API. The topics it adds
+  have the feed's Russian titles, and `translate.mjs` makes only those English. A catalog with no
+  file in `assets/catalog/` yet is skipped, and the script says so.
 
 Then `publish.mjs` writes the catalogs to a new temporary folder, and the script copies them to
 `dist/catalog/publish/` and `assets/catalog/`. Build Marah Launcher again to bundle them.
 
 The script guards the current files:
 
-- First it copies the current `assets/catalog/<name>.json` and the forums' Russian sources to
+- First it copies the current `assets/catalog/<name>.json` to
   `dist/catalog/backup/<UTC time>/`, and prints that folder. To go back, copy the files from
   there. `make clean` removes `dist/`, and the backups with it.
 - It stops at the first forum whose listing is partial (`list.mjs` exit 2), before it copies
@@ -131,20 +133,19 @@ command and copy without running it. `--help` prints the usage.
 
 ## The collector's files
 
-The scripts keep their files in `dist/catalog/`:
+The scripts keep their work files in `dist/catalog/`. Git ignores `dist/`: nothing there is
+needed after a run, since the next refresh starts from `assets/catalog/`.
 
 | File | What it is |
 |---|---|
-| `<key>-topics.json` | The English listing of one forum |
-| `<key>-topics.json.ru-backup.json` | Its Russian source, which `translate.mjs --from-original`, `steam.mjs` and `refresh.mjs` work on |
+| `<key>-topics.json` | The English listing of one forum, which `publish.mjs` reads |
+| `<key>-topics.json.ru-backup.json` | A full run's Russian listing, which `steam.mjs` and `translate.mjs --from-original` work on |
 | `<key>-topics.json.partial.json` | A listing that stopped early; it never replaces a complete one |
-| `english-translations.json` | The translation cache |
-| `publish/<catalog>.json` | The files for Marah Launcher |
+| `english-translations.json` | The translation cache, so a run asks for a string once |
+| `publish/<catalog>.json` | The catalogs of the last run, for `publish-catalog.sh` |
 | `backup/<UTC time>/` | The copies `update-catalogs.sh` makes before it changes anything |
 
-`dist/` isn't in `.gitignore`, and the repo tracks the listings, Russian sources, translation
-cache and `publish/` files under `dist/catalog/`. Check `git status` after a run, and leave
-`backup/` out of commits.
+Commit the files in `assets/catalog/` after a run.
 
 The browser profile is `~/.cache/marah-launcher/rutracker-list-browser`. It can hold your session cookies:
 keep it private, and don't commit or share it. One collector at a time can use it.
@@ -219,8 +220,11 @@ uploaders' claims are translated, not checked.
 
 ## Refresh without a browser
 
-`refresh.mjs --platform <key>` updates a Russian source from two public endpoints, whose base
-addresses are fixed in `platforms.mjs` and in the plugin's `refresh.rs`:
+`refresh.mjs --platform <key>` takes the forum's topics from the published
+`assets/catalog/<name>.json` (`--catalog <file>` for another one), updates them from two public
+endpoints, and writes the forum's listing to `dist/catalog/<key>-topics.json`, for
+`translate.mjs` and `publish.mjs`. The endpoints' base addresses are fixed in `platforms.mjs`
+and in the plugin's `refresh.rs`:
 
 - the forum's Atom feed, `https://feed.rutracker.cc/atom/f/<number>.atom`: new and renamed
   releases from the last one to four weeks;
