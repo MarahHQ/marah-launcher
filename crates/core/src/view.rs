@@ -1759,15 +1759,10 @@ fn folder_path_vm(s: &Snapshot, path: &std::path::Path) -> launcher_ui_api::Fold
 
 fn emulators_vm(s: &Snapshot) -> EmulatorsVm {
     let (plugins, builds) = (&s.plugins, &s.builds);
-    let manages_an_emulator = |id: &PluginId| {
-        plugins.manifest(id).is_some_and(|m| {
-            m.capabilities.contains(&Capability::Installer) || m.capabilities.contains(&Capability::Launcher)
-        })
-    };
-    let emulators = plugins
-        .of_kind(PluginKind::Emulator)
+    // Home lists the systems by name, after All games: see [`Snapshot::home_emulators`].
+    let emulators = s
+        .home_emulators()
         .into_iter()
-        .filter(manages_an_emulator)
         .map(|id| {
             let emu = builds.emulators.get(&id).cloned().unwrap_or_default();
             let manifest = plugins.manifest(&id);
@@ -1794,9 +1789,6 @@ fn emulators_vm(s: &Snapshot) -> EmulatorsVm {
             }
         })
         .collect::<Vec<_>>();
-    // Home lists the systems by name, after All games.
-    let mut emulators = emulators;
-    emulators.sort_by_cached_key(|e: &EmulatorVm| e.system_name.to_lowercase());
     let rows = plugins
         .order()
         .iter()

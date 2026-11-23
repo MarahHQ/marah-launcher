@@ -95,10 +95,36 @@ impl Snapshot<'_> {
         }
     }
 
-    /// Home's systems, in its order: the console of each turned-on emulator plugin.
+    /// Home's systems, in its order ([`Snapshot::home_emulators`]): each one's system id, the
+    /// platform its games have ("SWITCH"), else its console.
     pub fn home_systems(&self) -> Vec<String> {
-        let plugins = self.plugins.of_kind(PluginKind::Emulator).into_iter();
-        plugins.filter_map(|id| Some(self.plugins.manifest(&id)?.console.as_ref()?.as_str().to_owned())).collect()
+        self.home_emulators()
+            .iter()
+            .filter_map(|id| {
+                let manifest = self.plugins.manifest(id)?;
+                let look = manifest.system.as_ref().map(|l| l.id.clone());
+                look.or_else(|| manifest.console.as_ref().map(|c| c.as_str().to_owned()))
+            })
+            .collect()
+    }
+
+    /// Home's emulators, in its order: the turned-on emulator plugins that install or start
+    /// games, by their system's full name ("Nintendo Switch", "PlayStation 5").
+    pub fn home_emulators(&self) -> Vec<PluginId> {
+        let plugins = &self.plugins;
+        let mut named: Vec<(String, PluginId)> = plugins
+            .of_kind(PluginKind::Emulator)
+            .into_iter()
+            .filter_map(|id| {
+                let manifest = plugins.manifest(&id)?;
+                let caps = &manifest.capabilities;
+                let manages = caps.contains(&Capability::Installer) || caps.contains(&Capability::Launcher);
+                let name = manifest.system.as_ref().map(|l| l.name.to_lowercase()).unwrap_or_default();
+                manages.then_some((name, id))
+            })
+            .collect();
+        named.sort_by(|a, b| a.0.cmp(&b.0));
+        named.into_iter().map(|(_, id)| id).collect()
     }
 
     /// This PC's system and how it meets each emulator's needs, for each game's best version.
