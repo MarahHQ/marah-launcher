@@ -22,12 +22,15 @@ import { Ask, AskKeys } from "ask.slint";
 // ○ (Escape) clears the typed text first, then goes up a folder (the places: closes; the top:
 // closes). □ (Insert) or Ctrl+H shows the hidden folders, or not. Letters type into the text
 // that filters the files, Backspace takes the last one back. A restore asks once, in a dialog.
-// Mouse: a click opens a place or a folder, and asks to restore a backup; the wheel scrolls.
+// Mouse: a click opens a place or a folder, asks to restore a backup, and imports an archive
+// (a system files import); the wheel scrolls.
 // For a moment after a click opens a folder, clicks wait: the second click of a double click
 // would open a row of the new folder.
 export global Browser {
     out property <bool> open: Vm.browser.open;
     out property <bool> picking: Vm.browser.purpose == "pick";
+    // Picking the archive of a plugin's system files: an archive imports, with no dialog.
+    out property <bool> archives: Vm.browser.purpose == "system-files";
     // 0: the places; 1: the files.
     in-out property <int> pane: 1;
     in-out property <int> at-place;
@@ -83,7 +86,7 @@ export global Browser {
         Commands.browse-to(Vm.browser.parent);
         Host.play-sound("back");
     }
-    // A folder opens; a backup asks to restore.
+    // A folder opens; a backup asks to restore; an archive imports.
     public function open-entry(i: int) {
         root.pane = 1;
         root.at-entry = i;
@@ -91,9 +94,17 @@ export global Browser {
         if (Vm.browser.entries[i].folder) {
             Commands.browse-to(Vm.browser.entries[i].path);
             Host.play-sound("select");
+        } else if (root.archives) {
+            root.import(i);
         } else {
             root.ask(i);
         }
+    }
+    // Imports the archive `i`, and the browser closes.
+    public function import(i: int) {
+        if (i < 0 || i >= root.entries || Vm.browser.entries[i].folder) { return; }
+        Commands.import-system-files(Vm.browser.folder, Vm.browser.entries[i].path);
+        Host.play-sound("select");
     }
     // The dialog for the backup `i`. A backup a newer Marah Launcher made can't be restored.
     public function ask(i: int) {
@@ -184,7 +195,7 @@ export global Browser {
                 root.open-entry(root.at-entry);
             }
         } else if (text == "/") {
-            if (root.picking) { root.use(); } else if (root.pane == 1) { root.ask(root.at-entry); }
+            if (root.picking) { root.use(); } else if (root.pane == 1 && root.archives) { root.import(root.at-entry); } else if (root.pane == 1) { root.ask(root.at-entry); }
         } else if (text == Key.Escape) {
             if (root.typed != "") {
                 root.find("");
@@ -528,13 +539,13 @@ export component FolderBrowser inherits Rectangle {
                                 r := Reveal { order: Math.min(i, Motion.stagger-cap); }
                                 opacity: r.fade;
                                 icon: entry.folder ? "folder" : "archive";
-                                name: entry.folder ? entry.name : entry.date;
-                                detail: entry.folder ? entry.detail : entry.newer ? "Newer " + Brand.name : entry.size;
+                                name: entry.folder || Browser.archives ? entry.name : entry.date;
+                                detail: entry.folder ? entry.detail : Browser.archives ? entry.size : entry.newer ? "Newer " + Brand.name : entry.size;
                                 dim: entry.newer;
                                 lit: Browser.pane == 1 && Browser.at-entry == i;
                                 marked: Browser.pane != 1 && Browser.at-entry == i;
                                 accessible-role: list-item;
-                                accessible-label: entry.folder ? "browser-folder" : "browser-backup";
+                                accessible-label: entry.folder ? "browser-folder" : Browser.archives ? "browser-archive" : "browser-backup";
                                 accessible-value: entry.name;
                                 accessible-description: entry.folder ? entry.detail : entry.newer ? "newer" : "";
                                 accessible-item-selected: Browser.pane == 1 && Browser.at-entry == i;
@@ -547,7 +558,7 @@ export component FolderBrowser inherits Rectangle {
                         width: parent.width;
                         height: parent.height;
                         text: Vm.browser.filter != "" ? "Nothing here holds “" + Vm.browser.filter + "”"
-                            : Browser.picking ? "No folders here" : "No backups here";
+                            : Browser.picking ? "No folders here" : Browser.archives ? "No archives here" : "No backups here";
                         font-size: 19 * Look.tpx;
                         color: Look.text3;
                         horizontal-alignment: center;
@@ -584,7 +595,17 @@ export component FolderBrowser inherits Rectangle {
                             Fact { name: "Folder"; value: root.entry.name; }
                             if root.entry.detail != "" : Fact { name: "Holds"; value: root.entry.detail; }
                         }
-                        if Browser.pane == 1 && Browser.entries > 0 && !root.entry.folder : VerticalLayout {
+                        if Browser.pane == 1 && Browser.entries > 0 && !root.entry.folder && Browser.archives : VerticalLayout {
+                            spacing: 16 * Look.px;
+                            Fact { name: "File"; value: root.entry.name; }
+                            Fact { name: "Size"; value: root.entry.size; }
+                            SheetButton {
+                                text: "Import";
+                                name: "browser-import";
+                                clicked => { Browser.import(Browser.at-entry); }
+                            }
+                        }
+                        if Browser.pane == 1 && Browser.entries > 0 && !root.entry.folder && !Browser.archives : VerticalLayout {
                             spacing: 16 * Look.px;
                             Fact { name: "Made"; value: root.entry.date; }
                             Fact { name: "From"; value: root.entry.computer != "" ? root.entry.computer : "Not known"; }
@@ -633,7 +654,7 @@ export component FolderBrowser inherits Rectangle {
                     pad: "✕";
                     key: "Enter";
                     label: Browser.pane == 0 ? (Vm.browser.places[Browser.at-place].mounted ? "Go" : "Mount")
-                        : root.entry.folder ? "Open" : root.entry.newer ? "Can't restore" : "Restore";
+                        : root.entry.folder ? "Open" : Browser.archives ? "Import" : root.entry.newer ? "Can't restore" : "Restore";
                 }
                 if !Browser.asking && Browser.picking : KeyHint { pad: "△"; key: "/"; label: "Use this folder"; }
                 if !Browser.asking : KeyHint { pad: "○"; key: "Esc"; label: Browser.typed != "" ? "Clear" : Browser.pane == 0 || Vm.browser.parent == "" ? "Close" : "Up a folder"; }

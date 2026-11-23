@@ -342,7 +342,7 @@ async fn a_plugin_s_own_requests_follow_redirects_only_inside_its_allowlist() {
     let http: Arc<Mutex<Option<Arc<dyn HttpClient>>>> = Arc::default();
     let slot = http.clone();
     let plugin = StubPlugin::from_toml(
-        "id = \"web\"\nkind = \"emulator\"\nname = \"W\"\nversion = \"1.0.0\"\nhost_api = \"^0.5\"\n\
+        "id = \"web\"\nkind = \"emulator\"\nname = \"W\"\nversion = \"1.0.0\"\nhost_api = \"^0.6\"\n\
          [permissions]\nnetwork = [\"*.builds.example\"]",
     )
     .provides(move |ctx| {

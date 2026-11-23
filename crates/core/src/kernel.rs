@@ -934,6 +934,28 @@ fn validate(host: &HostConfig, manifest: &PluginManifest, origin: Origin) -> Res
     if origin == Origin::ThirdParty && manifest.shared_data.is_some() {
         return Err(LoadError::Invalid("only a built-in plugin shares a data folder".into()));
     }
+    if let Some(files) = &manifest.system_files {
+        if files.name.trim().is_empty() || files.archive.trim().is_empty() || files.parts.is_empty() {
+            return Err(LoadError::Invalid("[system_files] needs a name, an archive and at least one part".into()));
+        }
+        // A part writes only where the plugin may write.
+        for part in &files.parts {
+            if part.into.as_str().is_empty() {
+                return Err(LoadError::Invalid(format!(
+                    "[system_files] part {:?}: into names a folder inside the target, not its top",
+                    part.from.as_str()
+                )));
+            }
+            let Some(folder) = &part.folder else { continue };
+            let writes = manifest.permissions.filesystem.iter().any(|g| &g.folder == folder && g.write);
+            if !writes {
+                return Err(LoadError::Invalid(format!(
+                    "[system_files] part {:?}: folder {folder:?} must be a [[permissions.filesystem]] folder with write",
+                    part.from.as_str()
+                )));
+            }
+        }
+    }
     // The kind governs privileges only: any plugin with code may provide the data capabilities.
     let system = manifest.kind == PluginKind::System;
     if let Some(c) = manifest.capabilities.iter().find(|c| !system && Capability::SYSTEM.contains(c)) {

@@ -78,6 +78,10 @@ pub(crate) async fn run_action(
     if action == launcher_api::HOST_OPEN_EMULATOR {
         return crate::launch::open_emulator(core, plugin).await;
     }
+    if action == launcher_api::HOST_IMPORT_SYSTEM_FILES {
+        let purpose = crate::browser::Purpose::SystemFiles(plugin.clone());
+        return crate::browser::open(core, None, purpose).await;
+    }
     if action == HOST_INSTALL_GAME {
         let source = serde_json::from_value(args)
             .map_err(|e| CoreError::Invalid(format!("{HOST_INSTALL_GAME} needs a folder path: {e}")))?;

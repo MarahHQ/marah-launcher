@@ -36,6 +36,7 @@ mod releases;
 mod slots;
 mod startup;
 mod system;
+mod system_files;
 mod theme;
 
 pub use async_trait::async_trait;
@@ -66,13 +67,14 @@ pub use releases::*;
 pub use slots::*;
 pub use startup::*;
 pub use system::*;
+pub use system_files::*;
 pub use theme::*;
 
 /// The version of this API, which plugins' `host_api` ranges name. It is not the crate's version:
 /// that is Marah Launcher's, which every release raises. This one changes by hand, with the API: a new
 /// minor for an addition before 1.0 breaks no plugin only if their ranges allow it, so raise it
 /// together with the built-in plugins' `host_api`.
-pub const API_VERSION: &str = "0.5.0";
+pub const API_VERSION: &str = "0.6.0";
 
 pub fn api_version() -> semver::Version {
     semver::Version::parse(API_VERSION).expect("API_VERSION is valid semver")

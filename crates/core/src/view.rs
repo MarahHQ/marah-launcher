@@ -1570,6 +1570,7 @@ fn browser_vm(s: &Snapshot) -> launcher_ui_api::FolderBrowserVm {
         crate::browser::Purpose::Restore => ("restore", String::new()),
         crate::browser::Purpose::Pick(name) => ("pick", name.clone()),
         crate::browser::Purpose::BackupFolder => ("pick", "backup".to_owned()),
+        crate::browser::Purpose::SystemFiles(plugin) => ("system-files", plugin.to_string()),
     };
     let folder_title = match &browser.purpose {
         crate::browser::Purpose::BackupFolder => "Backup folder".to_owned(),
@@ -1579,6 +1580,10 @@ fn browser_vm(s: &Snapshot) -> launcher_ui_api::FolderBrowserVm {
         crate::browser::Purpose::Restore => "Restore a backup".to_owned(),
         crate::browser::Purpose::Pick(_) => format!("Add to {folder_title}"),
         crate::browser::Purpose::BackupFolder => "Choose the backup folder".to_owned(),
+        crate::browser::Purpose::SystemFiles(plugin) => {
+            let files = s.plugins.manifest(plugin).and_then(|m| m.system_files.as_ref());
+            files.map(|f| format!("Import {}", f.name)).unwrap_or_else(|| "Import system files".to_owned())
+        }
     };
     launcher_ui_api::FolderBrowserVm {
         open: true,
@@ -1611,10 +1616,13 @@ fn browser_vm(s: &Snapshot) -> launcher_ui_api::FolderBrowserVm {
                 let mut vm = launcher_ui_api::BrowseEntryVm {
                     name,
                     path: full(&e.path),
-                    folder: e.backup.is_none(),
+                    folder: e.backup.is_none() && e.archive.is_none(),
                     detail: e.detail.clone(),
                     ..Default::default()
                 };
+                if let Some(bytes) = e.archive {
+                    vm.size = crate::display::size_text(bytes);
+                }
                 if let Some(b) = &e.backup {
                     vm.date = crate::display::date_time_text(b.made);
                     vm.size = crate::display::size_text(b.bytes);
@@ -1921,12 +1929,15 @@ fn plugin_page_vm(s: &Snapshot, plugin: &PluginId) -> Option<PluginPageVm> {
     Some(PluginPageVm {
         emulator: all.emulators.into_iter().find(|e| &e.plugin == plugin),
         panels,
-        sections: s
-            .builds
-            .emulators
-            .get(plugin)
-            .map(|e| slot_vms(plugin, SlotId::EmulatorPanel, e.panels.clone()))
-            .unwrap_or_default(),
+        sections: {
+            // The core's "System files" block comes first, then the plugin's own.
+            let system = s.plugins.manifest(plugin).and_then(|m| m.system_files.as_ref()).map(|files| {
+                let status = s.builds.system_files.get(plugin).cloned().unwrap_or_default();
+                crate::system_files::block(files, &status)
+            });
+            let own = s.builds.emulators.get(plugin).map(|e| e.panels.clone()).unwrap_or_default();
+            slot_vms(plugin, SlotId::EmulatorPanel, system.into_iter().chain(own).collect())
+        },
         folders: folders_vm(s)
             .into_iter()
             .filter(|f| launcher_api::shared_folder(&f.name).is_none() && asks.contains(&f.name.as_str()))

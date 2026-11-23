@@ -83,7 +83,7 @@ id = "fixture-grid"
 kind = "theme"
 name = "Fixture grid"
 version = "0.1.0"
-host_api = "^0.5"
+host_api = "^0.6"
 capabilities = ["theme"]
 
 [runtime]

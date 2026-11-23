@@ -69,7 +69,7 @@ From `theme.toml`:
 | --- | --- |
 | `id`, `name` | `classic`, `Classic` |
 | `version` | `0.3.0` |
-| `host_api` | `^0.5` |
+| `host_api` | `^0.6` |
 | `activation` | `eager` |
 | `ui_api` | `^0.8` |
 | `input` | `["gamepad", "pointer"]` |

@@ -150,6 +150,10 @@ export global Commands {
     // Only the entries whose name holds `text`; "" for all.
     public function filter-folders(text: string) { Host.command("Browse", "{\"Filter\":" + Json.text(text) + "}"); }
     public function restore-backup-file(path: string) { Host.command("Backup", "{\"RestoreFile\":" + Json.text(path) + "}"); }
+    // Imports the plugin's system files from the archive at `path` ([system_files]).
+    public function import-system-files(plugin: string, path: string) {
+        Host.command("ImportSystemFiles", "{\"plugin\":" + Json.text(plugin) + ",\"file\":" + Json.text(path) + "}");
+    }
     // "" goes back to ~/Marah Launcher Backups.
     public function set-backup-folder(path: string) { Host.command("Pref", "[\"backup_folder\"," + Json.text-or-null(path) + "]"); }
 

@@ -13,7 +13,7 @@ use launcher_core::{Clock, CoreError, LoadError, PluginStatus};
 use launcher_testkit::{FakeHost, StubPlugin};
 
 fn manifest(id: &str, extra: &str) -> String {
-    format!("id = \"{id}\"\nkind = \"emulator\"\nname = \"{id}\"\nversion = \"1.0.0\"\nhost_api = \"^0.5\"\n{extra}")
+    format!("id = \"{id}\"\nkind = \"emulator\"\nname = \"{id}\"\nversion = \"1.0.0\"\nhost_api = \"^0.6\"\n{extra}")
 }
 
 struct EmptyCatalog;
@@ -163,7 +163,7 @@ async fn safe_mode_loads_built_in_plugins_only() {
     let built_in = StubPlugin::from_toml(&manifest("built-in", ""));
     // Third-party plugins are data-only themes.
     let outsider = StubPlugin::from_toml(
-        "id = \"outsider\"\nkind = \"theme\"\nname = \"outsider\"\nversion = \"1.0.0\"\nhost_api = \"^0.5\"\n\
+        "id = \"outsider\"\nkind = \"theme\"\nname = \"outsider\"\nversion = \"1.0.0\"\nhost_api = \"^0.6\"\n\
          capabilities = [\"theme\"]\n[runtime]\ntype = \"data\"",
     );
     let host = FakeHost::new().safe_mode().plugin(built_in).third_party(outsider.boxed()).boot().await;

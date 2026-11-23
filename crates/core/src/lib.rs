@@ -65,6 +65,7 @@ mod stack;
 mod startup;
 mod storage;
 pub mod system;
+mod system_files;
 mod themes;
 mod timings;
 mod torrents;

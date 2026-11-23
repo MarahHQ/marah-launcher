@@ -62,7 +62,7 @@ kind = "emulator"
 name = "PS5"
 emulator = "KytyPS5"
 version = "0.1.0"
-host_api = "^0.5"
+host_api = "^0.6"
 platforms = ["linux", "macos", "windows"]
 console = "PS5"
 capabilities = ["catalog", "downloader", "installer", "configurator", "launcher", "compatibility", "slots", "game_installer", "backup"]
@@ -114,7 +114,7 @@ cover = "cover.jpg"
 | `name` | yes | What the player sees: in the plugin lists, on the plugin page, and where a sentence means the console. An emulator names its console: `PS5`. |
 | `emulator` | no | For an emulator, the name of the program it installs and runs, such as `KytyPS5`. Sentences about the program use it. Leave it out when the program has no name of its own: `name` is used. |
 | `version` | yes | The plugin's semver version. |
-| `host_api` | yes | A semver range of the API versions the plugin works with, such as `^0.5`. The host refuses the plugin when the range doesn't include `API_VERSION`, now `0.5.0`. |
+| `host_api` | yes | A semver range of the API versions the plugin works with, such as `^0.6`. The host refuses the plugin when the range doesn't include `API_VERSION`, now `0.6.0`. |
 | `platforms` | no | `linux`, `macos`, `windows`. Empty means every system. |
 | `console` | no | For an emulator, the console it plays: ASCII letters, digits and `-`, kept in uppercase (`ps5` and `PS5` are one console). The host gives the emulator that console's releases. Not the systems the plugin runs on. |
 | `capabilities` | no | The capabilities `init` provides, in snake case. See [Capabilities](#capabilities). |

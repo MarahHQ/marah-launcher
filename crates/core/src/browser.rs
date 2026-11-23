@@ -7,6 +7,8 @@
 //!   folders only, and "Use this folder" adds the folder shown to the named folder's list.
 //! - [`Purpose::BackupFolder`]: choose the backup folder. It lists folders only, and "Use this
 //!   folder" makes the folder shown the backup folder.
+//! - [`Purpose::SystemFiles`]: pick the archive of a plugin's system files. It lists folders and
+//!   archives, and an archive imports ([`crate::system_files`]).
 //!
 //! Its places are Home and its usual folders, each drive (a drive that isn't mounted mounts from
 //! here, then the browser opens it), and for a restore the backup folder and the folders restores
@@ -34,6 +36,8 @@ pub enum Purpose {
     Pick(String),
     /// Choose the backup folder: one folder, not a list.
     BackupFolder,
+    /// Pick the archive of this plugin's system files, to import.
+    SystemFiles(launcher_api::PluginId),
 }
 
 /// The folder browser's commands.
@@ -105,12 +109,14 @@ pub struct BrowsePlace {
     pub usb: bool,
 }
 
-/// A folder or a backup in the browser's folder.
+/// A folder, a backup or an archive in the browser's folder.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BrowseEntry {
     pub path: PathBuf,
-    /// A backup's details; `None` for a folder.
+    /// A backup's details; `None` for a folder or an archive.
     pub backup: Option<BackupFile>,
+    /// An archive's size, for a system files import; `None` for a folder or a backup.
+    pub archive: Option<u64>,
     /// A folder's: what is in it ("2 backups", "empty", "can't be read"). Empty for a backup,
     /// and for a folder with other things but no backups.
     pub detail: String,
@@ -180,8 +186,8 @@ impl Browsing {
     /// or not as they were; the filter is cleared.
     async fn open(&self, purpose: Purpose, at: PathBuf, places: Vec<BrowsePlace>, loading: bool) -> CoreResult<()> {
         let hidden = self.snapshot().is_some_and(|b| b.hidden);
-        let (dir, restore) = (at.clone(), purpose == Purpose::Restore);
-        let entries = blocking(move || list(&dir, hidden, restore)).await?;
+        let (dir, listing) = (at.clone(), Listing::of(&purpose));
+        let entries = blocking(move || list(&dir, hidden, listing)).await?;
         let filter = String::new();
         self.set(Some(Browser { purpose, at, places, places_loading: loading, entries, hidden, filter }));
         Ok(())
@@ -201,8 +207,8 @@ impl Browsing {
 
     async fn show_hidden(&self, hidden: bool) -> CoreResult<()> {
         let open = self.snapshot().ok_or_else(|| CoreError::Invalid(CLOSED.into()))?;
-        let (dir, restore) = (open.at.clone(), open.purpose == Purpose::Restore);
-        let entries = blocking(move || list(&dir, hidden, restore)).await?;
+        let (dir, listing) = (open.at.clone(), Listing::of(&open.purpose));
+        let entries = blocking(move || list(&dir, hidden, listing)).await?;
         let mut state = self.state();
         // Moved or closed in the meantime: that newer state stays.
         if state.as_ref().is_some_and(|b| b.at == open.at) {
@@ -251,8 +257,8 @@ pub(crate) async fn handle(core: &Core, command: BrowseCmd) -> CoreResult<()> {
                 Purpose::BackupFolder => {
                     crate::backups::set_folder(core, serde_json::json!(open.at.display().to_string())).await?
                 }
-                Purpose::Restore => {
-                    return Err(CoreError::Invalid("the browser is open for a restore, not to pick a folder".into()));
+                Purpose::Restore | Purpose::SystemFiles(_) => {
+                    return Err(CoreError::Invalid("the browser is open to pick a file, not to pick a folder".into()));
                 }
             }
             core.browsing().close();
@@ -293,6 +299,16 @@ fn start(core: &Core, at: Option<PathBuf>, purpose: &Purpose) -> CoreResult<Path
             .or_else(|| core.kernel().host().home.clone())
             .or_else(|| std::env::temp_dir().ancestors().last().map(Path::to_path_buf))
             .ok_or_else(|| CoreError::Invalid("no folder to start from".into()))?,
+        // The Downloads folder, where an archive usually is, else Home.
+        (None, Purpose::SystemFiles(_)) => {
+            let home = core.kernel().host().home.clone();
+            home.as_ref()
+                .map(|h| h.join("Downloads"))
+                .filter(|d| d.is_dir())
+                .or(home)
+                .or_else(|| std::env::temp_dir().ancestors().last().map(Path::to_path_buf))
+                .ok_or_else(|| CoreError::Invalid("no folder to start from".into()))?
+        }
         // With no home folder, the top of the system's disk: `/`, or `C:\` on Windows.
         (None, Purpose::Pick(name)) => crate::plugin_settings::folder_roots(core, name)
             .into_iter()
@@ -388,9 +404,29 @@ async fn blocking<T: Send + 'static>(work: impl FnOnce() -> std::io::Result<T> +
 /// The folders of `dir`, each by name, then with `restore` its backups newest first; for a
 /// restore the folders that hold backups come first. Hidden folders only with `hidden`; other
 /// files and links are left out.
-fn list(dir: &Path, hidden: bool, restore: bool) -> std::io::Result<Vec<BrowseEntry>> {
+/// What the browser lists besides folders.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Listing {
+    Folders,
+    Backups,
+    Archives,
+}
+
+impl Listing {
+    fn of(purpose: &Purpose) -> Self {
+        match purpose {
+            Purpose::Restore => Listing::Backups,
+            Purpose::SystemFiles(_) => Listing::Archives,
+            Purpose::Pick(_) | Purpose::BackupFolder => Listing::Folders,
+        }
+    }
+}
+
+fn list(dir: &Path, hidden: bool, listing: Listing) -> std::io::Result<Vec<BrowseEntry>> {
+    let restore = listing == Listing::Backups;
     let mut folders = Vec::new();
     let mut backups = Vec::new();
+    let mut archives = Vec::new();
     for entry in std::fs::read_dir(dir)?.filter_map(Result::ok) {
         let Ok(kind) = entry.file_type() else { continue };
         let name = entry.file_name();
@@ -402,17 +438,33 @@ fn list(dir: &Path, hidden: bool, restore: bool) -> std::io::Result<Vec<BrowseEn
             && let Some(backup) = crate::backup::backup_file(&entry.path())
         {
             backups.push((entry.path(), backup));
+        } else if listing == Listing::Archives
+            && kind.is_file()
+            && (hidden || !name.to_string_lossy().starts_with('.'))
+            && crate::system_files::is_archive(&entry.path())
+        {
+            archives.push((entry.path(), entry.metadata().map(|m| m.len()).unwrap_or(0)));
         }
     }
     folders.sort_by_key(|(p, inside)| {
         (!matches!(inside, Inside::Backups(_)), p.file_name().map(|n| n.to_string_lossy().to_lowercase()))
     });
     backups.sort_by_key(|b| std::cmp::Reverse(b.1.made));
-    let mut out: Vec<BrowseEntry> =
-        folders.into_iter().map(|(path, inside)| BrowseEntry { path, backup: None, detail: inside.text() }).collect();
+    let mut out: Vec<BrowseEntry> = folders
+        .into_iter()
+        .map(|(path, inside)| BrowseEntry { path, backup: None, archive: None, detail: inside.text() })
+        .collect();
     out.extend(backups.into_iter().map(|(path, backup)| BrowseEntry {
         path,
         backup: Some(backup),
+        archive: None,
+        detail: String::new(),
+    }));
+    archives.sort_by_key(|(p, _)| p.file_name().map(|n| n.to_string_lossy().to_lowercase()));
+    out.extend(archives.into_iter().map(|(path, bytes)| BrowseEntry {
+        path,
+        backup: None,
+        archive: Some(bytes),
         detail: String::new(),
     }));
     Ok(out)

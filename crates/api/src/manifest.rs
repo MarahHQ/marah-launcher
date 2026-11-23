@@ -523,6 +523,10 @@ pub struct PluginManifest {
     /// folder of its own. For emulators that run one program between them.
     #[serde(default)]
     pub shared_data: Option<ShareName>,
+    /// The files the emulator needs besides its program and the games, which the player imports
+    /// from one archive on its page (`[system_files]`): see [`crate::SystemFiles`].
+    #[serde(default)]
+    pub system_files: Option<crate::SystemFiles>,
     #[serde(flatten)]
     pub extra: toml::Table,
 }
@@ -626,7 +630,7 @@ mod tests {
         kind = "emulator"
         name = "Native example"
         version = "0.1.0"
-        host_api = "^0.5"
+        host_api = "^0.6"
         platforms = ["linux", "macos"]
         capabilities = ["catalog", "launcher"]
 
@@ -686,6 +690,30 @@ mod tests {
     }
 
     #[test]
+    fn system_files_name_their_archive_and_where_each_part_goes() {
+        let text = format!(
+            "{KYTY}\n[system_files]\nname = \"Switch firmware and keys\"\narchive = \"switch.zip\"\n\
+             [[system_files.part]]\nfrom = \"firmware\"\nfolder = \"lichii-data\"\n\
+             into = \"nand/system/Contents/registered\"\nfiles = [\"*.nca\"]\nreplace = true\n\
+             [[system_files.part]]\nfrom = \"keys\"\ninto = \"keys\"\nrequired = [\"prod.keys\"]\n"
+        );
+        let manifest = PluginManifest::from_toml(&text).unwrap();
+        let files = manifest.system_files.expect("[system_files]");
+        assert_eq!((files.name.as_str(), files.archive.as_str()), ("Switch firmware and keys", "switch.zip"));
+        let (firmware, keys) = (&files.parts[0], &files.parts[1]);
+        assert_eq!(firmware.folder.as_deref(), Some("lichii-data"));
+        assert_eq!(firmware.into.as_str(), "nand/system/Contents/registered");
+        assert!(firmware.replace && firmware.takes("a.nca") && !firmware.takes("VERSION"));
+        assert_eq!((keys.folder.as_deref(), keys.into.as_str(), keys.replace), (None, "keys", false));
+        assert!(!files.optional, "the page warns while they are missing");
+        assert_eq!(keys.required, ["prod.keys"]);
+        assert!(!manifest.extra.contains_key("system_files"), "a field of its own");
+        assert_eq!(PluginManifest::from_toml(KYTY).unwrap().system_files, None);
+        let climbs = text.replace("from = \"keys\"", "from = \"../keys\"");
+        assert!(PluginManifest::from_toml(&climbs).is_err(), "a part's folder stays in the archive");
+    }
+
+    #[test]
     fn an_emulator_may_name_its_software_apart_from_the_plugin() {
         let m = PluginManifest::from_toml(&format!("emulator = \"KytyPS5\"\n{KYTY}")).unwrap();
         assert_eq!(m.emulator, "KytyPS5");
@@ -701,7 +729,7 @@ mod tests {
     fn an_emulator_names_its_console_in_any_case() {
         let with = |console: &str| {
             PluginManifest::from_toml(&format!(
-                "id = \"emu\"\nkind = \"emulator\"\nname = \"E\"\nversion = \"1.0.0\"\nhost_api = \"^0.5\"\n\
+                "id = \"emu\"\nkind = \"emulator\"\nname = \"E\"\nversion = \"1.0.0\"\nhost_api = \"^0.6\"\n\
                  console = \"{console}\"\n"
             ))
         };
@@ -717,7 +745,7 @@ mod tests {
     fn folder_and_system_rules_need_their_own_pattern() {
         use crate::{HostPath, Location};
         let m = PluginManifest::from_toml(
-            "id = \"pc\"\nkind = \"emulator\"\nname = \"PC\"\nversion = \"1.0.0\"\nhost_api = \"^0.5\"\n\
+            "id = \"pc\"\nkind = \"emulator\"\nname = \"PC\"\nversion = \"1.0.0\"\nhost_api = \"^0.6\"\n\
              [permissions]\nprocess = [\"folder:pc-games\", \"folder:not-granted\", \"system:wine\"]\n\
              [[permissions.filesystem]]\nfolder = \"pc-games\"",
         )
@@ -757,7 +785,7 @@ mod tests {
     fn a_folder_default_is_one_path_or_a_list_to_search() {
         let grant = |default: &str| {
             let m = PluginManifest::from_toml(&format!(
-                "id = \"emu\"\nkind = \"emulator\"\nname = \"E\"\nversion = \"1.0.0\"\nhost_api = \"^0.5\"\n\
+                "id = \"emu\"\nkind = \"emulator\"\nname = \"E\"\nversion = \"1.0.0\"\nhost_api = \"^0.6\"\n\
                  [[permissions.filesystem]]\nfolder = \"emu-build\"\n{default}\n"
             ))
             .unwrap();
@@ -780,7 +808,7 @@ mod tests {
     fn rejects_bad_ids_and_bad_versions() {
         let bad_id = KYTY.replace("\"emu-kyty\"", "\"Emu Native\"");
         assert!(PluginManifest::from_toml(&bad_id).is_err());
-        let bad_req = KYTY.replace("\"^0.5\"", "\"not a range\"");
+        let bad_req = KYTY.replace("\"^0.6\"", "\"not a range\"");
         assert!(PluginManifest::from_toml(&bad_req).is_err());
     }
 }
