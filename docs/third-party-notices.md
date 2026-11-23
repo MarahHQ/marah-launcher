@@ -202,12 +202,17 @@ agrees to the download. They keep their own licences, and this repository holds 
 - KytyPS5, from the GitHub releases of `KytyPS5/KytyPS5`.
 - shadPS4, from the GitHub releases of `shadps4-emu/shadPS4`.
 - Lichii, from the GitHub releases of `zortos293/Lichii`.
-- The PS4 system modules and fonts that shadPS4 can use, from the retrobios collection
-  (`Abdess/retrobios`, at a fixed commit). They are Sony's files.
-- The Switch firmware, from the GitHub releases of `THZoria/NX_Firmware`, and its keys, from
-  `files.prodkeys.net`. They are Nintendo's files.
 - umu-launcher, from the GitHub releases of `Open-Wine-Components/umu-launcher`. It downloads
   Proton (GE-Proton) by itself when a Windows game runs.
+
+## Files the player brings
+
+The launcher doesn't download these. The player imports them from an archive on the emulator's
+page, and they keep their owners' terms. The player guide names where they are found.
+
+- The PS4 system modules and fonts that shadPS4 can use. They are Sony's files.
+- The Switch firmware and its keys. They are Nintendo's files.
+- BIOS files for the RetroArch emulators. They are the console makers' files.
 
 ## Marah OS images
 

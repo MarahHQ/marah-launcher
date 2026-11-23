@@ -210,7 +210,7 @@ Each built-in plugin is a working example of some capabilities:
 | --- | --- |
 | A console emulator on `emulator-kit`, with a compatibility list | `plugins/emulators/kytyps5` |
 | Startup work with a question, and backup items | `plugins/emulators/shadps4` |
-| A panel block of its own (firmware), and an AppImage build | `plugins/emulators/lichii` |
+| System files from an archive (`[system_files]`), and an AppImage build | `plugins/emulators/lichii` |
 | A launcher with a sandbox, and a game installer for downloads | `plugins/emulators/pc` |
 | A game another program starts, and store links | `plugins/emulators/steam` |
 | A `releases` service with settings | `plugins/services/release-catalog` |

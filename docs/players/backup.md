@@ -29,10 +29,11 @@ A backup holds:
 - PS5: "PS5 saves", the KytyPS5 saves folder. The saves of a build without `--data-folder` stay
   in that build's folder, out of the backup.
 - PS4: "PS4 settings and saves", shadPS4's data folder without its caches, logs and downloads,
-  and without the PS4 system files (`sys_modules`, `fonts`), which the System files block
-  downloads again. "PS4 DLC" is a large item.
-- Switch: "Switch keys", "Switch firmware and saves", "Switch SD card", "amiibo", "Switch mods",
-  "Lichii settings" and "Switch firmware settings".
+  and without the PS4 system files (`sys_modules`, `fonts`), which you import again from
+  their archive. "PS4 DLC" is a large item.
+- Switch: "Switch keys", "Switch firmware and saves", "Switch SD card", "amiibo", "Switch mods"
+  and "Lichii settings". A backup an older launcher made may also hold "Switch firmware
+  settings": a restore leaves it out, as the launcher no longer downloads firmware.
 - PC: "PC games' Wine prefixes", where the games keep their saves. It is a large item.
 
 ## Restore
