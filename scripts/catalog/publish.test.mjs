@@ -10,10 +10,10 @@ const report = (key, ids, at = '2026-10-19T00:00:00Z') => ({
   topic_count: ids.length, topics: ids.map(id => ({ id, title: `Game ${id}`, magnet: `magnet:?xt=urn:btih:${id}` })),
 });
 
-test('catalog-sources.json: every forum has a key, an address, and a tag or a system', async () => {
+test('catalog-sources.json: every forum has a key, an address, and a tag, title tags or a system', async () => {
   const sources = JSON.parse(await readFile(new URL('../../assets/catalog-sources.json', import.meta.url), 'utf8'));
   const names = Object.keys(sources);
-  assert.deepEqual(names, ['ps5', 'ps4', 'pc', 'switch'], 'the root is the catalogs, by name');
+  assert.deepEqual(names, ['ps5', 'ps4', 'pc', 'switch', 'ps1', 'nes', 'genesis'], 'the root is the catalogs, by name');
   const keys = new Set();
   for (const name of names) {
     const catalog = sources[name];
@@ -26,7 +26,9 @@ test('catalog-sources.json: every forum has a key, an address, and a tag or a sy
       keys.add(f.key);
       assert.match(new URL(f.url).searchParams.get('f') ?? '', /^\d+$/, `${f.key}: a forum address with its f number`);
       assert.ok(new URL(f.url).protocol === 'https:', `${f.key}: https`);
-      assert.ok(Boolean(f.tag) !== Boolean(f.system), `${f.key}: a console tag or a PC system`);
+      assert.ok(f.titles === undefined || (Array.isArray(f.titles) && f.titles.length && f.titles.every(t => typeof t === 'string' && t.trim())),
+        `${f.key}: title tags are a list of words`);
+      assert.ok(Boolean(f.tag || f.titles) !== Boolean(f.system), `${f.key}: a console tag or title tags, or a PC system`);
     }
   }
 });

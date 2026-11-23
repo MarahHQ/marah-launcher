@@ -2,15 +2,17 @@
 
 These scripts make the catalog files that Marah Launcher's Game Catalog plugin
 (`plugins/services/release-catalog`) reads, one for each console: `ps5.json`, `ps4.json`,
-`pc.json` and `switch.json`. Each file lists the release topics of one or more RuTracker forums, in English, with
+`pc.json`, `switch.json`, `ps1.json`, `nes.json` and `genesis.json`. Each file lists the release topics of one or more RuTracker forums, in English, with
 their magnet links and game facts.
 
 ## How the catalogs reach Marah Launcher
 
 - `assets/catalog-sources.json` names the forums each catalog comes from. The collector reads it,
   and the plugin's `build.rs` compiles the same file into Marah Launcher.
-- `assets/catalog/ps5.json`, `ps4.json`, `pc.json` and `switch.json` are the bundled catalogs.
-  The plugin's `build.rs` compiles these four into Marah Launcher (the list is in `bundled-names.rs`); a build fails
+- `assets/catalog/ps5.json`, `ps4.json`, `pc.json`, `switch.json`, `ps1.json`, `nes.json` and
+  `genesis.json` are the bundled catalogs. `ps1.json`, `nes.json` and `genesis.json` start empty:
+  `ps1.json` until its first full run, and `nes.json` and `genesis.json` until
+  `catalog-sources.json` names their forums. The plugin's `build.rs` compiles these into Marah Launcher (the list is in `bundled-names.rs`); a build fails
   when one is missing. Git holds a full set; `make catalog` and `make catalog-refresh` replace
   them, and the next build bundles the new ones.
 - In Marah Launcher, the plugin uses the bundled catalog while its **Catalog address** setting is empty.
@@ -36,7 +38,11 @@ forum has:
 - `url`: its first listing page, `https://<host>/forum/viewforum.php?f=<number>`;
 - `tag`: for a console forum, the tag its titles start with (`PS5`);
 - `system`: for a PC forum, the system its games are for (`linux`);
-- `wine`: `true` for a PC forum whose games are packed with Wine.
+- `wine`: `true` for a PC forum whose games are packed with Wine;
+- `titles`: for a forum of many consoles, the title tags of this catalog's console
+  (`["NES", "Dendy"]`). The catalog takes only the topics one of whose `[…]` tags before the
+  name is one of them, in any case. One forum can feed two catalogs this way, each with its own
+  key and `titles`. The listing, the refresh and the Game Catalog plugin's refresh all apply it.
 
 | Key | Forum | Catalog |
 |---|---|---|
@@ -45,6 +51,7 @@ forum has:
 | `linux` | f=1992, native Linux games | `pc.json` |
 | `wine` | f=2059, Linux games with Wine | `pc.json` |
 | `switch` | f=1605, Switch and Switch 2 games | `switch.json` |
+| `ps1` | f=908, PS1 games (titles start with `[PS]`) | `ps1.json` |
 
 The Switch forum's titles start with `[Nintendo Switch]` or `[NSW2]`. Its `tag` is the first;
 every release has a torrent, so the second needs no tag. Its `[NRO]` topics are homebrew

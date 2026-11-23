@@ -1,7 +1,8 @@
 /** Self-contained DOM reader; runs unchanged in Playwright's page.evaluate(). `origin` is the
- * configured forum's origin (`https://host`), `forumId` its `f` number and `tag` its console's
- * title tag, or null. */
-export function readListing({ forumId, tag, origin }) {
+ * configured forum's origin (`https://host`), `forumId` its `f` number, `tag` its console's
+ * title tag, or null, and `titles` the title tags of its catalog's console in a forum of many
+ * consoles, or null (`takes` in platforms.mjs). */
+export function readListing({ forumId, tag, origin, titles = null }) {
   const base = new URL(document.location.href);
   const clean = value => (value || '').replace(/\s+/g, ' ').trim();
   const integer = element => {
@@ -33,7 +34,11 @@ export function readListing({ forumId, tag, origin }) {
     // Releases the launcher can't play (VR, retro re-releases, homebrew, Switch NRO): the same rule as
     // UNPLAYABLE in platforms.mjs (this function runs in the browser on its own).
     const unplayable = /^\s*\[[^\]]*\b(?:VR|Move|homebrew|classics?|classis|PSP|PSX|PS2|PS1|SNES|Saturn)\b[^\]]*\]|\[NRO\]/i.test(title);
-    const released = !unplayable && (Boolean(row?.querySelector('.vf-col-tor a.dl-stub'))
+    // A forum of many consoles: only the topics with one of this catalog's title tags.
+    const tags = [...(/^\s*((?:\[[^\]]*\]\s*)*)/.exec(title)?.[1] ?? '').matchAll(/\[([^\]]*)\]/g)]
+      .map(m => m[1].trim().toLowerCase());
+    const mine = !titles?.length || titles.some(t => tags.includes(t.trim().toLowerCase()));
+    const released = !unplayable && mine && (Boolean(row?.querySelector('.vf-col-tor a.dl-stub'))
       || (tag !== null && title.toUpperCase().startsWith(`[${tag.toUpperCase()}]`)));
     if (url.origin !== base.origin || url.pathname !== '/forum/viewtopic.php'
         || !/^\d+$/.test(id || '') || !released) {

@@ -46,7 +46,7 @@ export const PLATFORMS = Object.fromEntries(Object.entries(SOURCES).flatMap(([na
     const url = new URL(forum.url);
     const forumId = url.searchParams.get('f');
     return [forum.key, {
-      forumId, tag: forum.tag ?? null, label: label(forum), source: forum.url, origin: url.origin,
+      forumId, tag: forum.tag ?? null, titles: forum.titles ?? null, label: label(forum), source: forum.url, origin: url.origin,
       api: `${API}${forumId}`, feed: `${FEED}${forumId}.atom`,
       catalog: name, platform: catalog.platform, system: forum.system ?? null, wine: Boolean(forum.wine),
     }];
@@ -58,6 +58,21 @@ export const PLATFORMS = Object.fromEntries(Object.entries(SOURCES).flatMap(([na
  * Switch homebrew programs ("[NRO]": PC ports and emulators for the console). The Game Catalog
  * plugin leaves NRO topics out too (`is_game` in its `format.rs`). Mirrored in listing.mjs, which runs in the browser on its own. */
 export const UNPLAYABLE = /^\s*\[[^\]]*\b(?:VR|Move|homebrew|classics?|classis|PSP|PSX|PS2|PS1|SNES|Saturn)\b[^\]]*\]|\[NRO\]/i;
+
+/** The `[…]` tags before a title's name, trimmed: `[Обновлено] [PS] Crash` gives `Обновлено`, `PS`. */
+function leadingTags(title) {
+  return [...(/^\s*((?:\[[^\]]*\]\s*)*)/.exec(title)?.[1] ?? '').matchAll(/\[([^\]]*)\]/g)].map(m => m[1].trim());
+}
+
+/** A forum of many consoles has `titles`, the tags of its catalog's console: the catalog takes
+ * only the topics one of whose tags before the name is one of them, in any case. A forum
+ * without `titles` (null) takes every topic. The Game Catalog plugin's `Forum::takes` is the
+ * same rule, and listing.mjs repeats it, since it runs in the browser on its own. */
+export function takes(titles, title) {
+  if (!titles?.length) return true;
+  const wanted = titles.map(t => t.trim().toLowerCase());
+  return leadingTags(title).some(tag => wanted.includes(tag.toLowerCase()));
+}
 
 /** `--platform <forum key>` from command-line arguments. The default is the first forum in
  * catalog-sources.json. */

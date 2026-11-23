@@ -422,7 +422,7 @@ const BUNDLED_SOURCES: &[u8] = include!(concat!(env!("OUT_DIR"), "/sources.rs"))
 
 /// The catalog files the build bundles, from the project's `assets/catalog/`: one for each
 /// console an emulator plugin plays. `build.rs` reads the same list.
-pub const BUNDLED_NAMES: [&str; 4] = include!("../bundled-names.rs");
+pub const BUNDLED_NAMES: [&str; 7] = include!("../bundled-names.rs");
 
 /// The name the catalog sources are kept under, in [`Catalogs::kept_sources`].
 const SOURCES: &str = "catalog-sources";
@@ -456,9 +456,13 @@ struct SourcesInUse {
     unusable: Vec<String>,
 }
 
-/// Reads a catalog file with the forums `forums`: see [`releases`].
-fn read(bytes: &[u8], forums: &sources::Forums) -> Result<ReleaseList, String> {
-    let file: topic::CatalogFile = serde_json::from_slice(bytes).map_err(|e| format!("not a catalog file: {e}"))?;
+/// Reads the catalog file of `console` (its name, `ps5`) with the forums `forums`: see
+/// [`releases`]. A file that names no console of its own is `console`'s.
+fn read(bytes: &[u8], console: &str, forums: &sources::Forums) -> Result<ReleaseList, String> {
+    let mut file: topic::CatalogFile = serde_json::from_slice(bytes).map_err(|e| format!("not a catalog file: {e}"))?;
+    if file.platform.as_deref().is_none_or(str::is_empty) {
+        file.platform = Some(console.to_owned());
+    }
     releases(&file, forums)
 }
 
@@ -615,7 +619,7 @@ impl Catalogs {
         if let Some(list) = self.cached(console, copy) {
             return Ok(list);
         }
-        let list = Arc::new(read(&bytes().ok_or("the copy is gone")?, &self.forums)?);
+        let list = Arc::new(read(&bytes().ok_or("the copy is gone")?, console, &self.forums)?);
         self.remember(console, copy, list.clone());
         Ok(list)
     }
@@ -658,7 +662,7 @@ impl Catalogs {
     /// fails when the copy or its meta file can't be written.
     async fn fetch(&self, url: &str, console: &str) -> Result<bool, String> {
         let body = self.get(url).await?;
-        let list = read(&body, &self.forums)?;
+        let list = read(&body, console, &self.forums)?;
         let before = self.kept_catalog(console).await.filter(|k| k.url == url);
         let same = match &before {
             Some(before) => self.fetched.read(console, &before.body).await.is_ok_and(|b| b == body),
@@ -1140,7 +1144,9 @@ impl Catalogs {
         let number = refresh::forum_number(&forum.url).ok_or_else(|| format!("{}: no f= number", forum.url))?;
         let feed_url = refresh::feed_url(&number);
         let feed = self.get(&feed_url).await?;
-        let feed = refresh::parse_feed(&String::from_utf8_lossy(&feed)).map_err(|e| format!("{feed_url}: {e}"))?;
+        let mut feed = refresh::parse_feed(&String::from_utf8_lossy(&feed)).map_err(|e| format!("{feed_url}: {e}"))?;
+        // A forum of many consoles: only this catalog's console's releases are new to it.
+        feed.retain(|entry| forum.takes(&entry.title));
         let list_url = refresh::list_url(&number);
         let list = refresh::parse_forum_list(&self.get(&list_url).await?).map_err(|e| format!("{list_url}: {e}"))?;
         let about = refresh::ForumRef {
@@ -1383,7 +1389,7 @@ mod tests {
         let names: Vec<&str> = BUNDLED.iter().map(|(n, _)| *n).collect();
         assert_eq!(names, BUNDLED_NAMES, "one bundled file for each console");
         for (name, bytes) in BUNDLED {
-            read(bytes, &forums()).unwrap_or_else(|e| panic!("{name}: {e}"));
+            read(bytes, name.trim_end_matches(".json"), &forums()).unwrap_or_else(|e| panic!("{name}: {e}"));
         }
     }
 
@@ -1393,7 +1399,7 @@ mod tests {
         let (_, unusable) = sources.clone().usable();
         assert!(unusable.is_empty(), "forums with no f= number: {unusable:?}");
         let names: Vec<&str> = sources.catalogs.keys().map(String::as_str).collect();
-        assert_eq!(names, ["pc", "ps4", "ps5", "switch"]);
+        assert_eq!(names, ["genesis", "nes", "pc", "ps1", "ps4", "ps5", "switch"]);
     }
 
     #[test]
@@ -1412,7 +1418,7 @@ mod tests {
               "magnet": "magnet:?xt=urn:btih:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
               "game_info": { "image_urls": ["https://ir.ozone.ru/cover.jpg", "https://i128.fastpic.org/big/a.jpg",
                 "https://i1.imageban.ru/out/b.png"] } }] });
-        let list = read(&serde_json::to_vec(&file).unwrap(), &forums()).unwrap();
+        let list = read(&serde_json::to_vec(&file).unwrap(), "ps5", &forums()).unwrap();
         assert_eq!(
             list.releases[0].image_urls,
             ["https://i128.fastpic.org/big/a.jpg", "https://i1.imageban.ru/out/b.png"],
@@ -1429,7 +1435,7 @@ mod tests {
             ("switch", include_bytes!("../samples/switch.json").as_slice()),
         ];
         for (console, bytes) in samples {
-            let list = read(bytes, &forums()).unwrap_or_else(|e| panic!("{console}: {e}"));
+            let list = read(bytes, console, &forums()).unwrap_or_else(|e| panic!("{console}: {e}"));
             assert!(!list.releases.is_empty(), "{console}");
         }
     }
