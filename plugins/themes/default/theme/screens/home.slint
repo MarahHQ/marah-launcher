@@ -6,6 +6,31 @@ import { Nav } from "../components/nav.slint";
 import { FocusRing, Cover } from "../kit/widgets.slint";
 import { SystemsCover } from "../components/systems-cover.slint";
 
+// A chevron at one end of the list, while systems are out of sight that way. It only shows:
+// the keys, the pad and the wheel move the list.
+component MoreMark inherits Rectangle {
+    in property <bool> on;
+    in property <bool> up;
+    width: 28 * Look.px;
+    height: 14 * Look.px;
+    opacity: root.on ? 1 : 0;
+    visible: self.opacity > 0;
+    animate opacity { duration: Look.timed(Tokens.motion-fast); }
+    accessible-role: text;
+    accessible-label: "systems-more";
+    accessible-value: !root.on ? "" : root.up ? "above" : "below";
+    Path {
+        width: parent.width;
+        height: parent.height;
+        viewbox-width: 28;
+        viewbox-height: 14;
+        commands: root.up ? "M 3 12 L 14 3 L 25 12" : "M 3 2 L 14 11 L 25 2";
+        stroke: Tokens.color-text-muted;
+        stroke-width: 3 * Look.px;
+        fill: transparent;
+    }
+}
+
 // The Default theme's Home: a column of systems on the far side of the reading direction, "All
 // games" first, then each emulator in `Vm.emulators`. The focused system's cover fills the
 // screen behind it (SystemsCover). Enter or a click opens the Library screen on the system's
@@ -19,10 +44,10 @@ component SystemsView inherits Rectangle {
     property <length> edge: 96 * Look.px;
     property <length> top: 150 * Look.px;
     property <bool> keys: Nav.zone == "row";
-    // The corners of a tile `size` wide: the icons' own (27 of 128), so the clip, the ring and
+    // The corners of a tile `size` wide: the icons' own (30 of 128), so the clip, the ring and
     // the playing frame follow them.
     pure function corner(size: length) -> length {
-        size * 27 / 128
+        size * 30 / 128
     }
 
     // Each entry's pictures and words: 0 is All games, `i` is `Vm.emulators[i - 1]`.
@@ -58,6 +83,25 @@ component SystemsView inherits Rectangle {
     }
     // The list moves up so the focused tile stays on screen, over the hints at the bottom.
     property <length> scroll: Math.max(0, root.at-y(Nav.entry) + root.big - (root.height - root.top - 150 * Look.px));
+    // Tiles fade over `fade` at the list's ends, so none stops at a hard edge: at the bottom, to
+    // nothing just above the hints; at the top, once the list has scrolled. The focused tile
+    // never fades.
+    property <length> fade: 140 * Look.px;
+    // Above the hints at the bottom, and the mark below the list under it.
+    property <length> fade-end: root.height - root.top - 125 * Look.px;
+    // Systems out of sight above and below: the end tile that way isn't fully shown.
+    property <bool> more-above: Nav.entry != 0 && root.fade-of(root.at-y(0) - root.scroll, root.small, false) < 1;
+    property <bool> more-below: Nav.entry != Nav.entries - 1
+        && root.fade-of(root.at-y(Nav.entries - 1) - root.scroll, root.small, false) < 1;
+    pure function fade-of(y: length, size: length, focused: bool) -> float {
+        if (focused) {
+            return 1;
+        }
+        let center = y + size / 2;
+        let bottom = Math.clamp((root.fade-end - center) / root.fade, 0, 1);
+        let top = root.scroll > 0 ? Math.clamp(center / root.fade, 0, 1) : 1;
+        Math.min(bottom, top)
+    }
 
     // The cover follows the focus a moment after the last move, so a held key doesn't flash
     // each one: each move starts the wait again. `shown-system` is the system it shows.
@@ -93,9 +137,24 @@ component SystemsView inherits Rectangle {
                 accept
             }
         }
+        // Over the column of tiles, at each end of the list.
+        MoreMark {
+            on: root.more-above;
+            up: true;
+            x: Look.rtl ? root.edge + (root.small - self.width) / 2 : root.width - root.edge - (root.small + self.width) / 2;
+            y: 4 * Look.px;
+        }
+        MoreMark {
+            on: root.more-below;
+            up: false;
+            x: Look.rtl ? root.edge + (root.small - self.width) / 2 : root.width - root.edge - (root.small + self.width) / 2;
+            y: root.fade-end + 10 * Look.px;
+        }
         for i in Nav.entries : row := Rectangle {
             property <bool> focused: i == Nav.entry;
             property <length> size: self.focused ? root.big : root.small;
+            property <float> fade: root.fade-of(self.y, self.height, self.focused);
+            opacity: self.fade;
             // The tile's place from the far edge: right to left, the list is on the left.
             property <length> tile-x: Look.rtl ? root.edge : root.width - root.edge - self.size;
             y: root.at-y(i) - root.scroll;
@@ -111,6 +170,7 @@ component SystemsView inherits Rectangle {
                 accessible-label: "systems-tile";
                 accessible-value: root.title-of(i);
                 accessible-item-selected: row.focused;
+                accessible-description: row.fade < 1 ? "faded at the list's end" : "";
                 accessible-action-default => { Nav.entry = i; Nav.open-entry(); }
                 opacity: root.state-of(i) == "missing" && !row.focused ? 0.6 : 1;
                 animate x, width, height { duration: Look.timed(Tokens.motion-slow - 60ms); easing: ease-out-expo; }
