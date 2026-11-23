@@ -38,9 +38,12 @@ use launcher_core::{Command, Core, HostConfig, Kernel, TokioClock};
 use launcher_ui_host::{AppShell, ShellOptions};
 
 // Linked for their compile-time plugin factories.
+use emu_genesis as _;
 use emu_kyty as _;
 use emu_lichii as _;
+use emu_nes as _;
 use emu_pc as _;
+use emu_ps1 as _;
 use emu_shadps4 as _;
 use emu_steam as _;
 use playstation_store as _;

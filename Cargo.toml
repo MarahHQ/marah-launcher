@@ -15,6 +15,9 @@ members = [
     "plugins/emulators/lichii",
     "plugins/emulators/pc",
     "plugins/emulators/steam",
+    "plugins/emulators/nes",
+    "plugins/emulators/genesis",
+    "plugins/emulators/ps1",
     "plugins/services/playstation-store",
     "plugins/services/release-catalog",
     "plugins/system/host",
@@ -46,6 +49,9 @@ emu-shadps4 = { path = "plugins/emulators/shadps4" }
 emu-lichii = { path = "plugins/emulators/lichii" }
 emu-pc = { path = "plugins/emulators/pc" }
 emu-steam = { path = "plugins/emulators/steam" }
+emu-nes = { path = "plugins/emulators/nes" }
+emu-genesis = { path = "plugins/emulators/genesis" }
+emu-ps1 = { path = "plugins/emulators/ps1" }
 playstation-store = { path = "plugins/services/playstation-store" }
 release-catalog = { path = "plugins/services/release-catalog" }
 system-host = { path = "plugins/system/host" }

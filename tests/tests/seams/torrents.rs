@@ -486,6 +486,8 @@ async fn downloaded(
         .built_in(PluginBox::code(emu_kyty::KytyPlugin))
         .built_in(PluginBox::code(emu_pc::PcPlugin))
         .built_in(PluginBox::code(emu_lichii::LichiiPlugin))
+        .built_in(PluginBox::code(emu_nes::NesPlugin))
+        .built_in(PluginBox::code(emu_ps1::Ps1Plugin))
         .built_in(PluginBox::code(release_catalog::ReleaseCatalog::default()))
         .boot_core()
         .await;
@@ -493,7 +495,7 @@ async fn downloaded(
     // The other consoles' catalogs are empty: else the bundled ones show, and their newer
     // releases push this one off the Catalog's first page.
     let console_file = console.to_ascii_lowercase();
-    let catalogs: Vec<(&str, serde_json::Value)> = ["pc", "ps4", "ps5", "switch"]
+    let catalogs: Vec<(&str, serde_json::Value)> = ["pc", "ps4", "ps5", "switch", "nes", "ps1"]
         .into_iter()
         .map(|c| (c, if c == console_file { serde_json::json!([topic.clone()]) } else { serde_json::json!([]) }))
         .collect();
@@ -511,7 +513,9 @@ async fn downloaded(
     let ready = until(&t, "ready").await;
     // The note names the console as a player reads it: the catalog's SWITCH is "Switch".
     let shown = if console == "SWITCH" { "Switch" } else { console };
-    assert!(ready.install_note.starts_with(&format!("Installs a {shown} game from")), "{}", ready.install_note);
+    // "an" before a name said with a vowel first: "an NES game".
+    let article = if shown == "NES" { "an" } else { "a" };
+    assert!(ready.install_note.starts_with(&format!("Installs {article} {shown} game from")), "{}", ready.install_note);
     act(&t, TorrentAction::Start).await;
     t.torrents.complete(HASH);
     until(&t, "complete").await;
@@ -1061,4 +1065,77 @@ async fn a_game_installed_from_a_download_gets_its_game_file_from_the_catalog_s_
     assert_eq!(json["description"], "What the catalog says.", "{json}");
     assert_eq!(json["source"]["offer"], "release-catalog:emu-lichii/title-catalogtitle", "{json}");
     assert_eq!(json["source"]["release"], HASH, "{json}");
+}
+
+/// A retro console's download installs into its own folder, takes the catalog's cover with it,
+/// and an uninstall leaves nothing of it.
+#[tokio::test]
+async fn a_finished_nes_download_installs_with_the_catalog_s_cover_and_uninstalls_whole() {
+    let jpg: &[u8] = b"\xff\xd8\xff\xe0 nes cover";
+    let info = serde_json::json!({ "name": "Super Game", "image_urls": ["https://i1.imageban.ru/out/sg.jpg"] });
+    let files: &[(&str, &[u8])] = &[("Super Game (USA).nes", b"NES\x1a rom"), ("Super Game.nfo", b"notes")];
+    let (t, home) = downloaded("NES", topic("[NES] Super Game [U]", info), files, |h, _| {
+        h.http().serve("https://i1.imageban.ru/out/sg.jpg", jpg);
+        h
+    })
+    .await;
+    install(&t).await;
+    assert_eq!(installed(&t).await.install, "done");
+
+    let folder = home.path().join("Games/NES/Super Game");
+    assert_eq!(std::fs::read(folder.join("Super Game (USA).nes")).unwrap(), b"NES\x1a rom");
+    assert!(!folder.join("Super Game.nfo").exists(), "only the console's files");
+    assert_eq!(std::fs::read(folder.join("launcher_art/cover.jpg")).expect("the catalog's cover"), jpg);
+    assert!(folder.join("launcher_game.json").is_file());
+
+    t.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
+    let game: GameKey = "emu-nes:Super Game".parse().unwrap();
+    t.core.dispatch(Command::OpenGame(game.clone())).await.unwrap();
+    t.core.dispatch(Command::UninstallGame(game)).await.unwrap();
+    assert!(!folder.exists(), "the game's folder, with its art and its file");
+}
+
+/// A zipped ROM: the host unpacks the zip before the install, and the ROM and its zip are one
+/// game, installed once, in a folder of its name.
+#[tokio::test]
+async fn a_zipped_rom_installs_as_one_game_in_a_folder_of_its_name() {
+    let info = serde_json::json!({ "name": "Zip Game" });
+    let files: &[(&str, &[u8])] = &[("Zip Game (Europe).zip", b"PK zip")];
+    let (t, home) = downloaded("NES", topic("[NES] Zip Game [E]", info), files, |h, _| {
+        h.archives().holds("Zip Game (Europe).zip", &[("Zip Game (Europe).nes", b"NES\x1a" as &[u8])]);
+        h
+    })
+    .await;
+    install(&t).await;
+    assert_eq!(installed(&t).await.install, "done");
+
+    let nes = home.path().join("Games/NES");
+    let folders: Vec<String> =
+        std::fs::read_dir(&nes).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+    assert_eq!(folders, ["Zip Game"], "one game, in a folder of its name");
+    let roms: Vec<String> = std::fs::read_dir(nes.join("Zip Game"))
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with(".nes") || n.ends_with(".zip"))
+        .collect();
+    assert_eq!(roms, ["Zip Game (Europe).nes"], "the ROM, not its zip again");
+}
+
+/// A game of three discs installs in one folder of the game's name, not the download's.
+#[tokio::test]
+async fn a_game_of_many_discs_installs_in_one_folder_of_its_name() {
+    let info = serde_json::json!({ "name": "Big Saga" });
+    let files: &[(&str, &[u8])] = &[
+        ("Big Saga/Big Saga (USA) (Disc 1).cue", b"FILE 1"),
+        ("Big Saga/Big Saga (USA) (Disc 1).bin", b"one"),
+        ("Big Saga/Big Saga (USA) (Disc 2).cue", b"FILE 2"),
+        ("Big Saga/Big Saga (USA) (Disc 2).bin", b"two"),
+    ];
+    let (t, home) = downloaded("PS1", topic("[PS] Big Saga [SCUS-94163]", info), files, |h, _| h).await;
+    install(&t).await;
+    assert_eq!(installed(&t).await.install, "done");
+
+    let folder = home.path().join("Games/PS1/Big Saga");
+    assert!(folder.join("Big Saga (USA) (Disc 2).bin").is_file(), "every disc, in the game's folder");
 }

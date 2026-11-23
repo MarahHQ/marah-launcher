@@ -1,0 +1,80 @@
+id = "emu-ps1"
+kind = "emulator"
+# The plugin is shown by the console it plays.
+name = "PS1"
+# The program the plugin installs and runs. Sentences about the program name it.
+emulator = "RetroArch"
+version = "0.1.0"
+host_api = "^0.5"
+# libretro has a pack of cores for Linux and Windows, and none for macOS.
+platforms = ["linux", "windows"]
+# The console it plays: it gets that console's catalog.
+console = "PS1"
+# One RetroArch, its builds and its configs, for every retro plugin.
+shared_data = "retroarch"
+capabilities = ["catalog", "downloader", "installer", "configurator", "launcher", "slots", "game_installer", "backup"]
+# What the install sheet says this emulator installs from.
+install_note = "Installs a PS1 game from its disc image: a .cue with its .bin files, a .chd or a .pbp. A game of many discs starts from its .m3u playlist when it has one. It plays without a BIOS file."
+
+# RetroArch's default keyboard keys for the console's buttons. The launch splash shows them.
+[[keymap]]
+button = "Cross"
+keys = "Z"
+[[keymap]]
+button = "Circle"
+keys = "X"
+[[keymap]]
+button = "Square"
+keys = "A"
+[[keymap]]
+button = "Triangle"
+keys = "S"
+[[keymap]]
+button = "D-pad"
+keys = "Arrow keys"
+[[keymap]]
+button = "L1 / R1"
+keys = "Q / W"
+[[keymap]]
+button = "Start"
+keys = "Enter"
+[[keymap]]
+button = "Select"
+keys = "Right Shift"
+
+[permissions]
+# libretro's build server, where RetroArch and its cores are, and libretro-thumbnails's
+# pictures of the games, on GitHub.
+network = ["buildbot.libretro.com", "raw.githubusercontent.com"]
+# The program in each system's build, and the AppImage the host unpacks. Your own build: in the
+# folder you map as retroarch-build, or on your PATH.
+process = [
+    "builds/*/RetroArch-Linux-x86_64/*.AppImage",
+    "builds/*/RetroArch-Linux-x86_64/squashfs-root/AppRun",
+    "builds/*/RetroArch-Win64/retroarch.exe",
+    "folder:retroarch-build",
+    "system:retroarch",
+]
+
+# The player's game folders, shared with other emulators (the host's default is ~/Games).
+# PS1 games are found in PS1/ inside them; installs go to PS1/ in the first one.
+[[permissions.filesystem]]
+folder = "games"
+write = true
+
+# ROM files to install. Read only.
+[[permissions.filesystem]]
+folder = "packages"
+
+# A RetroArch of your own. Read only.
+[[permissions.filesystem]]
+folder = "retroarch-build"
+title = "Your own RetroArch"
+
+# The system its games show under: what the Library and a card call it.
+[system]
+id = "PS1"
+name = "PlayStation"
+# The system's pictures, in assets/ (made by scripts/make-system-art.sh).
+icon = "icon.png"
+cover = "cover.jpg"

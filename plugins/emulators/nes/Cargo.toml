@@ -1,0 +1,15 @@
+[package]
+name = "emu-nes"
+description = "NES games on RetroArch's FCEUmm core, with the RetroArch the retro plugins share."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+emulator-kit.workspace = true
+launcher-api.workspace = true
+
+[lints]
+workspace = true

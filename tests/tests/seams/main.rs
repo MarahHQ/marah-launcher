@@ -36,6 +36,7 @@ mod ps4_system_files;
 mod real_archives;
 mod release_archives;
 mod releases;
+mod retro;
 mod screenshots;
 mod shadps4;
 mod shell;
