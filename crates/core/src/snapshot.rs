@@ -91,21 +91,7 @@ impl Snapshot<'_> {
             plays: &self.sessions.plays,
             hidden_filter: self.hidden_filter,
             pc: self.this_pc(),
-            systems: self.home_systems(),
         }
-    }
-
-    /// Home's systems, in its order ([`Snapshot::home_emulators`]): each one's system id, the
-    /// platform its games have ("SWITCH"), else its console.
-    pub fn home_systems(&self) -> Vec<String> {
-        self.home_emulators()
-            .iter()
-            .filter_map(|id| {
-                let manifest = self.plugins.manifest(id)?;
-                let look = manifest.system.as_ref().map(|l| l.id.clone());
-                look.or_else(|| manifest.console.as_ref().map(|c| c.as_str().to_owned()))
-            })
-            .collect()
     }
 
     /// Home's emulators, in its order: the turned-on emulator plugins that install or start

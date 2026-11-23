@@ -93,7 +93,7 @@ async fn all_shows_a_game_on_two_consoles_as_one_card_with_a_chip_for_each() {
     // Both run well: shadPS4 asks less of this PC than KytyPS5.
     assert_eq!(cards(&t), [(ASTRO_PS4.to_owned(), vec!["PS4".to_owned(), "PS5".to_owned()]), (quest, Vec::new())]);
     let chip = |id: &str, count| (id.to_owned(), count);
-    // The console chips follow Home's order of systems: PlayStation 4 before PlayStation 5.
+    // The console chips go by their label, A to Z.
     assert_eq!(chips(&t), [chip("", 2), chip("PS4", 2), chip("PS5", 1)], "All counts cards; a console its own");
 }
 

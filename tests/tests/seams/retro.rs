@@ -272,11 +272,10 @@ async fn the_other_retro_pages_show_an_install_at_once() {
     assert_eq!(page(&ps1()), [retroarch::VERSION], "the PS1 page shows it");
 }
 
-/// The Library's system chips follow Home's list of systems, by their full names: Nintendo
-/// Entertainment System, PlayStation, Sega Genesis. Not the order the plugins load in, nor the
-/// order the sort puts their games in.
+/// The Library's system chips go by the label they show, A to Z: GENESIS, NES, PS1. Home keeps
+/// its own order, by the systems' full names. Neither follows the order the plugins load in.
 #[tokio::test]
-async fn the_library_s_system_chips_follow_home_s_list_of_systems() {
+async fn the_library_s_system_chips_go_by_their_label_and_home_by_full_name() {
     let host = FakeHost::new().platform(Some(Platform::Linux));
     let games = tempfile::tempdir().unwrap();
     for rel in ["NES/Alpha (World).nes", "PS1/Beta (USA).cue", "GENESIS/Gamma (USA).md"] {
@@ -297,5 +296,5 @@ async fn the_library_s_system_chips_follow_home_s_list_of_systems() {
     let home: Vec<&str> = view.emulators.emulators.iter().map(|e| e.system.as_str()).collect();
     assert_eq!(home, ["NES", "PS1", "GENESIS"], "Home: by the systems' full names");
     let chips: Vec<&str> = view.home.library.systems.iter().map(|c| c.id.as_str()).collect();
-    assert_eq!(chips, ["", "NES", "PS1", "GENESIS"], "All, then Home's order");
+    assert_eq!(chips, ["", "GENESIS", "NES", "PS1"], "All, then the labels A to Z");
 }
