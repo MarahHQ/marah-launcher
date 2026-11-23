@@ -412,6 +412,25 @@ test('a forum of many consoles gives a catalog only the topics with its title ta
   }
 });
 
+test('a refresh starts from the published catalog: its forum\'s English topics, then only new ones are Russian', async () => {
+  const { fromCatalog } = await import('./refresh.mjs');
+  const { prepareCatalog, translationInputs } = await import('./english.mjs');
+  const linux = PLATFORMS.linux, wine = PLATFORMS.wine;
+  const topic = (id, source, title) => ({ id, title, source, platform: 'PC', magnet: null,
+    game_info: { name: title, genre: 'Action', source_url: `${ORIGIN}/forum/viewtopic.php?t=${id}` } });
+  const published = { complete: true, translation: { language: 'en' }, collected_at: '2026-11-01T00:00:00Z',
+    forums: [linux.source, wine.source], topic_count: 2,
+    topics: [topic('1', linux.source, 'Native Game'), topic('2', wine.source, 'Wine Game')] };
+  const listing = fromCatalog(published, linux);
+  assert.deepEqual(listing.topics.map(t => t.id), ['1'], 'only this forum\'s topics of a catalog of two forums');
+  assert.equal(listing.source, linux.source);
+  assert.equal(listing.topic_count, 1);
+  assert.equal(listing.complete, true);
+  // A refresh adds a topic with the feed's Russian title: it alone needs translating.
+  listing.topics.push({ id: '3', title: '[Linux] Новая игра', source: linux.source, magnet: null, game_info: null });
+  assert.deepEqual(translationInputs(prepareCatalog(listing)), ['[Linux] Новая игра']);
+});
+
 test('releases the launcher cannot play are left out by their tag', async () => {
   const { UNPLAYABLE } = await import('./platforms.mjs');
   for (const title of ['[PS VR Only] GORN [USA]', '[PS4 VR] Dreams', '[PS VR+PS Move] Job Simulator', '[PS4 Exclusive VR Only] Blood & Truth',

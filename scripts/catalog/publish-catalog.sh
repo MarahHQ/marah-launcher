@@ -2,7 +2,8 @@
 # Publishes the catalogs to the `catalog` branch of a git remote, as Marah Launcher fetches them: the
 # files `node publish.mjs` writes (ps5.json, ps4.json, pc.json) at the top,
 # for the "Catalog address" setting to name the folder they are in. sources/ keeps the Russian
-# listings and the translation cache the next refresh starts from. The branch keeps one commit,
+# listings of the last full run and the translation cache, when this computer has them: the next
+# refresh starts from the published catalogs, not from them. The branch keeps one commit,
 # replaced each time.
 #
 #   scripts/catalog/publish-catalog.sh [dist/catalog] [git remote URL]
