@@ -33,5 +33,7 @@ for list in $lists; do
     cat "$list" >> "$work/SOURCES"
 done
 out="dist/$(basename "$package")-third-party-sources.tar"
+# dist/ is no longer in a fresh checkout: git ignores it.
+mkdir -p dist
 tar -cf "$out" -C "$work" .
 echo "wrote $out"
