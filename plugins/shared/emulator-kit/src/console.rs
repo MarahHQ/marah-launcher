@@ -277,7 +277,11 @@ impl<F: Flavor> Slots for ConsoleEmulator<F> {
                     true => self.builds.build_label().await,
                     false => self.builds.current_label().await,
                 };
-                let mut rows = vec![SectionRow { label: "Title id".into(), value: found.title_id }];
+                let mut rows = Vec::new();
+                // A game named by its file alone (a retro ROM, some Switch files) has none.
+                if !found.title_id.is_empty() {
+                    rows.push(SectionRow { label: "Title id".into(), value: found.title_id });
+                }
                 if self.spec.version_row {
                     rows.push(SectionRow { label: "Version".into(), value: found.version });
                 }
