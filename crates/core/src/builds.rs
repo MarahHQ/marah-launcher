@@ -213,10 +213,13 @@ impl BuildsSubsystem {
     /// the claim. The check and the claim happen under one lock, so two installs can't both
     /// start. The flow says what a taken claim means: a refusal for the player's own install, a
     /// skip for an automatic one.
-    pub fn claim(&self, plugin: &PluginId) -> Option<InstallClaim> {
+    ///
+    /// It is refused too while one of `sharing`, the plugins that share the emulator's data
+    /// folder, installs: they install into the same folder.
+    pub fn claim(&self, plugin: &PluginId, sharing: &[PluginId]) -> Option<InstallClaim> {
         {
             let mut state = self.state();
-            if !state.installing.insert(plugin.clone()) {
+            if sharing.iter().any(|p| state.installing.contains(p)) || !state.installing.insert(plugin.clone()) {
                 return None;
             }
             // The emulator shows in the lists and on the boot screen before its first read.
@@ -301,12 +304,23 @@ mod tests {
     fn an_install_s_end_sends_one_change() {
         let (builds, mut heard) = builds();
         let plugin = PluginId::new("emu-a".to_owned()).unwrap();
-        let claim = builds.claim(&plugin).expect("the emulator is free");
+        let claim = builds.claim(&plugin, &[]).expect("the emulator is free");
         downloads(&mut heard);
 
         claim.end("1.0", InstallPhase::Installed);
         assert_eq!(downloads(&mut heard), 1);
         assert!(!builds.busy(&plugin));
+    }
+
+    /// Plugins that share a data folder install into the same folder: one at a time.
+    #[test]
+    fn an_install_waits_for_one_of_a_plugin_that_shares_its_data_folder() {
+        let (builds, _) = builds();
+        let (nes, ps1) = (PluginId::new("emu-nes".to_owned()).unwrap(), PluginId::new("emu-ps1".to_owned()).unwrap());
+        let claim = builds.claim(&nes, std::slice::from_ref(&ps1)).expect("both are free");
+        assert!(builds.claim(&ps1, std::slice::from_ref(&nes)).is_none(), "the other installs into the same folder");
+        assert!(builds.claim(&ps1, &[]).is_some(), "a plugin of its own folder doesn't wait");
+        claim.end("1.0", InstallPhase::Installed);
     }
 
     #[test]

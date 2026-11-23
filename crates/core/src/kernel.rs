@@ -30,8 +30,12 @@ use crate::{
 /// Settings for one run of the host.
 #[derive(Clone, Debug)]
 pub struct HostConfig {
-    /// Holds `config.json`, and each plugin's data folder under `plugins/<id>`.
+    /// Holds `config.json`, and each plugin's data folder under `plugins/<id>`, or under
+    /// `shared/<name>` for a plugin that shares one ([`HostConfig::shared_data`]).
     pub data_dir: PathBuf,
+    /// The plugins that share a data folder (`shared_data` in their manifests), and its name.
+    /// The kernel fills it from the manifests it loads.
+    pub shared_data: BTreeMap<PluginId, launcher_api::ShareName>,
     /// Load built-in plugins only.
     pub safe_mode: bool,
     pub platform: Option<Platform>,
@@ -81,6 +85,7 @@ impl HostConfig {
     pub fn new(data_dir: impl Into<PathBuf>) -> Self {
         Self {
             data_dir: data_dir.into(),
+            shared_data: BTreeMap::new(),
             safe_mode: false,
             platform: Platform::current(),
             runs_32bit: std::path::Path::new("/lib/ld-linux.so.2").exists(),
@@ -104,8 +109,12 @@ impl HostConfig {
         }
     }
 
+    /// The plugin's data folder: `plugins/<id>`, or `shared/<name>` for one that shares it.
     pub fn plugin_dir(&self, plugin: &PluginId) -> PathBuf {
-        self.data_dir.join("plugins").join(plugin.as_str())
+        match self.shared_data.get(plugin) {
+            Some(name) => self.data_dir.join("shared").join(name.as_str()),
+            None => self.data_dir.join("plugins").join(plugin.as_str()),
+        }
     }
 }
 
@@ -527,6 +536,9 @@ impl Kernel {
             );
         }
 
+        let mut host = host;
+        host.shared_data =
+            records.iter().filter_map(|(id, r)| Some((id.clone(), r.manifest.shared_data.clone()?))).collect();
         let config = config.unwrap_or_else(|| Arc::new(ConfigService::open(host.data_dir.join("config.json"))));
         crate::folders::copy_renamed(&config, records.values().flat_map(|r| r.manifest.permissions.filesystem.iter()));
         let ports = Ports {
@@ -917,6 +929,10 @@ fn validate(host: &HostConfig, manifest: &PluginManifest, origin: Origin) -> Res
     }
     if origin == Origin::ThirdParty && manifest.runtime == Runtime::Native {
         return Err(LoadError::Invalid("third-party plugins must be data-only".into()));
+    }
+    // A shared data folder holds another plugin's programs: only a built-in plugin may name one.
+    if origin == Origin::ThirdParty && manifest.shared_data.is_some() {
+        return Err(LoadError::Invalid("only a built-in plugin shares a data folder".into()));
     }
     // The kind governs privileges only: any plugin with code may provide the data capabilities.
     let system = manifest.kind == PluginKind::System;

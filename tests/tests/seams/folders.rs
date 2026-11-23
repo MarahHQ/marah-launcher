@@ -10,7 +10,7 @@ use launcher_api::*;
 use launcher_core::{Command, CoreError, SessionCmd};
 use launcher_testkit::{FakeHost, StubPlugin, TestCore};
 
-const MANIFEST: &str = "id = \"reader\"\nkind = \"emulator\"\nname = \"R\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
+const MANIFEST: &str = "id = \"reader\"\nkind = \"emulator\"\nname = \"R\"\nversion = \"1.0.0\"\nhost_api = \"^0.5\"\n\
     [[permissions.filesystem]]\nfolder = \"games\"\n\
     [[permissions.filesystem]]\nfolder = \"saves\"\nwrite = true\ndefault = \"~/Saves\"\n";
 
@@ -134,7 +134,7 @@ impl Launcher for SpecLauncher {
 /// A PC-style plugin: games in `pc-games`, which it may run, and `wine` from the system.
 async fn launcher_host(spec: LaunchSpec, process: &str) -> TestCore {
     let manifest = format!(
-        "id = \"pc\"\nkind = \"emulator\"\nname = \"PC\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
+        "id = \"pc\"\nkind = \"emulator\"\nname = \"PC\"\nversion = \"1.0.0\"\nhost_api = \"^0.5\"\n\
          capabilities = [\"launcher\"]\n[permissions]\nprocess = {process}\n\
          [[permissions.filesystem]]\nfolder = \"pc-games\"\n"
     );
@@ -377,7 +377,7 @@ async fn the_packages_folder_is_downloads_until_the_player_maps_it_and_settings_
     let home = tempfile::tempdir().unwrap();
     let asks = |id: &str| {
         StubPlugin::from_toml(&format!(
-            "id = \"{id}\"\nkind = \"emulator\"\nname = \"{id}\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
+            "id = \"{id}\"\nkind = \"emulator\"\nname = \"{id}\"\nversion = \"1.0.0\"\nhost_api = \"^0.5\"\n\
              [[permissions.filesystem]]\nfolder = \"packages\"\ntitle = \"Its own title\"\n"
         ))
     };
@@ -394,7 +394,7 @@ async fn the_packages_folder_is_downloads_until_the_player_maps_it_and_settings_
 #[tokio::test]
 async fn a_folder_can_have_another_default_on_one_system() {
     let home = tempfile::tempdir().unwrap();
-    let manifest = "id = \"data\"\nkind = \"emulator\"\nname = \"D\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
+    let manifest = "id = \"data\"\nkind = \"emulator\"\nname = \"D\"\nversion = \"1.0.0\"\nhost_api = \"^0.5\"\n\
         [[permissions.filesystem]]\nfolder = \"emu-data\"\ndefault = \"~/.local/share/Emu\"\n\
         [permissions.filesystem.default_on]\nmacos = \"~/Library/Application Support/Emu\"\n";
     let folders: Arc<Mutex<Option<Arc<dyn Folders>>>> = Arc::default();

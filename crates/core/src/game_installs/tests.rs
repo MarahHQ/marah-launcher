@@ -55,6 +55,7 @@ impl Archives for FakeArchives {
         _free: Option<u64>,
         progress: UnpackProgress,
         _cancel: Arc<AtomicBool>,
+        _only: &[String],
     ) -> Result<(), ArchiveError> {
         let name = parts[0].file_name().unwrap();
         std::fs::write(into.join(name), b"game").unwrap();

@@ -112,6 +112,8 @@ pub(crate) struct DownloadPorts {
     pub http: Arc<dyn HttpTransport>,
     pub spawner: Arc<dyn ProcessSpawner>,
     pub clock: Arc<dyn Clock>,
+    /// For a 7z download.
+    pub archives: Arc<dyn crate::Archives>,
 }
 
 /// What the download manager reads besides its ports: where each plugin's data folder is,
@@ -530,6 +532,7 @@ impl Worker {
                         self.context.host.platform,
                         &may_run,
                         unpack.format,
+                        &unpack.only,
                         &dest,
                         &into,
                     )

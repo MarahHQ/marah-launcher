@@ -179,7 +179,7 @@ async fn launch_contract(test: &TestCore, plugin: &PluginId, game: &str) {
     // The program is in the plugin's data folder, in a host folder it was granted, or a
     // system program by name.
     let program = &process.command.program;
-    let data = test.data_dir().join("plugins").join(plugin.as_str());
+    let data = test.core.kernel().host().plugin_dir(plugin);
     let grants = &test.core.kernel().manifest(plugin).expect("loaded").permissions.filesystem;
     let folders = test.core.view().settings.folders;
     let in_granted_folder = folders
@@ -378,7 +378,7 @@ async fn unpack(
         let last = last.clone();
         Arc::new(move |done, total| *last.lock().unwrap() = (done, total))
     };
-    adapter.unpack(kind, parts, into, free, progress, Arc::new(AtomicBool::new(false))).await?;
+    adapter.unpack(kind, parts, into, free, progress, Arc::new(AtomicBool::new(false)), &[]).await?;
     let last = *last.lock().unwrap();
     Ok(last)
 }

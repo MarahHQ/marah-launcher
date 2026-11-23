@@ -67,7 +67,7 @@ fn counting_store(asked: Arc<Mutex<Vec<String>>>) -> StubPlugin {
         }
     }
     StubPlugin::from_toml(
-        "id = \"store\"\nkind = \"service\"\nname = \"store\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
+        "id = \"store\"\nkind = \"service\"\nname = \"store\"\nversion = \"1.0.0\"\nhost_api = \"^0.5\"\n\
          capabilities = [\"metadata\"]",
     )
     .provides(move |_| {

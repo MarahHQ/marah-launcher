@@ -116,7 +116,11 @@ impl Archives for FakeArchives {
         free: Option<u64>,
         progress: UnpackProgress,
         cancel: Arc<AtomicBool>,
+        only: &[String],
     ) -> Result<(), ArchiveError> {
+        if !only.is_empty() && kind != ArchiveKind::SevenZ {
+            return Err(ArchiveError::Unsupported("only a 7z unpacks part of itself".into()));
+        }
         let first = parts.first().map(|p| file_name(p)).unwrap_or_default();
         let (cuts, held) = {
             let mut state = self.lock();
@@ -162,6 +166,17 @@ impl Archives for FakeArchives {
             }
             (listing, bytes)
         };
+        // Only the paths asked for, as the app's adapter does: each a file, or a folder.
+        let wanted = |name: &str| {
+            let name = name.trim_end_matches('/');
+            only.is_empty()
+                || only.iter().map(|o| o.trim_end_matches('/')).any(|o| name == o || name.starts_with(&format!("{o}/")))
+        };
+        let (listing, bytes): (Vec<_>, Vec<_>) =
+            listing.into_iter().zip(bytes).filter(|(e, _)| wanted(&e.name)).unzip();
+        if listing.is_empty() && !only.is_empty() {
+            return Err(ArchiveError::Corrupt(format!("the archive has none of {}", only.join(", "))));
+        }
         let plan = plan_unpack(listing, into, free)?;
         let io = |e: std::io::Error| ArchiveError::Io(e.to_string());
         let mut done = 0;

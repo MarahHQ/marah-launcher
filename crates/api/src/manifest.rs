@@ -518,8 +518,45 @@ pub struct PluginManifest {
     /// card's badge call it, and its color. Themes draw it from this, not from the system's code.
     #[serde(default)]
     pub system: Option<SystemLook>,
+    /// The data folder this plugin shares with every plugin that names the same one
+    /// (`shared_data = "retroarch"`): its storage, downloads and programs live there, not in a
+    /// folder of its own. For emulators that run one program between them.
+    #[serde(default)]
+    pub shared_data: Option<ShareName>,
     #[serde(flatten)]
     pub extra: toml::Table,
+}
+
+/// The name of a data folder plugins share: lowercase ASCII letters, digits and `-`.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct ShareName(String);
+
+impl ShareName {
+    pub fn new(name: &str) -> Result<Self, String> {
+        let plain = !name.is_empty() && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+        if !plain {
+            return Err(format!("a shared data folder's name is lowercase letters, digits and -, not {name:?}"));
+        }
+        Ok(Self(name.to_owned()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for ShareName {
+    type Error = String;
+    fn try_from(name: String) -> Result<Self, String> {
+        Self::new(&name)
+    }
+}
+
+impl From<ShareName> for String {
+    fn from(name: ShareName) -> String {
+        name.0
+    }
 }
 
 /// A system's look: `id` is the code a game's `platform` has (`PS5`, `PC`, `Steam`), `name` its
@@ -589,7 +626,7 @@ mod tests {
         kind = "emulator"
         name = "Native example"
         version = "0.1.0"
-        host_api = "^0.4"
+        host_api = "^0.5"
         platforms = ["linux", "macos"]
         capabilities = ["catalog", "launcher"]
 
@@ -641,6 +678,11 @@ mod tests {
         assert_eq!(m.install_note, "Installs from a folder.");
         assert!(!m.extra.contains_key("install_note"), "a field of its own");
         assert_eq!(PluginManifest::from_toml(KYTY).unwrap().install_note, "", "none by default");
+        let shared = PluginManifest::from_toml(&format!("shared_data = \"retroarch\"\n{KYTY}")).unwrap();
+        assert_eq!(shared.shared_data.as_ref().map(ShareName::as_str), Some("retroarch"));
+        assert!(!shared.extra.contains_key("shared_data"), "a field of its own");
+        assert_eq!(PluginManifest::from_toml(KYTY).unwrap().shared_data, None, "a folder of its own by default");
+        assert!(PluginManifest::from_toml(&format!("shared_data = \"../x\"\n{KYTY}")).is_err(), "a plain name only");
     }
 
     #[test]
@@ -659,7 +701,7 @@ mod tests {
     fn an_emulator_names_its_console_in_any_case() {
         let with = |console: &str| {
             PluginManifest::from_toml(&format!(
-                "id = \"emu\"\nkind = \"emulator\"\nname = \"E\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
+                "id = \"emu\"\nkind = \"emulator\"\nname = \"E\"\nversion = \"1.0.0\"\nhost_api = \"^0.5\"\n\
                  console = \"{console}\"\n"
             ))
         };
@@ -675,7 +717,7 @@ mod tests {
     fn folder_and_system_rules_need_their_own_pattern() {
         use crate::{HostPath, Location};
         let m = PluginManifest::from_toml(
-            "id = \"pc\"\nkind = \"emulator\"\nname = \"PC\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
+            "id = \"pc\"\nkind = \"emulator\"\nname = \"PC\"\nversion = \"1.0.0\"\nhost_api = \"^0.5\"\n\
              [permissions]\nprocess = [\"folder:pc-games\", \"folder:not-granted\", \"system:wine\"]\n\
              [[permissions.filesystem]]\nfolder = \"pc-games\"",
         )
@@ -715,7 +757,7 @@ mod tests {
     fn a_folder_default_is_one_path_or_a_list_to_search() {
         let grant = |default: &str| {
             let m = PluginManifest::from_toml(&format!(
-                "id = \"emu\"\nkind = \"emulator\"\nname = \"E\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
+                "id = \"emu\"\nkind = \"emulator\"\nname = \"E\"\nversion = \"1.0.0\"\nhost_api = \"^0.5\"\n\
                  [[permissions.filesystem]]\nfolder = \"emu-build\"\n{default}\n"
             ))
             .unwrap();
@@ -738,7 +780,7 @@ mod tests {
     fn rejects_bad_ids_and_bad_versions() {
         let bad_id = KYTY.replace("\"emu-kyty\"", "\"Emu Native\"");
         assert!(PluginManifest::from_toml(&bad_id).is_err());
-        let bad_req = KYTY.replace("\"^0.4\"", "\"not a range\"");
+        let bad_req = KYTY.replace("\"^0.5\"", "\"not a range\"");
         assert!(PluginManifest::from_toml(&bad_req).is_err());
     }
 }

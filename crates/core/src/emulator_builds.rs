@@ -73,16 +73,23 @@ pub(crate) async fn install(
 /// The player's own install, update or uninstall claims the emulator, or is refused. The
 /// refusal names the emulator and the state as the launch refusal does ([`crate::launch`]).
 fn claim(core: &Core, plugin: &PluginId) -> CoreResult<InstallClaim> {
-    core.builds().claim(plugin).ok_or_else(|| {
+    core.builds().claim(plugin, &sharing(core, plugin)).ok_or_else(|| {
         let name = core.kernel().manifest(plugin).map(|m| m.name.clone()).unwrap_or_else(|_| plugin.to_string());
         CoreError::Invalid(format!("{name} is updating: wait for it"))
     })
 }
 
+/// The other plugins that share `plugin`'s data folder: one program and its builds between them.
+fn sharing(core: &Core, plugin: &PluginId) -> Vec<PluginId> {
+    let shared = &core.kernel().host().shared_data;
+    let Some(name) = shared.get(plugin) else { return Vec::new() };
+    shared.iter().filter(|(p, n)| *n == name && *p != plugin).map(|(p, _)| p.clone()).collect()
+}
+
 /// An automatic install or update claims the emulator. While another install holds it, the
 /// automatic one is skipped: that is no failure, and the player sees nothing.
 fn claim_if_free(core: &Core, plugin: &PluginId) -> Option<InstallClaim> {
-    let claim = core.builds().claim(plugin);
+    let claim = core.builds().claim(plugin, &sharing(core, plugin));
     if claim.is_none() {
         tracing::info!(plugin_id = %plugin, "another install of the emulator runs: this one is skipped");
     }
@@ -137,9 +144,18 @@ async fn install_claimed(
             );
         }
     }
-    refresh_emulator(core, plugin).await;
+    refresh_with_sharing(core, plugin).await;
     core.changed(Area::Downloads);
     result
+}
+
+/// [`refresh_emulator`] for `plugin` and each plugin that shares its data folder: one install
+/// or uninstall is theirs too.
+async fn refresh_with_sharing(core: &Core, plugin: &PluginId) {
+    refresh_emulator(core, plugin).await;
+    for other in sharing(core, plugin) {
+        refresh_emulator(core, &other).await;
+    }
 }
 
 /// The player's update of `plugin` to its newest build.
@@ -171,7 +187,7 @@ pub(crate) async fn uninstall(core: &Core, plugin: &PluginId, version: &str) -> 
     let claim = claim(core, plugin)?;
     kernel.guard(plugin, "installer.uninstall", installer.uninstall(version)).await?;
     claim.end(version, InstallPhase::Uninstalled);
-    refresh_emulator(core, plugin).await;
+    refresh_with_sharing(core, plugin).await;
     Ok(())
 }
 

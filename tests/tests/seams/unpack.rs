@@ -20,6 +20,8 @@ struct ArchiveEmu {
     format: ArchiveFormat,
     /// Where the download goes; a bare AppImage keeps this file's name.
     dest: &'static str,
+    /// The archive's paths to unpack; empty for all.
+    only: Vec<String>,
     got: Arc<Mutex<Vec<DownloadedArtifact>>>,
 }
 
@@ -34,7 +36,11 @@ impl Downloader for ArchiveEmu {
                 sha256: self.sha256.clone(),
                 signature: None,
                 dest: RelPath::new(self.dest)?,
-                unpack: Some(Unpack { format: self.format, into: RelPath::new("builds/1.0")? }),
+                unpack: Some(Unpack {
+                    format: self.format,
+                    into: RelPath::new("builds/1.0")?,
+                    only: self.only.clone(),
+                }),
             }],
         })
     }
@@ -62,10 +68,23 @@ async fn boot(host: FakeHost, archive: Vec<u8>, format: ArchiveFormat) -> (TestC
 }
 
 async fn boot_with(host: FakeHost, archive: Vec<u8>, format: ArchiveFormat, process: &str) -> (TestCore, ArchiveEmu) {
-    let emu = ArchiveEmu { sha256: host.http().serve(URL, archive), format, dest: DEST, got: Arc::default() };
+    boot_full(host, archive, format, process, Vec::new(), "").await
+}
+
+/// [`boot_with`], with only the paths `only` of the archive, and `top` at the top of the
+/// manifest.
+async fn boot_full(
+    host: FakeHost,
+    archive: Vec<u8>,
+    format: ArchiveFormat,
+    process: &str,
+    only: Vec<String>,
+    top: &str,
+) -> (TestCore, ArchiveEmu) {
+    let emu = ArchiveEmu { sha256: host.http().serve(URL, archive), format, dest: DEST, only, got: Arc::default() };
     let e = emu.clone();
     let plugin = StubPlugin::from_toml(&format!(
-        "id = \"emu\"\nkind = \"emulator\"\nname = \"Emu\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
+        "{top}id = \"emu\"\nkind = \"emulator\"\nname = \"Emu\"\nversion = \"1.0.0\"\nhost_api = \"^0.5\"\n\
          capabilities = [\"downloader\", \"installer\"]\n[permissions]\nnetwork = [\"builds.example\"]\nprocess = {process}"
     ))
     .provides(move |_| {
@@ -205,11 +224,12 @@ async fn a_bare_appimage_is_extracted_by_running_it_on_linux_under_its_own_name(
         sha256: host.http().serve(URL, b"\x7fELF appimage".to_vec()),
         format: ArchiveFormat::AppImage,
         dest: "downloads/lichii-linux-x86_64.AppImage",
+        only: Vec::new(),
         got: Arc::default(),
     };
     let e = emu.clone();
     let plugin = StubPlugin::from_toml(
-        "id = \"emu\"\nkind = \"emulator\"\nname = \"Emu\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
+        "id = \"emu\"\nkind = \"emulator\"\nname = \"Emu\"\nversion = \"1.0.0\"\nhost_api = \"^0.5\"\n\
          capabilities = [\"downloader\", \"installer\"]\n[permissions]\nnetwork = [\"builds.example\"]\n\
          process = [\"builds/*/*.AppImage\"]",
     )
@@ -263,12 +283,17 @@ async fn an_appimage_whose_extract_never_ends_is_killed_after_ten_minutes() {
 async fn a_tampered_appimage_is_deleted_before_anything_runs_and_other_systems_refuse_it() {
     let archive = zip(&[("Emu.AppImage", b"\x7fELF")]);
     let host = FakeHost::new().platform(Some(Platform::Linux));
-    let tampered =
-        ArchiveEmu { sha256: "00".repeat(32), format: ArchiveFormat::AppImageInZip, dest: DEST, got: Arc::default() };
+    let tampered = ArchiveEmu {
+        sha256: "00".repeat(32),
+        format: ArchiveFormat::AppImageInZip,
+        dest: DEST,
+        only: Vec::new(),
+        got: Arc::default(),
+    };
     host.http().serve(URL, archive.clone());
     let e = tampered.clone();
     let plugin = StubPlugin::from_toml(
-        "id = \"emu\"\nkind = \"emulator\"\nname = \"Emu\"\nversion = \"1.0.0\"\nhost_api = \"^0.4\"\n\
+        "id = \"emu\"\nkind = \"emulator\"\nname = \"Emu\"\nversion = \"1.0.0\"\nhost_api = \"^0.5\"\n\
          capabilities = [\"downloader\", \"installer\"]\n[permissions]\nnetwork = [\"builds.example\"]",
     )
     .provides(move |_| {
@@ -336,4 +361,98 @@ async fn a_zip_can_t_write_out_of_the_folder_through_its_own_links() {
 
     assert!(matches!(&err, CoreError::Download(m) if m.contains("link")), "{err}");
     assert!(!plugin_dir(&t).join("builds/evil").exists() && !plugin_dir(&t).join("evil").exists());
+}
+
+/// A 7z that holds many programs: only the paths the plan names come out, through the host's
+/// archives.
+#[tokio::test]
+async fn a_7z_unpacks_only_the_paths_the_plan_names() {
+    let host = FakeHost::new();
+    host.archives().holds(
+        "emu.archive",
+        &[
+            ("pack/cores/a.so", b"a" as &[u8]),
+            ("pack/cores/b.so", b"b"),
+            ("pack/info/b.info", b"i"),
+            ("pack/big.bin", b"big"),
+        ],
+    );
+    let only = vec!["pack/cores/b.so".to_owned(), "pack/info".to_owned()];
+    let (t, _) = boot_full(host, b"7z bytes".to_vec(), ArchiveFormat::SevenZip, "[]", only, "").await;
+
+    install(&t).await.unwrap();
+
+    let build = plugin_dir(&t).join("builds/1.0/pack");
+    assert_eq!(std::fs::read(build.join("cores/b.so")).unwrap(), b"b");
+    assert!(build.join("info/b.info").is_file(), "a folder, with what is in it");
+    assert!(!build.join("cores/a.so").exists() && !build.join("big.bin").exists());
+    assert_eq!(t.archives.unpacked()[0].0, launcher_core::ArchiveKind::SevenZ);
+}
+
+/// A 7z that holds an AppImage with a folder beside it: the AppImage is extracted where it is,
+/// on Linux, and the folder stays.
+#[tokio::test]
+async fn an_appimage_in_a_7z_is_extracted_where_it_is_on_linux() {
+    let host = FakeHost::new().platform(Some(Platform::Linux));
+    host.archives()
+        .holds("emu.archive", &[("Emu/Emu.AppImage", b"\x7fELF" as &[u8]), ("Emu/Emu.AppImage.home/cfg", b"c")]);
+    let (t, _) =
+        boot_full(host, b"7z".to_vec(), ArchiveFormat::AppImageIn7z, "[\"builds/*/Emu/*.AppImage\"]", vec![], "").await;
+    let core = t.core.clone();
+    let install = tokio::spawn(async move {
+        core.dispatch(Command::InstallEmulator { plugin: PluginId::new("emu").unwrap(), version: None }).await
+    });
+
+    let process = tokio::time::timeout(Duration::from_secs(5), t.spawner.wait_for(1)).await.unwrap();
+    assert_eq!(process.command.args, ["--appimage-extract"]);
+    assert_eq!(process.command.program, process.command.cwd.join("Emu.AppImage"));
+    std::fs::create_dir_all(process.command.cwd.join("squashfs-root")).unwrap();
+    std::fs::write(process.command.cwd.join("squashfs-root/AppRun"), b"#!/bin/sh\n").unwrap();
+    process.exit(0);
+    install.await.unwrap().unwrap();
+
+    let build = plugin_dir(&t).join("builds/1.0/Emu");
+    assert!(build.join("squashfs-root/AppRun").is_file());
+    assert!(!build.join("Emu.AppImage").exists(), "the AppImage is gone once extracted");
+    assert_eq!(std::fs::read(build.join("Emu.AppImage.home/cfg")).unwrap(), b"c", "what is beside it stays");
+}
+
+/// A plan's `only` is for a 7z: another archive with it is refused.
+#[tokio::test]
+async fn only_part_of_an_archive_that_is_not_a_7z_is_refused() {
+    let archive = zip(&[("a.txt", b"a")]);
+    let (t, _) = boot_full(FakeHost::new(), archive, ArchiveFormat::Zip, "[]", vec!["a.txt".into()], "").await;
+    let refused = install(&t).await.unwrap_err();
+    assert!(refused.to_string().contains("only a 7z unpacks part of itself"), "{refused}");
+}
+
+/// A plugin that shares a data folder downloads into it, not into a folder of its own.
+#[tokio::test]
+async fn a_plugin_that_shares_a_data_folder_downloads_into_it() {
+    let host = FakeHost::new();
+    host.archives().holds("emu.archive", &[("prog", b"p" as &[u8])]);
+    let (t, _) =
+        boot_full(host, b"7z".to_vec(), ArchiveFormat::SevenZip, "[]", vec![], "shared_data = \"retro\"\n").await;
+
+    install(&t).await.unwrap();
+
+    assert_eq!(std::fs::read(t.data_dir().join("shared/retro/builds/1.0/prog")).unwrap(), b"p");
+    assert!(!plugin_dir(&t).exists(), "no folder of its own");
+}
+
+/// A shared data folder holds another plugin's programs: a plugin from disk can't name one.
+#[tokio::test]
+async fn a_plugin_from_disk_that_names_a_shared_data_folder_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("sneaky");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("plugin.toml"),
+        "id = \"sneaky\"\nkind = \"theme\"\nname = \"S\"\nversion = \"1.0.0\"\nhost_api = \"^0.5\"\n\
+         shared_data = \"retroarch\"\n[runtime]\ntype = \"data\"\n",
+    )
+    .unwrap();
+    let t = FakeHost::new().discover(dir.path()).boot_core().await;
+    let refused = t.report().rejection(&PluginId::new("sneaky").unwrap()).expect("refused").to_string();
+    assert!(refused.contains("only a built-in plugin shares a data folder"), "{refused}");
 }

@@ -3,7 +3,7 @@ id = "system"
 kind = "system"
 name = "This PC"
 version = "0.1.0"
-host_api = "^0.4"
+host_api = "^0.5"
 platforms = ["linux", "macos", "windows"]
 # Linux's. Each OS keeps the areas in its own module's AREAS table (src/linux.rs, macos.rs,
 # windows.rs): on macOS and Windows all but os_updates and os_install.

@@ -48,6 +48,11 @@ pub struct Unpack {
     pub format: ArchiveFormat,
     /// The folder it goes into. Whatever was there before is replaced.
     pub into: RelPath,
+    /// Only these paths of the archive, with `/` between the parts: each is a file, or a folder
+    /// with everything in it. Empty: the whole archive. For a 7z only ([`ArchiveFormat::SevenZip`],
+    /// [`ArchiveFormat::AppImageIn7z`]); the host refuses it for the other formats.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub only: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -61,6 +66,12 @@ pub enum ArchiveFormat {
     /// The download is an AppImage itself. The host copies it into `into` under the download's
     /// file name and runs its `--appimage-extract` (Linux only), as for [`Self::AppImageInZip`].
     AppImage,
+    /// A 7z archive.
+    SevenZip,
+    /// A 7z that holds one AppImage among its files. The host unpacks it as for
+    /// [`Self::SevenZip`], then runs the AppImage's `--appimage-extract` (Linux only) where it
+    /// is, so the AppImage's folder gets its `squashfs-root` folder.
+    AppImageIn7z,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
