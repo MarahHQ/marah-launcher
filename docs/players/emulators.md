@@ -101,6 +101,27 @@ the zip from Explorer (**Send to → Compressed (zipped) folder**) and leave out
   core reads `bios_MD.bin`, `bios_E.sms`, `bios_U.sms`, `bios_J.sms` and `bios.gg`. The NES core
   reads `disksys.rom` for Famicom Disk System games.
 
+## PS1, NES and Genesis: RetroArch
+
+### Picture
+
+The consoles draw small pictures (the NES draws 256×240 pixels), and RetroArch scales them up
+to your screen. The **Picture** setting on the emulator's page sets how, and a game's own
+setting wins over it:
+
+- **Sharp pixels**: each pixel is the same size, so nothing shimmers when the game scrolls. A
+  black border fills the rest of the screen.
+- **Smooth edges** (the default): the hq2x shader smooths the steps on the edges of the pixel
+  art, and keeps its texture. The picture fills the screen's height.
+- **Old TV (CRT)**: the crt-geom shader draws the scanlines and the curved glass of an old TV.
+
+The launcher picks the shader that RetroArch's video driver reads: GLSL for `gl`, slang for
+`glcore`, `vulkan` and Direct3D 10 to 12. A driver that reads neither starts the game with no
+shader. So does your own RetroArch build, and an official build installed before the launcher
+kept the shaders. To get them, select **Uninstall** on the emulator's page, then install
+RetroArch again. Only the build's folder goes: your saves, save states and RetroArch settings
+stay.
+
 ## PS5: KytyPS5
 
 A KytyPS5 build that knows the `--data-folder` option keeps its saves in one folder that every
