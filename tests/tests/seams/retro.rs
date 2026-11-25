@@ -102,6 +102,7 @@ async fn boot() -> (TestCore, tempfile::TempDir) {
         &[
             ("RetroArch-Linux-x86_64/RetroArch-Linux-x86_64.AppImage", b"\x7fELF" as &[u8]),
             (&format!("{LINUX_HOME}/autoconfig/udev/pad.cfg"), b"pad"),
+            (&format!("{LINUX_HOME}/shaders/shaders_glsl/crt/crt-geom.glslp"), b"shader0 = shaders/crt-geom.glsl"),
         ],
     );
     host.archives().holds(
@@ -212,6 +213,73 @@ async fn a_game_starts_in_retroarch_with_its_console_s_core_and_the_launcher_s_c
     assert!(shared(&test).join("saves").is_dir(), "the folders the config names are there");
     let home = shared(&test).join("config-home").display().to_string();
     assert_eq!(process.command.env.get("XDG_CONFIG_HOME"), Some(&home), "never the player's own RetroArch folder");
+}
+
+/// Sets the NES's picture, starts its game, and gives the start's arguments.
+async fn start_with_picture(test: &TestCore, picture: &str) -> Vec<String> {
+    std::fs::write(shared(test).join("retroarch.cfg"), "video_driver = \"gl\"\n").unwrap();
+    let set = Command::SetConfigField {
+        plugin: nes(),
+        scope: ConfigScope::Emulator,
+        key: "picture".into(),
+        value: picture.into(),
+    };
+    test.core.dispatch(set).await.unwrap();
+    let spawned = test.spawner.spawned().len();
+    test.core.dispatch(Command::Session(SessionCmd::Launch("emu-nes:Super Game".parse().unwrap()))).await.unwrap();
+    test.spawner.wait_for(spawned + 1).await.command.args
+}
+
+/// The old-TV picture starts with the build's CRT preset in the shader language of the video
+/// driver, GLSL for `gl`, with shaders on.
+#[tokio::test]
+async fn the_old_tv_picture_starts_with_the_build_s_crt_preset_for_the_video_driver() {
+    let (test, _games) = installed().await;
+    let args = start_with_picture(&test, "Crt").await;
+    let preset = shared(&test)
+        .join("builds")
+        .join(retroarch::VERSION)
+        .join(LINUX_HOME)
+        .join("shaders/shaders_glsl/crt/crt-geom.glslp");
+    let at = args.iter().position(|a| a == "--set-shader").unwrap_or_else(|| panic!("a shader: {args:?}"));
+    assert_eq!(args[at + 1], preset.display().to_string());
+    assert_eq!(args[at + 2], "-L", "before the core: {args:?}");
+    let start = std::fs::read_to_string(shared(&test).join("launcher.cfg")).unwrap();
+    assert!(start.contains("video_shader_enable = \"true\""), "{start}");
+    assert!(start.contains("video_scale_integer = \"false\""), "{start}");
+}
+
+/// The game's page offers the three pictures after "As the emulator", and the one set for the
+/// game wins over the emulator's at its start.
+#[tokio::test]
+async fn a_game_s_own_picture_shows_on_its_page_and_wins_at_its_start() {
+    let (test, _games) = installed().await;
+    std::fs::write(shared(&test).join("retroarch.cfg"), "video_driver = \"gl\"\n").unwrap();
+    let game: GameKey = "emu-nes:Super Game".parse().unwrap();
+    test.core.dispatch(Command::Navigate(launcher_core::Route::GameSettings(game.clone()))).await.unwrap();
+    let detail = test.core.view().detail.expect("the game's details");
+    let picture = detail.settings.iter().flat_map(|p| &p.fields).find(|f| f.key == "picture").expect("picture");
+    assert_eq!(picture.choice_labels, ["As the emulator", "Sharp pixels", "Smooth edges", "Old TV (CRT)"]);
+    let crt = picture.choices[3].clone();
+
+    let scope = ConfigScope::Game(game.local.clone());
+    test.core
+        .dispatch(Command::SetConfigField { plugin: nes(), scope, key: "picture".into(), value: crt })
+        .await
+        .unwrap();
+    let spawned = test.spawner.spawned().len();
+    test.core.dispatch(Command::Session(SessionCmd::Launch(game))).await.unwrap();
+    let args = test.spawner.wait_for(spawned + 1).await.command.args;
+    assert!(args.iter().any(|a| a == "--set-shader"), "the game's old TV, not the emulator's smooth edges: {args:?}");
+}
+
+/// A build installed without a picture's preset starts the game with no shader, never with a
+/// path that isn't there.
+#[tokio::test]
+async fn a_picture_whose_preset_the_build_lacks_starts_with_no_shader() {
+    let (test, _games) = installed().await;
+    let args = start_with_picture(&test, "Smooth").await;
+    assert!(!args.iter().any(|a| a == "--set-shader"), "no preset in this build: {args:?}");
 }
 
 #[tokio::test]

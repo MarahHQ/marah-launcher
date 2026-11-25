@@ -120,11 +120,13 @@ pub struct RetroSettings {
     pub own_build: bool,
     /// Start games in full screen.
     pub fullscreen: bool,
+    /// How the games' pixels fill the screen.
+    pub picture: Picture,
 }
 
 impl Default for RetroSettings {
     fn default() -> Self {
-        Self { own_build: false, fullscreen: true }
+        Self { own_build: false, fullscreen: true, picture: Picture::default() }
     }
 }
 
@@ -135,6 +137,127 @@ impl Default for RetroSettings {
 pub struct RetroGameSettings {
     /// Start this game in full screen.
     pub fullscreen: Option<bool>,
+    /// How this game's pixels fill the screen.
+    pub picture: Option<Picture>,
+}
+
+/// How RetroArch draws a game's pixels on the screen. The consoles' pictures are small (the
+/// NES's is 256×240), so RetroArch scales them up.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(crate = "launcher_api::serde")]
+#[schemars(crate = "launcher_api::schemars")]
+pub enum Picture {
+    /// Sharp pixels
+    Sharp,
+    /// Smooth edges
+    #[default]
+    Smooth,
+    /// Old TV (CRT)
+    Crt,
+}
+
+/// The shader language a RetroArch video driver reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShaderLanguage {
+    Glsl,
+    Slang,
+}
+
+/// The shader language of the video driver `driver` (`video_driver` in `retroarch.cfg`). With
+/// no driver named, RetroArch's default on `platform`: `gl` on Linux, `d3d11` on Windows.
+/// `None`: a driver that reads neither, which gets no shader.
+pub fn shader_language(platform: Option<Platform>, driver: Option<&str>) -> Option<ShaderLanguage> {
+    let driver = driver.unwrap_or(match platform {
+        Some(Platform::Windows) => "d3d11",
+        _ => "gl",
+    });
+    match driver {
+        "gl" => Some(ShaderLanguage::Glsl),
+        "glcore" | "vulkan" | "d3d10" | "d3d11" | "d3d12" | "metal" => Some(ShaderLanguage::Slang),
+        _ => None,
+    }
+}
+
+/// A picture's preset in one shader language, and every file it reads: its passes, the files
+/// they include and its lookup images. All are in RetroArch's shaders folder.
+struct Shader {
+    picture: Picture,
+    language: ShaderLanguage,
+    preset: &'static str,
+    files: &'static [&'static str],
+}
+
+/// The shaders a build keeps. Smooth edges is hq2x: it smooths the steps on the edges and keeps
+/// the art's texture, where xBRZ rounds it into blobs. Old TV is crt-geom.
+const SHADERS: [Shader; 4] = [
+    Shader {
+        picture: Picture::Smooth,
+        language: ShaderLanguage::Glsl,
+        preset: "shaders_glsl/hqx/hq2x.glslp",
+        files: &[
+            "shaders_glsl/hqx/shader-files/hqx-pass1.glsl",
+            "shaders_glsl/hqx/shader-files/hqx-pass2.glsl",
+            "shaders_glsl/hqx/resources/hq2x.png",
+        ],
+    },
+    Shader {
+        picture: Picture::Crt,
+        language: ShaderLanguage::Glsl,
+        preset: "shaders_glsl/crt/crt-geom.glslp",
+        files: &["shaders_glsl/crt/shaders/crt-geom.glsl"],
+    },
+    Shader {
+        picture: Picture::Smooth,
+        language: ShaderLanguage::Slang,
+        preset: "shaders_slang/edge-smoothing/hqx/hq2x.slangp",
+        files: &[
+            "shaders_slang/stock.slang",
+            "shaders_slang/edge-smoothing/hqx/shaders/pass1.slang",
+            "shaders_slang/edge-smoothing/hqx/shaders/hq2x.slang",
+            "shaders_slang/edge-smoothing/hqx/shaders/pass2.inc",
+            "shaders_slang/interpolation/shaders/bicubic/bicubic-x.slang",
+            "shaders_slang/interpolation/shaders/bicubic/bicubic-y.slang",
+            "shaders_slang/edge-smoothing/hqx/resources/hq2x.png",
+        ],
+    },
+    Shader {
+        picture: Picture::Crt,
+        language: ShaderLanguage::Slang,
+        preset: "shaders_slang/crt/crt-geom.slangp",
+        files: &["shaders_slang/crt/shaders/crt-geom.slang"],
+    },
+];
+
+/// The preset of `picture` in `language`, in RetroArch's shaders folder. Sharp pixels need none.
+pub fn preset(picture: Picture, language: ShaderLanguage) -> Option<&'static str> {
+    SHADERS.iter().find(|s| s.picture == picture && s.language == language).map(|s| s.preset)
+}
+
+/// The preset of `picture` in build `tag`, for the video driver in `retroarch.cfg`
+/// (`base_config`).
+pub fn shader(
+    platform: Option<Platform>,
+    tag: &str,
+    picture: Picture,
+    base_config: &str,
+) -> PluginResult<Option<RelPath>> {
+    let driver = config_value(base_config, "video_driver");
+    let Some(preset) = shader_language(platform, driver.as_deref()).and_then(|l| preset(picture, l)) else {
+        return Ok(None);
+    };
+    let shaders = match platform {
+        Some(Platform::Windows) => versions::folder(tag)?.join(WINDOWS)?,
+        _ => own_folder(platform, tag)?,
+    };
+    Ok(Some(shaders.join("shaders")?.join(preset)?))
+}
+
+/// The value of `key` in a RetroArch config's `key = "value"` lines.
+fn config_value(config: &str, key: &str) -> Option<String> {
+    config.lines().find_map(|line| {
+        let (k, v) = line.split_once('=')?;
+        (k.trim() == key).then(|| v.trim().trim_matches('"').to_owned())
+    })
 }
 
 impl crate::settings::Settings for RetroSettings {
@@ -162,6 +285,12 @@ pub fn files(platform: Option<Platform>) -> Vec<PinnedFile> {
             let home = |part: &str| format!("{LINUX_HOME}/{part}");
             let mut kept = vec![format!("{LINUX}/RetroArch-Linux-x86_64.AppImage"), home("assets"), home("autoconfig")];
             kept.extend(DATABASES.iter().map(|db| home(&format!("database/rdb/{db}.rdb"))));
+            kept.extend(
+                SHADERS
+                    .iter()
+                    .flat_map(|s| std::iter::once(s.preset).chain(s.files.iter().copied()))
+                    .map(|f| home(&format!("shaders/{f}"))),
+            );
             vec![
                 file(
                     "RetroArch-linux.7z",
@@ -241,7 +370,12 @@ fn own_folder(platform: Option<Platform>, tag: &str) -> PluginResult<RelPath> {
 
 /// What `launcher.cfg` holds for a start with build `tag` (`None`: your own build, which keeps
 /// its own assets), in RetroArch's `key = "value"` lines.
-pub fn start_config(platform: Option<Platform>, tag: Option<&str>, fullscreen: bool) -> PluginResult<String> {
+pub fn start_config(
+    platform: Option<Platform>,
+    tag: Option<&str>,
+    fullscreen: bool,
+    picture: Picture,
+) -> PluginResult<String> {
     let mut lines: Vec<(String, String)> =
         DATA_DIRS.iter().map(|(key, dir)| ((*key).to_owned(), (*dir).to_owned())).collect();
     if let Some(tag) = tag {
@@ -254,6 +388,18 @@ pub fn start_config(platform: Option<Platform>, tag: Option<&str>, fullscreen: b
     lines.push(("sort_savefiles_enable".into(), "true".into()));
     lines.push(("sort_savestates_enable".into(), "true".into()));
     lines.push(("video_fullscreen".into(), fullscreen.to_string()));
+    // Sharp pixels are each the same size: whole steps of scale, with a black border where the
+    // screen is left. Axis 1 takes whole steps across too, the nearest to the console's shape:
+    // RetroArch's default steps the height alone, which leaves columns of two widths. A shader
+    // scales to the whole screen itself, and RetroArch loads the one the start names
+    // (`--set-shader`) only with shaders on.
+    let sharp = picture == Picture::Sharp;
+    lines.push(("video_scale_integer".into(), sharp.to_string()));
+    if sharp {
+        lines.push(("video_scale_integer_axis".into(), "1".into()));
+    } else {
+        lines.push(("video_shader_enable".into(), "true".into()));
+    }
     // A game starts when it is asked for; the menu is RetroArch's own.
     lines.push(("pause_nonactive".into(), "false".into()));
     // A player with a gamepad alone opens RetroArch's menu, which quits too, with Start and
@@ -368,8 +514,14 @@ impl<C: RetroConsole> Retro<C> {
     }
 
     /// Makes the folders the configs name, and `retroarch.cfg` when there is none. Gives
-    /// `launcher.cfg`, written for this start.
-    async fn configs(&self, tag: Option<&str>, fullscreen: bool) -> PluginResult<(RelPath, RelPath)> {
+    /// `launcher.cfg`, written for this start, and the shader preset of `picture`: none for
+    /// sharp pixels, for your own build, or for a build installed without its shaders.
+    async fn configs(
+        &self,
+        tag: Option<&str>,
+        fullscreen: bool,
+        picture: Picture,
+    ) -> PluginResult<(RelPath, RelPath, Option<RelPath>)> {
         let host = self.emu.host();
         let storage = host.storage.as_ref();
         for dir in DATA_DIRS.iter().map(|(_, dir)| *dir).chain([CONFIG_HOME]) {
@@ -383,22 +535,40 @@ impl<C: RetroConsole> Retro<C> {
             storage.write(&base, b"config_save_on_exit = \"true\"\n").await?;
         }
         let start = RelPath::new(START_CONFIG)?;
-        storage.write(&start, start_config(host.platform, tag, fullscreen)?.as_bytes()).await?;
-        Ok((base, start))
+        storage.write(&start, start_config(host.platform, tag, fullscreen, picture)?.as_bytes()).await?;
+        let preset = match tag {
+            Some(tag) if picture != Picture::Sharp => {
+                let base_config = String::from_utf8_lossy(&storage.read(&base).await?).into_owned();
+                match shader(host.platform, tag, picture, &base_config)? {
+                    Some(preset) if storage.exists(&preset).await? => Some(preset),
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        Ok((base, start, preset))
     }
 }
 
-/// The command line of a start: the configs, the core, then the game.
-pub fn start_args(base: RelPath, start: RelPath, core: LaunchArg, game: HostPath) -> Vec<LaunchArg> {
-    vec![
+/// The command line of a start: the configs, the shader preset if any, the core, then the game.
+pub fn start_args(
+    base: RelPath,
+    start: RelPath,
+    shader: Option<RelPath>,
+    core: LaunchArg,
+    game: HostPath,
+) -> Vec<LaunchArg> {
+    let mut args = vec![
         "--config".into(),
         LaunchArg::path(Location::Data(base)),
         "--appendconfig".into(),
         LaunchArg::path(Location::Data(start)),
-        "-L".into(),
-        core,
-        LaunchArg::path(Location::Folder(game)),
-    ]
+    ];
+    if let Some(shader) = shader {
+        args.extend(["--set-shader".into(), LaunchArg::path(Location::Data(shader))]);
+    }
+    args.extend(["-L".into(), core, LaunchArg::path(Location::Folder(game))]);
+    args
 }
 
 #[async_trait]
@@ -416,8 +586,8 @@ impl<C: RetroConsole> Launcher for Retro<C> {
             Some(tag) => LaunchArg::path(Location::Data(core(platform, &tag, C::CORE)?)),
             None => C::CORE.into(),
         };
-        let (base, start) = self.configs(run.tag.as_deref(), settings.fullscreen).await?;
-        let args = start_args(base, start, core, found.file.unwrap_or(found.dir));
+        let (base, start, shader) = self.configs(run.tag.as_deref(), settings.fullscreen, settings.picture).await?;
+        let args = start_args(base, start, shader, core, found.file.unwrap_or(found.dir));
         let env = match platform {
             Some(Platform::Windows) => Default::default(),
             _ => [("XDG_CONFIG_HOME".to_owned(), LaunchArg::path(Location::Data(RelPath::new(CONFIG_HOME)?)))].into(),
@@ -548,7 +718,9 @@ mod tests {
         assert_eq!(linux[0].into, None, "RetroArch unpacks into the build's folder");
         assert!(linux[0].only.iter().any(|o| o.ends_with("/autoconfig")), "the controller profiles");
         assert!(linux[0].only.iter().any(|o| o.ends_with("Sony - PlayStation.rdb")));
-        assert!(!linux[0].only.iter().any(|o| o.contains("shaders")), "no shaders: {:?}", linux[0].only);
+        let shaders: Vec<&String> = linux[0].only.iter().filter(|o| o.contains("/shaders/")).collect();
+        assert_eq!(shaders.len(), 16, "the two pictures' presets and their files in two languages: {shaders:?}");
+        assert!(shaders.iter().all(|o| o.starts_with(&format!("{LINUX_HOME}/shaders/shaders_"))), "{shaders:?}");
         assert_eq!(linux[1].into, Some(PACK));
         assert_eq!(linux[1].only.len(), CORES.len());
         let windows = files(Some(Platform::Windows));
@@ -585,7 +757,7 @@ mod tests {
 
     #[test]
     fn a_start_s_config_names_the_folders_relative_to_the_shared_data_folder() {
-        let config = start_config(Some(Platform::Linux), Some("1.22.2"), true).unwrap();
+        let config = start_config(Some(Platform::Linux), Some("1.22.2"), true, Picture::Sharp).unwrap();
         assert!(config.contains("savefile_directory = \"saves\"\n"), "{config}");
         assert!(config.contains("rgui_config_directory = \"config\"\n"), "core options where backups find them");
         assert!(config.contains("input_remapping_directory = \"config/remaps\"\n"), "{config}");
@@ -594,16 +766,60 @@ mod tests {
         assert!(config.contains("joypad_autoconfig_dir = \"builds/1.22.2/RetroArch-Linux-x86_64/"), "{config}");
         assert!(config.contains("video_fullscreen = \"true\"\n"));
         assert!(config.contains("input_menu_toggle_gamepad_combo = \"4\"\n"), "the menu from a gamepad");
-        let own = start_config(Some(Platform::Linux), None, false).unwrap();
+        let own = start_config(Some(Platform::Linux), None, false, Picture::Crt).unwrap();
         assert!(!own.contains("assets_directory"), "your own build keeps its own: {own}");
         assert!(own.contains("video_fullscreen = \"false\""));
+        assert!(config.contains("video_scale_integer = \"true\"\n"), "sharp pixels: {config}");
+        assert!(config.contains("video_scale_integer_axis = \"1\"\n"), "whole steps across too: {config}");
+        assert!(!config.contains("video_shader_enable"), "the player's own shaders stay as they are: {config}");
+        assert!(own.contains("video_scale_integer = \"false\"\n"), "a shader fills the screen: {own}");
+        assert!(own.contains("video_shader_enable = \"true\"\n"), "else RetroArch skips the preset: {own}");
+    }
+
+    #[test]
+    fn a_picture_s_preset_is_in_the_shader_language_of_the_player_s_video_driver() {
+        let linux = Some(Platform::Linux);
+        let windows = Some(Platform::Windows);
+        assert_eq!(shader_language(linux, None), Some(ShaderLanguage::Glsl), "RetroArch's default on Linux is gl");
+        assert_eq!(shader_language(windows, None), Some(ShaderLanguage::Slang), "and d3d11 on Windows");
+        assert_eq!(shader_language(linux, Some("vulkan")), Some(ShaderLanguage::Slang));
+        assert_eq!(shader_language(linux, Some("sdl2")), None, "a driver with no shaders");
+        assert_eq!(preset(Picture::Sharp, ShaderLanguage::Glsl), None, "sharp pixels need no shader");
+        assert_eq!(RetroSettings::default().picture, Picture::Smooth, "smooth edges unless the player picks");
+
+        let gl = shader(linux, "1.22.2", Picture::Crt, "video_driver = \"gl\"\n").unwrap().unwrap();
+        assert_eq!(gl.as_str(), format!("builds/1.22.2/{LINUX_HOME}/shaders/shaders_glsl/crt/crt-geom.glslp"));
+        let vulkan = shader(linux, "1.22.2", Picture::Smooth, "video_driver = \"vulkan\"\n").unwrap().unwrap();
+        assert!(vulkan.as_str().ends_with("shaders/shaders_slang/edge-smoothing/hqx/hq2x.slangp"), "{vulkan:?}");
+        let win = shader(windows, "1.22.2", Picture::Crt, "").unwrap().unwrap();
+        assert_eq!(win.as_str(), "builds/1.22.2/RetroArch-Win64/shaders/shaders_slang/crt/crt-geom.slangp");
+        assert_eq!(shader(linux, "1.22.2", Picture::Sharp, "").unwrap(), None);
+        assert_eq!(shader(linux, "1.22.2", Picture::Crt, "video_driver = \"sdl2\"\n").unwrap(), None);
+    }
+
+    #[test]
+    fn each_shader_s_files_are_in_its_own_language_s_folder() {
+        for shader in SHADERS {
+            let folder = match shader.language {
+                ShaderLanguage::Glsl => "shaders_glsl/",
+                ShaderLanguage::Slang => "shaders_slang/",
+            };
+            for file in std::iter::once(&shader.preset).chain(shader.files) {
+                assert!(file.starts_with(folder), "{file} with {:?}", shader.language);
+            }
+        }
     }
 
     #[test]
     fn a_start_gives_the_configs_then_the_core_then_the_game() {
         let game = HostPath::new("games", 0, RelPath::new("NES/Game.nes").unwrap());
-        let args =
-            start_args(RelPath::new("a.cfg").unwrap(), RelPath::new("b.cfg").unwrap(), "fceumm".into(), game.clone());
+        let args = start_args(
+            RelPath::new("a.cfg").unwrap(),
+            RelPath::new("b.cfg").unwrap(),
+            None,
+            "fceumm".into(),
+            game.clone(),
+        );
         let words: Vec<String> = args
             .iter()
             .map(|a| match a {
@@ -614,6 +830,17 @@ mod tests {
         assert_eq!(words[0], "--config");
         assert_eq!(words[2], "--appendconfig");
         assert_eq!((words[4].as_str(), words[5].as_str()), ("-L", "fceumm"));
-        assert_eq!(args.last(), Some(&LaunchArg::path(Location::Folder(game))));
+        assert_eq!(args.last(), Some(&LaunchArg::path(Location::Folder(game.clone()))));
+        let preset = RelPath::new("builds/1.22.2/crt.glslp").unwrap();
+        let shaded = start_args(
+            RelPath::new("a.cfg").unwrap(),
+            RelPath::new("b.cfg").unwrap(),
+            Some(preset.clone()),
+            "fceumm".into(),
+            game,
+        );
+        assert_eq!(shaded[4], LaunchArg::Text("--set-shader".into()));
+        assert_eq!(shaded[5], LaunchArg::path(Location::Data(preset)));
+        assert_eq!(shaded[6], LaunchArg::Text("-L".into()));
     }
 }
