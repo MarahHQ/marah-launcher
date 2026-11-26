@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.0](https://github.com/MarahHQ/marah-launcher/compare/v0.19.0...v0.20.0) (2026-11-26)
+
+
+### Features
+
+* a Picture setting for the RetroArch consoles: smooth edges (hq2x) by default, sharp pixels or an old TV (CRT) ([ae34394](https://github.com/MarahHQ/marah-launcher/commit/ae343941b6410d0dc219e840d136da444b0a167b))
+
 ## [0.19.0](https://github.com/MarahHQ/marah-launcher/compare/v0.18.1...v0.19.0) (2026-11-23)
 
 
