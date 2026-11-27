@@ -462,6 +462,18 @@ impl<C: RetroConsole> Flavor for RetroArchFlavor<C> {
         help.contains("RetroArch")
     }
 
+    /// The build has the core of every retro plugin ([`CORES`]): one unpacked before a core
+    /// was added installs again, and gets it.
+    async fn complete(&self, storage: &dyn Storage, tag: &str) -> bool {
+        for name in CORES {
+            let Ok(path) = core(self.platform, tag, name) else { return false };
+            if !storage.exists(&path).await.unwrap_or(false) {
+                return false;
+            }
+        }
+        true
+    }
+
     fn own_build(&self) -> OwnBuild {
         OwnBuild {
             folder: "retroarch-build",
