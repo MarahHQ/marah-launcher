@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.0](https://github.com/MarahHQ/marah-launcher/compare/v0.21.0...v0.22.0) (2026-11-27)
+
+
+### Features
+
+* Retro is one system on Home and in the Library's and Catalog's chips, while each game's badge names its console ([d9ff601](https://github.com/MarahHQ/marah-launcher/commit/d9ff6016b33845c67c5fb68c334bb794be3f1103))
+
 ## [0.21.0](https://github.com/MarahHQ/marah-launcher/compare/v0.20.0...v0.21.0) (2026-11-27)
 
 
