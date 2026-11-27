@@ -514,8 +514,10 @@ impl Worker {
                 continue;
             };
             let into = storage.resolve(&unpack.into).map_err(|e| failed(e.to_string()))?;
-            // Already unpacked from this very file (the app stopped after the unpack).
-            let size = match unpacked_from(&into, &sha256).await {
+            // Already unpacked from this very file, with these files (the app stopped after the
+            // unpack).
+            let kept = kept_key(&unpack.only);
+            let size = match unpacked_from(&into, &sha256, &kept).await {
                 Some(size) => size,
                 None => {
                     let size = self.fetch(&artifact, &dest, done_before).await?;
@@ -538,7 +540,8 @@ impl Worker {
                     )
                     .await
                     .map_err(Stopped::Error)?;
-                    tokio::fs::write(into.join(UNPACKED_MARK), format!("{sha256} {size}")).await.map_err(io)?;
+                    let mark = format!("{sha256} {size} {kept}");
+                    tokio::fs::write(into.join(UNPACKED_MARK), mark.trim_end()).await.map_err(io)?;
                     let _ = tokio::fs::remove_file(&dest).await;
                     size
                 }
@@ -647,14 +650,29 @@ impl Worker {
     }
 }
 
-/// Written into an unpacked folder: the archive's SHA-256 and size.
+/// Written into an unpacked folder: the archive's SHA-256, its size, and for an unpack of some
+/// of its files ([`launcher_api::Unpack::only`]), the [`kept_key`] of those.
 const UNPACKED_MARK: &str = ".unpacked";
 
-/// The archive's size, when `into` holds an unpack of the archive with this SHA-256.
-async fn unpacked_from(into: &Path, sha256: &str) -> Option<u64> {
+/// The files an unpack kept, as one word: the SHA-256 of `only`'s paths, sorted, a line each.
+/// Empty when it kept every file. A longer list is another key: the archive unpacks again.
+fn kept_key(only: &[String]) -> String {
+    if only.is_empty() {
+        return String::new();
+    }
+    let mut paths: Vec<&str> = only.iter().map(String::as_str).collect();
+    paths.sort_unstable();
+    hex::encode(Sha256::digest(paths.join("\n").as_bytes()))
+}
+
+/// The archive's size, when `into` holds an unpack of the archive with this SHA-256 that kept
+/// the files of `kept` ([`kept_key`]).
+async fn unpacked_from(into: &Path, sha256: &str, kept: &str) -> Option<u64> {
     let mark = tokio::fs::read_to_string(into.join(UNPACKED_MARK)).await.ok()?;
-    let (sha, size) = mark.trim().split_once(' ')?;
-    (sha == sha256).then(|| size.parse().ok()).flatten()
+    let mut words = mark.split_whitespace();
+    let (sha, size) = (words.next()?, words.next()?);
+    let marked = words.next().unwrap_or_default();
+    (sha == sha256 && marked == kept).then(|| size.parse().ok()).flatten()
 }
 
 fn part_path(dest: &Path) -> PathBuf {

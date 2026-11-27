@@ -117,9 +117,11 @@ The Retro emulator took the place of the NES and Genesis emulators. At its first
 launcher moves their games' play time and settings to it. A NES or Genesis emulator you had
 turned off is a console that is off.
 
-The Atari 2600 plays on RetroArch's Stella core. RetroArch installed before the Retro emulator
-lacks it: select **Uninstall** on the Retro page, then install RetroArch again. Your saves, save
-states and RetroArch settings stay.
+The Atari 2600 plays on RetroArch's Stella core. When RetroArch lacks a core that the PS1 or
+Retro emulator needs (one installed before the core came with it), it shows as not installed.
+The launcher installs it again at its start when Settings → Updates lets it, or when you select
+**Install** or play a game. It downloads the pack of cores again (about 270 MB), not RetroArch,
+and adds the missing core. Your saves, save states and RetroArch settings stay.
 
 ### Picture
 

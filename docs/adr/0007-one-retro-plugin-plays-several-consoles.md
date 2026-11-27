@@ -30,7 +30,9 @@ its own.
 
 - A new retro console is one `RetroConsole`, one `[[consoles]]` entry, and its core in the
   pinned pack.
-- The Stella core comes with the build: an install made before this change lacks it, and needs
-  an uninstall and an install of RetroArch.
+- A build that lacks a core of `CORES` isn't installed (`Flavor::complete`), and an unpack's
+  mark names the files it kept. So an install made before a core came with it installs again:
+  it downloads the pack of cores again, about 270 MB, and unpacks the missing core. RetroArch's
+  own archive doesn't download again.
 - A launcher older than this one doesn't know `emu-retro`: after the move, going back to it
   loses the NES and Genesis records it kept.
