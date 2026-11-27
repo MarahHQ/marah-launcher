@@ -230,3 +230,37 @@ async fn a_manifest_of_several_consoles_is_refused_with_a_single_console_too_a_c
     assert!(refusal(&service).await.contains("only an emulator lists [[consoles]]"));
     assert_eq!(refusal(RETRO).await, "", "the manifest itself loads");
 }
+
+/// One archive for all the consoles (`[system_files]` beside `[[consoles]]`): one block on the
+/// page, whose import takes its files for every console.
+#[tokio::test]
+async fn one_archive_for_all_the_consoles_has_one_block_and_one_import() {
+    let manifest = format!(
+        "{RETRO}[system_files]\nname = \"Retro BIOS files\"\narchive = \"retro-bios.zip\"\noptional = true\n\
+         [[system_files.part]]\nfrom = \"system\"\ninto = \"system\"\nfiles = [\"disksys.rom\", \"bios_MD.bin\"]\n"
+    );
+    let plugin = StubPlugin::from_toml(&manifest).provides(|_| {
+        Ok(Provided { catalog: Some(Arc::new(Games)), launcher: Some(Arc::new(Games)), ..Provided::default() })
+    });
+    let (home_dir, host) = (tempfile::tempdir().unwrap(), FakeHost::new());
+    let downloads = home_dir.path().join("Downloads");
+    std::fs::create_dir_all(&downloads).unwrap();
+    std::fs::write(downloads.join("retro-bios.zip"), b"archive").unwrap();
+    host.archives().holds("retro-bios.zip", &[("system/bios_MD.bin", b"md"), ("system/disksys.rom", b"fds")]);
+    let t = host.home(home_dir.path()).plugin(plugin).boot_core().await;
+    open_page(&t).await;
+    let shared = block(&t, "system-files").expect("one block for all the consoles");
+    assert_eq!(shared.text, "Retro BIOS files");
+
+    let pick = shared.rows.iter().find(|r| r.label == "Import…").expect("Import…");
+    let run =
+        Command::RunAction { plugin: retro_id(), action: pick.action.clone(), game: None, args: pick.args.clone() };
+    t.core.dispatch(run).await.unwrap();
+    assert_eq!(t.core.view().browser.title, "Import Retro BIOS files");
+    let file = downloads.join("retro-bios.zip");
+    t.core.dispatch(Command::ImportSystemFiles { plugin: retro_id(), file }).await.unwrap();
+
+    let system = t.data_dir().join("plugins/retro/system");
+    assert!(system.join("bios_MD.bin").is_file() && system.join("disksys.rom").is_file(), "every console's files");
+    assert_eq!(block(&t, "system-files").unwrap().rows[0].value, "Installed");
+}

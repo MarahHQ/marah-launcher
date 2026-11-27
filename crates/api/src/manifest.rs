@@ -530,8 +530,9 @@ pub struct PluginManifest {
     /// For an emulator that plays several consoles (`[[consoles]]`): each console, with what
     /// the single fields above say for one (`console`, `[system]`, `keymap`, `install_note`,
     /// `[system_files]`). The player turns each on or off on the plugin's page. A manifest
-    /// with `[[consoles]]` leaves those single fields out. Read both forms with
-    /// [`PluginManifest::played`].
+    /// with `[[consoles]]` leaves those single fields out, but `[system_files]`: one archive
+    /// for all its consoles, which [`PluginManifest::shared_system_files`] gives. Read both
+    /// forms with [`PluginManifest::played`].
     #[serde(default)]
     pub consoles: Vec<PluginConsole>,
     /// The plugins this one took the place of (`[[replaces]]`), each with the console of its
@@ -719,6 +720,12 @@ impl PluginManifest {
             return played.into_iter().next();
         }
         played.into_iter().find(|p| p.platform().is_some_and(|c| c.eq_ignore_ascii_case(platform)))
+    }
+
+    /// For an emulator of several consoles, the system files of all of them, from one archive
+    /// (its `[system_files]`).
+    pub fn shared_system_files(&self) -> Option<&crate::SystemFiles> {
+        self.system_files.as_ref().filter(|_| !self.consoles.is_empty())
     }
 
     /// The `[[consoles]]` entry for `console`.
