@@ -2189,7 +2189,7 @@ fn the_boot_screen_renders_a_plugin_s_question() {
             h.plugin(
                 launcher_testkit::StubPlugin::from_toml(
                     "id = \"asker\"\nkind = \"service\"\nname = \"Asker\"\nversion = \"1.0.0\"\n\
-                     host_api = \"^0.6\"\ncapabilities = [\"startup\"]",
+                     host_api = \"^0.7\"\ncapabilities = [\"startup\"]",
                 )
                 .provides(|_| {
                     Ok(launcher_api::Provided { startup: Some(std::sync::Arc::new(StartAsker)), ..Default::default() })

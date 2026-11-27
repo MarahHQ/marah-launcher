@@ -26,14 +26,19 @@ use crate::room::{Need, Room};
 use crate::torrents::{InstallAfter, NewDownload, TorrentAction, TorrentCmd, TorrentEvent, TorrentState};
 use crate::{CoreError, CoreResult, Kernel};
 
-/// The console an emulator plays, which names its folders: the plugin's id when its manifest
-/// doesn't say.
+/// The console an emulator plays, which names its folders: its first console that is on, or
+/// the plugin's id when its manifest names none.
 pub(crate) fn console_of(kernel: &Kernel, emulator: &PluginId) -> String {
     kernel
-        .manifest(emulator)
-        .ok()
-        .and_then(|m| m.console.as_ref().map(|c| c.as_str().to_owned()))
+        .consoles_on(emulator)
+        .iter()
+        .find_map(|p| p.console.map(|c| c.as_str().to_owned()))
         .unwrap_or_else(|| emulator.to_string())
+}
+
+/// The console a download is for, which names its install folder.
+pub(crate) fn console_of_job(kernel: &Kernel, job: &crate::torrents::TorrentJob) -> String {
+    if job.console.is_empty() { console_of(kernel, &job.emulator) } else { job.console.clone() }
 }
 
 /// The player's folders as `emulator` may use them.
@@ -100,7 +105,7 @@ async fn begin(core: &Core, id: &str, install: bool, folder: Option<std::path::P
     let then = if install {
         let kernel = core.kernel();
         let folders = folders_of(kernel, &job.emulator)?;
-        let console = console_of(kernel, &job.emulator);
+        let console = console_of_job(kernel, &job);
         let (_, path) = folders.place(Purpose::Install, &console, folder.as_deref())?;
         let checked = crate::torrents::picks::checked_bytes(&job.files, job.total, &job.skip);
         let room = Room::read(core.ports().drives.as_ref(), &job.folder, Some(&path));
@@ -285,6 +290,7 @@ async fn download_release(core: &Core, offer: &GameKey, release: &str, folder: O
             id: release.id.clone(),
             offer: offer.clone(),
             emulator: found.emulator.clone(),
+            console: for_console.clone(),
             title: release.title.clone(),
             version: release.version.clone(),
             region: release.region.clone(),
@@ -383,7 +389,7 @@ async fn start_install(core: &Core, id: &str, folder: Option<&Path>) -> CoreResu
     }
     let kernel = core.kernel();
     let folders = folders_of(kernel, &job.emulator)?;
-    let console = console_of(kernel, &job.emulator);
+    let console = console_of_job(kernel, &job);
     let (into, path) = folders.place(Purpose::Install, &console, folder)?;
     // The finished download already takes its room, so the install needs room of its own only.
     let room = Room::read(core.ports().drives.as_ref(), &job.folder, Some(&path));

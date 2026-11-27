@@ -62,7 +62,7 @@ kind = "emulator"
 name = "PS5"
 emulator = "KytyPS5"
 version = "0.1.0"
-host_api = "^0.6"
+host_api = "^0.7"
 platforms = ["linux", "macos", "windows"]
 console = "PS5"
 capabilities = ["catalog", "downloader", "installer", "configurator", "launcher", "compatibility", "slots", "game_installer", "backup"]
@@ -114,7 +114,7 @@ cover = "cover.jpg"
 | `name` | yes | What the player sees: in the plugin lists, on the plugin page, and where a sentence means the console. An emulator names its console: `PS5`. |
 | `emulator` | no | For an emulator, the name of the program it installs and runs, such as `KytyPS5`. Sentences about the program use it. Leave it out when the program has no name of its own: `name` is used. |
 | `version` | yes | The plugin's semver version. |
-| `host_api` | yes | A semver range of the API versions the plugin works with, such as `^0.6`. The host refuses the plugin when the range doesn't include `API_VERSION`, now `0.6.0`. |
+| `host_api` | yes | A semver range of the API versions the plugin works with, such as `^0.7`. The host refuses the plugin when the range doesn't include `API_VERSION`, now `0.7.0`. |
 | `platforms` | no | `linux`, `macos`, `windows`. Empty means every system. |
 | `console` | no | For an emulator, the console it plays: ASCII letters, digits and `-`, kept in uppercase (`ps5` and `PS5` are one console). The host gives the emulator that console's releases. Not the systems the plugin runs on. |
 | `capabilities` | no | The capabilities `init` provides, in snake case. See [Capabilities](#capabilities). |
@@ -130,6 +130,7 @@ cover = "cover.jpg"
 | `system` | no | `[system]`: the system the plugin's games show under. See below. |
 | `shared_data` | no | A data folder this plugin shares with every plugin that names the same one, such as `retroarch`: lowercase letters, digits and `-`. Its storage, downloads and programs live in `shared/<name>` in the app's data folder, not in `plugins/<id>`. The host runs one install among them at a time, and after one, it reads the builds of each. Only a built-in plugin may name one: a plugin from disk that does is refused. |
 | `system_files` | no | `[system_files]`: files the emulator needs besides its program and the games, which the player imports from one archive on its page. See below. |
+| `consoles` | no | `[[consoles]]`: for an emulator that plays several consoles, each console in place of `console`, `[system]`, `keymap`, `install_note` and `[system_files]`. See below. |
 
 ### `[[dependencies]]`
 
@@ -219,6 +220,53 @@ replace = true
 | `part.required` | File names the part must have. Without them, one file is enough. |
 | `part.replace` | The target folder is swapped whole, so no old file stays (a firmware). Without it, the part's files replace the files of the same name, and the folder's other files stay. |
 
+### `[[consoles]]`
+
+An emulator that plays several consoles lists each one. The player turns each on or off with the
+switches of the **Consoles** block on the plugin's page
+([`launcher_api::HOST_SET_CONSOLE`](../../crates/api/src/slots.rs)). The host saves the choice
+under `app.consoles.<plugin>.<console>`. A console that is off has no Home entry, no catalog
+and no system-files block, and its games are out of the app. Nothing of it is deleted, and it
+comes back when the player turns it on. A console the player never changed is as its `on` says,
+so a console a new version adds comes on by itself.
+
+```toml
+[[consoles]]
+console = "NES"
+install_note = "Installs an NES game from its ROM file."
+[consoles.system]
+id = "NES"
+name = "Nintendo Entertainment System"
+icon = "nes/icon.png"
+[[consoles.keymap]]
+button = "A"
+keys = "X"
+[consoles.system_files]
+name = "NES BIOS files"
+archive = "nes-bios.zip"
+[[consoles.system_files.part]]
+from = "system"
+into = "system"
+
+[[consoles]]
+console = "ATARI2600"
+on = false
+[consoles.system]
+id = "ATARI2600"
+name = "Atari 2600"
+```
+
+| Key | Meaning |
+| --- | --- |
+| `console` | The console, as the top-level `console` says one. Its games' `platform` is this code. |
+| `system` | Its `[system]`. Its `id` must be the `console` code. |
+| `keymap`, `install_note`, `system_files` | As the top-level keys say, for this console's games. The launch splash shows the keys of the game's console. |
+| `on` | The console is on until the player turns it off. With `false`, it is off until they turn it on. `true` by default. |
+
+The host reads either form with `PluginManifest::played`, and the console of a game with
+`played_for(platform)`. The games of two consoles share the plugin's ids, so a plugin gives each
+an id the console's code begins, such as `NES/Contra`.
+
 ## What the kernel checks
 
 `validate` in `crates/core/src/kernel.rs` rejects a plugin at boot when:
@@ -229,8 +277,12 @@ replace = true
 - `[system]` `color` isn't `#rrggbb`;
 - a folder grant's `folder` or `was` isn't lowercase letters, digits and `-`;
 - a folder grant has both `write = true` and `listed_in`;
-- `[system_files]` has no name, archive or part, a part's `into` is empty, or a part's `folder`
-  isn't a folder grant with `write = true`;
+- `[system_files]`, or one of `[[consoles]]`, has no name, archive or part, a part's `into` is
+  empty, or a part's `folder` isn't a folder grant with `write = true`;
+- a plugin that isn't an emulator lists `[[consoles]]`; or a manifest with `[[consoles]]` also
+  has `console`, `[system]`, `keymap`, `install_note` or `[system_files]`; or it lists a console
+  twice; or a console's `[consoles.system]` id isn't its console code, or its `color` isn't
+  `#rrggbb`;
 - the plugin is third-party with `runtime` `native` ("third-party plugins must be data-only");
 - a plugin that isn't `system` declares a system capability, or lists `long_running` or `polkit`;
 - an entry of `long_running` or `polkit` isn't also in `process`;

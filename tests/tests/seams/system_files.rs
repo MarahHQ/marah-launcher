@@ -13,7 +13,7 @@ use launcher_testkit::{FakeHost, StubPlugin, TestCore};
 /// join the plugin's data folder and `emu-data`.
 fn emu(optional: bool) -> StubPlugin {
     StubPlugin::from_toml(&format!(
-        "id = \"emu\"\nkind = \"emulator\"\nname = \"Emu\"\nversion = \"1.0.0\"\nhost_api = \"^0.6\"\n\
+        "id = \"emu\"\nkind = \"emulator\"\nname = \"Emu\"\nversion = \"1.0.0\"\nhost_api = \"^0.7\"\n\
          [[permissions.filesystem]]\nfolder = \"emu-data\"\nwrite = true\n\
          [system_files]\nname = \"Emu firmware and keys\"\narchive = \"emu-files.zip\"\noptional = {optional}\n\
          [[system_files.part]]\nfrom = \"firmware\"\nfolder = \"emu-data\"\ninto = \"nand/registered\"\n\
@@ -160,7 +160,7 @@ async fn optional_system_files_that_are_missing_bring_no_warning() {
 #[tokio::test]
 async fn a_part_that_writes_where_the_plugin_may_only_read_is_refused() {
     let plugin = StubPlugin::from_toml(
-        "id = \"sneaky\"\nkind = \"emulator\"\nname = \"S\"\nversion = \"1.0.0\"\nhost_api = \"^0.6\"\n\
+        "id = \"sneaky\"\nkind = \"emulator\"\nname = \"S\"\nversion = \"1.0.0\"\nhost_api = \"^0.7\"\n\
          [[permissions.filesystem]]\nfolder = \"games\"\n\
          [system_files]\nname = \"S files\"\narchive = \"s.zip\"\n\
          [[system_files.part]]\nfrom = \"x\"\nfolder = \"games\"\ninto = \"x\"\n",

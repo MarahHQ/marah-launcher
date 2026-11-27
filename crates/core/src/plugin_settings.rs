@@ -79,8 +79,19 @@ pub(crate) async fn run_action(
         return crate::launch::open_emulator(core, plugin).await;
     }
     if action == launcher_api::HOST_IMPORT_SYSTEM_FILES {
-        let purpose = crate::browser::Purpose::SystemFiles(plugin.clone());
+        let console = args.get("console").and_then(Value::as_str).and_then(|c| launcher_api::Console::new(c).ok());
+        let purpose = crate::browser::Purpose::SystemFiles(plugin.clone(), console);
         return crate::browser::open(core, None, purpose).await;
+    }
+    if action == launcher_api::HOST_SET_CONSOLE {
+        let console = args.get("console").and_then(Value::as_str).unwrap_or_default();
+        let on = args.get("on").and_then(Value::as_bool).ok_or_else(|| {
+            CoreError::Invalid(format!(
+                "{} needs {{\"console\": …, \"on\": true or false}}",
+                launcher_api::HOST_SET_CONSOLE
+            ))
+        })?;
+        return set_console_on(core, plugin, console, on).await;
     }
     if action == HOST_INSTALL_GAME {
         let source = serde_json::from_value(args)
@@ -130,6 +141,29 @@ pub(crate) async fn set_config_field(
     }
     current.as_object_mut().expect("an object").insert(key, value);
     set_config(core, plugin, scope, current).await
+}
+
+/// Turns one of the plugin's `[[consoles]]` on or off, saved under
+/// `app.consoles.<plugin>.<console>`. Its games, its Home entry and its catalog come or go at
+/// once; nothing of the console's is deleted.
+pub(crate) async fn set_console_on(core: &Core, plugin: &PluginId, console: &str, on: bool) -> CoreResult<()> {
+    let kernel = core.kernel();
+    let manifest = kernel.manifest(plugin)?;
+    let entry = manifest
+        .listed_console(console)
+        .ok_or_else(|| CoreError::Invalid(format!("{} plays no console {console:?}", manifest.name)))?;
+    let code = entry.console.as_str().to_owned();
+    kernel
+        .config()
+        .set(&["app", "consoles", plugin.as_str(), &code], Value::Bool(on))
+        .map_err(|e| CoreError::Io(e.to_string()))?;
+    if crate::navigation::catalog_available(kernel) {
+        crate::catalog_reads::refresh_releases(core).await;
+    }
+    refresh_settings(core).await;
+    crate::library_reads::refresh_library(core).await?;
+    core.changed(Area::Plugins);
+    Ok(())
 }
 
 pub(crate) async fn set_plugin_enabled(core: &Core, plugin: &PluginId, enabled: bool) -> CoreResult<()> {

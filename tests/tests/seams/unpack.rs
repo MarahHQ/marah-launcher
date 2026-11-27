@@ -84,7 +84,7 @@ async fn boot_full(
     let emu = ArchiveEmu { sha256: host.http().serve(URL, archive), format, dest: DEST, only, got: Arc::default() };
     let e = emu.clone();
     let plugin = StubPlugin::from_toml(&format!(
-        "{top}id = \"emu\"\nkind = \"emulator\"\nname = \"Emu\"\nversion = \"1.0.0\"\nhost_api = \"^0.6\"\n\
+        "{top}id = \"emu\"\nkind = \"emulator\"\nname = \"Emu\"\nversion = \"1.0.0\"\nhost_api = \"^0.7\"\n\
          capabilities = [\"downloader\", \"installer\"]\n[permissions]\nnetwork = [\"builds.example\"]\nprocess = {process}"
     ))
     .provides(move |_| {
@@ -229,7 +229,7 @@ async fn a_bare_appimage_is_extracted_by_running_it_on_linux_under_its_own_name(
     };
     let e = emu.clone();
     let plugin = StubPlugin::from_toml(
-        "id = \"emu\"\nkind = \"emulator\"\nname = \"Emu\"\nversion = \"1.0.0\"\nhost_api = \"^0.6\"\n\
+        "id = \"emu\"\nkind = \"emulator\"\nname = \"Emu\"\nversion = \"1.0.0\"\nhost_api = \"^0.7\"\n\
          capabilities = [\"downloader\", \"installer\"]\n[permissions]\nnetwork = [\"builds.example\"]\n\
          process = [\"builds/*/*.AppImage\"]",
     )
@@ -293,7 +293,7 @@ async fn a_tampered_appimage_is_deleted_before_anything_runs_and_other_systems_r
     host.http().serve(URL, archive.clone());
     let e = tampered.clone();
     let plugin = StubPlugin::from_toml(
-        "id = \"emu\"\nkind = \"emulator\"\nname = \"Emu\"\nversion = \"1.0.0\"\nhost_api = \"^0.6\"\n\
+        "id = \"emu\"\nkind = \"emulator\"\nname = \"Emu\"\nversion = \"1.0.0\"\nhost_api = \"^0.7\"\n\
          capabilities = [\"downloader\", \"installer\"]\n[permissions]\nnetwork = [\"builds.example\"]",
     )
     .provides(move |_| {
@@ -448,7 +448,7 @@ async fn a_plugin_from_disk_that_names_a_shared_data_folder_is_refused() {
     std::fs::create_dir_all(&folder).unwrap();
     std::fs::write(
         folder.join("plugin.toml"),
-        "id = \"sneaky\"\nkind = \"theme\"\nname = \"S\"\nversion = \"1.0.0\"\nhost_api = \"^0.6\"\n\
+        "id = \"sneaky\"\nkind = \"theme\"\nname = \"S\"\nversion = \"1.0.0\"\nhost_api = \"^0.7\"\n\
          shared_data = \"retroarch\"\n[runtime]\ntype = \"data\"\n",
     )
     .unwrap();

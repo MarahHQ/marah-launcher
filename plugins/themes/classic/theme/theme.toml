@@ -2,7 +2,7 @@ id = "classic"
 kind = "theme"
 name = "Classic"
 version = "0.3.0"
-host_api = "^0.6"
+host_api = "^0.7"
 capabilities = ["theme"]
 activation = "eager"
 

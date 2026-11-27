@@ -474,6 +474,11 @@ without them.
 `Kernel::enabled` reads `app.disabled_plugins` and `app.enabled_plugins`.
 `Command::SetPluginEnabled` changes them. A theme can't be turned off.
 
+An emulator with `[[consoles]]` plays several consoles. `Kernel::consoles_on` gives the ones the
+player has on, from `app.consoles.<plugin>`, and `Kernel::shows` says whether a game's console
+is one of them. The library, Home, the catalogs and the system-files blocks read only those. The
+`host:set-console` action of the plugin page's Consoles block changes them.
+
 Every call into a plugin goes through `Kernel::guard` (`guard.rs`). It opens a `plugin_call`
 tracing span with `plugin_id` and `method`, applies a timeout on the kernel's clock, and catches
 a panic. The timeout fires at the plugin's next `.await`.

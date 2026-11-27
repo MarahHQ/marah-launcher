@@ -44,6 +44,11 @@ pub const HOST_OPEN_SETTINGS: &str = "host:open-settings";
 /// and its time is not play time.
 pub const HOST_OPEN_EMULATOR: &str = "host:open-emulator";
 
+/// A slot action the host runs itself: turns one console of an emulator that plays several
+/// (`[[consoles]]`) on or off, with args `{"console": "NES", "on": false}`. The host shows the
+/// switches on the plugin's page.
+pub const HOST_SET_CONSOLE: &str = "host:set-console";
+
 impl SlotId {
     pub const ALL: [SlotId; 6] = [
         Self::GameBadge,

@@ -123,6 +123,10 @@ async fn read_library(core: &Core) -> CoreResult<()> {
             }
         };
         for summary in page.items {
+            // A console the player turned off: its games stay on disk, out of the app.
+            if !kernel.shows(&plugin, &summary.platform) {
+                continue;
+            }
             let key = GameKey::new(plugin.clone(), summary.id.clone());
             if let Some(slots) = &provided.slots {
                 let request = SlotRequest { slot: SlotId::GameBadge, game: Some(summary.id.clone()) };

@@ -104,7 +104,7 @@ pub(crate) enum Kind {
 
 /// The app's settings that a backup holds, under `app`: none names a folder of this computer.
 /// Every plugin's settings come along whole.
-pub(crate) const APP_KEYS: [&str; 17] = [
+pub(crate) const APP_KEYS: [&str; 18] = [
     "playtime",
     "hidden_games",
     "results",
@@ -113,6 +113,7 @@ pub(crate) const APP_KEYS: [&str; 17] = [
     "game_art",
     "disabled_plugins",
     "enabled_plugins",
+    "consoles",
     "sounds",
     "animations",
     "return_on_exit",

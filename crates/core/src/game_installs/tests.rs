@@ -254,6 +254,7 @@ impl Setup {
             id: "abc".into(),
             offer: launcher_api::GameKey::new(PluginId::new("catalog").unwrap(), "astro"),
             emulator: plugin(),
+            console: String::new(),
             title: "Astro".into(),
             version: String::new(),
             region: String::new(),

@@ -3,7 +3,8 @@
 //!
 //! - The page shows a "System files" block: whether they are in place, and an "Import…" row
 //!   ([`launcher_api::HOST_IMPORT_SYSTEM_FILES`]) that opens the folder browser to pick the
-//!   archive.
+//!   archive. An emulator of several consoles has one block for each console that is on and
+//!   has system files (`[consoles.system_files]`).
 //! - The import unpacks the archive into a work folder of the data folder, through the
 //!   [`crate::Archives`] port, which refuses paths that leave the folder. Then [`install`]:
 //!   - finds each part's folder in it, at its top or in the one folder the archive holds;
@@ -23,12 +24,17 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use launcher_api::{PluginId, SystemFiles, SystemFilesPart};
+use launcher_api::{Console, PluginId, SystemFiles, SystemFilesPart};
 use sha2::Digest;
 
 use crate::{ArchiveKind, Core, CoreError, CoreResult};
 
-/// The work folder of an import, in the data folder: `tmp/system-files/<plugin>`.
+/// Whose system files: a plugin's single `[system_files]` (`None`), or those of one of its
+/// `[[consoles]]`.
+pub(crate) type Owner = (PluginId, Option<Console>);
+
+/// The work folder of an import, in the data folder: `tmp/system-files/<plugin>`, or
+/// `tmp/system-files/<plugin>/<console>`.
 const WORK: &str = "tmp/system-files";
 /// The folder beside a target that holds the files an import copied, before they swap in.
 const STAGED: &str = ".import-part";
@@ -49,14 +55,20 @@ pub(crate) struct Status {
     pub failed: bool,
 }
 
-/// The folder each part of `plugin`'s system files goes into, in the parts' order.
-pub(crate) fn targets(core: &Core, plugin: &PluginId) -> CoreResult<(SystemFiles, Vec<PathBuf>)> {
+/// The system files of `owner`, and the folder each of their parts goes into, in the parts'
+/// order.
+pub(crate) fn targets(core: &Core, owner: &Owner) -> CoreResult<(SystemFiles, Vec<PathBuf>)> {
     let kernel = core.kernel();
+    let (plugin, console) = owner;
     let manifest = kernel.manifest(plugin)?;
-    let files = manifest
-        .system_files
-        .clone()
-        .ok_or_else(|| CoreError::Invalid(format!("{} has no system files to import", manifest.name)))?;
+    let files = match console {
+        None => manifest.system_files.clone(),
+        Some(console) => manifest.listed_console(console.as_str()).and_then(|c| c.system_files.clone()),
+    };
+    let files = files.ok_or_else(|| {
+        let of = console.as_ref().map(|c| format!(" for {c}")).unwrap_or_default();
+        CoreError::Invalid(format!("{} has no system files{of} to import", manifest.name))
+    })?;
     let data = kernel.host().plugin_dir(plugin);
     let folders = kernel.host_folders(plugin);
     let mut dirs = Vec::new();
@@ -393,17 +405,21 @@ pub(crate) fn is_archive(file: &Path) -> bool {
     archive_kind(file).is_some()
 }
 
-/// Imports `plugin`'s system files from the archive `file`, as the module says. Its page says
-/// what it did; a refusal is also the result.
-pub(crate) async fn import(core: &Core, plugin: &PluginId, file: &Path) -> CoreResult<()> {
-    let (files, dirs) = targets(core, plugin)?;
+/// Imports the system files of `plugin`, or of its `console`, from the archive `file`, as the
+/// module says. Its page says what it did; a refusal is also the result.
+pub(crate) async fn import(core: &Core, plugin: &PluginId, console: Option<&Console>, file: &Path) -> CoreResult<()> {
+    let owner: Owner = (plugin.clone(), console.cloned());
+    let (files, dirs) = targets(core, &owner)?;
     let kind = archive_kind(file)
         .ok_or_else(|| CoreError::Invalid(format!("{} isn't an archive: pick {}", file.display(), files.archive)))?;
     let builds = core.builds();
-    if !builds.start_import(plugin) {
+    if !builds.start_import(&owner) {
         return Err(CoreError::Invalid("Another import of system files runs: wait for it".into()));
     }
-    let work = core.kernel().host().data_dir.join(WORK).join(plugin.as_str());
+    let mut work = core.kernel().host().data_dir.join(WORK).join(plugin.as_str());
+    if let Some(console) = console {
+        work.push(console.as_str());
+    }
     let _ = tokio::fs::remove_dir_all(&work).await;
     let result = async {
         tokio::fs::create_dir_all(&work).await.map_err(|e| e.to_string())?;
@@ -411,12 +427,12 @@ pub(crate) async fn import(core: &Core, plugin: &PluginId, file: &Path) -> CoreR
         let free = ports.drives.free_bytes(&work);
         // The bar moves at each whole percent.
         let progress: crate::UnpackProgress = {
-            let (builds, plugin) = (builds.clone(), plugin.clone());
+            let (builds, owner) = (builds.clone(), owner.clone());
             Arc::new(move |done, total| {
                 let part = if total > 0 { (done as f32 / total as f32).min(1.0) } else { 0.0 };
-                let status = builds.system_files(&plugin);
+                let status = builds.system_files(&owner);
                 if (part * 100.0).floor() != (status.progress * 100.0).floor() {
-                    builds.set_system_files(&plugin, Status { progress: part, ..status });
+                    builds.set_system_files(&owner, Status { progress: part, ..status });
                 }
             })
         };
@@ -434,12 +450,10 @@ pub(crate) async fn import(core: &Core, plugin: &PluginId, file: &Path) -> CoreR
         Err(why) => (why.clone(), true),
     };
     let here = installed(&files, &dirs);
-    builds.set_system_files(plugin, Status { installed: here, importing: false, progress: 0.0, last, failed });
-    // The plugins that share a folder with this one see the files too.
+    builds.set_system_files(&owner, Status { installed: here, importing: false, progress: 0.0, last, failed });
+    // The plugins and consoles that share a folder with this one see the files too.
     for other in core.kernel().of_kind(launcher_api::PluginKind::Emulator) {
-        if &other != plugin {
-            refresh(core, &other).await;
-        }
+        refresh(core, &other).await;
     }
     match result {
         Ok(count) => {
@@ -457,16 +471,27 @@ fn imported_text(count: usize) -> String {
     if count == 1 { "1 file imported".into() } else { format!("{count} files imported") }
 }
 
-/// Reads again whether `plugin`'s system files are in place, for its page.
+/// Reads again whether `plugin`'s system files are in place, for its page: those of each of
+/// its consoles that has some.
 pub(crate) async fn refresh(core: &Core, plugin: &PluginId) {
-    let Ok((files, dirs)) = targets(core, plugin) else { return };
-    let here = tokio::task::spawn_blocking(move || installed(&files, &dirs)).await.unwrap_or(false);
-    let builds = core.builds();
-    builds.set_system_files(plugin, Status { installed: here, ..builds.system_files(plugin) });
+    let Ok(manifest) = core.kernel().manifest(plugin) else { return };
+    let owners: Vec<Owner> = manifest
+        .played()
+        .iter()
+        .filter(|p| p.system_files.is_some())
+        .map(|p| (plugin.clone(), p.listed.then(|| p.console.cloned()).flatten()))
+        .collect();
+    for owner in owners {
+        let Ok((files, dirs)) = targets(core, &owner) else { continue };
+        let here = tokio::task::spawn_blocking(move || installed(&files, &dirs)).await.unwrap_or(false);
+        let builds = core.builds();
+        builds.set_system_files(&owner, Status { installed: here, ..builds.system_files(&owner) });
+    }
 }
 
-/// The page's "System files" block of `plugin`, from its manifest and `status`.
-pub(crate) fn block(files: &SystemFiles, status: &Status) -> launcher_api::SlotItem {
+/// The page's "System files" block of a plugin, or of its `console`, from its manifest and
+/// `status`.
+pub(crate) fn block(files: &SystemFiles, console: Option<&Console>, status: &Status) -> launcher_api::SlotItem {
     use launcher_api::{BlockRow, SlotContent, SlotItem, Tone};
     let state = if status.importing {
         BlockRow {
@@ -509,10 +534,14 @@ pub(crate) fn block(files: &SystemFiles, status: &Status) -> launcher_api::SlotI
         value: String::new(),
         hint: format!("Pick {}: see the guide in the docs", files.archive),
         action: (!status.importing).then(|| launcher_api::HOST_IMPORT_SYSTEM_FILES.to_owned()),
+        args: console.map(|c| serde_json::json!({ "console": c.as_str() })).unwrap_or_default(),
         ..Default::default()
     });
     SlotItem {
-        id: "system-files".into(),
+        id: match console {
+            Some(c) => format!("system-files:{c}"),
+            None => "system-files".into(),
+        },
         order: launcher_api::Order::default(),
         content: SlotContent::Block { title: files.name.clone(), rows },
     }

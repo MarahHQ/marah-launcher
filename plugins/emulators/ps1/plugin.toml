@@ -5,7 +5,7 @@ name = "PS1"
 # The program the plugin installs and runs. Sentences about the program name it.
 emulator = "RetroArch"
 version = "0.1.0"
-host_api = "^0.6"
+host_api = "^0.7"
 # libretro has a pack of cores for Linux and Windows, and none for macOS.
 platforms = ["linux", "windows"]
 # The console it plays: it gets that console's catalog.
