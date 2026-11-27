@@ -322,6 +322,9 @@ impl Core {
     pub async fn start_after_first_frame(kernel: Kernel) -> Core {
         // The settings of a restore go back before anything reads them.
         crate::backup::apply_pending(kernel.config(), &kernel.host().data_dir);
+        // Then the settings of the plugins a plugin replaced move to it.
+        let plugins = kernel.order().iter().filter_map(|id| Some((id, kernel.manifest(id).ok()?)));
+        crate::replaced::move_replaced(kernel.config(), plugins);
         let theme = Pref::Theme.load(kernel.config()).as_str().and_then(|s| PluginId::new(s).ok());
         let state = AppState::new(theme);
         let ports = kernel.ports().clone();

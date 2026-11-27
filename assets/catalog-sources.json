@@ -10,5 +10,7 @@
     "titles": ["NES", "NES/Famicom"] }] },
   "genesis": { "platform": "GENESIS", "forums": [{ "key": "genesis", "url": "https://rutracker.net/forum/viewforum.php?f=129",
     "titles": ["Sega Mega Drive\\Genesis", "Sega Mega Drive/Genesis", "Sega Genesis/Mega Drive", "Sega Mega Drive", "SEGA MDG",
-      "Sega Master System", "Sega Game Gear", "SEGA GG"] }] }
+      "Sega Master System", "Sega Game Gear", "SEGA GG"] }] },
+  "atari2600": { "platform": "ATARI2600", "forums": [{ "key": "atari2600", "url": "https://rutracker.net/forum/viewforum.php?f=129",
+    "titles": ["Atari 2600", "Atari2600", "Atari VCS"] }] }
 }

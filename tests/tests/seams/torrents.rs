@@ -486,7 +486,7 @@ async fn downloaded(
         .built_in(PluginBox::code(emu_kyty::KytyPlugin))
         .built_in(PluginBox::code(emu_pc::PcPlugin))
         .built_in(PluginBox::code(emu_lichii::LichiiPlugin))
-        .built_in(PluginBox::code(emu_nes::NesPlugin))
+        .built_in(PluginBox::code(emu_retro::RetroPlugin))
         .built_in(PluginBox::code(emu_ps1::Ps1Plugin))
         .built_in(PluginBox::code(release_catalog::ReleaseCatalog::default()))
         .boot_core()
@@ -495,7 +495,7 @@ async fn downloaded(
     // The other consoles' catalogs are empty: else the bundled ones show, and their newer
     // releases push this one off the Catalog's first page.
     let console_file = console.to_ascii_lowercase();
-    let catalogs: Vec<(&str, serde_json::Value)> = ["pc", "ps4", "ps5", "switch", "nes", "ps1"]
+    let catalogs: Vec<(&str, serde_json::Value)> = ["pc", "ps4", "ps5", "switch", "nes", "genesis", "atari2600", "ps1"]
         .into_iter()
         .map(|c| (c, if c == console_file { serde_json::json!([topic.clone()]) } else { serde_json::json!([]) }))
         .collect();
@@ -1089,7 +1089,7 @@ async fn a_finished_nes_download_installs_with_the_catalog_s_cover_and_uninstall
     assert!(folder.join("launcher_game.json").is_file());
 
     t.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
-    let game: GameKey = "emu-nes:Super Game".parse().unwrap();
+    let game: GameKey = "emu-retro:NES/Super Game".parse().unwrap();
     t.core.dispatch(Command::OpenGame(game.clone())).await.unwrap();
     t.core.dispatch(Command::UninstallGame(game)).await.unwrap();
     assert!(!folder.exists(), "the game's folder, with its art and its file");

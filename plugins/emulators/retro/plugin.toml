@@ -1,0 +1,143 @@
+id = "emu-retro"
+kind = "emulator"
+name = "Retro"
+# The program the plugin installs and runs. Sentences about the program name it.
+emulator = "RetroArch"
+version = "0.1.0"
+host_api = "^0.7"
+# libretro has a pack of cores for Linux and Windows, and none for macOS.
+platforms = ["linux", "windows"]
+# One RetroArch, its builds and its configs, for every retro plugin.
+shared_data = "retroarch"
+capabilities = ["catalog", "downloader", "installer", "configurator", "launcher", "slots", "game_installer", "backup"]
+
+# The plugins this one took the place of, with the console of each: the host moves their games'
+# play time, settings and records here once (see docs/adr/0007-one-retro-plugin-plays-several-consoles.md).
+[[replaces]]
+plugin = "emu-nes"
+console = "NES"
+[[replaces]]
+plugin = "emu-genesis"
+console = "GENESIS"
+
+[permissions]
+# libretro's build server, where RetroArch and its cores are, and libretro-thumbnails's
+# pictures of the games, on GitHub.
+network = ["buildbot.libretro.com", "raw.githubusercontent.com"]
+# The program in each system's build, and the AppImage the host unpacks. Your own build: in the
+# folder you map as retroarch-build, or on your PATH.
+process = [
+    "builds/*/RetroArch-Linux-x86_64/*.AppImage",
+    "builds/*/RetroArch-Linux-x86_64/squashfs-root/AppRun",
+    "builds/*/RetroArch-Win64/retroarch.exe",
+    "folder:retroarch-build",
+    "system:retroarch",
+]
+
+# The player's game folders, shared with other emulators (the host's default is ~/Games). Each
+# console's games are in its folder inside them (NES/, GENESIS/, ATARI2600/); installs go to that
+# folder in the first one.
+[[permissions.filesystem]]
+folder = "games"
+write = true
+
+# ROM files to install, in each console's folder. Read only.
+[[permissions.filesystem]]
+folder = "packages"
+
+# A RetroArch of your own. Read only.
+[[permissions.filesystem]]
+folder = "retroarch-build"
+title = "Your own RetroArch"
+
+# Each console the plugin plays. The player turns each on or off on the plugin's page. The keys
+# are RetroArch's default keyboard keys for the console's buttons: the launch splash shows them.
+
+[[consoles]]
+console = "NES"
+install_note = "Installs an NES game from its ROM file (.nes, .fds, .unf or a .zip that holds one)."
+[consoles.system]
+id = "NES"
+name = "Nintendo Entertainment System"
+# The system's pictures, in assets/ (made by scripts/make-system-art.sh).
+icon = "nes/icon.png"
+cover = "nes/cover.jpg"
+[[consoles.keymap]]
+button = "A"
+keys = "X"
+[[consoles.keymap]]
+button = "B"
+keys = "Z"
+[[consoles.keymap]]
+button = "D-pad"
+keys = "Arrow keys"
+[[consoles.keymap]]
+button = "Start"
+keys = "Enter"
+[[consoles.keymap]]
+button = "Select"
+keys = "Right Shift"
+# The Famicom Disk System BIOS (disksys.rom), which the player imports from one archive: see
+# docs/players/emulators.md, "System files". It goes into RetroArch's system folder, in the data
+# folder every RetroArch plugin shares; the NES takes only its own files from it.
+[consoles.system_files]
+name = "NES BIOS files"
+archive = "nes-bios.zip"
+optional = true
+[[consoles.system_files.part]]
+from = "system"
+into = "system"
+files = ["disksys.rom", "gamegenie.nes"]
+
+[[consoles]]
+console = "GENESIS"
+install_note = "Installs a Genesis, Mega Drive, Master System or Game Gear game from its ROM file (.md, .gen, .smd, .bin, .sms, .gg or a .zip that holds one)."
+[consoles.system]
+id = "GENESIS"
+name = "Sega Genesis"
+icon = "genesis/icon.png"
+cover = "genesis/cover.jpg"
+[[consoles.keymap]]
+button = "A"
+keys = "A"
+[[consoles.keymap]]
+button = "B"
+keys = "Z"
+[[consoles.keymap]]
+button = "C"
+keys = "X"
+[[consoles.keymap]]
+button = "D-pad"
+keys = "Arrow keys"
+[[consoles.keymap]]
+button = "Start"
+keys = "Enter"
+# The Mega Drive, Master System and Game Gear BIOS files, and the lock-on carts.
+[consoles.system_files]
+name = "Genesis BIOS files"
+archive = "genesis-bios.zip"
+optional = true
+[[consoles.system_files.part]]
+from = "system"
+into = "system"
+files = ["bios_MD.bin", "bios_*.sms", "bios.gg", "sk.bin", "sk2chip.bin", "areplay.bin", "ggenie.bin"]
+
+[[consoles]]
+console = "ATARI2600"
+install_note = "Installs an Atari 2600 game from its ROM file (.a26, .bin or a .zip that holds one)."
+[consoles.system]
+id = "ATARI2600"
+name = "Atari 2600"
+icon = "atari2600/icon.png"
+[[consoles.keymap]]
+button = "Joystick"
+keys = "Arrow keys"
+[[consoles.keymap]]
+button = "Fire"
+keys = "Z"
+[[consoles.keymap]]
+button = "Reset"
+keys = "Enter"
+[[consoles.keymap]]
+button = "Select"
+keys = "Right Shift"
