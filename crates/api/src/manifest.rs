@@ -527,8 +527,62 @@ pub struct PluginManifest {
     /// from one archive on its page (`[system_files]`): see [`crate::SystemFiles`].
     #[serde(default)]
     pub system_files: Option<crate::SystemFiles>,
+    /// For an emulator that plays several consoles (`[[consoles]]`): each console, with what
+    /// the single fields above say for one (`console`, `[system]`, `keymap`, `install_note`,
+    /// `[system_files]`). The player turns each on or off on the plugin's page. A manifest
+    /// with `[[consoles]]` leaves those single fields out. Read both forms with
+    /// [`PluginManifest::played`].
+    #[serde(default)]
+    pub consoles: Vec<PluginConsole>,
     #[serde(flatten)]
     pub extra: toml::Table,
+}
+
+/// One console of an emulator that plays several (`[[consoles]]`). Its `console` and its
+/// `[consoles.system]` id are one code (`NES`): its games' `platform`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PluginConsole {
+    pub console: Console,
+    pub system: SystemLook,
+    #[serde(default)]
+    pub keymap: Vec<KeyBinding>,
+    #[serde(default)]
+    pub install_note: String,
+    #[serde(default)]
+    pub system_files: Option<crate::SystemFiles>,
+    /// The console is on until the player turns it off. With `false`, it is off until they
+    /// turn it on.
+    #[serde(default = "on_by_default")]
+    pub on: bool,
+}
+
+fn on_by_default() -> bool {
+    true
+}
+
+/// One console an emulator plays, from `[[consoles]]` or from the manifest's single fields: the
+/// form the host reads. See [`PluginManifest::played`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Played<'a> {
+    /// The console whose catalog the emulator gets. `None` gets it no catalog.
+    pub console: Option<&'a Console>,
+    /// The system its games show under.
+    pub system: Option<&'a SystemLook>,
+    pub keymap: &'a [KeyBinding],
+    pub install_note: &'a str,
+    pub system_files: Option<&'a crate::SystemFiles>,
+    /// Its manifest turns it on until the player says otherwise.
+    pub on: bool,
+    /// It is one of `[[consoles]]`: the player can turn it on or off by itself.
+    pub listed: bool,
+}
+
+impl<'a> Played<'a> {
+    /// The code its games' `platform` has: its system's id, else its console's.
+    pub fn platform(&self) -> Option<&'a str> {
+        self.system.map(|s| s.id.as_str()).or(self.console.map(Console::as_str))
+    }
 }
 
 /// The name of a data folder plugins share: lowercase ASCII letters, digits and `-`.
@@ -607,6 +661,56 @@ impl PluginManifest {
     pub fn emulator_name(&self) -> &str {
         if self.emulator.is_empty() { &self.name } else { &self.emulator }
     }
+
+    /// The consoles the plugin plays: each of `[[consoles]]`, or one from the single fields. A
+    /// plugin with neither (a service, a theme) plays none.
+    pub fn played(&self) -> Vec<Played<'_>> {
+        if !self.consoles.is_empty() {
+            return self
+                .consoles
+                .iter()
+                .map(|c| Played {
+                    console: Some(&c.console),
+                    system: Some(&c.system),
+                    keymap: &c.keymap,
+                    install_note: &c.install_note,
+                    system_files: c.system_files.as_ref(),
+                    on: c.on,
+                    listed: true,
+                })
+                .collect();
+        }
+        let single = Played {
+            console: self.console.as_ref(),
+            system: self.system.as_ref(),
+            keymap: &self.keymap,
+            install_note: &self.install_note,
+            system_files: self.system_files.as_ref(),
+            on: true,
+            listed: false,
+        };
+        let plays = single.console.is_some()
+            || single.system.is_some()
+            || !single.keymap.is_empty()
+            || !single.install_note.is_empty()
+            || single.system_files.is_some();
+        if plays { vec![single] } else { Vec::new() }
+    }
+
+    /// The console a game with `platform` is of: the one of `[[consoles]]` with that code, or
+    /// the single one whatever the code.
+    pub fn played_for(&self, platform: &str) -> Option<Played<'_>> {
+        let played = self.played();
+        if self.consoles.is_empty() {
+            return played.into_iter().next();
+        }
+        played.into_iter().find(|p| p.platform().is_some_and(|c| c.eq_ignore_ascii_case(platform)))
+    }
+
+    /// The `[[consoles]]` entry for `console`.
+    pub fn listed_console(&self, console: &str) -> Option<&PluginConsole> {
+        self.consoles.iter().find(|c| c.console.as_str().eq_ignore_ascii_case(console))
+    }
 }
 
 #[cfg(test)]
@@ -630,7 +734,7 @@ mod tests {
         kind = "emulator"
         name = "Native example"
         version = "0.1.0"
-        host_api = "^0.6"
+        host_api = "^0.7"
         platforms = ["linux", "macos"]
         capabilities = ["catalog", "launcher"]
 
@@ -714,6 +818,44 @@ mod tests {
     }
 
     #[test]
+    fn an_emulator_of_several_consoles_lists_each_and_one_of_one_console_reads_the_same_way() {
+        let text = format!(
+            "{KYTY}\n[[consoles]]\nconsole = \"nes\"\ninstall_note = \"NES ROMs.\"\n\
+             [consoles.system]\nid = \"NES\"\nname = \"Nintendo Entertainment System\"\n\
+             [[consoles.keymap]]\nbutton = \"A\"\nkeys = \"X\"\n\
+             [[consoles]]\nconsole = \"ATARI2600\"\non = false\n\
+             [consoles.system]\nid = \"ATARI2600\"\nname = \"Atari 2600\"\n\
+             [consoles.system_files]\nname = \"BIOS\"\narchive = \"a.zip\"\n\
+             [[consoles.system_files.part]]\nfrom = \"system\"\ninto = \"system\"\n"
+        );
+        let m = PluginManifest::from_toml(&text).unwrap();
+        assert!(!m.extra.contains_key("consoles"), "a field of its own");
+        let played = m.played();
+        let codes: Vec<_> = played.iter().map(|p| p.platform()).collect();
+        assert_eq!(codes, [Some("NES"), Some("ATARI2600")]);
+        assert!(played.iter().all(|p| p.listed));
+        assert_eq!((played[0].on, played[1].on), (true, false), "on unless the manifest says off");
+        assert_eq!(played[0].keymap[0].keys, "X");
+        assert_eq!(played[0].install_note, "NES ROMs.");
+        assert_eq!(played[1].system_files.map(|f| f.archive.as_str()), Some("a.zip"));
+        assert_eq!(m.played_for("ATARI2600").and_then(|p| p.console).map(Console::as_str), Some("ATARI2600"));
+        assert_eq!(m.played_for("PS1"), None, "a code it doesn't play");
+        assert!(m.listed_console("atari2600").is_some());
+
+        let one = PluginManifest::from_toml(&format!(
+            "console = \"PS5\"\n{KYTY}\n[system]\nid = \"PS5\"\nname = \"PlayStation 5\"\n"
+        ))
+        .unwrap();
+        let played = one.played();
+        assert_eq!(played.len(), 1);
+        assert!(played[0].on && !played[0].listed, "one console is on with its plugin");
+        assert_eq!(one.played_for("anything").and_then(|p| p.platform()), Some("PS5"));
+        assert!(PluginManifest::from_toml(KYTY).unwrap().played().is_empty(), "plays no console");
+        let wrong = text.replace("on = false", "of = false");
+        assert!(PluginManifest::from_toml(&wrong).is_err(), "a misspelt field is an error");
+    }
+
+    #[test]
     fn an_emulator_may_name_its_software_apart_from_the_plugin() {
         let m = PluginManifest::from_toml(&format!("emulator = \"KytyPS5\"\n{KYTY}")).unwrap();
         assert_eq!(m.emulator, "KytyPS5");
@@ -729,7 +871,7 @@ mod tests {
     fn an_emulator_names_its_console_in_any_case() {
         let with = |console: &str| {
             PluginManifest::from_toml(&format!(
-                "id = \"emu\"\nkind = \"emulator\"\nname = \"E\"\nversion = \"1.0.0\"\nhost_api = \"^0.6\"\n\
+                "id = \"emu\"\nkind = \"emulator\"\nname = \"E\"\nversion = \"1.0.0\"\nhost_api = \"^0.7\"\n\
                  console = \"{console}\"\n"
             ))
         };
@@ -745,7 +887,7 @@ mod tests {
     fn folder_and_system_rules_need_their_own_pattern() {
         use crate::{HostPath, Location};
         let m = PluginManifest::from_toml(
-            "id = \"pc\"\nkind = \"emulator\"\nname = \"PC\"\nversion = \"1.0.0\"\nhost_api = \"^0.6\"\n\
+            "id = \"pc\"\nkind = \"emulator\"\nname = \"PC\"\nversion = \"1.0.0\"\nhost_api = \"^0.7\"\n\
              [permissions]\nprocess = [\"folder:pc-games\", \"folder:not-granted\", \"system:wine\"]\n\
              [[permissions.filesystem]]\nfolder = \"pc-games\"",
         )
@@ -785,7 +927,7 @@ mod tests {
     fn a_folder_default_is_one_path_or_a_list_to_search() {
         let grant = |default: &str| {
             let m = PluginManifest::from_toml(&format!(
-                "id = \"emu\"\nkind = \"emulator\"\nname = \"E\"\nversion = \"1.0.0\"\nhost_api = \"^0.6\"\n\
+                "id = \"emu\"\nkind = \"emulator\"\nname = \"E\"\nversion = \"1.0.0\"\nhost_api = \"^0.7\"\n\
                  [[permissions.filesystem]]\nfolder = \"emu-build\"\n{default}\n"
             ))
             .unwrap();
@@ -808,7 +950,7 @@ mod tests {
     fn rejects_bad_ids_and_bad_versions() {
         let bad_id = KYTY.replace("\"emu-kyty\"", "\"Emu Native\"");
         assert!(PluginManifest::from_toml(&bad_id).is_err());
-        let bad_req = KYTY.replace("\"^0.6\"", "\"not a range\"");
+        let bad_req = KYTY.replace("\"^0.7\"", "\"not a range\"");
         assert!(PluginManifest::from_toml(&bad_req).is_err());
     }
 }

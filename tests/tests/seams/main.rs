@@ -10,6 +10,7 @@ mod catalog_refresh;
 mod classic_theme;
 mod common;
 mod compare;
+mod consoles;
 mod contracts;
 mod default_theme;
 mod download_and_install;

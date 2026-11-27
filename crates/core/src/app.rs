@@ -811,8 +811,13 @@ impl Core {
             Command::RemoveFolder { name, path } => plugin_settings::remove_folder(self, &name, &path).await,
             Command::Browse(command) => crate::browser::handle(self, command).await,
             Command::ImportSystemFiles { plugin, file } => {
+                // The browser was opened for one console's archive, or for the plugin's one.
+                let console = match self.browsing().snapshot().map(|b| b.purpose.clone()) {
+                    Some(crate::browser::Purpose::SystemFiles(of, console)) if of == plugin => console,
+                    _ => None,
+                };
                 self.browsing().close();
-                crate::system_files::import(self, &plugin, &file).await
+                crate::system_files::import(self, &plugin, console.as_ref(), &file).await
             }
             Command::SetPluginEnabled { plugin, enabled } => {
                 plugin_settings::set_plugin_enabled(self, &plugin, enabled).await

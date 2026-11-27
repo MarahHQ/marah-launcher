@@ -357,5 +357,7 @@ fn away_games_now(core: &Core, listed: &BTreeSet<GameKey>) -> Vec<Entry> {
         })
     };
     let library = core.library().snapshot();
-    library.library().filter(|e| !listed.contains(&e.key) && root_away(e)).cloned().collect()
+    // A game of a console the player turned off stays out, as its plugin's listed games do.
+    let shows = |e: &Entry| kernel.shows(&e.key.plugin, &e.summary.platform);
+    library.library().filter(|e| !listed.contains(&e.key) && shows(e) && root_away(e)).cloned().collect()
 }

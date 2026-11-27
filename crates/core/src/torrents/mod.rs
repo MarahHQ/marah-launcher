@@ -82,6 +82,10 @@ pub(crate) struct TorrentJob {
     /// The game the catalog offers, and the emulator that installs it.
     pub offer: GameKey,
     pub emulator: PluginId,
+    /// The console it is for, which names its folders: the release's, else the emulator's.
+    /// Empty in a download saved before it was kept: the emulator's console then.
+    #[serde(default)]
+    pub console: String,
     pub title: String,
     pub version: String,
     pub region: String,
@@ -256,6 +260,7 @@ pub(crate) struct NewDownload {
     pub id: String,
     pub offer: GameKey,
     pub emulator: PluginId,
+    pub console: String,
     pub title: String,
     pub version: String,
     pub region: String,
@@ -474,6 +479,7 @@ impl TorrentsSubsystem {
             title: new.title.chars().filter(|c| !c.is_control()).take(200).collect(),
             version: new.version,
             region: new.region,
+            console: new.console,
             magnet: new.magnet,
             source: new.source,
             folder: new.folder,

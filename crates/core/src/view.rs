@@ -948,13 +948,14 @@ fn downloads_vm(s: &Snapshot, owned: &Ownership) -> DownloadsVm {
             let free = |bytes: Option<u64>| bytes.map(|b| format!("{} free", crate::room::gigabytes(b)));
             // The same question the sheet's Download and Download and install ask on the click.
             let short = |need: Need| room.short(need, checked).filter(|_| ready).unwrap_or_default();
+            let console = s.plugins.console_of(&j.emulator, &j.console);
             TorrentVm {
                 folder: crate::display::short_home(&j.folder.display().to_string(), home.as_deref()),
-                install_note: install_note(&s.plugins, &j.emulator),
+                install_note: install_note(&s.plugins, &j.emulator, &console),
                 install_folder: s
                     .files
                     .install_folders
-                    .get(&j.emulator)
+                    .get(&(j.emulator.clone(), console.clone()))
                     .map(|path| crate::display::short_home(&path.display().to_string(), home.as_deref()))
                     .unwrap_or_default(),
                 picked: if ready {
@@ -1050,9 +1051,13 @@ fn store_install_vm(plugins: &Plugins, plugin: &PluginId, install: &launcher_api
     }
 }
 
-/// What `emulator` installs from, as its manifest says, then what the host does first.
-fn install_note(plugins: &Plugins, emulator: &PluginId) -> String {
-    let own = plugins.manifest(emulator).map(|m| m.install_note.clone()).unwrap_or_default();
+/// What `emulator` installs from for `console`, as its manifest says, then what the host does
+/// first.
+fn install_note(plugins: &Plugins, emulator: &PluginId, console: &str) -> String {
+    let own = plugins
+        .manifest(emulator)
+        .and_then(|m| m.played_for(console).map(|p| p.install_note.to_owned()))
+        .unwrap_or_default();
     let archives = format!(
         "{} first unpacks the RAR, ZIP, 7z and TAR archives in the download, but not one with a password.",
         launcher_api::brand::PRODUCT_NAME
@@ -1570,7 +1575,7 @@ fn browser_vm(s: &Snapshot) -> launcher_ui_api::FolderBrowserVm {
         crate::browser::Purpose::Restore => ("restore", String::new()),
         crate::browser::Purpose::Pick(name) => ("pick", name.clone()),
         crate::browser::Purpose::BackupFolder => ("pick", "backup".to_owned()),
-        crate::browser::Purpose::SystemFiles(plugin) => ("system-files", plugin.to_string()),
+        crate::browser::Purpose::SystemFiles(plugin, _) => ("system-files", plugin.to_string()),
     };
     let folder_title = match &browser.purpose {
         crate::browser::Purpose::BackupFolder => "Backup folder".to_owned(),
@@ -1580,8 +1585,11 @@ fn browser_vm(s: &Snapshot) -> launcher_ui_api::FolderBrowserVm {
         crate::browser::Purpose::Restore => "Restore a backup".to_owned(),
         crate::browser::Purpose::Pick(_) => format!("Add to {folder_title}"),
         crate::browser::Purpose::BackupFolder => "Choose the backup folder".to_owned(),
-        crate::browser::Purpose::SystemFiles(plugin) => {
-            let files = s.plugins.manifest(plugin).and_then(|m| m.system_files.as_ref());
+        crate::browser::Purpose::SystemFiles(plugin, console) => {
+            let files = s.plugins.manifest(plugin).and_then(|m| match console {
+                None => m.system_files.as_ref(),
+                Some(c) => m.listed_console(c.as_str()).and_then(|c| c.system_files.as_ref()),
+            });
             files.map(|f| format!("Import {}", f.name)).unwrap_or_else(|| "Import system files".to_owned())
         }
     };
@@ -1763,10 +1771,9 @@ fn emulators_vm(s: &Snapshot) -> EmulatorsVm {
     let emulators = s
         .home_emulators()
         .into_iter()
-        .map(|id| {
+        .map(|(id, look)| {
             let emu = builds.emulators.get(&id).cloned().unwrap_or_default();
             let manifest = plugins.manifest(&id);
-            let look = manifest.and_then(|m| m.system.as_ref());
             let art = |path: Option<&launcher_api::RelPath>| {
                 path.map(|path| ImageRef::PluginAsset { plugin: id.clone(), path: path.clone() })
             };
@@ -1783,7 +1790,7 @@ fn emulators_vm(s: &Snapshot) -> EmulatorsVm {
                 available: emu.available,
                 busy: builds.busy(&id),
                 panels: slot_vms(&id, SlotId::EmulatorPanel, emu.panels),
-                controllers: controllers(manifest),
+                controllers: controllers(manifest.and_then(|m| m.played_for(look.map_or("", |l| l.id.as_str())))),
                 controllers_text: String::new(),
                 plugin: id,
             }
@@ -1922,13 +1929,18 @@ fn plugin_page_vm(s: &Snapshot, plugin: &PluginId) -> Option<PluginPageVm> {
         emulator: all.emulators.into_iter().find(|e| &e.plugin == plugin),
         panels,
         sections: {
-            // The core's "System files" block comes first, then the plugin's own.
-            let system = s.plugins.manifest(plugin).and_then(|m| m.system_files.as_ref()).map(|files| {
-                let status = s.builds.system_files.get(plugin).cloned().unwrap_or_default();
-                crate::system_files::block(files, &status)
+            // The core's blocks come first: the switches of the consoles it plays, then the
+            // "System files" of each console that is on. Then the plugin's own.
+            let consoles = s.plugins.manifest(plugin).and_then(|m| consoles_block(&s.plugins, plugin, m));
+            let system = s.plugins.consoles_on(plugin).into_iter().filter_map(|played| {
+                let files = played.system_files?;
+                let console = played.listed.then(|| played.console.cloned()).flatten();
+                let owner = (plugin.clone(), console);
+                let status = s.builds.system_files.get(&owner).cloned().unwrap_or_default();
+                Some(crate::system_files::block(files, owner.1.as_ref(), &status))
             });
             let own = s.builds.emulators.get(plugin).map(|e| e.panels.clone()).unwrap_or_default();
-            slot_vms(plugin, SlotId::EmulatorPanel, system.into_iter().chain(own).collect())
+            slot_vms(plugin, SlotId::EmulatorPanel, consoles.into_iter().chain(system).chain(own).collect())
         },
         folders: folders_vm(s)
             .into_iter()
@@ -1940,6 +1952,39 @@ fn plugin_page_vm(s: &Snapshot, plugin: &PluginId) -> Option<PluginPageVm> {
         folders_after,
         current: false,
         plugin: row,
+    })
+}
+
+/// The plugin page's "Consoles" block, for an emulator that plays several (`[[consoles]]`): a
+/// switch for each, by its system's full name.
+fn consoles_block(
+    plugins: &Plugins,
+    plugin: &PluginId,
+    manifest: &launcher_api::PluginManifest,
+) -> Option<launcher_api::SlotItem> {
+    use launcher_api::{BlockRow, SlotContent, SlotItem};
+    if manifest.consoles.is_empty() {
+        return None;
+    }
+    let rows = manifest
+        .consoles
+        .iter()
+        .map(|c| {
+            let on = plugins.console_on(plugin, c.console.as_str());
+            BlockRow {
+                label: c.system.name.clone(),
+                hint: if on { "Its games are in the app".into() } else { "Its games are hidden".into() },
+                action: Some(launcher_api::HOST_SET_CONSOLE.to_owned()),
+                args: serde_json::json!({ "console": c.console.as_str(), "on": !on }),
+                switch: Some(on),
+                ..Default::default()
+            }
+        })
+        .collect();
+    Some(SlotItem {
+        id: "consoles".into(),
+        order: launcher_api::Order::default(),
+        content: SlotContent::Block { title: "Consoles".into(), rows },
     })
 }
 
@@ -2091,15 +2136,21 @@ fn running_vm(snapshot: &Snapshot) -> Option<RunningVm> {
         elapsed_secs: snapshot.now.saturating_duration_since(s.started).as_secs(),
         elapsed: String::new(),
         in_front: sessions.game_in_front,
-        keymap: manifest.map(|m| m.keymap.clone()).unwrap_or_default(),
+        keymap: manifest
+            .and_then(|m| {
+                let platform = snapshot.library.listed(&s.game).map(|e| e.summary.platform.as_str());
+                m.played_for(platform.unwrap_or_default())
+            })
+            .map(|p| p.keymap.to_vec())
+            .unwrap_or_default(),
     })
 }
 
-/// What an emulator's games play with: a controller, and the keyboard when the manifest lists
-/// its keys (`[[keymap]]`). None for an emulator that lists no keys.
-fn controllers(manifest: Option<&launcher_api::PluginManifest>) -> Vec<String> {
-    match manifest {
-        Some(m) if !m.keymap.is_empty() => {
+/// What a console's games play with: a controller, and the keyboard when the manifest lists
+/// its keys (`[[keymap]]`). None for a console with no keys listed.
+fn controllers(played: Option<launcher_api::Played<'_>>) -> Vec<String> {
+    match played {
+        Some(p) if !p.keymap.is_empty() => {
             vec!["Controller (DualSense, DualShock 4, Xbox and most others)".into(), "Keyboard".into()]
         }
         _ => Vec::new(),

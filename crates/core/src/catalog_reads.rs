@@ -12,15 +12,17 @@ use crate::changes::Area;
 use crate::library::Detail;
 use crate::releases::{CatalogCopy, Offer, date_words, days_of, offers};
 
-/// Each turned-on emulator that names a console in its manifest, with that console, in load
-/// order. Only the first emulator for a console is in the list: it gets that console's
-/// catalog. An emulator that names no console gets no catalog.
+/// Each turned-on emulator with each console it plays that is on, in load order: its single
+/// `console`, or each of its `[[consoles]]` the player has on. Only the first emulator for a
+/// console is in the list: it gets that console's catalog. An emulator that names no console
+/// gets no catalog.
 fn consoles(kernel: &crate::Kernel) -> Vec<(PluginId, Console)> {
     let mut out: Vec<(PluginId, Console)> = Vec::new();
     for emulator in kernel.of_kind(PluginKind::Emulator) {
-        let Some(console) = kernel.manifest(&emulator).ok().and_then(|m| m.console.clone()) else { continue };
-        if !out.iter().any(|(_, c)| *c == console) {
-            out.push((emulator, console));
+        for console in kernel.consoles_on(&emulator).iter().filter_map(|p| p.console.cloned()) {
+            if !out.iter().any(|(_, c)| *c == console) {
+                out.push((emulator.clone(), console));
+            }
         }
     }
     out

@@ -105,11 +105,11 @@ fn read(core: &Core) -> Disks {
     }
     let mut downloads = BTreeMap::new();
     // Each emulator's game folder, found once.
-    let mut games: BTreeMap<PluginId, Option<PathBuf>> = BTreeMap::new();
+    let mut games: BTreeMap<(PluginId, String), Option<PathBuf>> = BTreeMap::new();
     for job in core.torrents().snapshot().jobs.values() {
-        let game_folder = games.entry(job.emulator.clone()).or_insert_with(|| {
-            let kernel = core.kernel();
-            let console = crate::release_downloads::console_of(kernel, &job.emulator);
+        let kernel = core.kernel();
+        let console = crate::release_downloads::console_of_job(kernel, job);
+        let game_folder = games.entry((job.emulator.clone(), console.clone())).or_insert_with(|| {
             let place = kernel.host_folders(&job.emulator).and_then(|h| h.place(Purpose::Install, &console, None).ok());
             place.map(|(_, path)| path)
         });

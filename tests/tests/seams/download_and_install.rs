@@ -95,7 +95,7 @@ fn emulator(seen: Seen, folder: PathBuf) -> StubPlugin {
         }
     }
     StubPlugin::from_toml(
-        "id = \"emu-kyty\"\nkind = \"emulator\"\nname = \"KytyPS5\"\nversion = \"1.0.0\"\nhost_api = \"^0.6\"\n\
+        "id = \"emu-kyty\"\nkind = \"emulator\"\nname = \"KytyPS5\"\nversion = \"1.0.0\"\nhost_api = \"^0.7\"\n\
          console = \"PS5\"\n\
          capabilities = [\"catalog\", \"game_installer\"]\n\
          [[permissions.filesystem]]\nfolder = \"packages\"\n\

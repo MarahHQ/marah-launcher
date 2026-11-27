@@ -54,12 +54,14 @@ pub async fn emulator(test: &TestCore, plugin: &PluginId) {
             "contract compatibility: unknown game must fail"
         );
     }
-    let buttons: BTreeSet<&str> = manifest.keymap.iter().map(|k| k.button.as_str()).collect();
-    assert_eq!(buttons.len(), manifest.keymap.len(), "contract keymap: each button once");
-    assert!(
-        manifest.keymap.iter().all(|k| !k.button.is_empty() && !k.keys.is_empty()),
-        "contract keymap: empty button or keys"
-    );
+    for played in manifest.played() {
+        let buttons: BTreeSet<&str> = played.keymap.iter().map(|k| k.button.as_str()).collect();
+        assert_eq!(buttons.len(), played.keymap.len(), "contract keymap: each button once");
+        assert!(
+            played.keymap.iter().all(|k| !k.button.is_empty() && !k.keys.is_empty()),
+            "contract keymap: empty button or keys"
+        );
+    }
     if let Some(slots) = &provided.slots {
         slots_contract(slots.as_ref(), first_game.as_deref()).await;
     }

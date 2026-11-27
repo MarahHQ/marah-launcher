@@ -660,6 +660,28 @@ impl Kernel {
         if self.elsewhere(plugin) { listed("enabled_plugins") } else { !listed("disabled_plugins") }
     }
 
+    /// The consoles the plugin plays that are on: each of `[[consoles]]` the player has on, or
+    /// its manifest when they didn't say, saved under `app.consoles.<plugin>.<console>`. A
+    /// plugin's single console is on with the plugin.
+    pub fn consoles_on(&self, plugin: &PluginId) -> Vec<launcher_api::Played<'_>> {
+        let Ok(record) = self.record(plugin) else { return Vec::new() };
+        let saved = self.inner.config.get(&["app", "consoles", plugin.as_str()]);
+        record.manifest.played().into_iter().filter(|p| console_on(&saved, p)).collect()
+    }
+
+    /// The plugin's games of `platform` show: it is no console of the plugin's that the player
+    /// turned off.
+    pub fn shows(&self, plugin: &PluginId, platform: &str) -> bool {
+        let Ok(record) = self.record(plugin) else { return true };
+        let saved = self.inner.config.get(&["app", "consoles", plugin.as_str()]);
+        record
+            .manifest
+            .played()
+            .iter()
+            .filter(|p| p.listed && p.platform() == Some(platform))
+            .all(|p| console_on(&saved, p))
+    }
+
     /// The plugin is made for other systems than this one.
     pub fn elsewhere(&self, plugin: &PluginId) -> bool {
         let Ok(record) = self.record(plugin) else { return false };
@@ -879,6 +901,80 @@ impl Kernel {
     }
 }
 
+/// The console is on: as the player saved it (`saved` is the plugin's `app.consoles` object),
+/// else as its manifest says.
+pub(crate) fn console_on(saved: &serde_json::Value, played: &launcher_api::Played<'_>) -> bool {
+    if !played.listed {
+        return true;
+    }
+    let code = played.console.map(launcher_api::Console::as_str).unwrap_or_default();
+    saved.get(code).and_then(serde_json::Value::as_bool).unwrap_or(played.on)
+}
+
+/// `[[consoles]]`: only an emulator lists them, in place of the single fields, each console
+/// once, its system's id its console's code, and its color `#rrggbb`.
+fn validate_consoles(manifest: &PluginManifest) -> Result<(), LoadError> {
+    if manifest.kind != PluginKind::Emulator {
+        return Err(LoadError::Invalid("only an emulator lists [[consoles]]".into()));
+    }
+    let single = manifest.console.is_some()
+        || manifest.system.is_some()
+        || !manifest.keymap.is_empty()
+        || !manifest.install_note.is_empty()
+        || manifest.system_files.is_some();
+    if single {
+        return Err(LoadError::Invalid(
+            "[[consoles]] says each console's console, [system], keymap, install_note and [system_files]: \
+             leave the single ones out"
+                .into(),
+        ));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for entry in &manifest.consoles {
+        let code = entry.console.as_str();
+        if !seen.insert(code) {
+            return Err(LoadError::Invalid(format!("[[consoles]] lists {code} twice")));
+        }
+        if entry.system.id != code {
+            return Err(LoadError::Invalid(format!(
+                "[[consoles]] {code}: its [consoles.system] id is {:?}: make it {code:?}",
+                entry.system.id
+            )));
+        }
+        if entry.system.color.is_some() && entry.system.rgb().is_none() {
+            return Err(LoadError::Invalid(format!(
+                "[[consoles]] {code}: color {:?}: write it as #rrggbb",
+                entry.system.color.as_deref().unwrap_or_default()
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// A `[system_files]`: a name, an archive and parts, each written only where the plugin may.
+fn validate_system_files(manifest: &PluginManifest, files: &launcher_api::SystemFiles) -> Result<(), LoadError> {
+    if files.name.trim().is_empty() || files.archive.trim().is_empty() || files.parts.is_empty() {
+        return Err(LoadError::Invalid("[system_files] needs a name, an archive and at least one part".into()));
+    }
+    for part in &files.parts {
+        if part.into.as_str().is_empty() {
+            return Err(LoadError::Invalid(format!(
+                "[system_files] part {:?}: into names a folder inside the target, not its top",
+                part.from.as_str()
+            )));
+        }
+        let Some(folder) = &part.folder else { continue };
+        let writes = manifest.permissions.filesystem.iter().any(|g| &g.folder == folder && g.write);
+        if !writes {
+            return Err(LoadError::Invalid(format!(
+                "[system_files] part {:?}: folder {folder:?} must be a [[permissions.filesystem]] folder with write",
+                part.from.as_str()
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn validate(host: &HostConfig, manifest: &PluginManifest, origin: Origin) -> Result<(), LoadError> {
     if host.safe_mode && origin == Origin::ThirdParty {
         return Err(LoadError::SafeMode);
@@ -934,27 +1030,11 @@ fn validate(host: &HostConfig, manifest: &PluginManifest, origin: Origin) -> Res
     if origin == Origin::ThirdParty && manifest.shared_data.is_some() {
         return Err(LoadError::Invalid("only a built-in plugin shares a data folder".into()));
     }
-    if let Some(files) = &manifest.system_files {
-        if files.name.trim().is_empty() || files.archive.trim().is_empty() || files.parts.is_empty() {
-            return Err(LoadError::Invalid("[system_files] needs a name, an archive and at least one part".into()));
-        }
-        // A part writes only where the plugin may write.
-        for part in &files.parts {
-            if part.into.as_str().is_empty() {
-                return Err(LoadError::Invalid(format!(
-                    "[system_files] part {:?}: into names a folder inside the target, not its top",
-                    part.from.as_str()
-                )));
-            }
-            let Some(folder) = &part.folder else { continue };
-            let writes = manifest.permissions.filesystem.iter().any(|g| &g.folder == folder && g.write);
-            if !writes {
-                return Err(LoadError::Invalid(format!(
-                    "[system_files] part {:?}: folder {folder:?} must be a [[permissions.filesystem]] folder with write",
-                    part.from.as_str()
-                )));
-            }
-        }
+    if !manifest.consoles.is_empty() {
+        validate_consoles(manifest)?;
+    }
+    for files in manifest.played().iter().filter_map(|p| p.system_files) {
+        validate_system_files(manifest, files)?;
     }
     // The kind governs privileges only: any plugin with code may provide the data capabilities.
     let system = manifest.kind == PluginKind::System;

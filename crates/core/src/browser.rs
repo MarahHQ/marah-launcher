@@ -36,8 +36,9 @@ pub enum Purpose {
     Pick(String),
     /// Choose the backup folder: one folder, not a list.
     BackupFolder,
-    /// Pick the archive of this plugin's system files, to import.
-    SystemFiles(launcher_api::PluginId),
+    /// Pick the archive of this plugin's system files, to import: of one of its
+    /// `[[consoles]]`, or of its single `[system_files]` with `None`.
+    SystemFiles(launcher_api::PluginId, Option<launcher_api::Console>),
 }
 
 /// The folder browser's commands.
@@ -257,7 +258,7 @@ pub(crate) async fn handle(core: &Core, command: BrowseCmd) -> CoreResult<()> {
                 Purpose::BackupFolder => {
                     crate::backups::set_folder(core, serde_json::json!(open.at.display().to_string())).await?
                 }
-                Purpose::Restore | Purpose::SystemFiles(_) => {
+                Purpose::Restore | Purpose::SystemFiles(..) => {
                     return Err(CoreError::Invalid("the browser is open to pick a file, not to pick a folder".into()));
                 }
             }
@@ -300,7 +301,7 @@ fn start(core: &Core, at: Option<PathBuf>, purpose: &Purpose) -> CoreResult<Path
             .or_else(|| std::env::temp_dir().ancestors().last().map(Path::to_path_buf))
             .ok_or_else(|| CoreError::Invalid("no folder to start from".into()))?,
         // The Downloads folder, where an archive usually is, else Home.
-        (None, Purpose::SystemFiles(_)) => {
+        (None, Purpose::SystemFiles(..)) => {
             let home = core.kernel().host().home.clone();
             home.as_ref()
                 .map(|h| h.join("Downloads"))
@@ -413,7 +414,7 @@ impl Listing {
     fn of(purpose: &Purpose) -> Self {
         match purpose {
             Purpose::Restore => Listing::Backups,
-            Purpose::SystemFiles(_) => Listing::Archives,
+            Purpose::SystemFiles(..) => Listing::Archives,
             Purpose::Pick(_) | Purpose::BackupFolder => Listing::Folders,
         }
     }

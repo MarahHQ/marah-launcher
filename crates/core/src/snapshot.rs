@@ -95,22 +95,28 @@ impl Snapshot<'_> {
     }
 
     /// Home's emulators, in its order: the turned-on emulator plugins that install or start
-    /// games, by their system's full name ("Nintendo Switch", "PlayStation 5").
-    pub fn home_emulators(&self) -> Vec<PluginId> {
+    /// games, one entry for each of their consoles that is on, by the console's system's full
+    /// name ("Nintendo Switch", "PlayStation 5"). An emulator that names no system has one
+    /// entry, with no system.
+    pub fn home_emulators(&self) -> Vec<(PluginId, Option<&launcher_api::SystemLook>)> {
         let plugins = &self.plugins;
-        let mut named: Vec<(String, PluginId)> = plugins
-            .of_kind(PluginKind::Emulator)
-            .into_iter()
-            .filter_map(|id| {
-                let manifest = plugins.manifest(&id)?;
-                let caps = &manifest.capabilities;
-                let manages = caps.contains(&Capability::Installer) || caps.contains(&Capability::Launcher);
-                let name = manifest.system.as_ref().map(|l| l.name.to_lowercase()).unwrap_or_default();
-                manages.then_some((name, id))
-            })
-            .collect();
+        let mut named: Vec<(String, (PluginId, Option<&launcher_api::SystemLook>))> = Vec::new();
+        for id in plugins.of_kind(PluginKind::Emulator) {
+            let Some(manifest) = plugins.manifest(&id) else { continue };
+            let caps = &manifest.capabilities;
+            if !(caps.contains(&Capability::Installer) || caps.contains(&Capability::Launcher)) {
+                continue;
+            }
+            let looks: Vec<_> = plugins.consoles_on(&id).iter().filter_map(|p| p.system).collect();
+            if looks.is_empty() && manifest.consoles.is_empty() {
+                named.push((String::new(), (id.clone(), None)));
+            }
+            for look in looks {
+                named.push((look.name.to_lowercase(), (id.clone(), Some(look))));
+            }
+        }
         named.sort_by(|a, b| a.0.cmp(&b.0));
-        named.into_iter().map(|(_, id)| id).collect()
+        named.into_iter().map(|(_, entry)| entry).collect()
     }
 
     /// This PC's system and how it meets each emulator's needs, for each game's best version.
@@ -151,8 +157,9 @@ pub(crate) struct Files {
     pub game_folders: Arc<HashSet<GameKey>>,
     /// The games with a log of their last run.
     pub logs: Arc<HashSet<GameKey>>,
-    /// Where each emulator installs games, for the downloads' cards.
-    pub install_folders: Arc<HashMap<PluginId, PathBuf>>,
+    /// Where each emulator installs the games of each console it plays that is on, for the
+    /// downloads' cards.
+    pub install_folders: Arc<HashMap<(PluginId, String), PathBuf>>,
     /// The host folders' paths, by the folder's name, as the first plugin that asks for each
     /// sees them.
     pub roots: Arc<HashMap<String, Vec<PathBuf>>>,
@@ -165,6 +172,9 @@ pub(crate) struct Plugins<'a> {
     manifests: BTreeMap<&'a PluginId, &'a PluginManifest>,
     enabled: BTreeSet<PluginId>,
     statuses: BTreeMap<PluginId, PluginStatus>,
+    /// Each plugin's `app.consoles` object: which of its `[[consoles]]` the player turned on or
+    /// off.
+    consoles: BTreeMap<PluginId, serde_json::Value>,
 }
 
 impl<'a> Plugins<'a> {
@@ -176,7 +186,34 @@ impl<'a> Plugins<'a> {
             manifests: order.iter().filter_map(|id| Some((id, kernel.manifest(id).ok()?))).collect(),
             enabled: order.iter().filter(|id| kernel.enabled(id)).cloned().collect(),
             statuses: kernel.statuses(),
+            consoles: order
+                .iter()
+                .map(|id| (id.clone(), kernel.config().get(&["app", "consoles", id.as_str()])))
+                .collect(),
         }
+    }
+
+    /// The consoles the plugin plays that are on: see [`Kernel::consoles_on`].
+    pub fn consoles_on(&self, plugin: &PluginId) -> Vec<launcher_api::Played<'a>> {
+        let Some(manifest) = self.manifest(plugin) else { return Vec::new() };
+        let saved = self.consoles.get(plugin).unwrap_or(&serde_json::Value::Null);
+        manifest.played().into_iter().filter(|p| crate::kernel::console_on(saved, p)).collect()
+    }
+
+    /// The console a download of the plugin's is for, which names its folders: `saved`, else
+    /// the plugin's first console that is on, else the plugin's id. See
+    /// [`crate::release_downloads::console_of_job`].
+    pub fn console_of(&self, plugin: &PluginId, saved: &str) -> String {
+        if !saved.is_empty() {
+            return saved.to_owned();
+        }
+        let first = self.consoles_on(plugin).iter().find_map(|p| p.console.map(|c| c.as_str().to_owned()));
+        first.unwrap_or_else(|| plugin.to_string())
+    }
+
+    /// Whether the player has the console `code` of the plugin's `[[consoles]]` on.
+    pub fn console_on(&self, plugin: &PluginId, code: &str) -> bool {
+        self.consoles_on(plugin).iter().any(|p| p.console.map(launcher_api::Console::as_str) == Some(code))
     }
 
     pub fn host(&self) -> &'a HostConfig {
@@ -235,8 +272,12 @@ impl<'a> Plugins<'a> {
     /// The system `platform` (`PS5`), as the plugin whose `[system]` it is describes it: its
     /// full name and color. Without one, the code is its name and it has no color.
     pub fn system(&self, platform: &str) -> GameSystemVm {
-        let look =
-            self.order.iter().filter_map(|id| self.manifest(id)?.system.as_ref()).find(|look| look.id == platform);
+        let look = self
+            .order
+            .iter()
+            .filter_map(|id| self.manifest(id))
+            .flat_map(|m| m.played().into_iter().filter_map(|p| p.system))
+            .find(|look| look.id == platform);
         match look {
             Some(look) => GameSystemVm { name: look.name.clone(), color: look.rgb() },
             None => GameSystemVm { name: platform.to_owned(), color: None },
@@ -276,9 +317,15 @@ pub(crate) fn read_files(kernel: &Kernel, library: &LibrarySnapshot) -> Files {
         if manifest.kind == PluginKind::Emulator
             && let Some(folders) = kernel.host_folders(id)
         {
-            let console = crate::release_downloads::console_of(kernel, id);
-            if let Ok((_, path)) = folders.place(Purpose::Install, &console, None) {
-                install_folders.insert(id.clone(), path);
+            let mut consoles: Vec<String> =
+                kernel.consoles_on(id).iter().filter_map(|p| p.console.map(|c| c.as_str().to_owned())).collect();
+            if consoles.is_empty() {
+                consoles.push(crate::release_downloads::console_of(kernel, id));
+            }
+            for console in consoles {
+                if let Ok((_, path)) = folders.place(Purpose::Install, &console, None) {
+                    install_folders.insert((id.clone(), console), path);
+                }
             }
         }
     }
