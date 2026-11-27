@@ -31,8 +31,15 @@ fn test_files(_platform: Option<Platform>) -> Vec<PinnedFile> {
     };
     // As the real build: only the retro plugins' cores out of the pack.
     let cores_only = retroarch::CORES.iter().map(|c| format!("{LINUX_HOME}/cores/{c}_libretro.so")).collect();
+    // RetroArch keeps its AppImage and some of RetroArch's own folder, as the real one: its
+    // unpack uses up the AppImage.
+    let ra_only = vec![
+        "RetroArch-Linux-x86_64/RetroArch-Linux-x86_64.AppImage".to_owned(),
+        format!("{LINUX_HOME}/autoconfig"),
+        format!("{LINUX_HOME}/shaders"),
+    ];
     vec![
-        file("ra.7z", RETROARCH, ra, ArchiveFormat::AppImageIn7z, None, Vec::new()),
+        file("ra.7z", RETROARCH, ra, ArchiveFormat::AppImageIn7z, None, ra_only),
         file("cores.7z", CORES, cores, ArchiveFormat::SevenZip, Some("pack"), cores_only),
     ]
 }
