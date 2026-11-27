@@ -920,12 +920,10 @@ fn validate_consoles(manifest: &PluginManifest) -> Result<(), LoadError> {
     let single = manifest.console.is_some()
         || manifest.system.is_some()
         || !manifest.keymap.is_empty()
-        || !manifest.install_note.is_empty()
-        || manifest.system_files.is_some();
+        || !manifest.install_note.is_empty();
     if single {
         return Err(LoadError::Invalid(
-            "[[consoles]] says each console's console, [system], keymap, install_note and [system_files]: \
-             leave the single ones out"
+            "[[consoles]] says each console's console, [system], keymap and install_note: leave the single ones out"
                 .into(),
         ));
     }
@@ -1046,7 +1044,9 @@ fn validate(host: &HostConfig, manifest: &PluginManifest, origin: Origin) -> Res
             )));
         }
     }
-    for files in manifest.played().iter().filter_map(|p| p.system_files) {
+    // Each console's system files, and one [system_files] for all of a plugin's consoles.
+    let shared = manifest.system_files.iter().filter(|_| !manifest.consoles.is_empty());
+    for files in manifest.played().iter().filter_map(|p| p.system_files).chain(shared) {
         validate_system_files(manifest, files)?;
     }
     // The kind governs privileges only: any plugin with code may provide the data capabilities.

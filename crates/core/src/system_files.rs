@@ -475,12 +475,15 @@ fn imported_text(count: usize) -> String {
 /// its consoles that has some.
 pub(crate) async fn refresh(core: &Core, plugin: &PluginId) {
     let Ok(manifest) = core.kernel().manifest(plugin) else { return };
-    let owners: Vec<Owner> = manifest
+    let mut owners: Vec<Owner> = manifest
         .played()
         .iter()
         .filter(|p| p.system_files.is_some())
         .map(|p| (plugin.clone(), p.listed.then(|| p.console.cloned()).flatten()))
         .collect();
+    if manifest.shared_system_files().is_some() {
+        owners.insert(0, (plugin.clone(), None));
+    }
     for owner in owners {
         let Ok((files, dirs)) = targets(core, &owner) else { continue };
         let here = tokio::task::spawn_blocking(move || installed(&files, &dirs)).await.unwrap_or(false);
