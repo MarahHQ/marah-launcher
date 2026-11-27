@@ -20,18 +20,20 @@ static SHAS: OnceLock<(String, String)> = OnceLock::new();
 /// The test's build: RetroArch's AppImage, then the cores into `pack`, as the real one is.
 fn test_files(_platform: Option<Platform>) -> Vec<PinnedFile> {
     let (ra, cores) = SHAS.get().expect("the files are served first").clone();
-    let file = |name: &str, url: &str, sha256, format, into| PinnedFile {
+    let file = |name: &str, url: &str, sha256, format, into, only| PinnedFile {
         name: name.into(),
         url: url.into(),
         size: 2,
         sha256,
         format,
         into,
-        only: Vec::new(),
+        only,
     };
+    // As the real build: only the retro plugins' cores out of the pack.
+    let cores_only = retroarch::CORES.iter().map(|c| format!("{LINUX_HOME}/cores/{c}_libretro.so")).collect();
     vec![
-        file("ra.7z", RETROARCH, ra, ArchiveFormat::AppImageIn7z, None),
-        file("cores.7z", CORES, cores, ArchiveFormat::SevenZip, Some("pack")),
+        file("ra.7z", RETROARCH, ra, ArchiveFormat::AppImageIn7z, None, Vec::new()),
+        file("cores.7z", CORES, cores, ArchiveFormat::SevenZip, Some("pack"), cores_only),
     ]
 }
 
@@ -126,7 +128,10 @@ async fn boot() -> (TestCore, tempfile::TempDir) {
         "cores.7z",
         &[
             (&format!("{LINUX_HOME}/cores/fceumm_libretro.so"), b"\x7fELF fceumm" as &[u8]),
+            (&format!("{LINUX_HOME}/cores/genesis_plus_gx_libretro.so"), b"\x7fELF genesis"),
             (&format!("{LINUX_HOME}/cores/pcsx_rearmed_libretro.so"), b"\x7fELF pcsx"),
+            (&format!("{LINUX_HOME}/cores/stella_libretro.so"), b"\x7fELF stella"),
+            (&format!("{LINUX_HOME}/cores/snes9x_libretro.so"), b"\x7fELF not a retro plugin's"),
         ],
     );
     let games = tempfile::tempdir().unwrap();
@@ -389,11 +394,46 @@ async fn the_library_s_system_chips_go_by_their_label_and_home_by_full_name() {
     assert_eq!(chips, ["", "GENESIS", "NES", "PS1"], "All, then the labels A to Z");
 }
 
-/// RetroArch installed before the Atari 2600's core came with it: the start says to install it
-/// again, and runs nothing.
+/// The pack's folder, where the cores are.
+fn cores(test: &TestCore) -> std::path::PathBuf {
+    shared(test).join("builds").join(retroarch::VERSION).join("pack").join(LINUX_HOME).join("cores")
+}
+
+/// RetroArch installed before the Atari 2600's core came with it, as a launcher before the
+/// Retro plugin unpacked it: its pack has a mark of the old form, and no Stella core.
+fn as_before_stella(test: &TestCore) {
+    std::fs::remove_file(cores(test).join("stella_libretro.so")).unwrap();
+    let mark = shared(test).join("builds").join(retroarch::VERSION).join("pack/.unpacked");
+    let old = std::fs::read_to_string(&mark).unwrap();
+    let sha_and_size: Vec<&str> = old.split_whitespace().take(2).collect();
+    std::fs::write(&mark, sha_and_size.join(" ")).unwrap();
+}
+
+/// A build that lacks a core the retro plugins need isn't installed: the next install fetches
+/// the pack of cores again and unpacks the missing core, and leaves RetroArch's own file alone.
 #[tokio::test]
-async fn a_start_whose_core_the_installed_build_lacks_says_to_install_retroarch_again() {
+async fn a_build_without_a_core_the_plugins_need_installs_again_and_gets_it() {
+    let (test, _games) = installed().await;
+    assert!(cores(&test).join("stella_libretro.so").is_file());
+    assert!(!cores(&test).join("snes9x_libretro.so").exists(), "only the retro plugins' cores");
+    as_before_stella(&test);
+    assert!(installed_versions(&test, &retro()).await.is_empty(), "a build without Stella is no build");
+
+    test.core.dispatch(Command::InstallEmulator { plugin: retro(), version: None }).await.unwrap();
+
+    assert!(cores(&test).join("stella_libretro.so").is_file(), "the missing core is unpacked");
+    assert_eq!(installed_versions(&test, &retro()).await, [retroarch::VERSION]);
+    let fetched = |url: &str| test.http.requests().iter().filter(|(u, _)| u == url).count();
+    assert_eq!(fetched(CORES), 2, "the pack of cores again");
+    assert_eq!(fetched(RETROARCH), 1, "RetroArch itself only once");
+}
+
+/// RetroArch installed before the Atari 2600's core came with it: Play asks to install
+/// RetroArch, as at a first play, and runs nothing.
+#[tokio::test]
+async fn play_on_a_build_without_the_game_s_core_asks_to_install_retroarch() {
     let (test, games) = installed().await;
+    as_before_stella(&test);
     let rom = games.path().join("ATARI2600/River Raid (USA).a26");
     std::fs::create_dir_all(rom.parent().unwrap()).unwrap();
     std::fs::write(&rom, b"rom").unwrap();
@@ -401,8 +441,8 @@ async fn a_start_whose_core_the_installed_build_lacks_says_to_install_retroarch_
     let spawned = test.spawner.spawned().len();
 
     let launch = Command::Session(SessionCmd::Launch("emu-retro:ATARI2600/River Raid".parse().unwrap()));
-    let refused = test.core.dispatch(launch).await.expect_err("no Stella core").to_string();
+    test.core.dispatch(launch).await.unwrap();
 
-    assert!(refused.contains("without the Stella core") && refused.contains("install it again"), "{refused}");
+    assert!(test.core.view().install_prompt.is_some(), "it asks to install RetroArch");
     assert_eq!(test.spawner.spawned().len(), spawned, "RetroArch didn't start");
 }
