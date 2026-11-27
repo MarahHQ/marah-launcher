@@ -43,8 +43,7 @@ and import it on the emulator's page.
 | PS4 (shadPS4) | `ps4-system-files.zip` | `sys_modules/` (the `.sprx` files), `fonts/` (`font/`, `font2/`) |
 | Switch (Lichii) | `switch-firmware-keys.zip` | `firmware/` (the `.nca` files), `keys/` (`prod.keys`, `title.keys`). A `VERSION` file that names the version is fine: the launcher leaves it out. |
 | PS1 | `ps1-bios.zip` | `system/` (`scph*.bin`, `psxonpsp660.bin`) |
-| NES (Retro) | `nes-bios.zip` | `system/` (`disksys.rom` for Famicom Disk System games, `gamegenie.nes`) |
-| Genesis (Retro) | `genesis-bios.zip` | `system/` (`bios_MD.bin`, `bios_*.sms`, `bios.gg`, and the lock-on carts `sk.bin`, `sk2chip.bin`, `areplay.bin`, `ggenie.bin`) |
+| Retro (NES, Genesis) | `retro-bios.zip` | `system/`: for the NES, `disksys.rom` for Famicom Disk System games and `gamegenie.nes`; for the Genesis, `bios_MD.bin`, `bios_*.sms`, `bios.gg`, and the lock-on carts `sk.bin`, `sk2chip.bin`, `areplay.bin`, `ggenie.bin`. The Atari 2600 needs none. |
 
 The PS1 and Retro emulators run on RetroArch, and their BIOS files all go into
 RetroArch's one `system` folder. Each takes only its own files from its archive. Most of their

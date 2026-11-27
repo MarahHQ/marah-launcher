@@ -50,6 +50,31 @@ folder = "packages"
 folder = "retroarch-build"
 title = "Your own RetroArch"
 
+# The consoles' BIOS files, which the player imports from one archive on the plugin's page: see
+# docs/players/emulators.md, "System files". They go into RetroArch's system folder, in the data
+# folder every RetroArch plugin shares; this plugin takes only its consoles' files from it: the
+# Famicom Disk System BIOS and Game Genie for the NES, and the Mega Drive, Master System and Game
+# Gear BIOS files and lock-on carts for the Genesis. The Atari 2600 needs none.
+[system_files]
+name = "Retro BIOS files"
+archive = "retro-bios.zip"
+optional = true
+
+[[system_files.part]]
+from = "system"
+into = "system"
+files = [
+    "disksys.rom",
+    "gamegenie.nes",
+    "bios_MD.bin",
+    "bios_*.sms",
+    "bios.gg",
+    "sk.bin",
+    "sk2chip.bin",
+    "areplay.bin",
+    "ggenie.bin",
+]
+
 # Each console the plugin plays. The player turns each on or off on the plugin's page. The keys
 # are RetroArch's default keyboard keys for the console's buttons: the launch splash shows them.
 
@@ -77,17 +102,6 @@ keys = "Enter"
 [[consoles.keymap]]
 button = "Select"
 keys = "Right Shift"
-# The Famicom Disk System BIOS (disksys.rom), which the player imports from one archive: see
-# docs/players/emulators.md, "System files". It goes into RetroArch's system folder, in the data
-# folder every RetroArch plugin shares; the NES takes only its own files from it.
-[consoles.system_files]
-name = "NES BIOS files"
-archive = "nes-bios.zip"
-optional = true
-[[consoles.system_files.part]]
-from = "system"
-into = "system"
-files = ["disksys.rom", "gamegenie.nes"]
 
 [[consoles]]
 console = "GENESIS"
@@ -112,15 +126,6 @@ keys = "Arrow keys"
 [[consoles.keymap]]
 button = "Start"
 keys = "Enter"
-# The Mega Drive, Master System and Game Gear BIOS files, and the lock-on carts.
-[consoles.system_files]
-name = "Genesis BIOS files"
-archive = "genesis-bios.zip"
-optional = true
-[[consoles.system_files.part]]
-from = "system"
-into = "system"
-files = ["bios_MD.bin", "bios_*.sms", "bios.gg", "sk.bin", "sk2chip.bin", "areplay.bin", "ggenie.bin"]
 
 [[consoles]]
 console = "ATARI2600"

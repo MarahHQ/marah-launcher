@@ -1932,7 +1932,12 @@ fn plugin_page_vm(s: &Snapshot, plugin: &PluginId) -> Option<PluginPageVm> {
             // The core's blocks come first: the switches of the consoles it plays, then the
             // "System files" of each console that is on. Then the plugin's own.
             let consoles = s.plugins.manifest(plugin).and_then(|m| consoles_block(&s.plugins, plugin, m));
-            let system = s.plugins.consoles_on(plugin).into_iter().filter_map(|played| {
+            // One archive for all the consoles, then each console's own.
+            let shared = s.plugins.manifest(plugin).and_then(|m| m.shared_system_files()).map(|files| {
+                let status = s.builds.system_files.get(&(plugin.clone(), None)).cloned().unwrap_or_default();
+                crate::system_files::block(files, None, &status)
+            });
+            let own_files = s.plugins.consoles_on(plugin).into_iter().filter_map(|played| {
                 let files = played.system_files?;
                 let console = played.listed.then(|| played.console.cloned()).flatten();
                 let owner = (plugin.clone(), console);
@@ -1940,7 +1945,8 @@ fn plugin_page_vm(s: &Snapshot, plugin: &PluginId) -> Option<PluginPageVm> {
                 Some(crate::system_files::block(files, owner.1.as_ref(), &status))
             });
             let own = s.builds.emulators.get(plugin).map(|e| e.panels.clone()).unwrap_or_default();
-            slot_vms(plugin, SlotId::EmulatorPanel, consoles.into_iter().chain(system).chain(own).collect())
+            let blocks = consoles.into_iter().chain(shared).chain(own_files).chain(own);
+            slot_vms(plugin, SlotId::EmulatorPanel, blocks.collect())
         },
         folders: folders_vm(s)
             .into_iter()

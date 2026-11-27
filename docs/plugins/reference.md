@@ -130,7 +130,7 @@ cover = "cover.jpg"
 | `system` | no | `[system]`: the system the plugin's games show under. See below. |
 | `shared_data` | no | A data folder this plugin shares with every plugin that names the same one, such as `retroarch`: lowercase letters, digits and `-`. Its storage, downloads and programs live in `shared/<name>` in the app's data folder, not in `plugins/<id>`. The host runs one install among them at a time, and after one, it reads the builds of each. Only a built-in plugin may name one: a plugin from disk that does is refused. |
 | `system_files` | no | `[system_files]`: files the emulator needs besides its program and the games, which the player imports from one archive on its page. See below. |
-| `consoles` | no | `[[consoles]]`: for an emulator that plays several consoles, each console in place of `console`, `[system]`, `keymap`, `install_note` and `[system_files]`. See below. |
+| `consoles` | no | `[[consoles]]`: for an emulator that plays several consoles, each console in place of `console`, `[system]`, `keymap` and `install_note`. See below. |
 
 ### `[[dependencies]]`
 
@@ -263,6 +263,10 @@ name = "Atari 2600"
 | `keymap`, `install_note`, `system_files` | As the top-level keys say, for this console's games. The launch splash shows the keys of the game's console. |
 | `on` | The console is on until the player turns it off. With `false`, it is off until they turn it on. `true` by default. |
 
+Beside `[[consoles]]`, a top-level `[system_files]` is one archive for all the consoles: the page
+shows one block for it (`PluginManifest::shared_system_files`). A console can also have its own
+in `[consoles.system_files]`.
+
 The host reads either form with `PluginManifest::played`, and the console of a game with
 `played_for(platform)`. The games of two consoles share the plugin's ids, so a plugin gives each
 an id the console's code begins, such as `NES/Contra`.
@@ -280,7 +284,7 @@ an id the console's code begins, such as `NES/Contra`.
 - `[system_files]`, or one of `[[consoles]]`, has no name, archive or part, a part's `into` is
   empty, or a part's `folder` isn't a folder grant with `write = true`;
 - a plugin that isn't an emulator lists `[[consoles]]`; or a manifest with `[[consoles]]` also
-  has `console`, `[system]`, `keymap`, `install_note` or `[system_files]`; or it lists a console
+  has `console`, `[system]`, `keymap` or `install_note`; or it lists a console
   twice; or a console's `[consoles.system]` id isn't its console code, or its `color` isn't
   `#rrggbb`;
 - the plugin is third-party with `runtime` `native` ("third-party plugins must be data-only");
