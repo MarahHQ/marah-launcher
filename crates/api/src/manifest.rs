@@ -534,8 +534,22 @@ pub struct PluginManifest {
     /// [`PluginManifest::played`].
     #[serde(default)]
     pub consoles: Vec<PluginConsole>,
+    /// The plugins this one took the place of (`[[replaces]]`), each with the console of its
+    /// games here. At start, the host moves what it keeps of each to this plugin: settings, play
+    /// time and the other records of its games, whose ids get the console's code in front
+    /// (`NES/Contra`). Only a built-in plugin may name one.
+    #[serde(default)]
+    pub replaces: Vec<Replaced>,
     #[serde(flatten)]
     pub extra: toml::Table,
+}
+
+/// A plugin another took the place of, and the console of its games there (`[[replaces]]`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Replaced {
+    pub plugin: PluginId,
+    pub console: Console,
 }
 
 /// One console of an emulator that plays several (`[[consoles]]`). Its `console` and its

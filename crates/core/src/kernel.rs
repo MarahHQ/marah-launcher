@@ -1033,6 +1033,19 @@ fn validate(host: &HostConfig, manifest: &PluginManifest, origin: Origin) -> Res
     if !manifest.consoles.is_empty() {
         validate_consoles(manifest)?;
     }
+    // Replacing a plugin moves its settings and records: only a built-in plugin may.
+    if origin == Origin::ThirdParty && !manifest.replaces.is_empty() {
+        return Err(LoadError::Invalid("only a built-in plugin replaces another".into()));
+    }
+    for replaced in &manifest.replaces {
+        let plays = manifest.played().iter().any(|p| p.console == Some(&replaced.console));
+        if !plays {
+            return Err(LoadError::Invalid(format!(
+                "[[replaces]] {}: console {} isn't one it plays",
+                replaced.plugin, replaced.console
+            )));
+        }
+    }
     for files in manifest.played().iter().filter_map(|p| p.system_files) {
         validate_system_files(manifest, files)?;
     }

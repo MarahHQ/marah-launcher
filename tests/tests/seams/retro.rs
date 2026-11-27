@@ -35,6 +35,23 @@ fn test_files(_platform: Option<Platform>) -> Vec<PinnedFile> {
     ]
 }
 
+/// The Retro plugin, as its crate's, on the test's build files.
+struct TestRetroConsoles;
+
+#[async_trait]
+impl Plugin for TestRetroConsoles {
+    fn manifest(&self) -> PluginManifest {
+        emu_retro::RetroPlugin.manifest()
+    }
+}
+
+#[async_trait]
+impl CodePlugin for TestRetroConsoles {
+    async fn init(&self, ctx: PluginContext) -> PluginResult<Provided> {
+        emu_retro::provided_with(&ctx, test_files).await
+    }
+}
+
 /// A retro plugin of console `C`, as its crate's, on the test's build files.
 struct TestRetro<C>(PluginManifest, std::marker::PhantomData<fn() -> C>);
 
@@ -56,8 +73,8 @@ fn plugin<C: RetroConsole>(manifest: PluginManifest) -> PluginBox {
     PluginBox::code(TestRetro::<C>(manifest, std::marker::PhantomData))
 }
 
-fn nes() -> PluginId {
-    PluginId::new("emu-nes").unwrap()
+fn retro() -> PluginId {
+    PluginId::new("emu-retro").unwrap()
 }
 
 fn ps1() -> PluginId {
@@ -90,7 +107,7 @@ fn app_run(test: &TestCore) -> std::path::PathBuf {
     shared(test).join("builds").join(retroarch::VERSION).join("RetroArch-Linux-x86_64/squashfs-root/AppRun")
 }
 
-/// The NES and PS1 plugins, the test's build files, and a games folder with NES and PS1 games,
+/// The Retro and PS1 plugins, the test's build files, and a games folder with NES and PS1 games,
 /// and files of theirs elsewhere.
 async fn boot() -> (TestCore, tempfile::TempDir) {
     let host = FakeHost::new().platform(Some(Platform::Linux));
@@ -126,7 +143,7 @@ async fn boot() -> (TestCore, tempfile::TempDir) {
     file("PS1/Big Game/Big Game (Disc 1).cue");
     file("PS1/Big Game/Big Game (Disc 1).bin");
     let test = host
-        .built_in(plugin::<emu_nes::Nes>(emu_nes::NesPlugin.manifest()))
+        .built_in(PluginBox::code(TestRetroConsoles))
         .built_in(plugin::<emu_ps1::Ps1>(emu_ps1::Ps1Plugin.manifest()))
         .boot_core()
         .await;
@@ -135,10 +152,10 @@ async fn boot() -> (TestCore, tempfile::TempDir) {
     (test, games)
 }
 
-/// Boots, and installs RetroArch through the NES plugin.
+/// Boots, and installs RetroArch through the Retro plugin.
 async fn installed() -> (TestCore, tempfile::TempDir) {
     let (test, games) = boot().await;
-    test.core.dispatch(Command::InstallEmulator { plugin: nes(), version: None }).await.unwrap();
+    test.core.dispatch(Command::InstallEmulator { plugin: retro(), version: None }).await.unwrap();
     test.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
     (test, games)
 }
@@ -156,8 +173,8 @@ async fn one_install_of_retroarch_serves_every_retro_plugin() {
     assert!(app_run(&test).is_file(), "RetroArch is in the shared data folder");
     let core = shared(&test).join("builds").join(retroarch::VERSION).join("pack").join(LINUX_HOME);
     assert!(core.join("cores/fceumm_libretro.so").is_file() && core.join("cores/pcsx_rearmed_libretro.so").is_file());
-    assert!(!test.data_dir().join("plugins/emu-nes").exists(), "no folder of its own");
-    assert_eq!(installed_versions(&test, &nes()).await, [retroarch::VERSION]);
+    assert!(!test.data_dir().join("plugins/emu-retro").exists(), "no folder of its own");
+    assert_eq!(installed_versions(&test, &retro()).await, [retroarch::VERSION]);
     assert_eq!(installed_versions(&test, &ps1()).await, [retroarch::VERSION], "the PS1 plugin has it too");
     assert_eq!(test.spawner.spawned().len(), 1, "only the AppImage's unpacking ran: no --help");
     let fetched = test.http.requests().iter().filter(|(url, _)| url == RETROARCH).count();
@@ -169,11 +186,11 @@ async fn each_console_s_games_are_the_rom_files_in_its_own_folder() {
     let (test, _games) = installed().await;
     let mut keys: Vec<String> = test.core.view().home.games.iter().map(|g| g.key.clone()).collect();
     keys.sort();
-    assert_eq!(keys, ["emu-nes:Other Game", "emu-nes:Super Game", "emu-ps1:Big Game"]);
+    assert_eq!(keys, ["emu-ps1:Big Game", "emu-retro:NES/Other Game", "emu-retro:NES/Super Game"]);
     let platforms: Vec<String> = test.core.view().home.games.iter().map(|g| g.platform.clone()).collect();
     assert!(platforms.iter().all(|p| p == "NES" || p == "PS1"), "{platforms:?}");
     let home = test.core.view().home;
-    let card = home.games.iter().find(|g| g.key == "emu-nes:Super Game").unwrap();
+    let card = home.games.iter().find(|g| g.key == "emu-retro:NES/Super Game").unwrap();
     let cover = format!("{:?}", card.cover);
     let url = "https://raw.githubusercontent.com/libretro-thumbnails/Nintendo_-_Nintendo_Entertainment_System/master/Named_Boxarts/Super%20Game%20%28World%29.png";
     assert!(cover.contains(url), "the box art libretro names after the file: {cover}");
@@ -184,7 +201,10 @@ async fn a_game_starts_in_retroarch_with_its_console_s_core_and_the_launcher_s_c
     let (test, games) = installed().await;
     let spawned = test.spawner.spawned().len();
 
-    test.core.dispatch(Command::Session(SessionCmd::Launch("emu-nes:Super Game".parse().unwrap()))).await.unwrap();
+    test.core
+        .dispatch(Command::Session(SessionCmd::Launch("emu-retro:NES/Super Game".parse().unwrap())))
+        .await
+        .unwrap();
 
     let process = test.spawner.wait_for(spawned + 1).await;
     assert_eq!(process.command.program, app_run(&test));
@@ -219,14 +239,17 @@ async fn a_game_starts_in_retroarch_with_its_console_s_core_and_the_launcher_s_c
 async fn start_with_picture(test: &TestCore, picture: &str) -> Vec<String> {
     std::fs::write(shared(test).join("retroarch.cfg"), "video_driver = \"gl\"\n").unwrap();
     let set = Command::SetConfigField {
-        plugin: nes(),
+        plugin: retro(),
         scope: ConfigScope::Emulator,
         key: "picture".into(),
         value: picture.into(),
     };
     test.core.dispatch(set).await.unwrap();
     let spawned = test.spawner.spawned().len();
-    test.core.dispatch(Command::Session(SessionCmd::Launch("emu-nes:Super Game".parse().unwrap()))).await.unwrap();
+    test.core
+        .dispatch(Command::Session(SessionCmd::Launch("emu-retro:NES/Super Game".parse().unwrap())))
+        .await
+        .unwrap();
     test.spawner.wait_for(spawned + 1).await.command.args
 }
 
@@ -255,7 +278,7 @@ async fn the_old_tv_picture_starts_with_the_build_s_crt_preset_for_the_video_dri
 async fn a_game_s_own_picture_shows_on_its_page_and_wins_at_its_start() {
     let (test, _games) = installed().await;
     std::fs::write(shared(&test).join("retroarch.cfg"), "video_driver = \"gl\"\n").unwrap();
-    let game: GameKey = "emu-nes:Super Game".parse().unwrap();
+    let game: GameKey = "emu-retro:NES/Super Game".parse().unwrap();
     test.core.dispatch(Command::Navigate(launcher_core::Route::GameSettings(game.clone()))).await.unwrap();
     let detail = test.core.view().detail.expect("the game's details");
     let picture = detail.settings.iter().flat_map(|p| &p.fields).find(|f| f.key == "picture").expect("picture");
@@ -264,7 +287,7 @@ async fn a_game_s_own_picture_shows_on_its_page_and_wins_at_its_start() {
 
     let scope = ConfigScope::Game(game.local.clone());
     test.core
-        .dispatch(Command::SetConfigField { plugin: nes(), scope, key: "picture".into(), value: crt })
+        .dispatch(Command::SetConfigField { plugin: retro(), scope, key: "picture".into(), value: crt })
         .await
         .unwrap();
     let spawned = test.spawner.spawned().len();
@@ -283,9 +306,9 @@ async fn a_picture_whose_preset_the_build_lacks_starts_with_no_shader() {
 }
 
 #[tokio::test]
-async fn the_nes_plugin_meets_every_contract() {
+async fn the_retro_plugin_meets_every_contract() {
     let (test, _games) = installed().await;
-    contract::emulator(&test, &nes()).await;
+    contract::emulator(&test, &retro()).await;
 }
 
 /// A PS1 disc image in the packages folder is offered by its .cue, and installs with its .bin
@@ -335,7 +358,7 @@ async fn the_other_retro_pages_show_an_install_at_once() {
     };
     assert!(page(&ps1()).is_empty());
 
-    test.core.dispatch(Command::InstallEmulator { plugin: nes(), version: None }).await.unwrap();
+    test.core.dispatch(Command::InstallEmulator { plugin: retro(), version: None }).await.unwrap();
 
     assert_eq!(page(&ps1()), [retroarch::VERSION], "the PS1 page shows it");
 }
@@ -352,9 +375,8 @@ async fn the_library_s_system_chips_go_by_their_label_and_home_by_full_name() {
         std::fs::write(path, b"rom").unwrap();
     }
     let test = host
-        .built_in(PluginBox::code(emu_genesis::GenesisPlugin))
         .built_in(PluginBox::code(emu_ps1::Ps1Plugin))
-        .built_in(PluginBox::code(emu_nes::NesPlugin))
+        .built_in(PluginBox::code(emu_retro::RetroPlugin))
         .boot_core()
         .await;
     test.core.dispatch(Command::SetFolders { name: "games".into(), paths: vec![games.path().into()] }).await.unwrap();
@@ -362,7 +384,7 @@ async fn the_library_s_system_chips_go_by_their_label_and_home_by_full_name() {
 
     let view = test.core.view();
     let home: Vec<&str> = view.emulators.emulators.iter().map(|e| e.system.as_str()).collect();
-    assert_eq!(home, ["NES", "PS1", "GENESIS"], "Home: by the systems' full names");
+    assert_eq!(home, ["ATARI2600", "NES", "PS1", "GENESIS"], "Home: by the systems' full names");
     let chips: Vec<&str> = view.home.library.systems.iter().map(|c| c.id.as_str()).collect();
     assert_eq!(chips, ["", "GENESIS", "NES", "PS1"], "All, then the labels A to Z");
 }

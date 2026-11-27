@@ -1,4 +1,4 @@
-//! RetroArch, the one program the retro consoles' plugins (`emu-nes`, `emu-genesis`, `emu-ps1`)
+//! RetroArch, the one program the retro plugins (`emu-retro` for the NES, Genesis and Atari 2600, and `emu-ps1`)
 //! share. Each plugin names its console ([`RetroConsole`]); the kit runs the rest.
 //!
 //! - One copy: the plugins share a data folder (`shared_data = "retroarch"` in their manifests),
@@ -43,7 +43,7 @@ pub const VERSION: &str = "1.22.2";
 const SERVER: &str = "https://buildbot.libretro.com/stable/1.22.2";
 /// The cores of every retro plugin: a build holds them all, so any plugin's install serves
 /// the others.
-pub const CORES: [&str; 3] = ["fceumm", "genesis_plus_gx", "pcsx_rearmed"];
+pub const CORES: [&str; 4] = ["fceumm", "genesis_plus_gx", "pcsx_rearmed", "stella"];
 
 /// The Linux build's folder, and RetroArch's own folder beside its AppImage.
 const LINUX: &str = "RetroArch-Linux-x86_64";
@@ -338,8 +338,8 @@ pub fn files(platform: Option<Platform>) -> Vec<PinnedFile> {
 
 /// The databases of the retro consoles' games, by name, which a build keeps: they name a game
 /// by its file's checksum.
-pub const DATABASES: [&str; 3] =
-    ["Nintendo - Nintendo Entertainment System", "Sega - Mega Drive - Genesis", "Sony - PlayStation"];
+pub const DATABASES: [&str; 4] =
+    ["Atari - 2600", "Nintendo - Nintendo Entertainment System", "Sega - Mega Drive - Genesis", "Sony - PlayStation"];
 
 /// The program in build `tag`, on `platform`.
 pub fn program(platform: Option<Platform>, tag: &str) -> PluginResult<RelPath> {
@@ -583,7 +583,18 @@ impl<C: RetroConsole> Launcher for Retro<C> {
         // installed, else your RetroArch's own, by name.
         let installed = builds.versions().state().await.current;
         let core = match installed {
-            Some(tag) => LaunchArg::path(Location::Data(core(platform, &tag, C::CORE)?)),
+            Some(tag) => {
+                let path = core(platform, &tag, C::CORE)?;
+                // A build installed before the console's core came with it.
+                if !self.emu.host().storage.exists(&path).await? {
+                    return Err(PluginError::Precondition(format!(
+                        "RetroArch {tag} was installed without the {} core: uninstall RetroArch on the \
+                         emulator's page, then install it again. Your saves and settings stay",
+                        C::CORE_NAME
+                    )));
+                }
+                LaunchArg::path(Location::Data(path))
+            }
             None => C::CORE.into(),
         };
         let (base, start, shader) = self.configs(run.tag.as_deref(), settings.fullscreen, settings.picture).await?;

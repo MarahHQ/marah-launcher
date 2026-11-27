@@ -1,6 +1,6 @@
 [package]
-name = "emu-genesis"
-description = "Genesis, Mega Drive, Master System and Game Gear games on RetroArch's Genesis Plus GX core, with the RetroArch the retro plugins share."
+name = "emu-retro"
+description = "NES, Genesis and Atari 2600 games in one plugin, on RetroArch's FCEUmm, Genesis Plus GX and Stella cores, with the RetroArch the retro plugins share."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

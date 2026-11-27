@@ -53,6 +53,7 @@ mod ratings;
 mod redact;
 mod release_downloads;
 mod releases;
+mod replaced;
 mod resolve;
 mod room;
 mod running;

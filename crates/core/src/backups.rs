@@ -142,12 +142,44 @@ fn in_folder(file: &str) -> CoreResult<String> {
     Ok(file.to_owned())
 }
 
+/// The places of a replaced plugin's items, in a backup made before a plugin replaced it
+/// (`[[replaces]]`): each goes where the new plugin keeps the same item of its console
+/// (`emu-nes/saves` to `emu-retro/nes-saves`), or the item every console shares.
+fn replaced_targets(core: &Core, targets: &mut std::collections::BTreeMap<crate::backup::ItemKey, PathBuf>) {
+    let kernel = core.kernel();
+    for plugin in kernel.order() {
+        let Ok(manifest) = kernel.manifest(plugin) else { continue };
+        for replaced in &manifest.replaces {
+            let ours: Vec<(String, PathBuf)> = targets
+                .iter()
+                .filter(|(key, _)| key.plugin == plugin.as_str())
+                .map(|(key, path)| (key.name.clone(), path.clone()))
+                .collect();
+            let lower = format!("{}-", replaced.console.as_str().to_ascii_lowercase());
+            for (name, path) in ours {
+                // An item of no console's: the new plugin lists it once for them all.
+                let shared = !manifest
+                    .consoles
+                    .iter()
+                    .any(|c| name.starts_with(&format!("{}-", c.console.as_str().to_ascii_lowercase())));
+                let old = name.strip_prefix(&lower).map(str::to_owned).or_else(|| shared.then(|| name.clone()));
+                if let Some(old) = old {
+                    let key = crate::backup::ItemKey { plugin: replaced.plugin.to_string(), name: old };
+                    targets.entry(key).or_insert(path);
+                }
+            }
+        }
+    }
+}
+
 /// Puts the backup at `path` back into this computer's places.
 async fn restore(core: &Core, path: PathBuf) -> CoreResult<()> {
     ready(core)?;
     core.browsing().close();
     let found = items(core, true).await;
-    let targets = found.iter().map(|i| (i.source.key.clone(), i.source.path.clone())).collect();
+    let mut targets: std::collections::BTreeMap<_, _> =
+        found.iter().map(|i| (i.source.key.clone(), i.source.path.clone())).collect();
+    replaced_targets(core, &mut targets);
     let drives = core.ports().drives.clone();
     let plan = RestorePlan {
         targets,
