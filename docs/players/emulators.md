@@ -43,10 +43,10 @@ and import it on the emulator's page.
 | PS4 (shadPS4) | `ps4-system-files.zip` | `sys_modules/` (the `.sprx` files), `fonts/` (`font/`, `font2/`) |
 | Switch (Lichii) | `switch-firmware-keys.zip` | `firmware/` (the `.nca` files), `keys/` (`prod.keys`, `title.keys`). A `VERSION` file that names the version is fine: the launcher leaves it out. |
 | PS1 | `ps1-bios.zip` | `system/` (`scph*.bin`, `psxonpsp660.bin`) |
-| NES | `nes-bios.zip` | `system/` (`disksys.rom` for Famicom Disk System games, `gamegenie.nes`) |
-| Genesis | `genesis-bios.zip` | `system/` (`bios_MD.bin`, `bios_*.sms`, `bios.gg`, and the lock-on carts `sk.bin`, `sk2chip.bin`, `areplay.bin`, `ggenie.bin`) |
+| NES (Retro) | `nes-bios.zip` | `system/` (`disksys.rom` for Famicom Disk System games, `gamegenie.nes`) |
+| Genesis (Retro) | `genesis-bios.zip` | `system/` (`bios_MD.bin`, `bios_*.sms`, `bios.gg`, and the lock-on carts `sk.bin`, `sk2chip.bin`, `areplay.bin`, `ggenie.bin`) |
 
-The PS1, NES and Genesis emulators run on RetroArch, and their BIOS files all go into
+The PS1 and Retro emulators run on RetroArch, and their BIOS files all go into
 RetroArch's one `system` folder. Each takes only its own files from its archive. Most of their
 games play without BIOS files, so their pages don't warn while the files are missing.
 
@@ -101,7 +101,25 @@ the zip from Explorer (**Send to → Compressed (zipped) folder**) and leave out
   core reads `bios_MD.bin`, `bios_E.sms`, `bios_U.sms`, `bios_J.sms` and `bios.gg`. The NES core
   reads `disksys.rom` for Famicom Disk System games.
 
-## PS1, NES and Genesis: RetroArch
+## PS1 and Retro: RetroArch
+
+The **Retro** emulator plays the NES, the Genesis and the Atari 2600, on one RetroArch. The PS1
+is an emulator of its own, on the same RetroArch.
+
+### Consoles
+
+The **Consoles** block on the Retro page has a switch for each console. A console that is off
+has no Home entry and no Catalog, and its games are hidden. Nothing is deleted: turn it on, and
+they are back. Each console's games are in its own folder of your game folders: `NES/`,
+`GENESIS/` and `ATARI2600/`.
+
+The Retro emulator took the place of the NES and Genesis emulators. At its first start, the
+launcher moves their games' play time and settings to it. A NES or Genesis emulator you had
+turned off is a console that is off.
+
+The Atari 2600 plays on RetroArch's Stella core. RetroArch installed before the Retro emulator
+lacks it: select **Uninstall** on the Retro page, then install RetroArch again. Your saves, save
+states and RetroArch settings stay.
 
 ### Picture
 

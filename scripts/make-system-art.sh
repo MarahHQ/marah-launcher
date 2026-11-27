@@ -29,13 +29,18 @@ theme=plugins/themes/default/theme/images
 icon() { rsvg-convert -w "$2" -h "$2" -o "$3" "$1"; }
 
 # The system's art name, then its emulator plugin's folder.
-for pair in ps5:kytyps5 ps4:shadps4 switch:lichii pc:pc steam:steam nes:nes genesis:genesis ps1:ps1; do
+# A console of the Retro plugin has its pictures in a folder of its own there.
+for pair in ps5:kytyps5 ps4:shadps4 switch:lichii pc:pc steam:steam nes:retro/assets/nes genesis:retro/assets/genesis \
+    atari2600:retro/assets/atari2600 ps1:ps1; do
     system="${pair%%:*}"
-    out="plugins/emulators/${pair#*:}/assets"
+    case "${pair#*:}" in
+        */*) out="plugins/emulators/${pair#*:}" ;;
+        *) out="plugins/emulators/${pair#*:}/assets" ;;
+    esac
     mkdir -p "$out"
     icon "$art/$system.svg" 256 "$out/icon.png"
     case "$system" in
-        nes | genesis | ps1) [ -f "$covers/$system-cover.png" ] || continue ;;
+        nes | genesis | atari2600 | ps1) [ -f "$covers/$system-cover.png" ] || continue ;;
     esac
     magick "$covers/$system-cover.png" -strip -quality 85 "$out/cover.jpg"
 done

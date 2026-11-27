@@ -1568,14 +1568,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e9c71c2167ca323c882b99918929403426e2373ea17242ff5653e0d5e1058be"
 
 [[package]]
-name = "emu-genesis"
-version = "0.20.0"
-dependencies = [
- "emulator-kit",
- "launcher-api",
-]
-
-[[package]]
 name = "emu-kyty"
 version = "0.20.0"
 dependencies = [
@@ -1596,14 +1588,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "emu-nes"
-version = "0.20.0"
-dependencies = [
- "emulator-kit",
- "launcher-api",
-]
-
-[[package]]
 name = "emu-pc"
 version = "0.20.0"
 dependencies = [
@@ -1615,6 +1599,14 @@ dependencies = [
 
 [[package]]
 name = "emu-ps1"
+version = "0.20.0"
+dependencies = [
+ "emulator-kit",
+ "launcher-api",
+]
+
+[[package]]
+name = "emu-retro"
 version = "0.20.0"
 dependencies = [
  "emulator-kit",
@@ -3446,12 +3438,11 @@ dependencies = [
  "anyhow",
  "ash",
  "async-trait",
- "emu-genesis",
  "emu-kyty",
  "emu-lichii",
- "emu-nes",
  "emu-pc",
  "emu-ps1",
+ "emu-retro",
  "emu-shadps4",
  "emu-steam",
  "flate2",
@@ -3538,12 +3529,11 @@ dependencies = [
 name = "launcher-tests"
 version = "0.20.0"
 dependencies = [
- "emu-genesis",
  "emu-kyty",
  "emu-lichii",
- "emu-nes",
  "emu-pc",
  "emu-ps1",
+ "emu-retro",
  "emu-shadps4",
  "emu-steam",
  "emulator-kit",

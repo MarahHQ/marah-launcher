@@ -568,8 +568,7 @@ async fn the_places_are_home_its_folders_that_are_there_and_the_backup_folder() 
 async fn retro(backups: &Path) -> TestCore {
     let test = FakeHost::new()
         .platform(Some(Platform::Linux))
-        .built_in(PluginBox::code(emu_nes::NesPlugin))
-        .built_in(PluginBox::code(emu_genesis::GenesisPlugin))
+        .built_in(PluginBox::code(emu_retro::RetroPlugin))
         .built_in(PluginBox::code(emu_ps1::Ps1Plugin))
         .boot_core()
         .await;

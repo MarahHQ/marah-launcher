@@ -1399,7 +1399,7 @@ mod tests {
         let (_, unusable) = sources.clone().usable();
         assert!(unusable.is_empty(), "forums with no f= number: {unusable:?}");
         let names: Vec<&str> = sources.catalogs.keys().map(String::as_str).collect();
-        assert_eq!(names, ["genesis", "nes", "pc", "ps1", "ps4", "ps5", "switch"]);
+        assert_eq!(names, ["atari2600", "genesis", "nes", "pc", "ps1", "ps4", "ps5", "switch"]);
     }
 
     #[test]

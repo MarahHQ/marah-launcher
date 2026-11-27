@@ -319,7 +319,7 @@ fn is_game(title: &str, genre: &str, title_id: &str, magnet: &str) -> bool {
 }
 
 /// The consoles a topic may name itself, upper case.
-const CONSOLES: [&str; 7] = ["PS5", "PS4", "PC", "SWITCH", "PS1", "NES", "GENESIS"];
+const CONSOLES: [&str; 8] = ["PS5", "PS4", "PC", "SWITCH", "PS1", "NES", "GENESIS", "ATARI2600"];
 
 /// The console a topic is for: its game info's, else the `[PS5]` tag in its title (`[Nintendo
 /// Switch]` or `[NSW2]` for a Switch game), else its title id's.
