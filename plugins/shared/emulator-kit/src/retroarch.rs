@@ -462,16 +462,15 @@ impl<C: RetroConsole> Flavor for RetroArchFlavor<C> {
         help.contains("RetroArch")
     }
 
-    /// The build has the core of every retro plugin ([`CORES`]): one unpacked before a core
-    /// was added installs again, and gets it.
-    async fn complete(&self, storage: &dyn Storage, tag: &str) -> bool {
+    /// The build has the core of every retro plugin ([`CORES`]). A build unpacked before a
+    /// core was added installs again, and gets it.
+    async fn complete(&self, storage: &dyn Storage, tag: &str) -> PluginResult<bool> {
         for name in CORES {
-            let Ok(path) = core(self.platform, tag, name) else { return false };
-            if !storage.exists(&path).await.unwrap_or(false) {
-                return false;
+            if !storage.exists(&core(self.platform, tag, name)?).await? {
+                return Ok(false);
             }
         }
-        true
+        Ok(true)
     }
 
     fn own_build(&self) -> OwnBuild {
@@ -600,8 +599,8 @@ impl<C: RetroConsole> Launcher for Retro<C> {
                 // A build installed before the console's core came with it.
                 if !self.emu.host().storage.exists(&path).await? {
                     return Err(PluginError::Precondition(format!(
-                        "RetroArch {tag} was installed without the {} core: uninstall RetroArch on the \
-                         emulator's page, then install it again. Your saves and settings stay",
+                        "RetroArch {tag} lacks the {} core: install RetroArch on the emulator's page \
+                         to add it. Your saves and settings stay",
                         C::CORE_NAME
                     )));
                 }

@@ -143,11 +143,11 @@ pub trait Flavor: Send + Sync + 'static {
     /// The program in a build's folder.
     async fn program(&self, storage: &dyn Storage, tag: &str) -> PluginResult<RelPath>;
 
-    /// The build `tag` has every file its plugins need. One that lacks some (unpacked before
-    /// they were needed) isn't installed, so the next install puts them in. Every build by
-    /// default.
-    async fn complete(&self, _storage: &dyn Storage, _tag: &str) -> bool {
-        true
+    /// The build `tag` has every file its plugins need. A build that lacks some (unpacked
+    /// before they were needed) isn't installed, so the next install puts them in. Every build
+    /// by default.
+    async fn complete(&self, _storage: &dyn Storage, _tag: &str) -> PluginResult<bool> {
+        Ok(true)
     }
 
     /// Whether the build ran: its `--help` printed `help`.
@@ -490,7 +490,7 @@ impl<F: Flavor> Installer for BuildManager<F> {
         }
         let mut out = Vec::new();
         for tag in self.versions.installed().await? {
-            if !self.flavor.complete(self.host.storage.as_ref(), &tag).await {
+            if !self.flavor.complete(self.host.storage.as_ref(), &tag).await? {
                 continue;
             }
             out.push(InstalledVersion { path: versions::folder(&tag)?, version: tag, own: false });
