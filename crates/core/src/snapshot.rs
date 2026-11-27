@@ -87,6 +87,7 @@ impl Snapshot<'_> {
     pub fn grid_data<'a>(&'a self, ownership: &'a Ownership<'a>) -> GridData<'a> {
         GridData {
             library: &self.library,
+            system_of: self.plugins.system_of(),
             ownership,
             plays: &self.sessions.plays,
             hidden_filter: self.hidden_filter,
@@ -107,7 +108,15 @@ impl Snapshot<'_> {
             if !(caps.contains(&Capability::Installer) || caps.contains(&Capability::Launcher)) {
                 continue;
             }
-            let looks: Vec<_> = plugins.consoles_on(&id).iter().filter_map(|p| p.system).collect();
+            let on = plugins.consoles_on(&id);
+            // A group of consoles is one entry, under its own system, while one of them is on.
+            if let Some(group) = manifest.system_group() {
+                if !on.is_empty() {
+                    named.push((group.name.to_lowercase(), (id.clone(), Some(group))));
+                }
+                continue;
+            }
+            let looks: Vec<_> = on.iter().filter_map(|p| p.system).collect();
             if looks.is_empty() && manifest.consoles.is_empty() {
                 named.push((String::new(), (id.clone(), None)));
             }
@@ -193,6 +202,21 @@ impl<'a> Plugins<'a> {
         }
     }
 
+    /// The system each console of a group shows under: the plugin's `[system]` for each of its
+    /// `[[consoles]]` (`NES` is `RETRO`).
+    pub fn system_of(&self) -> crate::grid_query::SystemOf {
+        let mut groups = std::collections::HashMap::new();
+        for manifest in self.manifests.values() {
+            let Some(group) = manifest.system_group() else { continue };
+            for played in manifest.played() {
+                if let Some(platform) = played.platform() {
+                    groups.insert(platform.to_owned(), group.id.clone());
+                }
+            }
+        }
+        crate::grid_query::SystemOf::new(groups)
+    }
+
     /// The consoles the plugin plays that are on: see [`Kernel::consoles_on`].
     pub fn consoles_on(&self, plugin: &PluginId) -> Vec<launcher_api::Played<'a>> {
         let Some(manifest) = self.manifest(plugin) else { return Vec::new() };
@@ -276,7 +300,7 @@ impl<'a> Plugins<'a> {
             .order
             .iter()
             .filter_map(|id| self.manifest(id))
-            .flat_map(|m| m.played().into_iter().filter_map(|p| p.system))
+            .flat_map(|m| m.played().into_iter().filter_map(|p| p.system).chain(m.system_group()))
             .find(|look| look.id == platform);
         match look {
             Some(look) => GameSystemVm { name: look.name.clone(), color: look.rgb() },

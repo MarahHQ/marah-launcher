@@ -169,12 +169,31 @@ impl GridQuery {
 /// What a grid reads.
 pub(crate) struct GridData<'a> {
     pub library: &'a LibrarySnapshot,
+    /// The system each platform's chip is: see [`SystemOf`].
+    pub system_of: SystemOf,
     pub ownership: &'a Ownership<'a>,
     pub plays: &'a PlayTimes,
     /// The Catalog shows its "Hidden" filter: no catalog plugin turned it off.
     pub hidden_filter: bool,
     /// What this PC runs, for each game's best version.
     pub pc: ThisPc,
+}
+
+/// The system a game's platform shows under in the grids' chips and Home: the system of its
+/// plugin for a console of an emulator that groups several (`RETRO` for `NES`), else the
+/// platform itself.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct SystemOf(std::sync::Arc<HashMap<String, String>>);
+
+impl SystemOf {
+    /// From each platform of a group, and the group's system.
+    pub fn new(groups: HashMap<String, String>) -> Self {
+        Self(std::sync::Arc::new(groups))
+    }
+
+    pub fn of<'a>(&'a self, platform: &'a str) -> &'a str {
+        self.0.get(platform).map_or(platform, String::as_str)
+    }
 }
 
 /// A grid's games, searched, filtered and sorted, before paging, with the filters' chips.
@@ -307,7 +326,7 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
     let is_hidden = |e: &Entry| catalog && offers.get(&e.key).is_some_and(|o| hidden_offer(library, o));
     // The cards the player sees: under "All", one per game; under a system, that system's.
     let groups = &library.groups;
-    let in_view = |e: &&Entry| query.system.as_ref().is_none_or(|s| &e.summary.platform == s);
+    let in_view = |e: &&Entry| query.system.as_ref().is_none_or(|s| data.system_of.of(&e.summary.platform) == s);
     // A game's versions this view shows: in the Catalog, the hidden ones only under "Hidden".
     let versions_of = |key: &'a GameKey| -> Vec<&'a Offer> {
         let versions = groups.versions(key).iter().filter_map(|k| offers.get(k).copied());
@@ -383,14 +402,14 @@ fn games<'a>(query: &GridQuery, data: &GridData<'a>) -> GridGames<'a> {
     let mut systems =
         vec![FilterVm { id: String::new(), label: "All".into(), count: all_count, on: query.system.is_none() }];
     for e in &searched {
-        let platform = &e.summary.platform;
-        match systems.iter_mut().find(|s| &s.id == platform) {
+        let system = data.system_of.of(&e.summary.platform);
+        match systems.iter_mut().find(|s| s.id == system) {
             Some(s) => s.count += 1,
             None => systems.push(FilterVm {
-                id: platform.clone(),
-                label: platform.clone(),
+                id: system.to_owned(),
+                label: system.to_owned(),
                 count: 1,
-                on: query.system.as_ref() == Some(platform),
+                on: query.system.as_deref() == Some(system),
             }),
         }
     }
@@ -646,7 +665,14 @@ mod tests {
     fn shown_with(library: &LibrarySnapshot, query: &GridQuery, pc: ThisPc) -> (Vec<String>, Vec<(String, usize)>) {
         let (jobs, installs, plays) = (BTreeMap::new(), InstallsSnapshot::default(), PlayTimes::default());
         let ownership = Ownership::new(library, &jobs, &installs);
-        let data = GridData { library, ownership: &ownership, plays: &plays, hidden_filter: true, pc };
+        let data = GridData {
+            library,
+            system_of: SystemOf::default(),
+            ownership: &ownership,
+            plays: &plays,
+            hidden_filter: true,
+            pc,
+        };
         let games = query.games(&data);
         let keys = games.shown.iter().map(|e| e.key.local.clone()).collect();
         (keys, games.systems.into_iter().map(|c| (c.id, c.count)).collect())
@@ -656,7 +682,8 @@ mod tests {
     fn over<T>(library: &LibrarySnapshot, plays: &PlayTimes, read: impl FnOnce(&GridData) -> T) -> T {
         let (jobs, installs) = (BTreeMap::new(), InstallsSnapshot::default());
         let ownership = Ownership::new(library, &jobs, &installs);
-        read(&GridData { library, ownership: &ownership, plays, hidden_filter: true, pc: ThisPc::default() })
+        let system_of = SystemOf::default();
+        read(&GridData { library, system_of, ownership: &ownership, plays, hidden_filter: true, pc: ThisPc::default() })
     }
 
     fn keys(library: &LibrarySnapshot, query: &GridQuery) -> Vec<String> {

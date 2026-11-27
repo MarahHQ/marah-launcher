@@ -50,6 +50,15 @@ folder = "packages"
 folder = "retroarch-build"
 title = "Your own RetroArch"
 
+# The system its consoles show under together: Home's entry, its row of games and the Library's
+# and the Catalog's chip. Each game's card still names its own console.
+[system]
+id = "RETRO"
+name = "Retro"
+# The system's pictures, in assets/ (made by scripts/make-system-art.sh).
+icon = "retro/icon.png"
+cover = "retro/cover.jpg"
+
 # The consoles' BIOS files, which the player imports from one archive on the plugin's page: see
 # docs/players/emulators.md, "System files". They go into RetroArch's system folder, in the data
 # folder every RetroArch plugin shares; this plugin takes only its consoles' files from it: the

@@ -917,15 +917,17 @@ fn validate_consoles(manifest: &PluginManifest) -> Result<(), LoadError> {
     if manifest.kind != PluginKind::Emulator {
         return Err(LoadError::Invalid("only an emulator lists [[consoles]]".into()));
     }
-    let single = manifest.console.is_some()
-        || manifest.system.is_some()
-        || !manifest.keymap.is_empty()
-        || !manifest.install_note.is_empty();
+    let single = manifest.console.is_some() || !manifest.keymap.is_empty() || !manifest.install_note.is_empty();
     if single {
         return Err(LoadError::Invalid(
-            "[[consoles]] says each console's console, [system], keymap and install_note: leave the single ones out"
-                .into(),
+            "[[consoles]] says each console's console, keymap and install_note: leave the single ones out".into(),
         ));
+    }
+    // The group's own system can't be one of its consoles'.
+    if let Some(group) = &manifest.system
+        && manifest.consoles.iter().any(|c| c.console.as_str() == group.id)
+    {
+        return Err(LoadError::Invalid(format!("[system] {}: a group's system isn't one of its consoles", group.id)));
     }
     let mut seen = std::collections::BTreeSet::new();
     for entry in &manifest.consoles {

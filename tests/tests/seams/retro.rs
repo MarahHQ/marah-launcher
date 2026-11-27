@@ -375,8 +375,8 @@ async fn the_other_retro_pages_show_an_install_at_once() {
     assert_eq!(page(&ps1()), [retroarch::VERSION], "the PS1 page shows it");
 }
 
-/// The Library's system chips go by the label they show, A to Z: GENESIS, NES, PS1. Home keeps
-/// its own order, by the systems' full names. Neither follows the order the plugins load in.
+/// The Library's system chips go by the label they show, A to Z: PS1, RETRO (the NES and the
+/// Genesis together). Home keeps its own order, by the systems' full names. Neither follows the order the plugins load in.
 #[tokio::test]
 async fn the_library_s_system_chips_go_by_their_label_and_home_by_full_name() {
     let host = FakeHost::new().platform(Some(Platform::Linux));
@@ -396,9 +396,9 @@ async fn the_library_s_system_chips_go_by_their_label_and_home_by_full_name() {
 
     let view = test.core.view();
     let home: Vec<&str> = view.emulators.emulators.iter().map(|e| e.system.as_str()).collect();
-    assert_eq!(home, ["ATARI2600", "NES", "PS1", "GENESIS"], "Home: by the systems' full names");
+    assert_eq!(home, ["PS1", "RETRO"], "Home: by the systems' full names; the Retro consoles are one");
     let chips: Vec<&str> = view.home.library.systems.iter().map(|c| c.id.as_str()).collect();
-    assert_eq!(chips, ["", "GENESIS", "NES", "PS1"], "All, then the labels A to Z");
+    assert_eq!(chips, ["", "PS1", "RETRO"], "All, then the labels A to Z; the Retro consoles are one");
 }
 
 /// The pack's folder, where the cores are.
