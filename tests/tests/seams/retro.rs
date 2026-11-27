@@ -388,3 +388,21 @@ async fn the_library_s_system_chips_go_by_their_label_and_home_by_full_name() {
     let chips: Vec<&str> = view.home.library.systems.iter().map(|c| c.id.as_str()).collect();
     assert_eq!(chips, ["", "GENESIS", "NES", "PS1"], "All, then the labels A to Z");
 }
+
+/// RetroArch installed before the Atari 2600's core came with it: the start says to install it
+/// again, and runs nothing.
+#[tokio::test]
+async fn a_start_whose_core_the_installed_build_lacks_says_to_install_retroarch_again() {
+    let (test, games) = installed().await;
+    let rom = games.path().join("ATARI2600/River Raid (USA).a26");
+    std::fs::create_dir_all(rom.parent().unwrap()).unwrap();
+    std::fs::write(&rom, b"rom").unwrap();
+    test.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
+    let spawned = test.spawner.spawned().len();
+
+    let launch = Command::Session(SessionCmd::Launch("emu-retro:ATARI2600/River Raid".parse().unwrap()));
+    let refused = test.core.dispatch(launch).await.expect_err("no Stella core").to_string();
+
+    assert!(refused.contains("without the Stella core") && refused.contains("install it again"), "{refused}");
+    assert_eq!(test.spawner.spawned().len(), spawned, "RetroArch didn't start");
+}
