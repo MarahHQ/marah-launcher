@@ -102,8 +102,9 @@ the zip from Explorer (**Send to → Compressed (zipped) folder**) and leave out
 
 ## PS1 and Retro: RetroArch
 
-The **Retro** emulator plays the NES, the Genesis and the Atari 2600, on one RetroArch. The PS1
-is an emulator of its own, on the same RetroArch.
+The **Retro** emulator plays the NES, the Genesis and the Atari 2600, on one RetroArch. Home has
+one Retro entry and one row for their games, and the Library and the Catalog one RETRO chip. Each
+game's card still names its console. The PS1 is an emulator of its own, on the same RetroArch.
 
 ### Consoles
 

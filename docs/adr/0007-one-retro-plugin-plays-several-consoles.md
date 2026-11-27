@@ -21,6 +21,9 @@ its own.
   each console by the game id, which starts with the console's code: `NES/Contra`.
 - Each console's games stay in its own folder of the game folders: `NES/`, `GENESIS/` and
   `ATARI2600/`.
+- The plugin's own `[system]` (Retro) groups its consoles: Home shows one Retro entry and row,
+  and the Library and the Catalog one RETRO chip (`SystemOf`). Each game's badge still names
+  its console, and each console keeps its keymap, core and catalog.
 - `[[replaces]]` names the plugins `emu-retro` took the place of (`emu-nes`, `emu-genesis`). At
   each start, the core moves what is still kept under their ids: play time, hidden games, art,
   folders, results, settings, on/off state, game installs and downloads. A restore of an older

@@ -80,7 +80,7 @@ pub async fn provided_with(ctx: &PluginContext, files: Files) -> PluginResult<Pr
     RetroConsoles::provided(parts)
 }
 
-/// Each console's pictures, in `assets/<console>/`, as the manifest's `[consoles.system]` names
+/// The Retro system's pictures and each console's, in `assets/<name>/`, as the manifest's `[consoles.system]` names
 /// them (`scripts/make-system-art.sh` makes them).
 fn art() -> std::sync::Arc<dyn launcher_api::Files> {
     macro_rules! asset {
@@ -89,6 +89,8 @@ fn art() -> std::sync::Arc<dyn launcher_api::Files> {
         };
     }
     const FILES: &[(&str, &[u8])] = &[
+        asset!("retro/icon.png"),
+        asset!("retro/cover.jpg"),
         asset!("nes/icon.png"),
         asset!("nes/cover.jpg"),
         asset!("genesis/icon.png"),

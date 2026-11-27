@@ -629,10 +629,12 @@ fn home_vm(s: &Snapshot, data: &GridData) -> HomeVm {
     let games: Vec<GameCardVm> = s.library.library().map(|e| card(s, e, home)).collect();
     let selected = games.iter().position(|g| g.selected);
     let mut groups: Vec<GroupVm> = Vec::new();
+    // By the system each game shows under on Home: a group of consoles is one row.
     for game in &games {
-        match groups.iter_mut().find(|g| g.platform == game.platform) {
+        let system = data.system_of.of(&game.platform);
+        match groups.iter_mut().find(|g| g.platform == system) {
             Some(group) => group.games.push(game.clone()),
-            None => groups.push(GroupVm { platform: game.platform.clone(), games: vec![game.clone()], selected: None }),
+            None => groups.push(GroupVm { platform: system.to_owned(), games: vec![game.clone()], selected: None }),
         }
     }
     for group in &mut groups {

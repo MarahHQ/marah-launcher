@@ -263,7 +263,12 @@ name = "Atari 2600"
 | `keymap`, `install_note`, `system_files` | As the top-level keys say, for this console's games. The launch splash shows the keys of the game's console. |
 | `on` | The console is on until the player turns it off. With `false`, it is off until they turn it on. `true` by default. |
 
-Beside `[[consoles]]`, a top-level `[system_files]` is one archive for all the consoles: the page
+Beside `[[consoles]]`, a top-level `[system]` groups the consoles: Home shows one entry and one
+row for them, and the Library and the Catalog one chip, while each game's badge names its
+console (`PluginManifest::system_group`). Its id can't be one of the consoles'. Without it, each
+console that is on is a system of its own.
+
+A top-level `[system_files]` is one archive for all the consoles: the page
 shows one block for it (`PluginManifest::shared_system_files`). A console can also have its own
 in `[consoles.system_files]`.
 

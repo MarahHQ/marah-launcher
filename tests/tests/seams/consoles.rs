@@ -264,3 +264,38 @@ async fn one_archive_for_all_the_consoles_has_one_block_and_one_import() {
     assert!(system.join("bios_MD.bin").is_file() && system.join("disksys.rom").is_file(), "every console's files");
     assert_eq!(block(&t, "system-files").unwrap().rows[0].value, "Installed");
 }
+
+/// A plugin of several consoles with a `[system]` of its own groups them: one Home entry and
+/// row, one chip whose filter shows every console's games, while each card names its console.
+#[tokio::test]
+async fn consoles_under_the_plugin_s_own_system_are_one_home_entry_and_one_chip() {
+    let manifest = format!("{RETRO}[system]\nid = \"RETRO\"\nname = \"Retro\"\n");
+    let plugin = StubPlugin::from_toml(&manifest).provides(|_| {
+        Ok(Provided { catalog: Some(Arc::new(Games)), launcher: Some(Arc::new(Games)), ..Provided::default() })
+    });
+    let t = FakeHost::new().plugin(plugin).boot_core().await;
+    t.core.dispatch(Command::Library(launcher_core::LibraryCmd::Refresh)).await.unwrap();
+    assert_eq!(home(&t), ["RETRO"], "one entry, while a console is on");
+    let view = t.core.view();
+    let rows: Vec<(&str, usize)> = view.home.groups.iter().map(|g| (g.platform.as_str(), g.games.len())).collect();
+    assert_eq!(rows, [("RETRO", 2)], "one row of every console's games");
+    let chips: Vec<(&str, usize)> = view.home.library.systems.iter().map(|c| (c.id.as_str(), c.count)).collect();
+    assert_eq!(chips, [("", 2), ("RETRO", 2)]);
+    let badges: Vec<String> = {
+        let mut b: Vec<String> = view.home.games.iter().map(|g| g.system.name.clone()).collect();
+        b.sort();
+        b
+    };
+    assert_eq!(badges, ["Nintendo Entertainment System", "Sega Genesis"], "each card names its console");
+
+    let pick = launcher_core::SystemChoice::System("RETRO".into());
+    t.core.dispatch(Command::LibrarySystem(Some(pick))).await.unwrap();
+    let mut shown: Vec<String> = t.core.view().home.library.games.iter().map(|g| g.title.clone()).collect();
+    shown.sort();
+    assert_eq!(shown, ["Contra", "Sonic"], "the chip shows every console's games");
+
+    open_page(&t).await;
+    flip(&t, "Nintendo Entertainment System").await;
+    flip(&t, "Sega Genesis").await;
+    assert!(home(&t).is_empty(), "no entry once every console is off");
+}

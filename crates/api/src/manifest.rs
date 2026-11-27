@@ -728,6 +728,12 @@ impl PluginManifest {
         self.system_files.as_ref().filter(|_| !self.consoles.is_empty())
     }
 
+    /// For an emulator of several consoles, the system they show under together on Home and in
+    /// the grids' chips (its `[system]`, such as Retro). Each game's own console stays its badge.
+    pub fn system_group(&self) -> Option<&SystemLook> {
+        self.system.as_ref().filter(|_| !self.consoles.is_empty())
+    }
+
     /// The `[[consoles]]` entry for `console`.
     pub fn listed_console(&self, console: &str) -> Option<&PluginConsole> {
         self.consoles.iter().find(|c| c.console.as_str().eq_ignore_ascii_case(console))
