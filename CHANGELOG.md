@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.21.0](https://github.com/MarahHQ/marah-launcher/compare/v0.20.0...v0.21.0) (2026-11-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* an emulator can play several consoles, each turned on or off on its page (API 0.7.0)
+
+### Features
+
+* a RetroArch build that lacks a retro plugin's core installs again and gets it, without downloading RetroArch again ([8c64d26](https://github.com/MarahHQ/marah-launcher/commit/8c64d26ffd003d89616382f9695f16ccd3483eab))
+* an emulator can play several consoles, each turned on or off on its page (API 0.7.0) ([f55013f](https://github.com/MarahHQ/marah-launcher/commit/f55013fd2b2b22a8dea1c8dc8c1a4a40a8cc16b5))
+* one Retro plugin plays the NES, Genesis and Atari 2600, each turned on or off on its page, in place of the NES and Genesis plugins ([17872e6](https://github.com/MarahHQ/marah-launcher/commit/17872e657204df90c89d205ba2b426add9597ad0))
+* the Retro plugin imports every console's BIOS files from one archive, retro-bios.zip ([a83e3c8](https://github.com/MarahHQ/marah-launcher/commit/a83e3c8f71e1f9de884e4d47ef54358d518f0650))
+
+
+### Bug Fixes
+
+* an install unpacks a 7z again when a path it keeps is missing, and leaves RetroArch's own archive alone ([5cd5ba0](https://github.com/MarahHQ/marah-launcher/commit/5cd5ba02348e1dace61ddc52b4ddeaf9cdd03b74))
+
 ## [0.20.0](https://github.com/MarahHQ/marah-launcher/compare/v0.19.0...v0.20.0) (2026-11-26)
 
 
